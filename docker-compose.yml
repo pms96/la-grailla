@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lagrailla
+      POSTGRES_PASSWORD: lagrailla
+      POSTGRES_DB: lagrailla
+    ports:
+      - '5432:5432'
+    volumes:
+      - lagrailla_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U lagrailla']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  lagrailla_postgres_data:

@@ -1,0 +1,346 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+    provider  = "postgresql"
+    // Conexión pooleada (p. ej. la URL "-pooler" de Neon) — la que usa la app
+    // en caliente. Con Vercel serverless, cada invocación puede abrir su
+    // propia conexión; sin pool delante, un pico de tráfico agota
+    // max_connections de Postgres en segundos.
+    url       = env("DATABASE_URL")
+    // Conexión directa (sin pool) — Prisma la necesita para `migrate`/`db push`,
+    // que usan prepared statements incompatibles con el modo transacción de
+    // PgBouncer/Neon pooler. Si no vas a poolear (VPS propio sin pooler),
+    // puedes apuntar ambas a la misma URL.
+    directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  ADMIN
+  TAQUILLA
+  USER
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  FINISHED
+  CANCELLED
+}
+
+enum OrderStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CARD
+  CASH
+  FREE
+}
+
+enum TicketStatus {
+  PENDING
+  VALID
+  USED
+  CANCELLED
+  REFUNDED
+}
+
+enum ShopOrderStatus {
+  PENDING
+  PAID
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum SponsorRequestStatus {
+  PENDING
+  CONTACTED
+  ACCEPTED
+  REJECTED
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  hashedPassword String?
+  image         String?
+  role          UserRole  @default(USER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+  scanLogs      ScanLog[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Event {
+  id            String      @id @default(cuid())
+  name          String
+  slug          String      @unique
+  description   String?     @db.Text
+  venue         String
+  city          String
+  address       String?
+  imageUrl      String?
+  artists       String?     @db.Text
+  date          DateTime
+  doorsOpen     String?
+  endTime       String?
+  minAge        Int         @default(18)
+  conditions    String?     @db.Text
+  maxCapacity   Int         @default(500)
+  currentCount  Int         @default(0)
+  status        EventStatus @default(DRAFT)
+  alertAt80     Boolean     @default(true)
+  alertAt95     Boolean     @default(true)
+  alertThresholds String    @default("80,95,100")
+  alertsSent    String      @default("")
+  latitude      Float?
+  longitude     Float?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  ticketTypes   TicketType[]
+  orders        Order[]
+  tickets       Ticket[]
+  scanLogs      ScanLog[]
+  guestLists    GuestList[]
+  invitations   Invitation[]
+}
+
+model TicketType {
+  id          String   @id @default(cuid())
+  eventId     String
+  name        String
+  description String?
+  price       Float
+  phase       Int      @default(1)
+  phaseName   String?  @default("Venta General")
+  maxQuantity Int      @default(100)
+  soldCount   Int      @default(0)
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  tickets     Ticket[]
+
+  @@index([eventId])
+}
+
+model Order {
+  id              String        @id @default(cuid())
+  eventId         String
+  buyerName       String
+  buyerLastName   String
+  buyerEmail      String
+  totalAmount     Float
+  commission      Float         @default(0)
+  paymentMethod   PaymentMethod @default(CARD)
+  paymentProvider String?       
+  paymentId       String?       
+  status          OrderStatus   @default(PENDING)
+  soldById        String?
+  channel         String        @default("ONLINE")
+  pdfUrl          String?
+  emailSentAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  event           Event         @relation(fields: [eventId], references: [id])
+  tickets         Ticket[]
+  invitation      Invitation?
+
+  @@index([eventId])
+  @@index([buyerEmail])
+  @@index([paymentId])
+}
+
+model Ticket {
+  id           String       @id @default(cuid())
+  orderId      String
+  eventId      String
+  ticketTypeId String?
+  qrCode       String       @unique
+  holderName   String
+  status       TicketStatus @default(VALID)
+  entryTime    DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  order        Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  event        Event        @relation(fields: [eventId], references: [id])
+  ticketType   TicketType?  @relation(fields: [ticketTypeId], references: [id])
+  scanLogs     ScanLog[]
+
+  @@index([qrCode])
+  @@index([eventId])
+  @@index([orderId])
+}
+
+model ScanLog {
+  id        String   @id @default(cuid())
+  ticketId  String
+  eventId   String
+  scannerId String?
+  result    String   
+  createdAt DateTime @default(now())
+  ticket    Ticket   @relation(fields: [ticketId], references: [id])
+  event     Event    @relation(fields: [eventId], references: [id])
+  scanner   User?    @relation(fields: [scannerId], references: [id])
+
+  @@index([ticketId])
+  @@index([eventId])
+}
+
+model Product {
+  id          String          @id @default(cuid())
+  name        String
+  slug        String          @unique
+  description String?         @db.Text
+  price       Float
+  imageUrl    String?
+  category    String?
+  sizes       String?
+  colors      String?
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  orderItems  ShopOrderItem[]
+}
+
+model ShopOrder {
+  id              String          @id @default(cuid())
+  buyerName       String
+  buyerEmail      String
+  shippingAddress String          @db.Text
+  shippingCity    String
+  shippingZip     String
+  shippingPhone   String?
+  totalAmount     Float
+  paymentProvider String?
+  paymentId       String?
+  status          ShopOrderStatus @default(PENDING)
+  trackingNumber  String?
+  notes           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  items           ShopOrderItem[]
+
+  @@index([buyerEmail])
+}
+
+model ShopOrderItem {
+  id          String    @id @default(cuid())
+  shopOrderId String
+  productId   String
+  quantity    Int       @default(1)
+  unitPrice   Float
+  size        String?
+  color       String?
+  shopOrder   ShopOrder @relation(fields: [shopOrderId], references: [id], onDelete: Cascade)
+  product     Product   @relation(fields: [productId], references: [id])
+
+  @@index([shopOrderId])
+}
+
+model SponsorRequest {
+  id            String               @id @default(cuid())
+  companyName   String
+  contactName   String
+  email         String
+  phone         String?
+  sponsorType   String               
+  message       String?              @db.Text
+  status        SponsorRequestStatus @default(PENDING)
+  adminNotes    String?              @db.Text
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+}
+
+model GuestList {
+  id          String       @id @default(cuid())
+  eventId     String
+  name        String
+  description String?
+  ownerId     String?
+  ownerName   String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  event       Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  invitations Invitation[]
+
+  @@index([eventId])
+}
+
+model Invitation {
+  id          String     @id @default(cuid())
+  eventId     String
+  listId      String?
+  guestName   String
+  guestEmail  String?
+  quantity    Int        @default(1)
+  notes       String?
+  createdById String?
+  orderId     String?    @unique
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  event       Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  list        GuestList? @relation(fields: [listId], references: [id], onDelete: SetNull)
+  order       Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([eventId])
+  @@index([listId])
+}
+
+model AppConfig {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String @db.Text
+  label String?
+  group String?
+
+  @@index([key])
+  @@index([group])
+}

@@ -1,0 +1,33 @@
+export const dynamic = 'force-dynamic';
+
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { prisma } from '@/lib/prisma';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { handleApiError } from '@/lib/api-error';
+
+const updateSponsorSchema = z.object({
+  status: z.enum(['PENDING', 'CONTACTED', 'ACCEPTED', 'REJECTED']).optional(),
+  adminNotes: z.string().optional().nullable(),
+});
+
+export async function PUT(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  const session = await getServerSession(authOptions);
+  if (session?.user?.role !== 'ADMIN') {
+    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  }
+  try {
+    const body = updateSponsorSchema.parse(await request.json());
+    const sponsor = await prisma.sponsorRequest.update({
+      where: { id: params?.id },
+      data: { status: body?.status, adminNotes: body?.adminNotes },
+    });
+    return NextResponse.json(sponsor);
+  } catch (error) {
+    return handleApiError(error, 'PUT /api/admin/sponsors/[id]');
+  }
+}

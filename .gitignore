@@ -1,0 +1,37 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/.next-build-check/
+/out/
+/build
+
+# env
+.env
+.env*.local
+
+# testing
+/coverage
+/loadtest/.fixtures.json
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# vercel
+.vercel
+
+# prisma
+/prisma/*.db
+
+# claude code / agent tooling (local, not project source)
+/.claude/
+/.agents/
+/.impeccable/
+skills-lock.json
