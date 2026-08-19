@@ -56,10 +56,15 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
     if (data?.token && typeof window !== 'undefined') {
       window.localStorage.setItem(storageKey(event.id), data.token);
     }
+    // El token del turno no siempre viaja en cada respuesta (p. ej. si algún
+    // endpoint lo omite) — nunca lo pisamos con vacío, siempre caemos al que
+    // ya conocíamos en localStorage para no invalidar un turno válido.
+    const knownToken =
+      data?.token ?? (typeof window !== 'undefined' ? window.localStorage.getItem(storageKey(event.id)) : null) ?? '';
     if (data?.status === 'ADMITTED') {
-      setState({ status: 'ADMITTED', token: data.token ?? '', expiresAt: data.expiresAt ?? '' });
+      setState({ status: 'ADMITTED', token: knownToken, expiresAt: data.expiresAt ?? '' });
     } else if (data?.status === 'WAITING') {
-      setState({ status: 'WAITING', token: data.token ?? '', position: data.position ?? 1, message: data.waitingRoomMessage ?? null });
+      setState({ status: 'WAITING', token: knownToken, position: data.position ?? 1, message: data.waitingRoomMessage ?? null });
       timeoutRef.current = setTimeout(poll, pollIntervalFor(data.position ?? 1));
     } else if (data?.status === 'EXPIRED') {
       setState({ status: 'EXPIRED' });

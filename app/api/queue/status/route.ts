@@ -52,12 +52,13 @@ export async function GET(request: Request) {
       });
       return NextResponse.json({
         status: 'WAITING',
+        token: entry.token,
         position: position + 1,
         waitingRoomMessage: event.waitingRoomMessage,
       });
     }
 
-    return NextResponse.json({ status: entry.status, expiresAt: entry.expiresAt });
+    return NextResponse.json({ status: entry.status, token: entry.token, expiresAt: entry.expiresAt });
   } catch (error) {
     return handleApiError(error, 'GET /api/queue/status');
   }
