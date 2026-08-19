@@ -78,7 +78,12 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
       timeoutRef.current = setTimeout(poll, pollIntervalFor(data.position ?? 1));
     } else if (data?.status === 'EXPIRED') {
       setState({ status: 'EXPIRED' });
-    } else if (data?.status === 'NOT_FOUND') {
+    } else if (data?.status === 'NOT_FOUND' || data?.status === 'COMPLETED') {
+      // COMPLETED: el turno guardado ya compró (p. ej. se recarga /comprar
+      // después de terminar la compra, o se vuelve atrás desde la pasarela).
+      // Ese token ya no representa una espera en curso — no tiene ningún
+      // sentido seguir haciendo polling sobre él para siempre. Se limpia y
+      // se vuelve a entrar de cero, como con un turno que ya no existe.
       if (typeof window !== 'undefined') window.localStorage.removeItem(storageKey(event.id));
       join();
     } else {
