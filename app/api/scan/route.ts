@@ -16,7 +16,7 @@ const scanTicketSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const limit = rateLimit('scan', getClientIp(request), 120, 60_000);
+    const limit = await rateLimit('scan', getClientIp(request), 120, 60_000);
     if (!limit.ok) {
       return NextResponse.json(
         { error: 'Demasiadas peticiones. Espera unos segundos.' },

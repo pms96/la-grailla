@@ -1,13 +1,4 @@
-type Bucket = { count: number; resetAt: number };
-
-const buckets = new Map<string, Bucket>();
-
-function cleanup(now: number) {
-  if (buckets.size < 5000) return;
-  buckets.forEach((v, k) => {
-    if (v.resetAt <= now) buckets.delete(k);
-  });
-}
+import { prisma } from '@/lib/prisma';
 
 export function getClientIp(request: Request): string {
   const h = request.headers;
@@ -28,21 +19,43 @@ export function getClientIpFromHeaderRecord(headers: Record<string, string | str
 
 export type RateLimitResult = { ok: boolean; remaining: number; retryAfter: number };
 
-export function rateLimit(scope: string, identifier: string, limit: number, windowMs: number): RateLimitResult {
+// Con una probabilidad baja en vez de en cada llamada: no hace falta que
+// TODA petición pague el coste de este DELETE, solo que ocurra de vez en
+// cuando para que la tabla no crezca sin límite con IPs que ya no vuelven.
+function opportunisticCleanup(now: number) {
+  if (Math.random() >= 0.01) return;
+  prisma.rateLimitBucket
+    .deleteMany({ where: { resetAt: { lt: new Date(now - 60 * 60_000) } } })
+    .catch(() => {});
+}
+
+// Antes esto era un Map en memoria del propio proceso. En Vercel serverless
+// cada instancia tiene su memoria propia y se recicla en cada cold
+// start/deploy — un límite "10 por minuto" en producción real se comportaba
+// como "10 por minuto POR INSTANCIA viva", varias veces más permisivo de lo
+// que la config sugiere, y se olvidaba de todo el mundo en cada deploy.
+// Postgres ya es la única infraestructura del proyecto, así que un UPSERT
+// atómico (sin necesidad de un advisory lock: el propio ON CONFLICT de
+// Postgres serializa el incremento) da un límite real y compartido entre
+// todas las instancias sin añadir Redis/Upstash.
+export async function rateLimit(scope: string, identifier: string, limit: number, windowMs: number): Promise<RateLimitResult> {
   const now = Date.now();
-  cleanup(now);
-  const key = scope + ':' + identifier;
-  const existing = buckets.get(key);
+  opportunisticCleanup(now);
+  const key = `${scope}:${identifier}`;
+  const resetAtIfNew = new Date(now + windowMs);
 
-  if (!existing || existing.resetAt <= now) {
-    buckets.set(key, { count: 1, resetAt: now + windowMs });
-    return { ok: true, remaining: limit - 1, retryAfter: 0 };
+  const rows = await prisma.$queryRaw<{ count: number; resetAt: Date }[]>`
+    INSERT INTO "RateLimitBucket" ("key", "count", "resetAt")
+    VALUES (${key}, 1, ${resetAtIfNew})
+    ON CONFLICT ("key") DO UPDATE SET
+      "count" = CASE WHEN "RateLimitBucket"."resetAt" <= now() THEN 1 ELSE "RateLimitBucket"."count" + 1 END,
+      "resetAt" = CASE WHEN "RateLimitBucket"."resetAt" <= now() THEN excluded."resetAt" ELSE "RateLimitBucket"."resetAt" END
+    RETURNING "count", "resetAt"
+  `;
+  const row = rows[0];
+
+  if (row.count > limit) {
+    return { ok: false, remaining: 0, retryAfter: Math.max(1, Math.ceil((row.resetAt.getTime() - now) / 1000)) };
   }
-
-  if (existing.count >= limit) {
-    return { ok: false, remaining: 0, retryAfter: Math.ceil((existing.resetAt - now) / 1000) };
-  }
-
-  existing.count += 1;
-  return { ok: true, remaining: limit - existing.count, retryAfter: 0 };
+  return { ok: true, remaining: limit - row.count, retryAfter: 0 };
 }

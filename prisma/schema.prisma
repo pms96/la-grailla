@@ -206,9 +206,16 @@ model Order {
   totalAmount     Float
   commission      Float         @default(0)
   paymentMethod   PaymentMethod @default(CARD)
-  paymentProvider String?       
-  paymentId       String?       
+  paymentProvider String?
+  paymentId       String?
   status          OrderStatus   @default(PENDING)
+  // Clave que manda el frontend para que un reintento (doble clic antes de
+  // que se desactive el botón, reintento de red, "atrás" + reenviar) nunca
+  // cree un segundo pedido/cobro para la misma intención de compra. Se
+  // limpia a null si el pedido se cancela (p. ej. fallo de la pasarela) para
+  // que un reintento genuino con la misma clave no choque contra un pedido
+  // ya muerto.
+  idempotencyKey  String?       @unique
   soldById        String?
   channel         String        @default("ONLINE")
   pdfUrl          String?
@@ -369,4 +376,19 @@ model AppConfig {
 
   @@index([key])
   @@index([group])
+}
+
+// Backing store del rate limiter (lib/rate-limit.ts). Antes vivía en un Map
+// en memoria del proceso — en Vercel serverless cada instancia tiene su
+// propia memoria y se recicla en cada cold start/deploy, así que un límite
+// "10 por minuto" en realidad era "10 por minuto POR INSTANCIA viva", varias
+// veces más permisivo de lo que la config sugiere. Postgres ya es la única
+// pieza de infraestructura del proyecto — sin añadir Redis/Upstash, un solo
+// UPSERT atómico por petición basta para un límite real y compartido.
+model RateLimitBucket {
+  key     String   @id
+  count   Int      @default(1)
+  resetAt DateTime
+
+  @@index([resetAt])
 }

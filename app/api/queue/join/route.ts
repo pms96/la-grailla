@@ -20,7 +20,7 @@ const joinSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const limit = rateLimit('queue-join', getClientIp(request), 20, 60_000);
+    const limit = await rateLimit('queue-join', getClientIp(request), 20, 60_000);
     if (!limit.ok) {
       return NextResponse.json(
         { error: 'Demasiados intentos. Espera un momento.' },

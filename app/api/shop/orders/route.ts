@@ -31,7 +31,7 @@ const createShopOrderSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const limit = rateLimit('shop-orders', getClientIp(request), 10, 60_000);
+    const limit = await rateLimit('shop-orders', getClientIp(request), 10, 60_000);
     if (!limit.ok) {
       return NextResponse.json(
         { error: 'Has realizado demasiados intentos. Espera un momento.' },

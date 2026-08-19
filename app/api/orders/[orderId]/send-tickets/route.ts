@@ -14,7 +14,7 @@ const sendTicketsSchema = z.object({
 
 export async function POST(request: Request, { params }: { params: { orderId: string } }) {
   try {
-    const limit = rateLimit('send-tickets', getClientIp(request), 5, 60_000);
+    const limit = await rateLimit('send-tickets', getClientIp(request), 5, 60_000);
     if (!limit.ok) {
       return NextResponse.json(
         { error: 'Demasiados envios. Espera un momento.' },

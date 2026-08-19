@@ -18,8 +18,10 @@ export const authOptions: NextAuthOptions = {
         if (!credentials?.email || !credentials?.password) return null;
 
         const ip = getClientIpFromHeaderRecord(req?.headers);
-        const emailLimit = rateLimit('login-email', credentials.email.toLowerCase(), 5, 15 * 60_000);
-        const ipLimit = rateLimit('login-ip', ip, 20, 15 * 60_000);
+        const [emailLimit, ipLimit] = await Promise.all([
+          rateLimit('login-email', credentials.email.toLowerCase(), 5, 15 * 60_000),
+          rateLimit('login-ip', ip, 20, 15 * 60_000),
+        ]);
         if (!emailLimit.ok || !ipLimit.ok) {
           throw new Error('too_many_attempts');
         }

@@ -170,6 +170,107 @@ describe('POST /api/orders', () => {
     }
   });
 
+  it('con la misma idempotencyKey no crea un segundo pedido', async () => {
+    // Simula un doble clic o un reintento de red: dos peticiones con
+    // exactamente la misma clave para la misma intención de compra.
+    const ticketType = await createTicketType(event.id, { maxQuantity: 5 });
+    const idempotencyKey = `idem-${Date.now()}`;
+    const body = {
+      eventId: event.id,
+      buyerName: 'Ana',
+      buyerLastName: 'García',
+      buyerEmail: 'ana-idem@example.com',
+      items: [{ ticketTypeId: ticketType.id, quantity: 1 }],
+      idempotencyKey,
+    };
+
+    const first = await createOrder(orderRequest(body, '203.0.113.20'));
+    const firstJson = await first.json();
+    expect(first.status).toBe(200);
+    expect(firstJson.success).toBe(true);
+
+    const second = await createOrder(orderRequest(body, '203.0.113.20'));
+    const secondJson = await second.json();
+    expect(second.status).toBe(200);
+    expect(secondJson.success).toBe(true);
+    expect(secondJson.orderId).toBe(firstJson.orderId);
+
+    const orders = await prisma.order.count({ where: { idempotencyKey } });
+    expect(orders).toBe(1);
+
+    const updatedTicketType = await prisma.ticketType.findUnique({ where: { id: ticketType.id } });
+    expect(updatedTicketType?.soldCount).toBe(1);
+  });
+
+  it('con la misma idempotencyKey bajo peticiones concurrentes solo crea un pedido', async () => {
+    // El P2002 del UNIQUE de Postgres es la red de seguridad para el caso
+    // que la comprobación previa (findUnique) no puede cerrar por sí sola:
+    // dos peticiones que llegan tan cerca en el tiempo que ninguna ve
+    // todavía el pedido de la otra.
+    const ticketType = await createTicketType(event.id, { maxQuantity: 5 });
+    const idempotencyKey = `idem-concurrent-${Date.now()}`;
+    const body = {
+      eventId: event.id,
+      buyerName: 'Ana',
+      buyerLastName: 'García',
+      buyerEmail: 'ana-idem-concurrente@example.com',
+      items: [{ ticketTypeId: ticketType.id, quantity: 1 }],
+      idempotencyKey,
+    };
+
+    const responses = await Promise.all(
+      Array.from({ length: 5 }, () => createOrder(orderRequest(body, '203.0.113.21')))
+    );
+    const jsons = await Promise.all(responses.map((r) => r.json()));
+
+    expect(jsons.every((j) => j.success === true)).toBe(true);
+    const orderIds = new Set(jsons.map((j) => j.orderId));
+    expect(orderIds.size).toBe(1);
+
+    const orders = await prisma.order.count({ where: { idempotencyKey } });
+    expect(orders).toBe(1);
+  });
+
+  it('libera la idempotencyKey si el pedido se cancela, permitiendo un reintento real', async () => {
+    // Cuando la pasarela real falla al crear la sesión de cobro, el pedido
+    // se cancela y su idempotencyKey se limpia — un reintento del comprador
+    // con la MISMA clave debe generar un pedido nuevo, no que se le devuelva
+    // el pedido cancelado como si fuera un éxito.
+    const ticketType = await createTicketType(event.id, { maxQuantity: 5 });
+    const idempotencyKey = `idem-cancelled-${Date.now()}`;
+
+    const cancelledOrder = await prisma.order.create({
+      data: {
+        eventId: event.id,
+        buyerName: 'Ana', buyerLastName: 'García', buyerEmail: 'ana-cancelada@example.com',
+        totalAmount: 10, status: 'CANCELLED', idempotencyKey: null,
+      },
+    });
+    expect(cancelledOrder.idempotencyKey).toBeNull();
+
+    const res = await createOrder(
+      orderRequest(
+        {
+          eventId: event.id,
+          buyerName: 'Ana',
+          buyerLastName: 'García',
+          buyerEmail: 'ana-cancelada@example.com',
+          items: [{ ticketTypeId: ticketType.id, quantity: 1 }],
+          idempotencyKey,
+        },
+        '203.0.113.22'
+      )
+    );
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(json.orderId).not.toBe(cancelledOrder.id);
+
+    const newOrder = await prisma.order.findUnique({ where: { id: json.orderId } });
+    expect(newOrder?.status).toBe('COMPLETED');
+  });
+
   it('rechaza el pedido cuando supera el aforo del evento', async () => {
     const smallEvent = await createTestEvent({ maxCapacity: 1 });
     const ticketType = await createTicketType(smallEvent.id, { maxQuantity: 10 });

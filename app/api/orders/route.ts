@@ -2,7 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import type { Prisma, TicketStatus } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import type { Order, TicketStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { generateQRCode } from '@/lib/qr';
 import { getConfig } from '@/lib/config';
@@ -16,6 +17,12 @@ import { handleApiError } from '@/lib/api-error';
 // transacción para abortarla — se distingue de un error inesperado al
 // capturarlo justo después del $transaction.
 class OrderRejectedError extends Error {}
+
+// Dos peticiones casi simultáneas con la misma idempotencyKey (reintento de
+// red, doble clic justo antes de que se desactive el botón) intentan crear
+// el pedido a la vez; la que pierde la carrera del UNIQUE de Postgres
+// termina aquí en vez de duplicar el pedido/cobro.
+class DuplicateOrderError extends Error {}
 
 const createOrderSchema = z.object({
   eventId: z.string().min(1),
@@ -31,6 +38,7 @@ const createOrderSchema = z.object({
     )
     .min(1),
   queueToken: z.string().optional(),
+  idempotencyKey: z.string().optional(),
 });
 
 export async function POST(request: Request) {
@@ -44,7 +52,7 @@ export async function POST(request: Request) {
     ]);
     const rateLimitPerIp = parseInt(rateLimitPerIpStr, 10) || 10;
     const rateLimitWindowMs = (parseInt(rateLimitWindowStr, 10) || 60) * 1000;
-    const limit = rateLimit('orders', getClientIp(request), rateLimitPerIp, rateLimitWindowMs);
+    const limit = await rateLimit('orders', getClientIp(request), rateLimitPerIp, rateLimitWindowMs);
     if (!limit.ok) {
       return NextResponse.json(
         { error: 'Has realizado demasiados intentos. Espera un momento antes de volver a intentarlo.' },
@@ -53,7 +61,20 @@ export async function POST(request: Request) {
     }
 
     const body = createOrderSchema.parse(await request.json());
-    const { eventId, buyerName, buyerLastName, buyerEmail, items, queueToken } = body;
+    const { eventId, buyerName, buyerLastName, buyerEmail, items, queueToken, idempotencyKey } = body;
+
+    // Un reintento (red, doble clic, "atrás" + reenviar) con la misma clave
+    // que un pedido que ya existe no debe crear un segundo pedido/cobro —
+    // se devuelve el mismo resultado de éxito y el frontend manda al
+    // comprador a /confirmacion, que ya sabe reconciliar el estado real del
+    // pago. No hace falta comprobar más campos: la clave la genera el propio
+    // navegador y solo tiene sentido comparada consigo misma.
+    if (idempotencyKey) {
+      const existingOrder = await prisma.order.findUnique({ where: { idempotencyKey } });
+      if (existingOrder) {
+        return NextResponse.json({ success: true, orderId: existingOrder.id, totalAmount: existingOrder.totalAmount, checkoutUrl: null });
+      }
+    }
 
     // Validate event
     const event = await prisma.event.findUnique({
@@ -170,19 +191,33 @@ export async function POST(request: Request) {
           throw new OrderRejectedError('Aforo completo');
         }
 
-        const newOrder = await tx.order.create({
-          data: {
-            eventId,
-            buyerName,
-            buyerLastName,
-            buyerEmail,
-            totalAmount,
-            commission: commissionAmount,
-            paymentMethod: 'CARD',
-            paymentProvider: paymentProvider.name,
-            status: isGatewayLive ? 'PENDING' : 'COMPLETED',
-          },
-        });
+        let newOrder: Order;
+        try {
+          newOrder = await tx.order.create({
+            data: {
+              eventId,
+              buyerName,
+              buyerLastName,
+              buyerEmail,
+              totalAmount,
+              commission: commissionAmount,
+              paymentMethod: 'CARD',
+              paymentProvider: paymentProvider.name,
+              status: isGatewayLive ? 'PENDING' : 'COMPLETED',
+              idempotencyKey: idempotencyKey ?? null,
+            },
+          });
+        } catch (err) {
+          // P2002 en idempotencyKey: alguien ganó la carrera con la misma
+          // clave entre la comprobación de arriba y este insert. Es el mismo
+          // comprador reintentando, no un tipo de entrada distinto — no hay
+          // nada que compensar (el stock reservado por ESTA transacción se
+          // deshace solo al lanzar, porque el $transaction hace rollback).
+          if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+            throw new DuplicateOrderError();
+          }
+          throw err;
+        }
 
         // createMany en vez de un create por unidad: con el advisory lock de
         // arriba serializando a todos los compradores del mismo evento, cada
@@ -225,11 +260,27 @@ export async function POST(request: Request) {
       })
       .catch((error) => {
         if (error instanceof OrderRejectedError) return error;
+        if (error instanceof DuplicateOrderError) return error;
         throw error;
       });
 
     if (order instanceof OrderRejectedError) {
       return NextResponse.json({ error: order.message }, { status: 400 });
+    }
+
+    if (order instanceof DuplicateOrderError) {
+      // La otra petición con la misma clave ya ha confirmado (o está a punto
+      // de confirmar) el pedido real — se le devuelve al comprador el mismo
+      // "éxito" sin checkoutUrl, así el frontend le manda a /confirmacion,
+      // que reconcilia el estado real del pago sin arriesgarse a abrir una
+      // segunda sesión de cobro.
+      const existingOrder = idempotencyKey
+        ? await prisma.order.findUnique({ where: { idempotencyKey } })
+        : null;
+      if (!existingOrder) {
+        return NextResponse.json({ error: 'No se ha podido procesar el pedido. Inténtalo de nuevo.' }, { status: 409 });
+      }
+      return NextResponse.json({ success: true, orderId: existingOrder.id, totalAmount: existingOrder.totalAmount, checkoutUrl: null });
     }
 
     // Libera el hueco de la sala de espera ya, en vez de esperar a que
@@ -275,7 +326,12 @@ export async function POST(request: Request) {
       }
       await prisma.$transaction([
         prisma.ticket.updateMany({ where: { orderId: order.id }, data: { status: 'CANCELLED' } }),
-        prisma.order.update({ where: { id: order.id }, data: { status: 'CANCELLED' } }),
+        // Se limpia idempotencyKey a null (Postgres permite varios NULL en una
+        // columna @unique): si no, un reintento legítimo del comprador con la
+        // misma clave chocaría contra este pedido ya muerto y el comprobante
+        // de idempotencia de arriba le devolvería "éxito" sobre un pedido
+        // cancelado en vez de dejarle intentarlo de nuevo de verdad.
+        prisma.order.update({ where: { id: order.id }, data: { status: 'CANCELLED', idempotencyKey: null } }),
         ...Array.from(quantityByType.entries()).map(([ticketTypeId, quantity]) =>
           prisma.ticketType.update({ where: { id: ticketTypeId }, data: { soldCount: { decrement: quantity } } })
         ),

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -35,6 +35,15 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
   const [buyerLastName, setBuyerLastName] = useState('');
   const [buyerEmail, setBuyerEmail] = useState('');
   const [loading, setLoading] = useState(false);
+  // Se genera una vez por intento y se manda en cada llamada a /api/orders,
+  // incluida cualquier repetición de ESE MISMO intento (reintento de red,
+  // doble clic antes de que se desactive el botón) — así el servidor puede
+  // reconocer que es la misma compra y no crear un segundo pedido/cobro. Solo
+  // se limpia tras una respuesta que confirma que el intento anterior no dejó
+  // nada colgado (rechazo de negocio o fallo de pasarela ya cancelado en el
+  // servidor); ante un fallo de red se mantiene, porque no sabemos si la
+  // petición llegó a procesarse.
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const ticketTypes = event?.ticketTypes ?? [];
 
@@ -64,6 +73,9 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
     }
 
     setLoading(true);
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = crypto.randomUUID();
+    }
     try {
       const items = Object.entries(quantities ?? {})
         .filter(([, qty]: [string, number]) => (qty ?? 0) > 0)
@@ -79,11 +91,16 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
           buyerEmail: buyerEmail?.trim(),
           items,
           queueToken,
+          idempotencyKey: idempotencyKeyRef.current,
         }),
       });
 
       const data = await res.json();
       if (!res.ok || !data?.success) {
+        // Respuesta definitiva del servidor: si había un pedido a medias, ya
+        // lo ha cancelado y liberado la clave por su cuenta — un reintento
+        // necesita una clave nueva, no la misma.
+        idempotencyKeyRef.current = null;
         toast.error(data?.error ?? 'Error al procesar la compra');
         return;
       }
@@ -93,6 +110,9 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
       }
       router.push(`/confirmacion/${data.orderId}`);
     } catch {
+      // Fallo de red: no sabemos si el servidor llegó a procesar la
+      // petición, así que se conserva la clave para que un reintento se
+      // reconozca como el mismo intento en vez de crear un pedido duplicado.
       toast.error('Error de conexión');
     } finally {
       setLoading(false);

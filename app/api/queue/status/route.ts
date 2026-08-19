@@ -18,7 +18,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Faltan parámetros' }, { status: 400 });
     }
 
-    const limit = rateLimit('queue-status', getClientIp(request), 40, 60_000);
+    const limit = await rateLimit('queue-status', getClientIp(request), 40, 60_000);
     if (!limit.ok) {
       return NextResponse.json(
         { error: 'Demasiados intentos. Espera un momento.' },
