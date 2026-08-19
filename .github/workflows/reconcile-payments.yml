@@ -1,0 +1,27 @@
+name: Reconcile pending payments
+
+# Vercel Cron en el plan Hobby solo permite tareas diarias — este endpoint
+# necesita correr cada pocos minutos para que un pedido de SumUp (sin
+# webhook) no se quede en PENDING durante horas si el comprador nunca vuelve
+# a /confirmacion. GitHub Actions no tiene esa limitación y es gratis para
+# este volumen, así que hace de disparador en vez de vercel.json.
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar a /api/cron/reconcile-payments
+        run: |
+          status=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://www.lagrailla.es/api/cron/reconcile-payments")
+          echo "HTTP $status"
+          cat /tmp/response.json
+          if [ "$status" -ge 400 ]; then
+            echo "::error::La reconciliación de pagos devolvió $status"
+            exit 1
+          fi
