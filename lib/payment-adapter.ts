@@ -229,7 +229,10 @@ export class MockPaymentAdapter implements PaymentProvider {
  * REALMENTE se creó ese pedido, no la que esté seleccionada en ese momento. */
 export async function getPaymentProviderByName(gateway: string): Promise<PaymentProvider> {
   if (gateway === 'stripe') {
-    const secretKey = await getConfig('stripe_secret_key');
+    // .trim(): una key guardada con un espacio/salto de línea invisible (copia
+    // y pega desde el dashboard de la pasarela) rompe el header Authorization
+    // y la pasarela responde 401 sin más contexto — nunca es un valor válido.
+    const secretKey = (await getConfig('stripe_secret_key')).trim();
     if (!secretKey) throw new Error('Stripe está activo pero falta stripe_secret_key en /admin/configuracion');
     return new StripeAdapter(secretKey);
   }
@@ -239,10 +242,12 @@ export async function getPaymentProviderByName(gateway: string): Promise<Payment
       getConfig('sumup_api_key'),
       getConfig('sumup_merchant_code'),
     ]);
-    if (!apiKey || !merchantCode) {
+    const trimmedApiKey = apiKey.trim();
+    const trimmedMerchantCode = merchantCode.trim();
+    if (!trimmedApiKey || !trimmedMerchantCode) {
       throw new Error('SumUp está activo pero falta sumup_api_key o sumup_merchant_code en /admin/configuracion');
     }
-    return new SumUpAdapter(apiKey, merchantCode);
+    return new SumUpAdapter(trimmedApiKey, trimmedMerchantCode);
   }
 
   return new MockPaymentAdapter();

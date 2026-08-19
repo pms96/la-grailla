@@ -49,7 +49,11 @@ export async function PUT(request: Request) {
     const updates = body.configs;
     for (const cfg of updates) {
       if (cfg?.key) {
-        const value = isSensitiveConfigKey(cfg.key) ? encryptSecret(cfg.value ?? '') : (cfg.value ?? '');
+        // Copiar una API key desde el dashboard de la pasarela suele arrastrar un
+        // espacio o salto de línea invisible — eso rompe el header Authorization
+        // en silencio y la pasarela responde 401 sin ninguna pista de por qué.
+        const trimmedValue = (cfg.value ?? '').trim();
+        const value = isSensitiveConfigKey(cfg.key) ? encryptSecret(trimmedValue) : trimmedValue;
         await prisma.appConfig.upsert({
           where: { key: cfg.key },
           update: { value },
