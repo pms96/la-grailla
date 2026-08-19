@@ -19,19 +19,26 @@ const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000';
 const purchaseErrorRate = new Rate('purchase_errors');
 const browseErrorRate = new Rate('browse_errors');
 
+// Parametrizable vía env para escalar el test de estrés sin tocar el
+// comportamiento por defecto (target=50/peak=100, igual que antes).
+const TARGET_RATE = Number(__ENV.TARGET_RATE || 50);
+const PEAK_RATE = Number(__ENV.PEAK_RATE || 100);
+const MAX_VUS = Number(__ENV.MAX_VUS || 600);
+const PRE_VUS = Number(__ENV.PRE_VUS || 200);
+
 export const options = {
   scenarios: {
     trafico_sostenido: {
       executor: 'ramping-arrival-rate',
       startRate: 1,
       timeUnit: '1s',
-      preAllocatedVUs: 200,
-      maxVUs: 600,
+      preAllocatedVUs: PRE_VUS,
+      maxVUs: MAX_VUS,
       stages: [
-        { target: 50, duration: '30s' },   // rampa hasta el objetivo: ~3.000/min
-        { target: 50, duration: '60s' },   // sostenido en el objetivo
-        { target: 100, duration: '20s' },  // pico por encima del objetivo (margen)
-        { target: 0, duration: '15s' },    // enfriamiento
+        { target: TARGET_RATE, duration: '30s' },   // rampa hasta el objetivo
+        { target: TARGET_RATE, duration: '60s' },   // sostenido en el objetivo
+        { target: PEAK_RATE, duration: '20s' },     // pico por encima del objetivo (margen)
+        { target: 0, duration: '15s' },             // enfriamiento
       ],
     },
   },
