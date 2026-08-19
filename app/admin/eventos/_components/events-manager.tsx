@@ -29,6 +29,7 @@ type EventFormState = {
   minAge: number;
   conditions: string;
   maxCapacity: number;
+  maxTicketsPerEmail: number | string;
   status: EventStatus;
   latitude: number | string;
   longitude: number | string;
@@ -54,7 +55,7 @@ export default function EventsManager() {
 
   const openCreate = () => {
     setEditingEvent(null);
-    setForm({ name: '', description: '', venue: '', city: '', address: '', artists: '', date: '', doorsOpen: '', endTime: '', minAge: 18, conditions: '', maxCapacity: 500, status: 'DRAFT', latitude: '', longitude: '' });
+    setForm({ name: '', description: '', venue: '', city: '', address: '', artists: '', date: '', doorsOpen: '', endTime: '', minAge: 18, conditions: '', maxCapacity: 500, maxTicketsPerEmail: '', status: 'DRAFT', latitude: '', longitude: '' });
     setDialogOpen(true);
   };
 
@@ -73,6 +74,7 @@ export default function EventsManager() {
       minAge: event?.minAge ?? 18,
       conditions: event?.conditions ?? '',
       maxCapacity: event?.maxCapacity ?? 500,
+      maxTicketsPerEmail: event?.maxTicketsPerEmail ?? '',
       status: event?.status ?? 'DRAFT',
       latitude: event?.latitude ?? '',
       longitude: event?.longitude ?? '',
@@ -154,6 +156,11 @@ export default function EventsManager() {
                 <div><Label>Sala/Recinto</Label><Input value={form?.venue ?? ''} onChange={handleChange('venue')} className="mt-1" /></div>
                 <div><Label>Ciudad</Label><Input value={form?.city ?? ''} onChange={handleChange('city')} className="mt-1" /></div>
                 <div><Label>Aforo máximo</Label><Input type="number" value={form?.maxCapacity ?? 500} onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField('maxCapacity', parseInt(e?.target?.value) || 500)} className="mt-1" /></div>
+              </div>
+              <div>
+                <Label>Máx. entradas por email (opcional)</Label>
+                <Input type="number" min={1} value={form?.maxTicketsPerEmail ?? ''} onChange={handleChange('maxTicketsPerEmail')} className="mt-1" placeholder="Sin límite" />
+                <p className="text-xs text-muted-foreground mt-1">Límite de entradas que un mismo email puede comprar para este evento. Déjalo vacío para no limitar.</p>
               </div>
               <div><Label>Dirección</Label><Input value={form?.address ?? ''} onChange={handleChange('address')} className="mt-1" /></div>
               <div className="grid md:grid-cols-2 gap-4">

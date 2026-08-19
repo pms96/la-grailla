@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Save, CreditCard, Mail, Globe, FileText, Send, Wallet } from 'lucide-react';
+import { Loader2, Save, CreditCard, Mail, Globe, FileText, Send, Wallet, Ticket } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -77,6 +77,7 @@ export default function ConfiguracionPage() {
           <TabsTrigger value="social" className="gap-2"><Globe className="h-3.5 w-3.5" /> Redes</TabsTrigger>
           <TabsTrigger value="smtp" className="gap-2"><Send className="h-3.5 w-3.5" /> Email SMTP</TabsTrigger>
           <TabsTrigger value="wallet" className="gap-2"><Wallet className="h-3.5 w-3.5" /> Wallet</TabsTrigger>
+          <TabsTrigger value="tickets" className="gap-2"><Ticket className="h-3.5 w-3.5" /> Entradas</TabsTrigger>
           <TabsTrigger value="legal" className="gap-2"><FileText className="h-3.5 w-3.5" /> Legal</TabsTrigger>
           <TabsTrigger value="general" className="gap-2"><Mail className="h-3.5 w-3.5" /> General</TabsTrigger>
         </TabsList>
@@ -184,6 +185,17 @@ export default function ConfiguracionPage() {
               </div>
               <div><Label>Certificado .p12 (en base64)</Label><Textarea value={values?.apple_wallet_cert_p12_base64 ?? ''} onChange={handleChange('apple_wallet_cert_p12_base64')} className="mt-1 font-mono text-xs" rows={4} /></div>
             </div>
+          </CardContent></Card>
+        </TabsContent>
+
+        <TabsContent value="tickets">
+          <Card><CardContent className="p-6 space-y-4">
+            <p className="text-sm text-muted-foreground">Límite anti-abuso de compras por IP. Se aplica de forma global a todos los eventos, para evitar bots o compras masivas automatizadas.</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div><Label>Máx. pedidos por IP</Label><Input type="number" min={1} value={values?.orders_rate_limit_per_ip ?? '10'} onChange={handleChange('orders_rate_limit_per_ip')} className="mt-1" /></div>
+              <div><Label>Ventana de tiempo (segundos)</Label><Input type="number" min={1} value={values?.orders_rate_limit_window_seconds ?? '60'} onChange={handleChange('orders_rate_limit_window_seconds')} className="mt-1" /></div>
+            </div>
+            <p className="text-xs text-muted-foreground">Con los valores por defecto, una misma IP no puede crear más de 10 pedidos cada 60 segundos. Si el lanzamiento espera mucho tráfico legítimo desde la misma red (wifi compartido, datos móviles), sube estos valores.</p>
           </CardContent></Card>
         </TabsContent>
 

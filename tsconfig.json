@@ -36,7 +36,8 @@
     ".next/types/**/*.ts",
     ".build/types/**/*.ts",
     ".next-build-check/types/**/*.ts",
-    ".next-loadtest/types/**/*.ts"
+    ".next-loadtest/types/**/*.ts",
+    ".next-verify-build/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

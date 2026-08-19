@@ -34,6 +34,8 @@ const CONFIG_DEFAULTS: Record<string, string> = {
   apple_wallet_cert_password: '',
   cookies_banner_enabled: 'true',
   maps_provider: 'osm',
+  orders_rate_limit_per_ip: '10',
+  orders_rate_limit_window_seconds: '60',
 };
 
 export async function getConfig(key: string): Promise<string> {

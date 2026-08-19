@@ -134,6 +134,7 @@ model Event {
   conditions    String?     @db.Text
   maxCapacity   Int         @default(500)
   currentCount  Int         @default(0)
+  maxTicketsPerEmail Int?
   status        EventStatus @default(DRAFT)
   alertAt80     Boolean     @default(true)
   alertAt95     Boolean     @default(true)

@@ -22,6 +22,7 @@ const updateEventSchema = z.object({
   minAge: z.number().optional(),
   conditions: z.string().optional().nullable(),
   maxCapacity: z.number().optional(),
+  maxTicketsPerEmail: z.union([z.number(), z.string(), z.null()]).optional(),
   status: z.enum(['DRAFT', 'PUBLISHED', 'FINISHED', 'CANCELLED']).optional(),
   latitude: z.union([z.number(), z.string(), z.null()]).optional(),
   longitude: z.union([z.number(), z.string(), z.null()]).optional(),
@@ -60,6 +61,11 @@ export async function PUT(
         minAge: body?.minAge,
         conditions: body?.conditions,
         maxCapacity: body?.maxCapacity,
+        maxTicketsPerEmail: body?.maxTicketsPerEmail === undefined
+          ? undefined
+          : body?.maxTicketsPerEmail === '' || body?.maxTicketsPerEmail == null
+            ? null
+            : Number(body.maxTicketsPerEmail),
         status: body?.status,
         latitude: body?.latitude === '' || body?.latitude == null ? null : Number(body.latitude),
         longitude: body?.longitude === '' || body?.longitude == null ? null : Number(body.longitude),

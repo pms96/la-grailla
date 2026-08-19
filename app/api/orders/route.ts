@@ -34,7 +34,16 @@ const createOrderSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const limit = rateLimit('orders', getClientIp(request), 10, 60_000);
+    // Configurable desde el panel (Configuración > Entradas) porque el valor por
+    // defecto puede ser demasiado agresivo para tráfico legítimo desde una misma
+    // IP compartida (wifi de un local, datos móviles con NAT) el día del evento.
+    const [rateLimitPerIpStr, rateLimitWindowStr] = await Promise.all([
+      getConfig('orders_rate_limit_per_ip'),
+      getConfig('orders_rate_limit_window_seconds'),
+    ]);
+    const rateLimitPerIp = parseInt(rateLimitPerIpStr, 10) || 10;
+    const rateLimitWindowMs = (parseInt(rateLimitWindowStr, 10) || 60) * 1000;
+    const limit = rateLimit('orders', getClientIp(request), rateLimitPerIp, rateLimitWindowMs);
     if (!limit.ok) {
       return NextResponse.json(
         { error: 'Has realizado demasiados intentos. Espera un momento antes de volver a intentarlo.' },
@@ -114,6 +123,25 @@ export async function POST(request: Request) {
         // Aforo: comparar contra entradas emitidas (vendidas), no contra el
         // aforo físico (currentCount), que solo refleja a quienes ya han
         // entrado por puerta.
+        // Límite de entradas por email, configurable por evento (evita que un
+        // mismo comprador se lleve una parte desproporcionada del aforo). Ya
+        // dentro del lock por evento, así que es seguro frente a compras
+        // concurrentes del mismo comprador.
+        if (event.maxTicketsPerEmail != null) {
+          const alreadyBoughtByEmail = await tx.ticket.count({
+            where: {
+              eventId,
+              status: { notIn: ['CANCELLED', 'REFUNDED'] },
+              order: { buyerEmail: { equals: buyerEmail, mode: 'insensitive' } },
+            },
+          });
+          if (alreadyBoughtByEmail + totalTickets > event.maxTicketsPerEmail) {
+            throw new OrderRejectedError(
+              `Este email ya ha comprado el máximo de entradas permitido para este evento (${event.maxTicketsPerEmail})`
+            );
+          }
+        }
+
         const issuedCount = await tx.ticket.count({
           where: { eventId, status: { notIn: ['CANCELLED', 'REFUNDED'] } },
         });
