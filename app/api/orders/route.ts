@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import type { Prisma } from '@prisma/client';
+import type { Prisma, TicketStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { generateQRCode } from '@/lib/qr';
 import { getConfig } from '@/lib/config';
@@ -135,23 +135,28 @@ export async function POST(request: Request) {
           },
         });
 
+        // createMany en vez de un create por unidad: con el advisory lock de
+        // arriba serializando a todos los compradores del mismo evento, cada
+        // ida y vuelta a la base de datos dentro de la transacción alarga la
+        // cola para el siguiente comprador — agrupar N inserts en 1 reduce
+        // notablemente el tiempo que cada transacción mantiene el lock.
+        const ticketsToCreate = ticketData.flatMap((td) =>
+          Array.from({ length: td.quantity }, () => ({
+            orderId: newOrder.id,
+            eventId,
+            ticketTypeId: td.ticketTypeId,
+            qrCode: generateQRCode(),
+            holderName: `${buyerName} ${buyerLastName}`,
+            status: (isGatewayLive ? 'PENDING' : 'VALID') as TicketStatus,
+          }))
+        );
+        await tx.ticket.createMany({ data: ticketsToCreate });
+
+        // Reserva de stock: se cuenta como vendida desde que se reserva en el
+        // checkout, no solo cuando se confirma el pago (igual que el aforo).
+        // Segura frente a condiciones de carrera porque ya estamos dentro del
+        // lock por evento tomado arriba.
         for (const td of ticketData) {
-          for (let i = 0; i < td.quantity; i++) {
-            await tx.ticket.create({
-              data: {
-                orderId: newOrder.id,
-                eventId,
-                ticketTypeId: td.ticketTypeId,
-                qrCode: generateQRCode(),
-                holderName: `${buyerName} ${buyerLastName}`,
-                status: isGatewayLive ? 'PENDING' : 'VALID',
-              },
-            });
-          }
-          // Reserva de stock: se cuenta como vendida desde que se reserva en el
-          // checkout, no solo cuando se confirma el pago (igual que el aforo).
-          // Segura frente a condiciones de carrera porque ya estamos dentro del
-          // lock por evento tomado arriba.
           await tx.ticketType.update({
             where: { id: td.ticketTypeId },
             data: { soldCount: { increment: td.quantity } },
