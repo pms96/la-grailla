@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import { POST as joinQueue } from '@/app/api/queue/join/route';
 import { GET as queueStatus } from '@/app/api/queue/status/route';
+import { cleanupStaleEntries } from '@/lib/waiting-room';
 import { createTestEvent, cleanupTestEvent } from '../helpers/fixtures';
 
 function joinRequest(body: unknown, ip: string) {
@@ -119,6 +120,63 @@ describe('sala de espera (queue/join, queue/status)', () => {
 
     const total = await prisma.waitingRoomEntry.count({ where: { eventId: event.id } });
     expect(total).toBe(CONCURRENT_JOINERS);
+  });
+
+  it('limita cuántos turnos vivos puede abrir la misma IP para el mismo evento', async () => {
+    // El rate limit de /api/queue/join frena ráfagas (peticiones por
+    // minuto), no volumen sostenido — un script que reparte sus peticiones
+    // despacio podría acumular turnos indefinidamente sin este límite.
+    const event = await createWaitingRoomEvent({ concurrentSlots: 50 });
+    createdEventIds.push(event.id);
+    const sameIp = '203.0.113.50';
+
+    const responses = [];
+    for (let i = 0; i < 5; i++) {
+      responses.push(await joinQueue(joinRequest({ eventId: event.id }, sameIp)));
+    }
+    const rejected = responses.filter((r) => r.status === 429);
+    const allowed = responses.filter((r) => r.status === 200);
+    expect(allowed.length).toBe(3);
+    expect(rejected.length).toBe(2);
+
+    const liveEntries = await prisma.waitingRoomEntry.count({
+      where: { eventId: event.id, ip: sameIp, status: { in: ['WAITING', 'ADMITTED'] } },
+    });
+    expect(liveEntries).toBe(3);
+  });
+
+  it('una IP distinta no se ve afectada por el límite de otra', async () => {
+    const event = await createWaitingRoomEvent({ concurrentSlots: 50 });
+    createdEventIds.push(event.id);
+
+    for (let i = 0; i < 3; i++) {
+      await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.51'));
+    }
+    const otherIpRes = await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.52'));
+    expect(otherIpRes.status).toBe(200);
+  });
+
+  it('cleanupStaleEntries borra entradas terminales viejas pero conserva las recientes o activas', async () => {
+    const event = await createWaitingRoomEvent();
+    createdEventIds.push(event.id);
+
+    const old = await prisma.waitingRoomEntry.create({
+      data: { eventId: event.id, token: `old-${Date.now()}`, status: 'EXPIRED', joinedAt: new Date(Date.now() - 25 * 60 * 60_000) },
+    });
+    const recent = await prisma.waitingRoomEntry.create({
+      data: { eventId: event.id, token: `recent-${Date.now()}`, status: 'COMPLETED', joinedAt: new Date() },
+    });
+    const stillWaiting = await prisma.waitingRoomEntry.create({
+      data: { eventId: event.id, token: `waiting-${Date.now()}`, status: 'WAITING', joinedAt: new Date(Date.now() - 25 * 60 * 60_000) },
+    });
+
+    await cleanupStaleEntries(event.id);
+
+    const remaining = await prisma.waitingRoomEntry.findMany({ where: { eventId: event.id } });
+    const remainingIds = remaining.map((e) => e.id);
+    expect(remainingIds).not.toContain(old.id);
+    expect(remainingIds).toContain(recent.id);
+    expect(remainingIds).toContain(stillWaiting.id);
   });
 
   it('al reenviar el token guardado, reutiliza la misma entrada en vez de crear otra', async () => {

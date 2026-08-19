@@ -168,6 +168,12 @@ model WaitingRoomEntry {
   id         String            @id @default(cuid())
   eventId    String
   token      String            @unique
+  // IP de quien entró a la cola — nada que ver con el lock de compra, solo
+  // sirve para el límite anti-bot de abajo (join/route.ts): sin esto, un
+  // script podría abrir cientos de "personas" en la cola desde la misma
+  // máquina sin que el rate limit por minuto (pensado para ráfagas, no para
+  // volumen sostenido) lo note.
+  ip         String?
   status     WaitingRoomStatus @default(WAITING)
   joinedAt   DateTime          @default(now())
   admittedAt DateTime?
@@ -175,6 +181,7 @@ model WaitingRoomEntry {
   event      Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@index([eventId, status, joinedAt])
+  @@index([eventId, ip, status])
 }
 
 model TicketType {

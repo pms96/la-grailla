@@ -1,5 +1,28 @@
 import { prisma } from '@/lib/prisma';
 
+// No hay cron ni proceso de fondo que limpie WaitingRoomEntry — igual que la
+// propia admisión, la limpieza va montada en el tráfico normal de
+// join/status. Exportada por separado (en vez de en línea en el 2% de abajo)
+// para poder probarla directamente sin depender de Math.random().
+export async function cleanupStaleEntries(eventId: string): Promise<void> {
+  await prisma.waitingRoomEntry.deleteMany({
+    where: {
+      eventId,
+      status: { in: ['COMPLETED', 'EXPIRED'] },
+      joinedAt: { lt: new Date(Date.now() - 24 * 60 * 60_000) },
+    },
+  });
+}
+
+// Con una probabilidad baja en vez de en cada llamada: no hace falta que
+// TODA petición pague el coste de este DELETE, solo que ocurra de vez en
+// cuando para que la tabla no crezca sin límite con filas COMPLETED o
+// EXPIRED de eventos que ya pasaron.
+function opportunisticCleanup(eventId: string) {
+  if (Math.random() >= 0.02) return;
+  cleanupStaleEntries(eventId).catch(() => {});
+}
+
 // Expira admisiones caducadas y promueve a WAITING -> ADMITTED tantas
 // entradas como huecos libres haya, todo dentro de un pg_advisory_xact_lock
 // con scope propio (':queue', nunca el mismo que el lock de compra de
@@ -10,6 +33,8 @@ import { prisma } from '@/lib/prisma';
 // La sección crítica es un par de queries muy baratas, así que el lock se
 // libera en milisegundos y no reintroduce el cuello de botella original.
 export async function sweepAndAdmit(eventId: string, concurrentSlots: number, windowSeconds: number): Promise<void> {
+  opportunisticCleanup(eventId);
+
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${eventId} || ':queue'))`;
 

@@ -21,8 +21,19 @@ export interface RefundResult {
   error?: string;
 }
 
+export interface ConnectionTestResult {
+  ok: boolean;
+  error?: string;
+}
+
 export interface PaymentProvider {
   name: string;
+  // Comprobación de solo lectura, sin crear ningún cobro ni sesión de pago —
+  // pensada para "probar conexión" desde /admin/configuracion ANTES de
+  // guardar la credencial, que es cuando de verdad importa detectar una
+  // clave inválida (o un espacio/salto de línea pegado sin querer), en vez
+  // de enterarse con el primer comprador real fallando en el checkout.
+  testConnection(): Promise<ConnectionTestResult>;
   createCheckoutSession(params: {
     amount: number;
     currency: string;
@@ -44,6 +55,21 @@ export class StripeAdapter implements PaymentProvider {
 
   constructor(secretKey: string) {
     this.secretKey = secretKey;
+  }
+
+  // stripe.balance.retrieve() es la comprobación estándar que recomienda la
+  // propia documentación de Stripe para validar una secret key: de solo
+  // lectura, sin crear nada, y cualquier secret key normal tiene permiso
+  // para llamarla.
+  async testConnection(): Promise<ConnectionTestResult> {
+    try {
+      const Stripe = (await import('stripe')).default;
+      const stripe = new Stripe(this.secretKey, { apiVersion: '2024-04-10' as Stripe.LatestApiVersion });
+      await stripe.balance.retrieve();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   async createCheckoutSession(params: {
@@ -128,6 +154,25 @@ export class SumUpAdapter implements PaymentProvider {
     this.merchantCode = merchantCode;
   }
 
+  // GET /v0.1/merchants/{code} es de solo lectura y comprueba a la vez la
+  // API key (401 si es inválida/caducada) Y que el merchant_code es el que
+  // corresponde a esa cuenta (404 si no) — justo las dos formas en las que
+  // ya hemos visto fallar esto en producción.
+  async testConnection(): Promise<ConnectionTestResult> {
+    try {
+      const response = await fetch(`https://api.sumup.com/v0.1/merchants/${this.merchantCode}`, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        return { ok: false, error: data?.message || data?.error_message || `SumUp devolvió ${response.status} al comprobar la cuenta` };
+      }
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   async createCheckoutSession(params: {
     amount: number;
     currency: string;
@@ -197,6 +242,10 @@ export class SumUpAdapter implements PaymentProvider {
 /* Mock adapter for testing / fallback when no gateway is configured */
 export class MockPaymentAdapter implements PaymentProvider {
   name = 'mock';
+
+  async testConnection(): Promise<ConnectionTestResult> {
+    return { ok: true };
+  }
 
   async createCheckoutSession(params: {
     amount: number;

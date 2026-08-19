@@ -13,6 +13,14 @@ import { handleApiError } from '@/lib/api-error';
 const DEFAULT_CONCURRENT_SLOTS = 20;
 const DEFAULT_PURCHASE_WINDOW_SECONDS = 300;
 
+// El rate limit de arriba (20/60s) frena ráfagas, pero no a un script que
+// reparte sus peticiones despacio en el tiempo: sin este límite, la misma
+// máquina podría acumular cientos de "personas" en cola o con turno
+// ADMITTED, adelantando a compradores reales. Se cuentan solo entradas
+// vivas (WAITING/ADMITTED) — una vez COMPLETED/EXPIRED, ya no cuentan contra
+// el límite y esa IP puede volver a entrar.
+const MAX_LIVE_ENTRIES_PER_IP = 3;
+
 const joinSchema = z.object({
   eventId: z.string().min(1),
   token: z.string().optional().nullable(),
@@ -29,6 +37,7 @@ export async function POST(request: Request) {
     }
 
     const body = joinSchema.parse(await request.json());
+    const ip = getClientIp(request);
     const event = await prisma.event.findUnique({ where: { id: body.eventId } });
     if (!event) {
       return NextResponse.json({ error: 'Evento no encontrado' }, { status: 404 });
@@ -48,8 +57,17 @@ export async function POST(request: Request) {
       ? await prisma.waitingRoomEntry.findUnique({ where: { token: body.token } })
       : null;
     if (!entry || entry.eventId !== event.id) {
+      const liveEntriesFromIp = await prisma.waitingRoomEntry.count({
+        where: { eventId: event.id, ip, status: { in: ['WAITING', 'ADMITTED'] } },
+      });
+      if (liveEntriesFromIp >= MAX_LIVE_ENTRIES_PER_IP) {
+        return NextResponse.json(
+          { error: 'Ya tienes demasiados turnos abiertos para este evento desde esta conexión.' },
+          { status: 429 }
+        );
+      }
       entry = await prisma.waitingRoomEntry.create({
-        data: { eventId: event.id, token: crypto.randomUUID() },
+        data: { eventId: event.id, token: crypto.randomUUID(), ip },
       });
     }
 

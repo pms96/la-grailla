@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Save, CreditCard, Mail, Globe, FileText, Send, Wallet, Ticket } from 'lucide-react';
+import { Loader2, Save, CreditCard, Mail, Globe, FileText, Send, Wallet, Ticket, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -18,6 +18,7 @@ export default function ConfiguracionPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [testingGateway, setTestingGateway] = useState<'stripe' | 'sumup' | null>(null);
 
   useEffect(() => {
     fetch('/api/admin/config')
@@ -56,6 +57,31 @@ export default function ConfiguracionPage() {
       toast.error('Error al guardar');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const testGateway = async (gateway: 'stripe' | 'sumup') => {
+    setTestingGateway(gateway);
+    try {
+      const body =
+        gateway === 'stripe'
+          ? { gateway, secretKey: values?.stripe_secret_key ?? '' }
+          : { gateway, apiKey: values?.sumup_api_key ?? '', merchantCode: values?.sumup_merchant_code ?? '' };
+      const res = await fetch('/api/admin/config/test-gateway', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data?.ok) {
+        toast.success(gateway === 'stripe' ? 'Conexión con Stripe correcta' : 'Conexión con SumUp correcta');
+      } else {
+        toast.error(data?.error ?? 'No se ha podido conectar');
+      }
+    } catch {
+      toast.error('Error de conexión');
+    } finally {
+      setTestingGateway(null);
     }
   };
 
@@ -105,12 +131,35 @@ export default function ConfiguracionPage() {
                 {' '}<code>checkout.session.completed</code>, <code>checkout.session.async_payment_succeeded</code>, <code>checkout.session.async_payment_failed</code> y <code>checkout.session.expired</code>. Copia aquí el "Signing secret" que te da Stripe al crearlo.
               </p>
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={testingGateway === 'stripe'}
+              onClick={() => testGateway('stripe')}
+            >
+              {testingGateway === 'stripe' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+              Probar conexión con Stripe
+            </Button>
+
             <div><Label>SumUp API Key</Label><Input type="password" value={values?.sumup_api_key ?? ''} onChange={handleChange('sumup_api_key')} className="mt-1" /></div>
             <div>
               <Label>SumUp Merchant Code</Label>
               <Input value={values?.sumup_merchant_code ?? ''} onChange={handleChange('sumup_merchant_code')} className="mt-1" placeholder="MC..." />
               <p className="text-xs text-muted-foreground mt-1">Lo encuentras en tu cuenta de SumUp, en Ajustes → Datos de la cuenta. Es obligatorio para crear cobros, la API key sola no basta.</p>
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={testingGateway === 'sumup'}
+              onClick={() => testGateway('sumup')}
+            >
+              {testingGateway === 'sumup' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+              Probar conexión con SumUp
+            </Button>
             <div><Label>Comisión por entrada (%)</Label><Input type="number" step="0.1" value={values?.commission_percentage ?? '0'} onChange={handleChange('commission_percentage')} className="mt-1" /></div>
           </CardContent></Card>
         </TabsContent>
