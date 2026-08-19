@@ -135,6 +135,10 @@ model Event {
   maxCapacity   Int         @default(500)
   currentCount  Int         @default(0)
   maxTicketsPerEmail Int?
+  waitingRoomEnabled Boolean     @default(false)
+  waitingRoomConcurrentSlots       Int?
+  waitingRoomPurchaseWindowSeconds Int?
+  waitingRoomMessage String?     @db.Text
   status        EventStatus @default(DRAFT)
   alertAt80     Boolean     @default(true)
   alertAt95     Boolean     @default(true)
@@ -150,6 +154,27 @@ model Event {
   scanLogs      ScanLog[]
   guestLists    GuestList[]
   invitations   Invitation[]
+  waitingRoomEntries WaitingRoomEntry[]
+}
+
+enum WaitingRoomStatus {
+  WAITING
+  ADMITTED
+  COMPLETED
+  EXPIRED
+}
+
+model WaitingRoomEntry {
+  id         String            @id @default(cuid())
+  eventId    String
+  token      String            @unique
+  status     WaitingRoomStatus @default(WAITING)
+  joinedAt   DateTime          @default(now())
+  admittedAt DateTime?
+  expiresAt  DateTime?
+  event      Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, status, joinedAt])
 }
 
 model TicketType {

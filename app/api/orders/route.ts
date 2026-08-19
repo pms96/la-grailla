@@ -30,6 +30,7 @@ const createOrderSchema = z.object({
       })
     )
     .min(1),
+  queueToken: z.string().optional(),
 });
 
 export async function POST(request: Request) {
@@ -52,7 +53,7 @@ export async function POST(request: Request) {
     }
 
     const body = createOrderSchema.parse(await request.json());
-    const { eventId, buyerName, buyerLastName, buyerEmail, items } = body;
+    const { eventId, buyerName, buyerLastName, buyerEmail, items, queueToken } = body;
 
     // Validate event
     const event = await prisma.event.findUnique({
@@ -61,6 +62,26 @@ export async function POST(request: Request) {
     });
     if (!event || event.status !== 'PUBLISHED') {
       return NextResponse.json({ error: 'Evento no disponible' }, { status: 400 });
+    }
+
+    // Con la sala de espera activa, solo se puede comprar con un turno
+    // ADMITTED vigente — sin esto, cualquiera podría saltarse la cola
+    // llamando directamente a este endpoint.
+    let queueEntry: Awaited<ReturnType<typeof prisma.waitingRoomEntry.findUnique>> = null;
+    if (event.waitingRoomEnabled) {
+      queueEntry = queueToken ? await prisma.waitingRoomEntry.findUnique({ where: { token: queueToken } }) : null;
+      if (
+        !queueEntry ||
+        queueEntry.eventId !== eventId ||
+        queueEntry.status !== 'ADMITTED' ||
+        !queueEntry.expiresAt ||
+        queueEntry.expiresAt < new Date()
+      ) {
+        return NextResponse.json(
+          { error: 'Tu turno ha expirado o no es válido. Vuelve a la sala de espera.' },
+          { status: 403 }
+        );
+      }
     }
 
     // Solo validamos aquí que los ticketTypeId pedidos existen y pertenecen al
@@ -211,8 +232,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: order.message }, { status: 400 });
     }
 
+    // Libera el hueco de la sala de espera ya, en vez de esperar a que
+    // expire por tiempo, para que el siguiente en la cola entre antes. Solo
+    // se marca al confirmar el éxito real (no si luego falla la pasarela),
+    // para que el comprador conserve su turno si necesita reintentar.
+    const releaseQueueSlot = () =>
+      queueEntry
+        ? prisma.waitingRoomEntry.update({ where: { id: queueEntry.id }, data: { status: 'COMPLETED' } }).catch(() => {})
+        : Promise.resolve();
+
     if (!isGatewayLive) {
       void checkCapacityAlerts(eventId);
+      await releaseQueueSlot();
       return NextResponse.json({ success: true, orderId: order.id, totalAmount, checkoutUrl: null });
     }
 
@@ -228,6 +259,7 @@ export async function POST(request: Request) {
         customerEmail: buyerEmail,
       });
       await prisma.order.update({ where: { id: order.id }, data: { paymentId: session.sessionId } });
+      await releaseQueueSlot();
       return NextResponse.json({ success: true, orderId: order.id, totalAmount, checkoutUrl: session.checkoutUrl });
     } catch (error) {
       // La pasarela no pudo crear la sesión de cobro: no dejar entradas PENDING

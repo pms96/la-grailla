@@ -23,6 +23,10 @@ const updateEventSchema = z.object({
   conditions: z.string().optional().nullable(),
   maxCapacity: z.number().optional(),
   maxTicketsPerEmail: z.union([z.number(), z.string(), z.null()]).optional(),
+  waitingRoomEnabled: z.boolean().optional(),
+  waitingRoomConcurrentSlots: z.union([z.number(), z.string(), z.null()]).optional(),
+  waitingRoomPurchaseWindowSeconds: z.union([z.number(), z.string(), z.null()]).optional(),
+  waitingRoomMessage: z.string().optional().nullable(),
   status: z.enum(['DRAFT', 'PUBLISHED', 'FINISHED', 'CANCELLED']).optional(),
   latitude: z.union([z.number(), z.string(), z.null()]).optional(),
   longitude: z.union([z.number(), z.string(), z.null()]).optional(),
@@ -66,6 +70,18 @@ export async function PUT(
           : body?.maxTicketsPerEmail === '' || body?.maxTicketsPerEmail == null
             ? null
             : Number(body.maxTicketsPerEmail),
+        waitingRoomEnabled: body?.waitingRoomEnabled,
+        waitingRoomConcurrentSlots: body?.waitingRoomConcurrentSlots === undefined
+          ? undefined
+          : body?.waitingRoomConcurrentSlots === '' || body?.waitingRoomConcurrentSlots == null
+            ? null
+            : Number(body.waitingRoomConcurrentSlots),
+        waitingRoomPurchaseWindowSeconds: body?.waitingRoomPurchaseWindowSeconds === undefined
+          ? undefined
+          : body?.waitingRoomPurchaseWindowSeconds === '' || body?.waitingRoomPurchaseWindowSeconds == null
+            ? null
+            : Number(body.waitingRoomPurchaseWindowSeconds),
+        waitingRoomMessage: body?.waitingRoomMessage,
         status: body?.status,
         latitude: body?.latitude === '' || body?.latitude == null ? null : Number(body.latitude),
         longitude: body?.longitude === '' || body?.longitude == null ? null : Number(body.longitude),

@@ -10,7 +10,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Plus, Pencil, Trash2, Loader2, Calendar } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Plus, Pencil, Trash2, Loader2, Calendar, Hourglass } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 
@@ -30,10 +31,17 @@ type EventFormState = {
   conditions: string;
   maxCapacity: number;
   maxTicketsPerEmail: number | string;
+  waitingRoomEnabled: boolean;
+  waitingRoomConcurrentSlots: number | string;
+  waitingRoomPurchaseWindowMinutes: number | string;
+  waitingRoomMessage: string;
   status: EventStatus;
   latitude: number | string;
   longitude: number | string;
 };
+
+const DEFAULT_WAITING_ROOM_SLOTS = 20;
+const DEFAULT_WAITING_ROOM_WINDOW_MINUTES = 5;
 
 export default function EventsManager() {
   const [events, setEvents] = useState<EventWithCount[]>([]);
@@ -55,7 +63,7 @@ export default function EventsManager() {
 
   const openCreate = () => {
     setEditingEvent(null);
-    setForm({ name: '', description: '', venue: '', city: '', address: '', artists: '', date: '', doorsOpen: '', endTime: '', minAge: 18, conditions: '', maxCapacity: 500, maxTicketsPerEmail: '', status: 'DRAFT', latitude: '', longitude: '' });
+    setForm({ name: '', description: '', venue: '', city: '', address: '', artists: '', date: '', doorsOpen: '', endTime: '', minAge: 18, conditions: '', maxCapacity: 500, maxTicketsPerEmail: '', waitingRoomEnabled: false, waitingRoomConcurrentSlots: '', waitingRoomPurchaseWindowMinutes: '', waitingRoomMessage: '', status: 'DRAFT', latitude: '', longitude: '' });
     setDialogOpen(true);
   };
 
@@ -75,6 +83,10 @@ export default function EventsManager() {
       conditions: event?.conditions ?? '',
       maxCapacity: event?.maxCapacity ?? 500,
       maxTicketsPerEmail: event?.maxTicketsPerEmail ?? '',
+      waitingRoomEnabled: event?.waitingRoomEnabled ?? false,
+      waitingRoomConcurrentSlots: event?.waitingRoomConcurrentSlots ?? '',
+      waitingRoomPurchaseWindowMinutes: event?.waitingRoomPurchaseWindowSeconds ? event.waitingRoomPurchaseWindowSeconds / 60 : '',
+      waitingRoomMessage: event?.waitingRoomMessage ?? '',
       status: event?.status ?? 'DRAFT',
       latitude: event?.latitude ?? '',
       longitude: event?.longitude ?? '',
@@ -87,10 +99,18 @@ export default function EventsManager() {
     try {
       const url = editingEvent ? `/api/admin/events/${editingEvent.id}` : '/api/admin/events';
       const method = editingEvent ? 'PUT' : 'POST';
+      const { waitingRoomPurchaseWindowMinutes, ...rest } = form;
+      const payload = {
+        ...rest,
+        waitingRoomPurchaseWindowSeconds:
+          waitingRoomPurchaseWindowMinutes === '' || waitingRoomPurchaseWindowMinutes == null
+            ? ''
+            : Number(waitingRoomPurchaseWindowMinutes) * 60,
+      };
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (data?.error) {
@@ -162,6 +182,58 @@ export default function EventsManager() {
                 <Input type="number" min={1} value={form?.maxTicketsPerEmail ?? ''} onChange={handleChange('maxTicketsPerEmail')} className="mt-1" placeholder="Sin límite" />
                 <p className="text-xs text-muted-foreground mt-1">Límite de entradas que un mismo email puede comprar para este evento. Déjalo vacío para no limitar.</p>
               </div>
+
+              <div className="space-y-4 rounded-lg border border-border p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <Hourglass className="h-4 w-4 text-primary" />
+                    <Label className="font-semibold">Sala de espera virtual</Label>
+                  </div>
+                  <Switch checked={form?.waitingRoomEnabled ?? false} onCheckedChange={(v: boolean) => updateField('waitingRoomEnabled', v)} />
+                </div>
+                <p className="text-xs text-muted-foreground -mt-2">
+                  Ordena la entrada al checkout cuando se espera mucha demanda: solo deja pasar a N compradores a la vez, el resto espera su turno de forma visible.
+                </p>
+                {form?.waitingRoomEnabled && (
+                  <div className="space-y-4 pt-2 border-t border-border">
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div>
+                        <Label>Compradores simultáneos en el checkout</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={form?.waitingRoomConcurrentSlots ?? ''}
+                          onChange={handleChange('waitingRoomConcurrentSlots')}
+                          className="mt-1"
+                          placeholder={String(DEFAULT_WAITING_ROOM_SLOTS)}
+                        />
+                      </div>
+                      <div>
+                        <Label>Tiempo para completar la compra (minutos)</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={form?.waitingRoomPurchaseWindowMinutes ?? ''}
+                          onChange={handleChange('waitingRoomPurchaseWindowMinutes')}
+                          className="mt-1"
+                          placeholder={String(DEFAULT_WAITING_ROOM_WINDOW_MINUTES)}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Mensaje personalizado (opcional)</Label>
+                      <Textarea
+                        value={form?.waitingRoomMessage ?? ''}
+                        onChange={handleChange('waitingRoomMessage')}
+                        className="mt-1"
+                        rows={2}
+                        placeholder="Ej: Sabemos que hay mucha demanda para este evento — tu turno está asegurado."
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div><Label>Dirección</Label><Input value={form?.address ?? ''} onChange={handleChange('address')} className="mt-1" /></div>
               <div className="grid md:grid-cols-2 gap-4">
                 <div><Label>Latitud (opcional)</Label><Input value={form?.latitude ?? ''} onChange={handleChange('latitude')} className="mt-1" placeholder="40.4168" /></div>

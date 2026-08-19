@@ -2,7 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import type { Prisma } from '@prisma/client';
 import { Container } from '@/components/layouts/container';
-import BuyTicketsForm from './_components/buy-tickets-form';
+import WaitingRoomGate from './_components/waiting-room-gate';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,7 +28,7 @@ export default async function ComprarPage({ params }: { params: { slug: string }
   return (
     <Container size="md">
       <div className="py-8">
-        <BuyTicketsForm event={serializedEvent} />
+        <WaitingRoomGate event={serializedEvent} />
       </div>
     </Container>
   );

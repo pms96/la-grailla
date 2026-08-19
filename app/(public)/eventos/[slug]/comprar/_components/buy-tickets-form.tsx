@@ -21,14 +21,14 @@ interface TicketType {
   soldCount: number;
 }
 
-interface EventData {
+export interface EventData {
   id: string;
   name: string;
   slug: string;
   ticketTypes: TicketType[];
 }
 
-export default function BuyTicketsForm({ event }: { event: EventData }) {
+export default function BuyTicketsForm({ event, queueToken }: { event: EventData; queueToken?: string }) {
   const router = useRouter();
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [buyerName, setBuyerName] = useState('');
@@ -78,6 +78,7 @@ export default function BuyTicketsForm({ event }: { event: EventData }) {
           buyerLastName: buyerLastName?.trim(),
           buyerEmail: buyerEmail?.trim(),
           items,
+          queueToken,
         }),
       });
 
