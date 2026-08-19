@@ -44,6 +44,16 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
         body: JSON.stringify({ eventId: event.id, token }),
       });
       const data = await res.json();
+      // Un 429 (rate limit) o un 5xx no tienen "status" de cola en el body —
+      // sin este chequeo, applyResult no reconoce la forma de la respuesta y
+      // no hace nada, dejando al comprador colgado en "comprobando" para
+      // siempre. Reintentar es lo correcto: el turno, si ya existía, sigue
+      // vivo en el servidor aunque esta llamada concreta haya fallado.
+      if (!res.ok) {
+        const retryAfterMs = Number(res.headers.get('Retry-After')) * 1000 || 5000;
+        timeoutRef.current = setTimeout(join, retryAfterMs);
+        return;
+      }
       applyResult(data);
     } catch {
       // Fallo de red puntual: reintenta en el siguiente tick en vez de
@@ -71,6 +81,10 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
     } else if (data?.status === 'NOT_FOUND') {
       if (typeof window !== 'undefined') window.localStorage.removeItem(storageKey(event.id));
       join();
+    } else {
+      // Respuesta con 2xx pero una forma que no reconocemos: mejor
+      // reintentar que quedarnos colgados sin más pistas.
+      timeoutRef.current = setTimeout(poll, 5000);
     }
   };
 
@@ -80,6 +94,11 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
     try {
       const res = await fetch(`/api/queue/status?eventId=${event.id}&token=${token}`);
       const data = await res.json();
+      if (!res.ok) {
+        const retryAfterMs = Number(res.headers.get('Retry-After')) * 1000 || 5000;
+        timeoutRef.current = setTimeout(poll, retryAfterMs);
+        return;
+      }
       applyResult(data);
     } catch {
       timeoutRef.current = setTimeout(poll, 3000);
