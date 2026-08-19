@@ -159,6 +159,15 @@ export async function POST(request: Request) {
         }
 
         return newOrder;
+      }, {
+        // Con muchos compradores concurrentes para el mismo evento, las
+        // transacciones se encolan esperando el advisory lock de arriba — el
+        // timeout de 5s por defecto de Prisma mata la transacción antes de
+        // que le toque turno, aunque la operación en sí sea rapidísima.
+        // Verificado con test de carga real (300 compradores simultáneos):
+        // sin este ajuste, Prisma lanza P2028 "Transaction already closed".
+        maxWait: 20_000,
+        timeout: 20_000,
       })
       .catch((error) => {
         if (error instanceof OrderRejectedError) return error;
