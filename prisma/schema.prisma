@@ -281,6 +281,7 @@ model Product {
   description String?         @db.Text
   price       Float
   imageUrl    String?
+  images      String[]        @default([])
   category    String?
   sizes       String?
   colors      String?

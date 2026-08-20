@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { getConfigs } from '@/lib/config';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +26,14 @@ export default async function HomePage() {
   } catch (error) {
     console.error('[HomePage] Error al cargar eventos:', error);
   }
+
+  const copy = await getConfigs([
+    'home_hero_badge_fallback',
+    'home_hero_subtitle_1',
+    'home_hero_subtitle_2',
+    'home_sponsors_cta_title',
+    'home_sponsors_cta_subtitle',
+  ]);
 
   return (
     <>
@@ -55,7 +64,7 @@ export default async function HomePage() {
             {/* Sticker badge — anuncia el próximo evento real, nunca una campaña fija */}
             <div className="inline-flex brand-sticker text-sm text-lima border-lima/60 shadow-lima/30 mb-8">
               <Sparkles className="h-4 w-4" />
-              {events?.[0] ? `PRÓXIMO EVENTO: ${events[0].name.toUpperCase()}` : 'GOOD VIBES DE FERIA'}
+              {events?.[0] ? `PRÓXIMO EVENTO: ${events[0].name.toUpperCase()}` : copy.home_hero_badge_fallback}
             </div>
 
             <h1 className="mb-6">
@@ -64,10 +73,10 @@ export default async function HomePage() {
             </h1>
 
             <p className="text-xl md:text-2xl text-muted-foreground max-w-2xl mb-4 font-display font-medium">
-              Caseta de feria, noches de DJ y las mejores vibras de Torremolinos.
+              {copy.home_hero_subtitle_1}
             </p>
             <p className="text-base md:text-lg text-muted-foreground/70 max-w-xl mb-10">
-              ¿Te vienes? Compra tus entradas online y asegura tu plaza. 🎉
+              {copy.home_hero_subtitle_2}
             </p>
 
             <div className="flex flex-wrap gap-4">
@@ -163,10 +172,10 @@ export default async function HomePage() {
         <div className="relative max-w-[1200px] mx-auto px-4 py-20 text-center">
           <FadeIn>
             <h2 className="font-display text-3xl md:text-4xl font-bold mb-4">
-              ¿Quieres patrocinar nuestros eventos?
+              {copy.home_sponsors_cta_title}
             </h2>
             <p className="text-muted-foreground text-lg mb-8 max-w-xl mx-auto">
-              Llega a miles de asistentes. Tu marca en la mejor feria de la costa.
+              {copy.home_sponsors_cta_subtitle}
             </p>
             <Link href="/sponsors">
               <Button size="lg" variant="outline" className="gap-2 font-display font-semibold px-8 h-12 rounded-full border-2">

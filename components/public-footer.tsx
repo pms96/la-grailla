@@ -1,7 +1,10 @@
 import Link from 'next/link';
 import { Logo } from '@/components/logo';
+import { getConfigs } from '@/lib/config';
 
-export default function PublicFooter() {
+export default async function PublicFooter() {
+  const copy = await getConfigs(['footer_tagline', 'footer_copyright']);
+
   return (
     <footer className="relative border-t border-border/30 bg-card/80">
       <div className="max-w-[1200px] mx-auto px-4 py-10">
@@ -10,7 +13,7 @@ export default function PublicFooter() {
           <div className="flex flex-col items-center md:items-start gap-2">
             <Logo variant="white" className="h-6" />
             <p className="text-sm text-muted-foreground text-center md:text-left">
-              Caseta de feria · Eventos · Good Vibes 💜
+              {copy.footer_tagline}
             </p>
           </div>
 
@@ -30,7 +33,7 @@ export default function PublicFooter() {
 
           {/* Copy */}
           <p className="text-xs text-muted-foreground">
-            <span suppressHydrationWarning>&copy; 2025 Grupo La Grailla. Hecho con 🔥 en Málaga.</span>
+            <span suppressHydrationWarning>{copy.footer_copyright}</span>
           </p>
         </div>
       </div>

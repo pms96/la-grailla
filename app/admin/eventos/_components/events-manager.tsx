@@ -14,6 +14,7 @@ import { Switch } from '@/components/ui/switch';
 import { Plus, Pencil, Trash2, Loader2, Calendar, Hourglass } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
+import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
 
 type EventWithCount = Event & { _count?: { tickets: number } };
 
@@ -38,6 +39,7 @@ type EventFormState = {
   status: EventStatus;
   latitude: number | string;
   longitude: number | string;
+  imageUrl: string;
 };
 
 const DEFAULT_WAITING_ROOM_SLOTS = 20;
@@ -63,7 +65,7 @@ export default function EventsManager() {
 
   const openCreate = () => {
     setEditingEvent(null);
-    setForm({ name: '', description: '', venue: '', city: '', address: '', artists: '', date: '', doorsOpen: '', endTime: '', minAge: 18, conditions: '', maxCapacity: 500, maxTicketsPerEmail: '', waitingRoomEnabled: false, waitingRoomConcurrentSlots: '', waitingRoomPurchaseWindowMinutes: '', waitingRoomMessage: '', status: 'DRAFT', latitude: '', longitude: '' });
+    setForm({ name: '', description: '', venue: '', city: '', address: '', artists: '', date: '', doorsOpen: '', endTime: '', minAge: 18, conditions: '', maxCapacity: 500, maxTicketsPerEmail: '', waitingRoomEnabled: false, waitingRoomConcurrentSlots: '', waitingRoomPurchaseWindowMinutes: '', waitingRoomMessage: '', status: 'DRAFT', latitude: '', longitude: '', imageUrl: '' });
     setDialogOpen(true);
   };
 
@@ -90,6 +92,7 @@ export default function EventsManager() {
       status: event?.status ?? 'DRAFT',
       latitude: event?.latitude ?? '',
       longitude: event?.longitude ?? '',
+      imageUrl: event?.imageUrl ?? '',
     });
     setDialogOpen(true);
   };
@@ -172,6 +175,15 @@ export default function EventsManager() {
                 </div>
               </div>
               <div><Label>Descripción</Label><Textarea value={form?.description ?? ''} onChange={handleChange('description')} className="mt-1" rows={3} /></div>
+              <div>
+                <Label>Imagen principal</Label>
+                <ImageUploadField
+                  value={form?.imageUrl ?? ''}
+                  onChange={(url) => updateField('imageUrl', url)}
+                  prefix="events"
+                  className="mt-1"
+                />
+              </div>
               <div className="grid md:grid-cols-3 gap-4">
                 <div><Label>Sala/Recinto</Label><Input value={form?.venue ?? ''} onChange={handleChange('venue')} className="mt-1" /></div>
                 <div><Label>Ciudad</Label><Input value={form?.city ?? ''} onChange={handleChange('city')} className="mt-1" /></div>

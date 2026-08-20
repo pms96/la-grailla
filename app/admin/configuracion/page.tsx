@@ -4,14 +4,13 @@ import { useEffect, useState } from 'react';
 import type { AppConfig } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Save, CreditCard, Mail, Globe, FileText, Send, Wallet, Ticket, Zap } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Loader2, Save, CreditCard, Mail, Globe, FileText, Send, Wallet, ShieldAlert, Zap, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ConfigField } from '@/app/admin/_components/config-field';
 
 export default function ConfiguracionPage() {
   const [configs, setConfigs] = useState<AppConfig[]>([]);
@@ -36,9 +35,6 @@ export default function ConfiguracionPage() {
   const updateValue = (key: string, value: string) => {
     setValues((prev) => ({ ...(prev ?? {}), [key]: value }));
   };
-
-  const handleChange = (key: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    updateValue(key, e.target.value ?? '');
 
   const handleSave = async () => {
     setSaving(true);
@@ -98,12 +94,13 @@ export default function ConfiguracionPage() {
       </div>
 
       <Tabs defaultValue="payment">
-        <TabsList>
+        <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="payment" className="gap-2"><CreditCard className="h-3.5 w-3.5" /> Pagos</TabsTrigger>
-          <TabsTrigger value="social" className="gap-2"><Globe className="h-3.5 w-3.5" /> Redes</TabsTrigger>
-          <TabsTrigger value="smtp" className="gap-2"><Send className="h-3.5 w-3.5" /> Email SMTP</TabsTrigger>
-          <TabsTrigger value="wallet" className="gap-2"><Wallet className="h-3.5 w-3.5" /> Wallet</TabsTrigger>
-          <TabsTrigger value="tickets" className="gap-2"><Ticket className="h-3.5 w-3.5" /> Entradas</TabsTrigger>
+          <TabsTrigger value="content" className="gap-2"><Sparkles className="h-3.5 w-3.5" /> Contenido</TabsTrigger>
+          <TabsTrigger value="social" className="gap-2"><Globe className="h-3.5 w-3.5" /> Redes sociales</TabsTrigger>
+          <TabsTrigger value="smtp" className="gap-2"><Send className="h-3.5 w-3.5" /> Email</TabsTrigger>
+          <TabsTrigger value="wallet" className="gap-2"><Wallet className="h-3.5 w-3.5" /> Wallets</TabsTrigger>
+          <TabsTrigger value="security" className="gap-2"><ShieldAlert className="h-3.5 w-3.5" /> Seguridad</TabsTrigger>
           <TabsTrigger value="legal" className="gap-2"><FileText className="h-3.5 w-3.5" /> Legal</TabsTrigger>
           <TabsTrigger value="general" className="gap-2"><Mail className="h-3.5 w-3.5" /> General</TabsTrigger>
         </TabsList>
@@ -121,55 +118,74 @@ export default function ConfiguracionPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div><Label>Stripe Publishable Key</Label><Input value={values?.stripe_publishable_key ?? ''} onChange={handleChange('stripe_publishable_key')} className="mt-1" placeholder="pk_..." /></div>
-            <div><Label>Stripe Secret Key</Label><Input type="password" value={values?.stripe_secret_key ?? ''} onChange={handleChange('stripe_secret_key')} className="mt-1" placeholder="sk_..." /></div>
-            <div>
-              <Label>Stripe Webhook Secret</Label>
-              <Input type="password" value={values?.stripe_webhook_secret ?? ''} onChange={handleChange('stripe_webhook_secret')} className="mt-1" placeholder="whsec_..." />
-              <p className="text-xs text-muted-foreground mt-1">
-                En Stripe Dashboard → Developers → Webhooks, crea un endpoint apuntando a <code>/api/webhooks/stripe</code> escuchando
-                {' '}<code>checkout.session.completed</code>, <code>checkout.session.async_payment_succeeded</code>, <code>checkout.session.async_payment_failed</code> y <code>checkout.session.expired</code>. Copia aquí el "Signing secret" que te da Stripe al crearlo.
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              disabled={testingGateway === 'stripe'}
-              onClick={() => testGateway('stripe')}
-            >
-              {testingGateway === 'stripe' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-              Probar conexión con Stripe
-            </Button>
 
-            <div><Label>SumUp API Key</Label><Input type="password" value={values?.sumup_api_key ?? ''} onChange={handleChange('sumup_api_key')} className="mt-1" /></div>
-            <div>
-              <Label>SumUp Merchant Code</Label>
-              <Input value={values?.sumup_merchant_code ?? ''} onChange={handleChange('sumup_merchant_code')} className="mt-1" placeholder="MC..." />
-              <p className="text-xs text-muted-foreground mt-1">Lo encuentras en tu cuenta de SumUp, en Ajustes → Datos de la cuenta. Es obligatorio para crear cobros, la API key sola no basta.</p>
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <h4 className="font-semibold text-sm">Stripe</h4>
+              <ConfigField label="Publishable Key" value={values?.stripe_publishable_key ?? ''} onChange={(v) => updateValue('stripe_publishable_key', v)} placeholder="pk_..." />
+              <ConfigField label="Secret Key" type="password" value={values?.stripe_secret_key ?? ''} onChange={(v) => updateValue('stripe_secret_key', v)} placeholder="sk_..." />
+              <ConfigField
+                label="Webhook Secret"
+                type="password"
+                value={values?.stripe_webhook_secret ?? ''}
+                onChange={(v) => updateValue('stripe_webhook_secret', v)}
+                placeholder="whsec_..."
+                description="En Stripe Dashboard → Developers → Webhooks, crea un endpoint apuntando a /api/webhooks/stripe escuchando checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed y checkout.session.expired. Copia aquí el 'Signing secret' que te da Stripe al crearlo."
+              />
+              <Button type="button" variant="outline" size="sm" className="gap-2" disabled={testingGateway === 'stripe'} onClick={() => testGateway('stripe')}>
+                {testingGateway === 'stripe' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                Probar conexión con Stripe
+              </Button>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              disabled={testingGateway === 'sumup'}
-              onClick={() => testGateway('sumup')}
-            >
-              {testingGateway === 'sumup' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-              Probar conexión con SumUp
-            </Button>
-            <div><Label>Comisión por entrada (%)</Label><Input type="number" step="0.1" value={values?.commission_percentage ?? '0'} onChange={handleChange('commission_percentage')} className="mt-1" /></div>
+
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <h4 className="font-semibold text-sm">SumUp</h4>
+              <ConfigField label="API Key" type="password" value={values?.sumup_api_key ?? ''} onChange={(v) => updateValue('sumup_api_key', v)} />
+              <ConfigField
+                label="Merchant Code"
+                value={values?.sumup_merchant_code ?? ''}
+                onChange={(v) => updateValue('sumup_merchant_code', v)}
+                placeholder="MC..."
+                description="Lo encuentras en tu cuenta de SumUp, en Ajustes → Datos de la cuenta. Es obligatorio para crear cobros, la API key sola no basta."
+              />
+              <Button type="button" variant="outline" size="sm" className="gap-2" disabled={testingGateway === 'sumup'} onClick={() => testGateway('sumup')}>
+                {testingGateway === 'sumup' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                Probar conexión con SumUp
+              </Button>
+            </div>
+
+            <ConfigField label="Comisión por entrada (%)" type="number" value={values?.commission_percentage ?? '0'} onChange={(v) => updateValue('commission_percentage', v)} />
+          </CardContent></Card>
+        </TabsContent>
+
+        <TabsContent value="content">
+          <Card><CardContent className="p-6 space-y-4">
+            <p className="text-sm text-muted-foreground">Textos que se muestran en la home y el footer de la web pública. Déjalos vacíos para usar el texto por defecto.</p>
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <h4 className="font-semibold text-sm">Home</h4>
+              <ConfigField
+                label="Badge del hero (cuando no hay próximo evento)"
+                value={values?.home_hero_badge_fallback ?? ''}
+                onChange={(v) => updateValue('home_hero_badge_fallback', v)}
+              />
+              <ConfigField label="Subtítulo principal" value={values?.home_hero_subtitle_1 ?? ''} onChange={(v) => updateValue('home_hero_subtitle_1', v)} />
+              <ConfigField label="Subtítulo secundario" value={values?.home_hero_subtitle_2 ?? ''} onChange={(v) => updateValue('home_hero_subtitle_2', v)} />
+              <ConfigField label="Título del CTA de sponsors" value={values?.home_sponsors_cta_title ?? ''} onChange={(v) => updateValue('home_sponsors_cta_title', v)} />
+              <ConfigField label="Subtítulo del CTA de sponsors" value={values?.home_sponsors_cta_subtitle ?? ''} onChange={(v) => updateValue('home_sponsors_cta_subtitle', v)} />
+            </div>
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <h4 className="font-semibold text-sm">Footer</h4>
+              <ConfigField label="Tagline" value={values?.footer_tagline ?? ''} onChange={(v) => updateValue('footer_tagline', v)} />
+              <ConfigField label="Copyright" value={values?.footer_copyright ?? ''} onChange={(v) => updateValue('footer_copyright', v)} />
+            </div>
           </CardContent></Card>
         </TabsContent>
 
         <TabsContent value="social">
           <Card><CardContent className="p-6 space-y-4">
-            <div><Label>Instagram</Label><Input value={values?.social_instagram ?? ''} onChange={handleChange('social_instagram')} className="mt-1" placeholder="https://instagram.com/lagrailla" /></div>
-            <div><Label>TikTok</Label><Input value={values?.social_tiktok ?? ''} onChange={handleChange('social_tiktok')} className="mt-1" placeholder="https://tiktok.com/@lagrailla" /></div>
-            <div><Label>Twitter/X</Label><Input value={values?.social_twitter ?? ''} onChange={handleChange('social_twitter')} className="mt-1" /></div>
-            <div><Label>Facebook</Label><Input value={values?.social_facebook ?? ''} onChange={handleChange('social_facebook')} className="mt-1" /></div>
+            <ConfigField label="Instagram" value={values?.social_instagram ?? ''} onChange={(v) => updateValue('social_instagram', v)} placeholder="https://instagram.com/lagrailla" />
+            <ConfigField label="TikTok" value={values?.social_tiktok ?? ''} onChange={(v) => updateValue('social_tiktok', v)} placeholder="https://tiktok.com/@lagrailla" />
+            <ConfigField label="Twitter/X" value={values?.social_twitter ?? ''} onChange={(v) => updateValue('social_twitter', v)} />
+            <ConfigField label="Facebook" value={values?.social_facebook ?? ''} onChange={(v) => updateValue('social_facebook', v)} />
           </CardContent></Card>
         </TabsContent>
 
@@ -187,10 +203,10 @@ export default function ConfiguracionPage() {
               </Select>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div><Label>Servidor SMTP</Label><Input value={values?.smtp_host ?? ''} onChange={handleChange('smtp_host')} className="mt-1" placeholder="smtp.tudominio.com" /></div>
-              <div><Label>Puerto</Label><Input value={values?.smtp_port ?? ''} onChange={handleChange('smtp_port')} className="mt-1" placeholder="587" /></div>
-              <div><Label>Usuario</Label><Input value={values?.smtp_user ?? ''} onChange={handleChange('smtp_user')} className="mt-1" /></div>
-              <div><Label>Contraseña</Label><Input type="password" value={values?.smtp_password ?? ''} onChange={handleChange('smtp_password')} className="mt-1" /></div>
+              <ConfigField label="Servidor SMTP" value={values?.smtp_host ?? ''} onChange={(v) => updateValue('smtp_host', v)} placeholder="smtp.tudominio.com" />
+              <ConfigField label="Puerto" value={values?.smtp_port ?? ''} onChange={(v) => updateValue('smtp_port', v)} placeholder="587" />
+              <ConfigField label="Usuario" value={values?.smtp_user ?? ''} onChange={(v) => updateValue('smtp_user', v)} />
+              <ConfigField label="Contraseña" type="password" value={values?.smtp_password ?? ''} onChange={(v) => updateValue('smtp_password', v)} />
               <div>
                 <Label>Conexión segura (SSL/TLS)</Label>
                 <Select value={values?.smtp_secure ?? 'true'} onValueChange={(v: string) => updateValue('smtp_secure', v)}>
@@ -201,8 +217,8 @@ export default function ConfiguracionPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div><Label>Email remitente</Label><Input value={values?.smtp_from_email ?? ''} onChange={handleChange('smtp_from_email')} className="mt-1" placeholder="entradas@tudominio.com" /></div>
-              <div><Label>Nombre remitente</Label><Input value={values?.smtp_from_name ?? ''} onChange={handleChange('smtp_from_name')} className="mt-1" placeholder="La Grailla" /></div>
+              <ConfigField label="Email remitente" value={values?.smtp_from_email ?? ''} onChange={(v) => updateValue('smtp_from_email', v)} placeholder="entradas@tudominio.com" />
+              <ConfigField label="Nombre remitente" value={values?.smtp_from_name ?? ''} onChange={(v) => updateValue('smtp_from_name', v)} placeholder="La Grailla" />
             </div>
           </CardContent></Card>
         </TabsContent>
@@ -210,13 +226,13 @@ export default function ConfiguracionPage() {
         <TabsContent value="wallet">
           <Card><CardContent className="p-6 space-y-6">
             <p className="text-sm text-muted-foreground">Los botones de Apple Wallet y Google Wallet solo aparecen en las entradas cuando estas credenciales están completas. Requieren una cuenta de desarrollador de Apple y un emisor de Google Wallet.</p>
-            <div className="space-y-4">
-              <h4 className="font-semibold">Google Wallet</h4>
-              <div><Label>Issuer ID</Label><Input value={values?.google_wallet_issuer_id ?? ''} onChange={handleChange('google_wallet_issuer_id')} className="mt-1" placeholder="3388000000022..." /></div>
-              <div><Label>Service Account JSON</Label><Textarea value={values?.google_wallet_service_account ?? ''} onChange={handleChange('google_wallet_service_account')} className="mt-1 font-mono text-xs" rows={5} placeholder='{"client_email": "...", "private_key": "..."}' /></div>
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <h4 className="font-semibold text-sm">Google Wallet</h4>
+              <ConfigField label="Issuer ID" value={values?.google_wallet_issuer_id ?? ''} onChange={(v) => updateValue('google_wallet_issuer_id', v)} placeholder="3388000000022..." />
+              <ConfigField label="Service Account JSON" type="textarea" rows={5} value={values?.google_wallet_service_account ?? ''} onChange={(v) => updateValue('google_wallet_service_account', v)} placeholder='{"client_email": "...", "private_key": "..."}' />
             </div>
-            <div className="space-y-4 border-t border-border pt-6">
-              <h4 className="font-semibold">Apple Wallet</h4>
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <h4 className="font-semibold text-sm">Apple Wallet</h4>
               <div>
                 <Label>Activar Apple Wallet</Label>
                 <Select value={values?.apple_wallet_enabled ?? 'false'} onValueChange={(v: string) => updateValue('apple_wallet_enabled', v)}>
@@ -228,21 +244,21 @@ export default function ConfiguracionPage() {
                 </Select>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <div><Label>Pass Type ID</Label><Input value={values?.apple_wallet_pass_type_id ?? ''} onChange={handleChange('apple_wallet_pass_type_id')} className="mt-1" placeholder="pass.com.lagrailla.entrada" /></div>
-                <div><Label>Team ID</Label><Input value={values?.apple_wallet_team_id ?? ''} onChange={handleChange('apple_wallet_team_id')} className="mt-1" /></div>
-                <div><Label>Contraseña del certificado</Label><Input type="password" value={values?.apple_wallet_cert_password ?? ''} onChange={handleChange('apple_wallet_cert_password')} className="mt-1" /></div>
+                <ConfigField label="Pass Type ID" value={values?.apple_wallet_pass_type_id ?? ''} onChange={(v) => updateValue('apple_wallet_pass_type_id', v)} placeholder="pass.com.lagrailla.entrada" />
+                <ConfigField label="Team ID" value={values?.apple_wallet_team_id ?? ''} onChange={(v) => updateValue('apple_wallet_team_id', v)} />
+                <ConfigField label="Contraseña del certificado" type="password" value={values?.apple_wallet_cert_password ?? ''} onChange={(v) => updateValue('apple_wallet_cert_password', v)} />
               </div>
-              <div><Label>Certificado .p12 (en base64)</Label><Textarea value={values?.apple_wallet_cert_p12_base64 ?? ''} onChange={handleChange('apple_wallet_cert_p12_base64')} className="mt-1 font-mono text-xs" rows={4} /></div>
+              <ConfigField label="Certificado .p12 (en base64)" type="textarea" rows={4} value={values?.apple_wallet_cert_p12_base64 ?? ''} onChange={(v) => updateValue('apple_wallet_cert_p12_base64', v)} />
             </div>
           </CardContent></Card>
         </TabsContent>
 
-        <TabsContent value="tickets">
+        <TabsContent value="security">
           <Card><CardContent className="p-6 space-y-4">
             <p className="text-sm text-muted-foreground">Límite anti-abuso de compras por IP. Se aplica de forma global a todos los eventos, para evitar bots o compras masivas automatizadas.</p>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div><Label>Máx. pedidos por IP</Label><Input type="number" min={1} value={values?.orders_rate_limit_per_ip ?? '10'} onChange={handleChange('orders_rate_limit_per_ip')} className="mt-1" /></div>
-              <div><Label>Ventana de tiempo (segundos)</Label><Input type="number" min={1} value={values?.orders_rate_limit_window_seconds ?? '60'} onChange={handleChange('orders_rate_limit_window_seconds')} className="mt-1" /></div>
+              <ConfigField label="Máx. pedidos por IP" type="number" value={values?.orders_rate_limit_per_ip ?? '10'} onChange={(v) => updateValue('orders_rate_limit_per_ip', v)} />
+              <ConfigField label="Ventana de tiempo (segundos)" type="number" value={values?.orders_rate_limit_window_seconds ?? '60'} onChange={(v) => updateValue('orders_rate_limit_window_seconds', v)} />
             </div>
             <p className="text-xs text-muted-foreground">Con los valores por defecto, una misma IP no puede crear más de 10 pedidos cada 60 segundos. Si el lanzamiento espera mucho tráfico legítimo desde la misma red (wifi compartido, datos móviles), sube estos valores.</p>
           </CardContent></Card>
@@ -250,15 +266,15 @@ export default function ConfiguracionPage() {
 
         <TabsContent value="legal">
           <Card><CardContent className="p-6 space-y-4">
-            <div><Label>Aviso Legal</Label><Textarea value={values?.legal_notice ?? ''} onChange={handleChange('legal_notice')} className="mt-1" rows={6} /></div>
-            <div><Label>Política de Privacidad</Label><Textarea value={values?.privacy_policy ?? ''} onChange={handleChange('privacy_policy')} className="mt-1" rows={6} /></div>
-            <div><Label>Política de Cookies</Label><Textarea value={values?.cookies_policy ?? ''} onChange={handleChange('cookies_policy')} className="mt-1" rows={6} /></div>
+            <ConfigField label="Aviso Legal" type="textarea" rows={6} value={values?.legal_notice ?? ''} onChange={(v) => updateValue('legal_notice', v)} />
+            <ConfigField label="Política de Privacidad" type="textarea" rows={6} value={values?.privacy_policy ?? ''} onChange={(v) => updateValue('privacy_policy', v)} />
+            <ConfigField label="Política de Cookies" type="textarea" rows={6} value={values?.cookies_policy ?? ''} onChange={(v) => updateValue('cookies_policy', v)} />
           </CardContent></Card>
         </TabsContent>
 
         <TabsContent value="general">
           <Card><CardContent className="p-6 space-y-4">
-            <div><Label>Email de administración</Label><Input value={values?.admin_email ?? ''} onChange={handleChange('admin_email')} className="mt-1" /></div>
+            <ConfigField label="Email de administración" value={values?.admin_email ?? ''} onChange={(v) => updateValue('admin_email', v)} />
             <div>
               <Label>Banner de cookies</Label>
               <Select value={values?.cookies_banner_enabled ?? 'true'} onValueChange={(v: string) => updateValue('cookies_banner_enabled', v)}>

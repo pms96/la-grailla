@@ -13,6 +13,7 @@ const updateProductSchema = z.object({
   description: z.string().optional().nullable(),
   price: z.coerce.number().optional(),
   imageUrl: z.string().optional().nullable(),
+  images: z.array(z.string()).optional(),
   category: z.string().optional().nullable(),
   sizes: z.string().optional().nullable(),
   colors: z.string().optional().nullable(),
@@ -33,6 +34,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     if (body?.description !== undefined) data.description = body.description;
     if (body?.price !== undefined) data.price = Number(body.price) || 0;
     if (body?.imageUrl !== undefined) data.imageUrl = body.imageUrl || null;
+    if (body?.images !== undefined) data.images = body.images;
     if (body?.category !== undefined) data.category = body.category;
     if (body?.sizes !== undefined) data.sizes = body.sizes || null;
     if (body?.colors !== undefined) data.colors = body.colors || null;

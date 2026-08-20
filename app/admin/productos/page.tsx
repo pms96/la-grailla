@@ -11,22 +11,24 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Plus, Pencil, Trash2, ShoppingBag } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, ShoppingBag, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
+import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
 
 type ProductFormState = {
   name: string;
   description: string;
   price: number | string;
   imageUrl: string;
+  images: string[];
   category: string;
   sizes: string;
   colors: string;
   isActive: 'true' | 'false';
 };
 
-const EMPTY: ProductFormState = { name: '', description: '', price: 0, imageUrl: '', category: '', sizes: '', colors: '', isActive: 'true' };
+const EMPTY: ProductFormState = { name: '', description: '', price: 0, imageUrl: '', images: [], category: '', sizes: '', colors: '', isActive: 'true' };
 
 export default function ProductosPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -61,6 +63,7 @@ export default function ProductosPage() {
       description: p?.description ?? '',
       price: p?.price ?? 0,
       imageUrl: p?.imageUrl ?? '',
+      images: p?.images ?? [],
       category: p?.category ?? '',
       sizes: p?.sizes ?? '',
       colors: p?.colors ?? '',
@@ -78,6 +81,7 @@ export default function ProductosPage() {
         description: form.description ?? '',
         price: Number(form.price) || 0,
         imageUrl: form.imageUrl ?? '',
+        images: (form.images ?? []).filter(Boolean),
         category: form.category ?? '',
         sizes: form.sizes ?? '',
         colors: form.colors ?? '',
@@ -160,7 +164,48 @@ export default function ProductosPage() {
               <div><Label>Precio (€)</Label><Input type="number" step="0.01" value={form?.price ?? 0} onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField('price', e?.target?.value ?? 0)} className="mt-1" /></div>
               <div><Label>Categoría</Label><Input value={form?.category ?? ''} onChange={handleChange('category')} className="mt-1" placeholder="Camisetas" /></div>
             </div>
-            <div><Label>URL de la imagen</Label><Input value={form?.imageUrl ?? ''} onChange={handleChange('imageUrl')} className="mt-1" /></div>
+            <div>
+              <Label>Imagen principal</Label>
+              <ImageUploadField
+                value={form?.imageUrl ?? ''}
+                onChange={(url) => updateField('imageUrl', url)}
+                prefix="products"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Galería (opcional)</Label>
+              <p className="text-xs text-muted-foreground mt-1 mb-2">Imágenes adicionales para el carrusel de la tienda, además de la principal.</p>
+              <div className="flex flex-wrap gap-3">
+                {(form?.images ?? []).map((img, i) => (
+                  <div key={i} className="relative">
+                    <ImageUploadField
+                      value={img}
+                      onChange={(url) => updateField('images', (form?.images ?? []).map((x, idx) => (idx === i ? url : x)))}
+                      prefix="products"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-background border border-border"
+                      onClick={() => updateField('images', (form?.images ?? []).filter((_, idx) => idx !== i))}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 self-start h-28"
+                  onClick={() => updateField('images', [...(form?.images ?? []), ''])}
+                >
+                  <Plus className="h-3.5 w-3.5" /> Añadir imagen
+                </Button>
+              </div>
+            </div>
             <div><Label>Tallas disponibles</Label><Input value={form?.sizes ?? ''} onChange={handleChange('sizes')} className="mt-1" placeholder="S, M, L, XL" /></div>
             <div><Label>Colores disponibles</Label><Input value={form?.colors ?? ''} onChange={handleChange('colors')} className="mt-1" placeholder="Negro, Blanco" /></div>
             <p className="text-xs text-muted-foreground -mt-2">Separa cada opción con una coma. Si lo dejas vacío, el producto se vende sin variantes.</p>

@@ -16,8 +16,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, type CarouselApi } from '@/components/ui/carousel';
 import { ShoppingBag, Loader2, Package, Plus, Minus, Trash2, ShoppingCart } from 'lucide-react';
-import { Stagger, StaggerItem, SkeletonPulse } from '@/components/ui/animate';
+import { Stagger, StaggerItem, SkeletonPulse, PressScale } from '@/components/ui/animate';
 
 type CartLine = {
   key: string;
@@ -47,6 +48,8 @@ export default function ShopGrid() {
   const [selected, setSelected] = useState<Product | null>(null);
   const [chosenSize, setChosenSize] = useState<string>('');
   const [chosenColor, setChosenColor] = useState<string>('');
+  const [carouselApi, setCarouselApi] = useState<CarouselApi>();
+  const [carouselIndex, setCarouselIndex] = useState(0);
   const [checkout, setCheckout] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string>('');
@@ -89,7 +92,16 @@ export default function ShopGrid() {
     setSelected(product);
     setChosenSize(sizes[0] ?? '');
     setChosenColor(colors[0] ?? '');
+    setCarouselIndex(0);
   };
+
+  useEffect(() => {
+    if (!carouselApi) return;
+    setCarouselIndex(carouselApi.selectedScrollSnap());
+    const onSelect = () => setCarouselIndex(carouselApi.selectedScrollSnap());
+    carouselApi.on('select', onSelect);
+    return () => { carouselApi.off('select', onSelect); };
+  }, [carouselApi]);
 
   const addToCart = () => {
     if (!selected) return;
@@ -234,13 +246,17 @@ export default function ShopGrid() {
                       {[line.size, line.color].filter(Boolean).join(' · ') || 'Estándar'}
                     </p>
                     <div className="mt-2 flex items-center gap-2">
-                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => changeQty(line.key, -1)}>
-                        <Minus className="h-3 w-3" />
-                      </Button>
+                      <PressScale>
+                        <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => changeQty(line.key, -1)}>
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                      </PressScale>
                       <span className="w-6 text-center text-sm">{line.quantity}</span>
-                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => changeQty(line.key, 1)}>
-                        <Plus className="h-3 w-3" />
-                      </Button>
+                      <PressScale>
+                        <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => changeQty(line.key, 1)}>
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </PressScale>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -314,6 +330,32 @@ export default function ShopGrid() {
             <DialogDescription>{selected?.description ?? 'Elige las opciones y añade al carrito.'}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {(() => {
+              const gallery = [selected?.imageUrl, ...(selected?.images ?? [])].filter(Boolean) as string[];
+              if (gallery.length === 0) return null;
+              return (
+                <Carousel setApi={setCarouselApi}>
+                  <CarouselContent>
+                    {gallery.map((src, i) => (
+                      <CarouselItem key={i}>
+                        <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-muted">
+                          <img src={src} alt={selected?.name ?? ''} className="h-full w-full object-cover" />
+                        </div>
+                      </CarouselItem>
+                    ))}
+                  </CarouselContent>
+                  {gallery.length > 1 && (
+                    <>
+                      <CarouselPrevious className="left-2 -translate-y-1/2 rounded-full bg-background/80" />
+                      <CarouselNext className="right-2 -translate-y-1/2 rounded-full bg-background/80" />
+                      <span className="absolute bottom-2 right-2 font-mono text-xs px-2 py-0.5 rounded-full bg-background/80 border border-border">
+                        {carouselIndex + 1} / {gallery.length}
+                      </span>
+                    </>
+                  )}
+                </Carousel>
+              );
+            })()}
             {selectedSizes.length > 0 && (
               <div className="space-y-2">
                 <Label>Talla</Label>
@@ -352,9 +394,11 @@ export default function ShopGrid() {
             )}
             <div className="flex items-center justify-between pt-2">
               <span className="font-display text-xl font-bold">{(selected?.price ?? 0).toFixed(2)}€</span>
-              <Button onClick={addToCart} className="gap-2">
-                <ShoppingCart className="h-4 w-4" /> Añadir al carrito
-              </Button>
+              <PressScale>
+                <Button onClick={addToCart} className="gap-2">
+                  <ShoppingCart className="h-4 w-4" /> Añadir al carrito
+                </Button>
+              </PressScale>
             </div>
           </div>
         </DialogContent>

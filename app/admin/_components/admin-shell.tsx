@@ -6,9 +6,11 @@ import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { ChangePasswordDialog } from '@/app/admin/_components/change-password-dialog';
 import {
   LayoutDashboard, Calendar, Ticket, Users, ShoppingBag, Package,
-  BarChart3, Handshake, Settings, LogOut, Menu, X, QrCode
+  BarChart3, Handshake, Settings, LogOut, Menu, X, QrCode, KeyRound
 } from 'lucide-react';
 
 const navItems = [
@@ -28,6 +30,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const { data: session } = useSession() || {};
   const pathname = usePathname() ?? '';
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
 
   return (
     <div className="min-h-screen flex">
@@ -75,19 +78,29 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           </nav>
 
           <div className="p-3 border-t border-border">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
-                {(session?.user?.name ?? 'A')?.[0]?.toUpperCase?.() ?? 'A'}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{session?.user?.name ?? 'Admin'}</p>
-                <p className="text-xs text-muted-foreground truncate">{session?.user?.email ?? ''}</p>
-              </div>
-            </div>
-            <Button variant="ghost" size="sm" className="w-full justify-start gap-2" onClick={() => signOut?.({ callbackUrl: '/auth/login' })}>
-              <LogOut className="h-4 w-4" /> Cerrar Sesión
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex w-full items-center gap-2 rounded-md p-1.5 text-left transition-colors hover:bg-accent">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
+                    {(session?.user?.name ?? 'A')?.[0]?.toUpperCase?.() ?? 'A'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{session?.user?.name ?? 'Admin'}</p>
+                    <p className="text-xs text-muted-foreground truncate">{session?.user?.email ?? ''}</p>
+                  </div>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuItem className="gap-2" onSelect={() => setChangePasswordOpen(true)}>
+                  <KeyRound className="h-4 w-4" /> Cambiar contraseña
+                </DropdownMenuItem>
+                <DropdownMenuItem className="gap-2 text-destructive" onSelect={() => signOut?.({ callbackUrl: '/auth/login' })}>
+                  <LogOut className="h-4 w-4" /> Cerrar sesión
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
+          <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
         </div>
       </aside>
 
