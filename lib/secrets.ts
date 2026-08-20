@@ -14,7 +14,14 @@ import crypto from 'crypto';
 const ENCRYPTED_PREFIX = 'enc:v1:';
 const HKDF_INFO = 'la-grailla-config-encryption-v1';
 
-export const SENSITIVE_CONFIG_KEYS = ['stripe_secret_key', 'stripe_webhook_secret', 'sumup_api_key'];
+export const SENSITIVE_CONFIG_KEYS = [
+  'stripe_secret_key',
+  'stripe_webhook_secret',
+  'sumup_api_key',
+  'google_wallet_service_account',
+  'apple_wallet_cert_p12_base64',
+  'apple_wallet_cert_password',
+];
 
 export function isSensitiveConfigKey(key: string): boolean {
   return SENSITIVE_CONFIG_KEYS.includes(key);

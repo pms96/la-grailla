@@ -1,4 +1,5 @@
 import { getConfigs } from '@/lib/config';
+import { APPLE_WWDR_CERT_PEM } from '@/lib/apple-wwdr-cert';
 
 export type WalletAvailability = { google: boolean; apple: boolean };
 
@@ -96,6 +97,33 @@ export async function buildGoogleWalletSaveUrl(ticket: TicketPayload): Promise<s
 const ICON_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAPElEQVR42mP8z8BQz0AEYBxVSFmFjIyM/xkYGP4zMDAwMDIyMjAwMDAwMDAwMDAwMDAwMDAwMAAAiwgH/eLXKZQAAAAASUVORK5CYII=';
 
+// passkit-generator firma el .pkpass con node-forge y espera el certificado
+// y la clave privada como texto PEM por separado — nunca acepta un .p12
+// (PKCS#12) directamente. El admin solo puede exportar un .p12 desde
+// Acceso a Llaveros/Keychain (es el único formato que Apple entrega), así
+// que hay que desempaquetarlo aquí antes de pasárselo a la librería.
+async function extractPemFromP12(
+  p12Base64: string,
+  passphrase: string | undefined
+): Promise<{ certPem: string; keyPem: string }> {
+  const forgeModule = await import('node-forge');
+  const forge = (forgeModule as unknown as { default?: typeof forgeModule }).default ?? forgeModule;
+
+  const p12Der = forge.util.decode64(p12Base64);
+  const p12Asn1 = forge.asn1.fromDer(p12Der);
+  const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, false, passphrase ?? '');
+
+  const certBags = p12.getBags({ bagType: forge.pki.oids.certBag });
+  const keyBags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag });
+  const cert = certBags[forge.pki.oids.certBag]?.[0]?.cert;
+  const key = keyBags[forge.pki.oids.pkcs8ShroudedKeyBag]?.[0]?.key;
+  if (!cert || !key) {
+    throw new Error('El .p12 no contiene un certificado y una clave privada válidos (¿contraseña incorrecta?)');
+  }
+
+  return { certPem: forge.pki.certificateToPem(cert), keyPem: forge.pki.privateKeyToPem(key) };
+}
+
 export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | null> {
   const cfg = await getConfigs([
     'apple_wallet_enabled',
@@ -109,6 +137,7 @@ export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | nu
 
   try {
     const { PKPass } = await import('passkit-generator');
+    const { certPem, keyPem } = await extractPemFromP12(cfg.apple_wallet_cert_p12_base64, cfg.apple_wallet_cert_password);
     const iconBuffer = Buffer.from(ICON_PNG_BASE64, 'base64');
 
     const passJson = {
@@ -132,10 +161,9 @@ export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | nu
         'logo.png': iconBuffer,
       },
       {
-        wwdr: Buffer.from(cfg.apple_wallet_cert_p12_base64, 'base64'),
-        signerCert: Buffer.from(cfg.apple_wallet_cert_p12_base64, 'base64'),
-        signerKey: Buffer.from(cfg.apple_wallet_cert_p12_base64, 'base64'),
-        signerKeyPassphrase: cfg.apple_wallet_cert_password || undefined,
+        wwdr: Buffer.from(APPLE_WWDR_CERT_PEM),
+        signerCert: Buffer.from(certPem),
+        signerKey: Buffer.from(keyPem),
       }
     );
 
