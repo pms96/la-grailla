@@ -130,7 +130,7 @@ export default function ConfirmationClient({ orderId }: { orderId: string }) {
     <FadeIn>
       <div className="space-y-6">
         <div className="text-center">
-          <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
+          <CheckCircle className="h-16 w-16 text-lima mx-auto mb-4" />
           <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Compra Confirmada</h1>
           <p className="text-muted-foreground mt-2">Tus entradas están listas</p>
         </div>

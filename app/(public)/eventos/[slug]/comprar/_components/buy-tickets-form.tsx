@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Ticket, Minus, Plus, CreditCard, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { FadeIn } from '@/components/ui/animate';
+import { FadeIn, PressScale } from '@/components/ui/animate';
 
 interface TicketType {
   id: string;
@@ -138,7 +138,12 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
                 const qty = quantities?.[tt?.id] ?? 0;
                 const soldOut = available <= 0;
                 return (
-                  <div key={tt?.id} className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
+                  <div
+                    key={tt?.id}
+                    className={`flex items-center justify-between p-4 rounded-lg border transition-colors ${
+                      qty > 0 ? 'bg-primary/5 border-primary/40' : 'bg-muted/50 border-transparent'
+                    }`}
+                  >
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <p className="font-medium">{tt?.name ?? ''}</p>
@@ -152,13 +157,17 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
                         <Badge variant="destructive">Agotado</Badge>
                       ) : (
                         <>
-                          <Button variant="outline" size="icon-sm" onClick={() => updateQty(tt?.id, -1)} disabled={qty <= 0}>
-                            <Minus className="h-3 w-3" />
-                          </Button>
+                          <PressScale>
+                            <Button variant="outline" size="icon-sm" onClick={() => updateQty(tt?.id, -1)} disabled={qty <= 0}>
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                          </PressScale>
                           <span className="w-8 text-center font-mono font-bold">{qty}</span>
-                          <Button variant="outline" size="icon-sm" onClick={() => updateQty(tt?.id, 1)} disabled={qty >= available}>
-                            <Plus className="h-3 w-3" />
-                          </Button>
+                          <PressScale>
+                            <Button variant="outline" size="icon-sm" onClick={() => updateQty(tt?.id, 1)} disabled={qty >= available}>
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </PressScale>
                         </>
                       )}
                     </div>
@@ -196,10 +205,12 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
                 <p className="text-sm text-muted-foreground">{totalItems} entrada{totalItems !== 1 ? 's' : ''}</p>
                 <p className="font-display text-2xl font-bold">{totalPrice.toFixed(2)}€</p>
               </div>
-              <Button size="lg" className="gap-2" disabled={loading || totalItems === 0} onClick={handleSubmit}>
-                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CreditCard className="h-5 w-5" />}
-                {loading ? 'Conectando con el pago...' : 'Ir a pagar'}
-              </Button>
+              <PressScale>
+                <Button size="lg" className="gap-2" disabled={loading || totalItems === 0} onClick={handleSubmit}>
+                  {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CreditCard className="h-5 w-5" />}
+                  {loading ? 'Conectando con el pago...' : 'Ir a pagar'}
+                </Button>
+              </PressScale>
             </div>
             <p className="text-xs text-muted-foreground">Pagarás en un entorno seguro. Al confirmar el pago, aceptas las condiciones del evento y recibirás tus entradas por email.</p>
           </CardContent>

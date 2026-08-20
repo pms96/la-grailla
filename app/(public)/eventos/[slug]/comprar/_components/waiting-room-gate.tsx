@@ -130,8 +130,8 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
 
   if (state.status === 'CHECKING') {
     return (
-      <div className="flex justify-center py-24">
-        <Hourglass className="h-6 w-6 text-primary animate-pulse" />
+      <div className="relative overflow-hidden rounded-lg hero-gradient texture-noise flex justify-center py-24">
+        <Hourglass className="relative h-6 w-6 text-primary animate-pulse" />
       </div>
     );
   }
@@ -139,7 +139,7 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
   if (state.status === 'WAITING') {
     return (
       <FadeIn>
-        <div className="relative overflow-hidden rounded-lg border border-border bg-card p-8 md:p-12 text-center space-y-6">
+        <div className="relative overflow-hidden rounded-lg border border-border bg-card hero-gradient texture-noise p-8 md:p-12 text-center space-y-6">
           <div className="absolute top-0 right-0 w-40 h-40 rounded-full bg-lima/10 blur-3xl" />
           <div className="absolute bottom-0 left-0 w-40 h-40 rounded-full bg-neon-pink/8 blur-3xl" />
 

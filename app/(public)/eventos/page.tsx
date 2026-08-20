@@ -32,7 +32,8 @@ export default async function EventosPage() {
     <Container size="lg">
       <div className="py-10">
         <FadeIn>
-          <div className="mb-10">
+          <div className="relative mb-10">
+            <div className="absolute -top-10 -left-10 w-64 h-64 rounded-full bg-lima/8 blur-3xl pointer-events-none" />
             <div className="inline-flex brand-sticker text-xs text-lima border-lima/60 shadow-lima/30 mb-4">
               🎶 PROGRAMACIÓN
             </div>
@@ -72,7 +73,7 @@ export default async function EventosPage() {
                             <Music className="h-14 w-14 text-primary/30" />
                           )}
                           {spotsLeft <= 50 && spotsLeft > 0 && (
-                            <Badge variant="destructive" className="absolute top-3 right-3 text-xs">
+                            <Badge variant="outline" className="absolute top-3 right-3 text-xs border-warm-yellow/60 text-warm-yellow bg-warm-yellow/10">
                               ¡Últimas {spotsLeft} plazas!
                             </Badge>
                           )}

@@ -14,7 +14,8 @@ export default function TiendaPage() {
     <Container size="lg">
       <div className="py-8">
         <FadeIn>
-          <div className="mb-10">
+          <div className="relative mb-10">
+            <div className="absolute -top-10 -left-10 w-64 h-64 rounded-full bg-lima/8 blur-3xl pointer-events-none" />
             <div className="inline-flex brand-sticker text-xs text-lima border-lima/60 shadow-lima/30 mb-4">
               🛒 MERCH OFICIAL
             </div>

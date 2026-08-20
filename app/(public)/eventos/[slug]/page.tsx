@@ -56,7 +56,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
             {event?.imageUrl ? (
               <img src={event.imageUrl} alt={event?.name ?? ''} className="object-cover w-full h-full" />
             ) : (
-              <h1 className="font-display text-4xl md:text-6xl font-bold text-foreground drop-shadow-sm">{event?.name ?? ''}</h1>
+              <p aria-hidden className="font-display text-4xl md:text-6xl font-bold text-foreground drop-shadow-sm">{event?.name ?? ''}</p>
             )}
           </div>
         </FadeIn>
