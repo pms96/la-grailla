@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { QrCode, Users, RefreshCw, Keyboard, Camera, LogOut, Ticket, UserPlus } from 'lucide-react';
+import { QrCode, Users, RefreshCw, Keyboard, Camera, LogOut, Ticket, UserPlus, TrendingUp, AlertTriangle } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import dynamic from 'next/dynamic';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -35,7 +35,7 @@ export default function AccessClient() {
   const [events, setEvents] = useState<EventWithTicketTypes[]>([]);
   const [selectedEvent, setSelectedEvent] = useState('');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
-  const [capacity, setCapacity] = useState({ current: 0, max: 0 });
+  const [capacity, setCapacity] = useState({ current: 0, max: 0, entryRate5min: 0, rejectionRate5min: null as number | null });
   const [mode, setMode] = useState<'camera' | 'manual'>('camera');
   const [manualCode, setManualCode] = useState('');
   const [scanning, setScanning] = useState(false);
@@ -54,14 +54,25 @@ export default function AccessClient() {
   useEffect(() => { loadEvents(); }, [loadEvents]);
 
   const refreshCapacity = useCallback(() => {
-    const ev = events?.find((e) => e?.id === selectedEvent);
-    if (ev) {
-      setCapacity({ current: ev?.currentCount ?? 0, max: ev?.maxCapacity ?? 0 });
-    }
-  }, [events, selectedEvent]);
+    if (!selectedEvent) return;
+    fetch(`/api/access/capacity?eventId=${selectedEvent}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.error) return;
+        setCapacity({
+          current: data?.current ?? 0,
+          max: data?.max ?? 0,
+          entryRate5min: data?.entryRate5min ?? 0,
+          rejectionRate5min: data?.rejectionRate5min ?? null,
+        });
+      })
+      .catch(() => {});
+  }, [selectedEvent]);
 
   useEffect(() => {
     refreshCapacity();
+    const i = setInterval(refreshCapacity, 8000);
+    return () => clearInterval(i);
   }, [refreshCapacity]);
 
   const handleScan = useCallback(async (qrCode: string) => {
@@ -185,6 +196,16 @@ export default function AccessClient() {
                 className={`h-2 rounded-full transition-all ${capacityPercent >= 95 ? 'bg-red-500' : capacityPercent >= 80 ? 'bg-yellow-500' : 'bg-green-500'}`}
                 style={{ width: `${Math.min(capacityPercent, 100)}%` }}
               />
+            </div>
+            <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <TrendingUp className="h-3.5 w-3.5" /> +{capacity?.entryRate5min ?? 0} en 5 min
+              </span>
+              {(capacity?.rejectionRate5min ?? 0) > 20 && (
+                <span className="flex items-center gap-1 text-yellow-500">
+                  <AlertTriangle className="h-3.5 w-3.5" /> {capacity.rejectionRate5min}% de escaneos rechazados
+                </span>
+              )}
             </div>
           </CardContent>
         </Card>

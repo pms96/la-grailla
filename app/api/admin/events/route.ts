@@ -32,6 +32,8 @@ const createEventSchema = z.object({
   alertThresholds: z.string().optional(),
 });
 
+const ENTRY_WINDOW_MS = 5 * 60 * 1000;
+
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') {
@@ -47,7 +49,49 @@ export async function GET() {
       },
       orderBy: { date: 'desc' },
     });
-    return NextResponse.json(events ?? []);
+
+    const eventIds = (events ?? []).map((e) => e.id);
+    const since = new Date(Date.now() - ENTRY_WINDOW_MS);
+    const [recentScans, validScannerCounts] = eventIds.length
+      ? await Promise.all([
+          prisma.scanLog.groupBy({
+            by: ['eventId', 'result'],
+            where: { eventId: { in: eventIds }, createdAt: { gte: since } },
+            _count: { _all: true },
+          }),
+          prisma.scanLog.groupBy({
+            by: ['eventId', 'scannerId'],
+            where: { eventId: { in: eventIds }, result: 'VALID' },
+            _count: { _all: true },
+          }),
+        ])
+      : [[], []];
+
+    const scannerIds = Array.from(new Set(validScannerCounts.map((c) => c.scannerId).filter((id): id is string => Boolean(id))));
+    const scanners = scannerIds.length
+      ? await prisma.user.findMany({ where: { id: { in: scannerIds } }, select: { id: true, name: true, email: true } })
+      : [];
+    const scannerName = new Map(scanners.map((s) => [s.id, s.name || s.email]));
+
+    const enriched = (events ?? []).map((ev) => {
+      const scans = recentScans.filter((s) => s.eventId === ev.id);
+      const validCount = scans.find((s) => s.result === 'VALID')?._count?._all ?? 0;
+      const totalCount = scans.reduce((sum, s) => sum + (s._count?._all ?? 0), 0);
+      const topScanners = validScannerCounts
+        .filter((c) => c.eventId === ev.id && c.scannerId)
+        .sort((a, b) => (b._count?._all ?? 0) - (a._count?._all ?? 0))
+        .slice(0, 3)
+        .map((c) => ({ name: scannerName.get(c.scannerId as string) ?? 'Desconocido', count: c._count?._all ?? 0 }));
+
+      return {
+        ...ev,
+        entryRate5min: validCount,
+        rejectionRate5min: totalCount > 0 ? Math.round(((totalCount - validCount) / totalCount) * 100) : null,
+        topScanners,
+      };
+    });
+
+    return NextResponse.json(enriched);
   } catch (error) {
     return handleApiError(error, 'GET /api/admin/events');
   }

@@ -1,15 +1,21 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { Event } from '@prisma/client';
+import type { Event, TicketType } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, RefreshCw, Users, AlertTriangle } from 'lucide-react';
+import { Loader2, RefreshCw, Users, AlertTriangle, TrendingUp } from 'lucide-react';
 import { PageHeader } from '@/components/layouts/page-header';
 import CapacityAlertsEditor from '@/components/admin/capacity-alerts-editor';
 
-type EventWithCount = Event & { _count?: { tickets: number } };
+type EventWithCount = Event & {
+  _count?: { tickets: number };
+  ticketTypes?: Pick<TicketType, 'id' | 'name' | 'phaseName' | 'soldCount' | 'maxQuantity'>[];
+  entryRate5min?: number;
+  rejectionRate5min?: number | null;
+  topScanners?: { name: string; count: number }[];
+};
 
 export default function AforoPage() {
   const [events, setEvents] = useState<EventWithCount[]>([]);
@@ -83,6 +89,44 @@ export default function AforoPage() {
                       <span className="font-medium text-foreground">{pending}</span> por entrar
                     </span>
                   </div>
+                  <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <TrendingUp className="h-3.5 w-3.5" /> +{ev?.entryRate5min ?? 0} en 5 min
+                    </span>
+                    {(ev?.rejectionRate5min ?? 0) > 20 && (
+                      <span className="flex items-center gap-1 text-yellow-500">
+                        <AlertTriangle className="h-3.5 w-3.5" /> {ev.rejectionRate5min}% rechazados
+                      </span>
+                    )}
+                  </div>
+                  {(ev?.ticketTypes?.length ?? 0) > 0 && (
+                    <div className="mt-3 pt-3 border-t border-border space-y-2">
+                      {(ev?.ticketTypes ?? []).map((tt) => {
+                        const ttPct = (tt?.maxQuantity ?? 0) > 0 ? Math.round(((tt?.soldCount ?? 0) / (tt?.maxQuantity ?? 1)) * 100) : 0;
+                        return (
+                          <div key={tt?.id}>
+                            <div className="flex justify-between text-xs mb-0.5">
+                              <span className="text-muted-foreground truncate">{tt?.name ?? ''}{tt?.phaseName ? ` · ${tt.phaseName}` : ''}</span>
+                              <span className="text-muted-foreground shrink-0">{tt?.soldCount ?? 0}/{tt?.maxQuantity ?? 0}</span>
+                            </div>
+                            <div className="w-full bg-muted rounded-full h-1.5">
+                              <div className="h-1.5 rounded-full bg-primary/60" style={{ width: `${Math.min(ttPct, 100)}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {(ev?.topScanners?.length ?? 0) > 0 && (
+                    <div className="mt-3 pt-3 border-t border-border">
+                      <p className="text-xs text-muted-foreground mb-1.5">Más escaneos validados</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(ev?.topScanners ?? []).map((s, i) => (
+                          <Badge key={`${s.name}-${i}`} variant="outline" className="text-xs">{s.name}: {s.count}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             );
