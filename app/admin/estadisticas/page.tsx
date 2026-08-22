@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import CapacityAlertsEditor from '@/components/admin/capacity-alerts-editor';
 import SalesChart from './_components/sales-chart';
 
-type StatsEvent = Pick<Event, 'id' | 'name' | 'maxCapacity' | 'currentCount' | 'alertThresholds' | 'alertsSent'>;
+type StatsEvent = Pick<Event, 'id' | 'name' | 'maxCapacity' | 'currentCount' | 'alertThresholds' | 'alertsSent'> & { soldCount: number };
 
 type RecentOrder = {
   id: string;
@@ -206,13 +206,14 @@ export default function EstadisticasPage() {
                           <div className="flex justify-between items-center gap-3 text-sm mb-1">
                             <span className="font-medium truncate">{ev?.name ?? ''}</span>
                             <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-muted-foreground">{ev?.currentCount ?? 0}/{ev?.maxCapacity ?? 0} ({pct}%)</span>
+                              <span className="text-muted-foreground">{ev?.currentCount ?? 0}/{ev?.maxCapacity ?? 0} dentro ({pct}%)</span>
                               <CapacityAlertsEditor event={ev} onSaved={fetchStats} />
                             </div>
                           </div>
                           <div className="w-full bg-muted rounded-full h-3">
                             <div className={`h-3 rounded-full ${pct >= 95 ? 'bg-red-500' : pct >= 80 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${Math.min(pct, 100)}%` }} />
                           </div>
+                          <p className="text-xs text-muted-foreground mt-1">{ev?.soldCount ?? 0} entradas vendidas</p>
                         </div>
                       );
                     })}

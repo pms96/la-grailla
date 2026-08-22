@@ -35,7 +35,7 @@ export default function AccessClient() {
   const [events, setEvents] = useState<EventWithTicketTypes[]>([]);
   const [selectedEvent, setSelectedEvent] = useState('');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
-  const [capacity, setCapacity] = useState({ current: 0, max: 0, entryRate5min: 0, rejectionRate5min: null as number | null });
+  const [capacity, setCapacity] = useState({ current: 0, max: 0, sold: 0, entryRate5min: 0, rejectionRate5min: null as number | null });
   const [mode, setMode] = useState<'camera' | 'manual'>('camera');
   const [manualCode, setManualCode] = useState('');
   const [scanning, setScanning] = useState(false);
@@ -62,6 +62,7 @@ export default function AccessClient() {
         setCapacity({
           current: data?.current ?? 0,
           max: data?.max ?? 0,
+          sold: data?.sold ?? 0,
           entryRate5min: data?.entryRate5min ?? 0,
           rejectionRate5min: data?.rejectionRate5min ?? null,
         });
@@ -180,7 +181,10 @@ export default function AccessClient() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Users className="h-5 w-5 text-primary" />
-                <span className="font-bold text-xl">{capacity?.current ?? 0} / {capacity?.max ?? 0}</span>
+                <div>
+                  <span className="font-bold text-xl">{capacity?.current ?? 0} / {capacity?.max ?? 0}</span>
+                  <p className="text-xs text-muted-foreground">{capacity?.sold ?? 0} entradas vendidas</p>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant={capacityPercent >= 95 ? 'destructive' : capacityPercent >= 80 ? 'secondary' : 'outline'}>

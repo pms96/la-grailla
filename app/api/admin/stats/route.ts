@@ -70,6 +70,18 @@ export async function GET(request: Request) {
       prisma.order.findMany({ where: orderWhere, select: { createdAt: true, totalAmount: true } }),
     ]);
 
+    const soldByEvent = events.length
+      ? await prisma.ticket.groupBy({
+          by: ['eventId'],
+          where: { eventId: { in: events.map((e) => e.id) }, status: { notIn: ['CANCELLED', 'REFUNDED'] } },
+          _count: { _all: true },
+        })
+      : [];
+    const eventsWithSold = events.map((ev) => ({
+      ...ev,
+      soldCount: soldByEvent.find((s) => s.eventId === ev.id)?._count?._all ?? 0,
+    }));
+
     const totalRevenue = revenueAgg?._sum?.totalAmount ?? 0;
     const netRevenue = totalRevenue - (revenueAgg?._sum?.commission ?? 0);
 
@@ -95,7 +107,7 @@ export async function GET(request: Request) {
       totalRevenue,
       netRevenue,
       recentOrders: recentOrders ?? [],
-      events: events ?? [],
+      events: eventsWithSold,
       byChannel: (byChannel ?? []).map((c) => ({ channel: c.channel, count: c._count?._all ?? 0, revenue: c._sum?.totalAmount ?? 0 })),
       ticketTypeProgress: ticketTypeProgress ?? [],
       waitingRoomFunnel,

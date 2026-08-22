@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem } from '@/components/ui/animate';
 
-type DashboardEvent = Pick<Event, 'id' | 'name' | 'maxCapacity' | 'currentCount' | 'date' | 'status' | 'alertThresholds' | 'alertsSent'>;
+type DashboardEvent = Pick<Event, 'id' | 'name' | 'maxCapacity' | 'currentCount' | 'date' | 'status' | 'alertThresholds' | 'alertsSent'> & { soldCount: number };
 
 type DashboardOrder = Prisma.OrderGetPayload<{ include: { event: { select: { name: true } } } }>;
 
@@ -109,8 +109,9 @@ export default function AdminDashboard() {
                               style={{ width: `${Math.min(pct, 100)}%` }}
                             />
                           </div>
-                          <span className="text-xs text-muted-foreground w-20 text-right">{ev?.currentCount ?? 0}/{ev?.maxCapacity ?? 0}</span>
+                          <span className="text-xs text-muted-foreground w-24 text-right">{ev?.currentCount ?? 0}/{ev?.maxCapacity ?? 0} dentro</span>
                         </div>
+                        <p className="text-xs text-muted-foreground mt-1">{ev?.soldCount ?? 0} entradas vendidas</p>
                       </div>
                       <Badge variant={ev?.status === 'PUBLISHED' ? 'default' : 'secondary'} className="text-xs">
                         {ev?.status === 'PUBLISHED' ? 'Activo' : 'Finalizado'}
