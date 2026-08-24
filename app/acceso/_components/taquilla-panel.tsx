@@ -7,13 +7,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Minus, Plus, Loader2, Banknote, CreditCard, Gift, CheckCircle2 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Minus, Plus, Loader2, Banknote, CreditCard, Gift, CheckCircle2, DoorOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import type { EventWithTicketTypes } from './access-client';
 
 type Props = { events: EventWithTicketTypes[]; selectedEvent: string; onSold?: () => void };
 
-type LastSale = { orderId: string; totalAmount: number; tickets: number };
+type LastSale = { orderId: string; totalAmount: number; tickets: number; duringEvent: boolean };
 
 export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
@@ -21,6 +22,7 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
   const [buyerLastName, setBuyerLastName] = useState('');
   const [buyerEmail, setBuyerEmail] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [duringEvent, setDuringEvent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [lastSale, setLastSale] = useState<LastSale | null>(null);
 
@@ -52,7 +54,7 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
 
   const handleSubmit = async () => {
     if (!selectedEvent) { toast.error('Selecciona un evento'); return; }
-    if (!buyerName.trim()) { toast.error('Introduce el nombre del comprador'); return; }
+    if (!duringEvent && !buyerName.trim()) { toast.error('Introduce el nombre del comprador'); return; }
     if (totalTickets < 1) { toast.error('Selecciona al menos una entrada'); return; }
 
     setSubmitting(true);
@@ -71,14 +73,15 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
           buyerEmail: buyerEmail.trim(),
           items,
           paymentMethod,
+          duringEvent,
         }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data?.error ?? 'Error al registrar la venta'); return; }
 
       setLastSale(data);
-      toast.success('Venta registrada');
-      const hadEmail = buyerEmail.trim();
+      toast.success(duringEvent ? 'Acceso concedido' : 'Venta registrada');
+      const hadEmail = !duringEvent && buyerEmail.trim();
       reset();
       onSold?.();
 
@@ -107,13 +110,30 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
           <CardContent className="p-4 flex items-start gap-3">
             <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5" />
             <div className="text-sm">
-              <p className="font-semibold">Venta completada · {lastSale?.tickets ?? 0} entrada(s)</p>
+              <p className="font-semibold">
+                {lastSale?.duringEvent ? 'Acceso concedido' : 'Venta completada'} · {lastSale?.tickets ?? 0} entrada(s)
+              </p>
               <p className="text-muted-foreground">Importe: {(lastSale?.totalAmount ?? 0).toFixed(2)} €</p>
-              <a href={'/api/tickets/' + lastSale?.orderId + '/pdf-html'} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">Ver entradas para imprimir</a>
+              {!lastSale?.duringEvent && (
+                <a href={'/api/tickets/' + lastSale?.orderId + '/pdf-html'} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">Ver entradas para imprimir</a>
+              )}
             </div>
           </CardContent>
         </Card>
       )}
+
+      <Card className={duringEvent ? 'border-primary/40' : ''}>
+        <CardContent className="p-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <DoorOpen className="h-4 w-4 text-primary" />
+            <div>
+              <p className="text-sm font-medium">El evento ya ha empezado</p>
+              <p className="text-xs text-muted-foreground">La persona entra directamente: no se pide nombre ni se envía email, y se suma ya al aforo.</p>
+            </div>
+          </div>
+          <Switch checked={duringEvent} onCheckedChange={setDuringEvent} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="p-4 space-y-3">
@@ -140,14 +160,18 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
 
       <Card>
         <CardContent className="p-4 space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div><Label>Nombre *</Label><Input value={buyerName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBuyerName(e?.target?.value ?? '')} className="mt-1" /></div>
-            <div><Label>Apellidos</Label><Input value={buyerLastName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBuyerLastName(e?.target?.value ?? '')} className="mt-1" /></div>
-          </div>
-          <div>
-            <Label>Email (opcional)</Label>
-            <Input type="email" value={buyerEmail} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBuyerEmail(e?.target?.value ?? '')} className="mt-1" placeholder="Se le enviarán las entradas por email" />
-          </div>
+          {!duringEvent && (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div><Label>Nombre *</Label><Input value={buyerName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBuyerName(e?.target?.value ?? '')} className="mt-1" /></div>
+                <div><Label>Apellidos</Label><Input value={buyerLastName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBuyerLastName(e?.target?.value ?? '')} className="mt-1" /></div>
+              </div>
+              <div>
+                <Label>Email (opcional)</Label>
+                <Input type="email" value={buyerEmail} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBuyerEmail(e?.target?.value ?? '')} className="mt-1" placeholder="Se le enviarán las entradas por email" />
+              </div>
+            </>
+          )}
           <div>
             <Label>Método de pago</Label>
             <Select value={paymentMethod} onValueChange={setPaymentMethod}>
@@ -170,7 +194,7 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
           </div>
           <Button onClick={handleSubmit} disabled={submitting || totalTickets < 1} className="gap-2">
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : paymentMethod === 'cash' ? <Banknote className="h-4 w-4" /> : paymentMethod === 'card' ? <CreditCard className="h-4 w-4" /> : <Gift className="h-4 w-4" />}
-            Cobrar y emitir
+            {duringEvent ? 'Cobrar y dar acceso' : 'Cobrar y emitir'}
           </Button>
         </CardContent>
       </Card>

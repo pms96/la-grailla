@@ -12,7 +12,7 @@ import { handleApiError } from '@/lib/api-error';
 
 const taquillaSaleSchema = z.object({
   eventId: z.string().min(1),
-  buyerName: z.string().min(1),
+  buyerName: z.string().optional(),
   buyerLastName: z.string().optional().nullable(),
   buyerEmail: z.string().email().optional().nullable().or(z.literal('')),
   items: z
@@ -24,7 +24,13 @@ const taquillaSaleSchema = z.object({
     )
     .min(1),
   paymentMethod: z.enum(['card', 'cash', 'free']).optional(),
+  // Evento ya en marcha: el comprador entra directamente, sin pasar por el
+  // escáner de puerta — no tiene sentido pedirle nombre ni mandarle un email
+  // con una entrada que ya se ha marcado como usada.
+  duringEvent: z.boolean().optional(),
 });
+
+const DIRECT_ENTRY_NAME = 'Venta en taquilla';
 
 export async function POST(request: Request) {
   try {
@@ -34,9 +40,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
-    const { eventId, buyerName, buyerLastName, buyerEmail, items, paymentMethod } = taquillaSaleSchema.parse(
+    const { eventId, buyerName, buyerLastName, buyerEmail, items, paymentMethod, duringEvent } = taquillaSaleSchema.parse(
       await request.json()
     );
+
+    if (!duringEvent && !buyerName?.trim()) {
+      return NextResponse.json({ error: 'Introduce el nombre del comprador' }, { status: 400 });
+    }
+    const finalBuyerName = duringEvent ? DIRECT_ENTRY_NAME : (buyerName ?? '').trim();
+    const finalBuyerLastName = duringEvent ? '' : (buyerLastName ?? '');
+    const holderName = duringEvent ? DIRECT_ENTRY_NAME : finalBuyerName + ' ' + finalBuyerLastName;
 
     const event = await prisma.event.findUnique({ where: { id: eventId }, include: { ticketTypes: true } });
     if (!event) return NextResponse.json({ error: 'Evento no encontrado' }, { status: 404 });
@@ -68,9 +81,9 @@ export async function POST(request: Request) {
       const newOrder = await tx.order.create({
         data: {
           eventId,
-          buyerName,
-          buyerLastName: buyerLastName ?? '',
-          buyerEmail: buyerEmail || 'taquilla@lagrailla.local',
+          buyerName: finalBuyerName,
+          buyerLastName: finalBuyerLastName,
+          buyerEmail: duringEvent ? 'taquilla@lagrailla.local' : buyerEmail || 'taquilla@lagrailla.local',
           totalAmount,
           commission: 0,
           paymentMethod: method,
@@ -82,16 +95,22 @@ export async function POST(request: Request) {
 
       for (const td of ticketData) {
         for (let i = 0; i < td.quantity; i++) {
-          await tx.ticket.create({
+          const ticket = await tx.ticket.create({
             data: {
               orderId: newOrder.id,
               eventId,
               ticketTypeId: td.ticketTypeId,
               qrCode: generateQRCode(),
-              holderName: buyerName + ' ' + (buyerLastName ?? ''),
-              status: 'VALID',
+              holderName,
+              status: duringEvent ? 'USED' : 'VALID',
+              entryTime: duringEvent ? new Date() : null,
             },
           });
+          if (duringEvent) {
+            await tx.scanLog.create({
+              data: { ticketId: ticket.id, eventId, scannerId: session.user?.id ?? null, result: 'VALID' },
+            });
+          }
         }
         await tx.ticketType.update({
           where: { id: td.ticketTypeId },
@@ -99,12 +118,16 @@ export async function POST(request: Request) {
         });
       }
 
+      if (duringEvent) {
+        await tx.event.update({ where: { id: eventId }, data: { currentCount: { increment: totalTickets } } });
+      }
+
       return newOrder;
     });
 
     void checkCapacityAlerts(eventId);
 
-    return NextResponse.json({ success: true, orderId: order.id, totalAmount, tickets: totalTickets });
+    return NextResponse.json({ success: true, orderId: order.id, totalAmount, tickets: totalTickets, duringEvent: Boolean(duringEvent) });
   } catch (error) {
     return handleApiError(error, 'POST /api/taquilla/sale');
   }
