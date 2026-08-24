@@ -8,6 +8,7 @@ import { Loader2, DollarSign, Ticket, Calendar, Users, Mail } from 'lucide-react
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem } from '@/components/ui/animate';
+import { CapacityBar } from '@/components/admin/capacity-bar';
 
 type DashboardEvent = Pick<Event, 'id' | 'name' | 'maxCapacity' | 'currentCount' | 'date' | 'status' | 'alertThresholds' | 'alertsSent'> & { soldCount: number };
 
@@ -97,18 +98,12 @@ export default function AdminDashboard() {
               <h2 className="font-display font-bold text-lg mb-4">Aforo por Evento</h2>
               <div className="space-y-3">
                 {(stats?.events ?? []).map((ev) => {
-                  const pct = (ev?.maxCapacity ?? 0) > 0 ? Math.round(((ev?.currentCount ?? 0) / (ev?.maxCapacity ?? 1)) * 100) : 0;
                   return (
                     <div key={ev?.id} className="flex items-center gap-4">
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm truncate">{ev?.name ?? ''}</p>
                         <div className="flex items-center gap-2 mt-1">
-                          <div className="flex-1 bg-muted rounded-full h-2">
-                            <div
-                              className={`h-2 rounded-full ${pct >= 95 ? 'bg-red-500' : pct >= 80 ? 'bg-yellow-500' : 'bg-green-500'}`}
-                              style={{ width: `${Math.min(pct, 100)}%` }}
-                            />
-                          </div>
+                          <CapacityBar current={ev?.currentCount ?? 0} max={ev?.maxCapacity ?? 0} sold={ev?.soldCount ?? 0} className="flex-1" />
                           <span className="text-xs text-muted-foreground w-24 text-right">{ev?.currentCount ?? 0}/{ev?.maxCapacity ?? 0} dentro</span>
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">{ev?.soldCount ?? 0} entradas vendidas</p>

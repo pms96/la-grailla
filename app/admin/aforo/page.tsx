@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, RefreshCw, Users, AlertTriangle, TrendingUp } from 'lucide-react';
 import { PageHeader } from '@/components/layouts/page-header';
 import CapacityAlertsEditor from '@/components/admin/capacity-alerts-editor';
+import { CapacityBar } from '@/components/admin/capacity-bar';
 
 type EventWithCount = Event & {
   _count?: { tickets: number };
@@ -71,12 +72,7 @@ export default function AforoPage() {
                     </div>
                     <span className="text-muted-foreground text-lg mb-1">/ {ev?.maxCapacity ?? 0} dentro</span>
                   </div>
-                  <div className="w-full bg-muted rounded-full h-4">
-                    <div
-                      className={`h-4 rounded-full transition-all ${isCritical ? 'bg-red-500' : isWarning ? 'bg-yellow-500' : 'bg-green-500'}`}
-                      style={{ width: `${Math.min(pct, 100)}%` }}
-                    />
-                  </div>
+                  <CapacityBar current={ev?.currentCount ?? 0} max={ev?.maxCapacity ?? 0} sold={sold} size="lg" />
                   <div className="flex items-center justify-between mt-2">
                     <p className="text-sm text-muted-foreground">{pct}% del aforo</p>
                     <CapacityAlertsEditor event={ev} onSaved={fetchData} />

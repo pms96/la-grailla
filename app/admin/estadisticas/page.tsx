@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/layouts/page-header';
 import { FadeIn } from '@/components/ui/animate';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import CapacityAlertsEditor from '@/components/admin/capacity-alerts-editor';
+import { CapacityBar } from '@/components/admin/capacity-bar';
 import SalesChart from './_components/sales-chart';
 
 type StatsEvent = Pick<Event, 'id' | 'name' | 'maxCapacity' | 'currentCount' | 'alertThresholds' | 'alertsSent'> & { soldCount: number };
@@ -210,9 +211,7 @@ export default function EstadisticasPage() {
                               <CapacityAlertsEditor event={ev} onSaved={fetchStats} />
                             </div>
                           </div>
-                          <div className="w-full bg-muted rounded-full h-3">
-                            <div className={`h-3 rounded-full ${pct >= 95 ? 'bg-red-500' : pct >= 80 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${Math.min(pct, 100)}%` }} />
-                          </div>
+                          <CapacityBar current={ev?.currentCount ?? 0} max={ev?.maxCapacity ?? 0} sold={ev?.soldCount ?? 0} size="md" />
                           <p className="text-xs text-muted-foreground mt-1">{ev?.soldCount ?? 0} entradas vendidas</p>
                         </div>
                       );
