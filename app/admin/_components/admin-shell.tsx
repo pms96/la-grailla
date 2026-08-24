@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
+import { Logo } from '@/components/logo';
 import { cn } from '@/lib/utils';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ChangePasswordDialog } from '@/app/admin/_components/change-password-dialog';
@@ -42,8 +43,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         <div className="flex flex-col h-full">
           <div className="p-4 border-b border-border">
             <div className="flex items-center justify-between">
-              <Link href="/admin" className="font-display font-bold text-lg flex items-center gap-2 text-primary">
-                La Grailla
+              <Link href="/admin" className="flex items-center gap-2">
+                <Logo variant="white" className="h-7" />
               </Link>
               <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={() => setSidebarOpen(false)}>
                 <X className="h-4 w-4" />
@@ -116,7 +117,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
             <Button variant="ghost" size="icon-sm" onClick={() => setSidebarOpen(true)}>
               <Menu className="h-5 w-5" />
             </Button>
-            <span className="font-display font-bold text-primary">La Grailla</span>
+            <Logo variant="white" className="h-6" />
           </div>
         </header>
         <main className="p-4 md:p-6 lg:p-8 max-w-[1200px]">

@@ -21,6 +21,7 @@ export async function buildTicketsHtml(orderId: string): Promise<{ html: string;
   });
   if (!order) return null;
 
+  const logoUrl = (process.env.NEXTAUTH_URL ?? '') + '/brand/logo-black.png';
   const eventDate = order.event?.date
     ? new Date(order.event.date).toLocaleDateString('es-ES', {
         weekday: 'long',
@@ -36,7 +37,7 @@ export async function buildTicketsHtml(orderId: string): Promise<{ html: string;
     const qrDataUrl = await generateQRDataUrl(ticket?.qrCode ?? '');
     parts.push(
       '<div style="page-break-after: always; padding: 40px; font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">' +
-        '<div style="text-align:center;margin-bottom:30px;"><h1 style="color:#a855f7;font-size:28px;margin:0;">LA GRAILLA</h1>' +
+        '<div style="text-align:center;margin-bottom:30px;"><img src="' + logoUrl + '" alt="La Grailla" height="32" style="height:32px;width:auto;" />' +
         '<p style="color:#666;margin:5px 0;">Entrada Digital</p></div>' +
         '<div style="background:#f9fafb;border-radius:12px;padding:24px;margin-bottom:20px;">' +
         '<h2 style="margin:0 0 8px;color:#1a1a1a;">' + esc(order.event?.name) + '</h2>' +
@@ -64,7 +65,7 @@ export async function buildTicketsHtml(orderId: string): Promise<{ html: string;
   return { html, order };
 }
 
-function buildEmailHtml(order: OrderWithTickets, printUrl: string): string {
+function buildEmailHtml(order: OrderWithTickets, printUrl: string, logoUrl: string): string {
   const eventDate = order.event?.date
     ? new Date(order.event.date).toLocaleDateString('es-ES', {
         weekday: 'long',
@@ -83,7 +84,7 @@ function buildEmailHtml(order: OrderWithTickets, printUrl: string): string {
 
   return (
     '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;">' +
-    '<h1 style="color:#a855f7;margin:0 0 4px;">LA GRAILLA</h1>' +
+    '<img src="' + logoUrl + '" alt="La Grailla" height="32" style="height:32px;width:auto;margin:0 0 4px;" />' +
     '<p style="color:#888;margin:0 0 24px;">Confirmacion de compra</p>' +
     '<p>Hola ' + esc(order.buyerName) + ',</p>' +
     '<p>Tu compra se ha completado correctamente. Aqui tienes los detalles:</p>' +
@@ -117,11 +118,12 @@ export async function sendTicketsEmail(orderId: string, force: boolean = false, 
 
   const appUrl = baseUrl ?? process.env.NEXTAUTH_URL ?? '';
   const printUrl = appUrl + '/api/tickets/' + order.id + '/pdf-html';
+  const logoUrl = appUrl + '/brand/logo-black.png';
 
   const result = await sendMail({
     to: order.buyerEmail,
     subject: 'Tus entradas para ' + (order.event?.name ?? 'La Grailla'),
-    html: buildEmailHtml(order, printUrl),
+    html: buildEmailHtml(order, printUrl, logoUrl),
   });
 
   if (result.success) {

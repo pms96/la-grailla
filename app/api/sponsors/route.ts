@@ -48,13 +48,14 @@ export async function POST(request: Request) {
     });
 
     // Confirm to sponsor
+    const logoUrl = (process.env.NEXTAUTH_URL ?? '') + '/brand/logo-black.png';
     const confirmHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #a855f7;">Solicitud Recibida</h2>
         <p>Hola ${contactName},</p>
         <p>Hemos recibido tu solicitud de patrocinio para <strong>La Grailla</strong>.</p>
         <p>Nos pondremos en contacto contigo lo antes posible.</p>
-        <p style="color: #666; margin-top: 30px;">Equipo La Grailla</p>
+        <p style="margin-top: 30px;"><img src="${logoUrl}" alt="La Grailla" height="24" style="height:24px;width:auto;" /></p>
       </div>
     `;
 

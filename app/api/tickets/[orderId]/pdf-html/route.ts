@@ -22,6 +22,7 @@ export async function GET(
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
     }
 
+    const logoUrl = (process.env.NEXTAUTH_URL ?? '') + '/brand/logo-black.png';
     const ticketHtmls: string[] = [];
     for (const ticket of (order.tickets ?? [])) {
       const qrDataUrl = await generateQRDataUrl(ticket?.qrCode ?? '');
@@ -32,7 +33,7 @@ export async function GET(
       ticketHtmls.push(`
         <div style="page-break-after: always; padding: 40px; font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <div style="text-align: center; margin-bottom: 30px;">
-            <h1 style="color: #a855f7; font-size: 28px; margin: 0;">LA GRAILLA</h1>
+            <img src="${logoUrl}" alt="La Grailla" height="32" style="height:32px;width:auto;" />
             <p style="color: #666; margin: 5px 0;">Entrada Digital</p>
           </div>
           <div style="background: #f9fafb; border-radius: 12px; padding: 24px; margin-bottom: 20px;">

@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Logo } from '@/components/logo'
 
 export function AuthLayout({
   title,
@@ -17,7 +18,9 @@ export function AuthLayout({
       <div className="absolute inset-0 texture-noise" />
       <Card className={cn('w-full max-w-md shadow-lg border-2 border-border/50 relative', className)}>
         <CardHeader className="text-center">
-          <p className="font-display text-xl font-bold text-primary mb-2">La Grailla</p>
+          <div className="flex justify-center mb-2">
+            <Logo variant="white" className="h-10" priority />
+          </div>
           <CardTitle className="font-display text-2xl tracking-tight">{title}</CardTitle>
           {description && (
             <CardDescription className="text-sm text-muted-foreground">{description}</CardDescription>

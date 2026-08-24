@@ -55,10 +55,15 @@ export async function buildGoogleWalletSaveUrl(ticket: TicketPayload): Promise<s
   const classId = issuerId + '.lagrailla_event';
   const objectId = issuerId + '.tk_' + ticket.ticketId.replace(/[^A-Za-z0-9_.-]/g, '');
 
+  const appUrl = process.env.NEXTAUTH_URL ?? '';
   const eventTicketClass = {
     id: classId,
     issuerName: 'La Grailla',
     reviewStatus: 'UNDER_REVIEW',
+    logo: {
+      sourceUri: { uri: appUrl + '/brand/logo-white.png' },
+      contentDescription: { defaultValue: { language: 'es-ES', value: 'La Grailla' } },
+    },
     eventName: { defaultValue: { language: 'es-ES', value: ticket.eventName } },
     venue: {
       name: { defaultValue: { language: 'es-ES', value: ticket.venue } },
@@ -94,8 +99,16 @@ export async function buildGoogleWalletSaveUrl(ticket: TicketPayload): Promise<s
   return 'https://pay.google.com/gp/v/save/' + token;
 }
 
-const ICON_PNG_BASE64 =
-  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAPElEQVR42mP8z8BQz0AEYBxVSFmFjIyM/xkYGP4zMDAwMDIyMjAwMDAwMDAwMDAwMDAwMDAwMAAAiwgH/eLXKZQAAAAASUVORK5CYII=';
+// El pase de Apple Wallet necesita el logo como binario embebido (no como
+// URL) — se descarga del propio dominio en vez de leerlo del filesystem
+// para no depender de que Next.js incluya `public/` en el bundle de la
+// función serverless (mismo motivo que llevó a embeber el certificado WWDR
+// como constante en vez de leerlo de disco).
+async function fetchLogoBuffer(): Promise<Buffer> {
+  const appUrl = process.env.NEXTAUTH_URL ?? '';
+  const res = await fetch(appUrl + '/brand/logo-white.png');
+  return Buffer.from(await res.arrayBuffer());
+}
 
 // passkit-generator firma el .pkpass con node-forge y espera el certificado
 // y la clave privada como texto PEM por separado — nunca acepta un .p12
@@ -138,7 +151,7 @@ export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | nu
   try {
     const { PKPass } = await import('passkit-generator');
     const { certPem, keyPem } = await extractPemFromP12(cfg.apple_wallet_cert_p12_base64, cfg.apple_wallet_cert_password);
-    const iconBuffer = Buffer.from(ICON_PNG_BASE64, 'base64');
+    const iconBuffer = await fetchLogoBuffer();
 
     const passJson = {
       formatVersion: 1,
