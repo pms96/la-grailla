@@ -22,7 +22,7 @@ const navItems = [
   { href: '/admin/productos', label: 'Productos', icon: ShoppingBag },
   { href: '/admin/pedidos', label: 'Pedidos Tienda', icon: Package },
   { href: '/admin/estadisticas', label: 'Estadísticas', icon: BarChart3 },
-  { href: '/admin/sponsors', label: 'Sponsors', icon: Handshake },
+  { href: '/admin/sponsors', label: 'Patrocinios', icon: Handshake },
   { href: '/admin/usuarios', label: 'Usuarios', icon: Users },
   { href: '/admin/configuracion', label: 'Configuración', icon: Settings },
 ];

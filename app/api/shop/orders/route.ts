@@ -17,6 +17,7 @@ const createShopOrderSchema = z.object({
   shippingCity: z.string().min(1),
   shippingZip: z.string().min(1),
   shippingPhone: z.string().optional().nullable(),
+  idempotencyKey: z.string().optional(),
   items: z
     .array(
       z.object({
@@ -40,7 +41,28 @@ export async function POST(request: Request) {
     }
 
     const body = createShopOrderSchema.parse(await request.json());
-    const { buyerName, buyerEmail, shippingAddress, shippingCity, shippingZip, shippingPhone, items } = body;
+    const {
+      buyerName,
+      buyerEmail,
+      shippingAddress,
+      shippingCity,
+      shippingZip,
+      shippingPhone,
+      items,
+      idempotencyKey,
+    } = body;
+
+    if (idempotencyKey) {
+      const existing = await prisma.shopOrder.findUnique({ where: { idempotencyKey } });
+      if (existing) {
+        return NextResponse.json({
+          success: true,
+          orderId: existing.id,
+          checkoutUrl: null,
+          provider: existing.paymentProvider ?? 'mock',
+        });
+      }
+    }
 
     // Calculate total
     let totalAmount = 0;
@@ -59,20 +81,48 @@ export async function POST(request: Request) {
       });
     }
 
-    const shopOrder = await prisma.shopOrder.create({
-      data: {
-        buyerName,
-        buyerEmail,
-        shippingAddress,
-        shippingCity,
-        shippingZip,
-        shippingPhone: shippingPhone ?? null,
-        totalAmount,
-        status: 'PENDING',
-        items: { create: itemsData },
-      },
-      include: { items: { include: { product: true } } },
-    });
+    if (itemsData.length === 0) {
+      return NextResponse.json({ error: 'No hay productos válidos en el pedido' }, { status: 400 });
+    }
+
+    let shopOrder;
+    try {
+      shopOrder = await prisma.shopOrder.create({
+        data: {
+          buyerName,
+          buyerEmail,
+          shippingAddress,
+          shippingCity,
+          shippingZip,
+          shippingPhone: shippingPhone ?? null,
+          totalAmount,
+          status: 'PENDING',
+          idempotencyKey: idempotencyKey ?? null,
+          items: { create: itemsData },
+        },
+        include: { items: { include: { product: true } } },
+      });
+    } catch (error) {
+      // Carrera: otra petición ya creó el pedido con la misma clave.
+      if (
+        idempotencyKey &&
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        (error as { code?: string }).code === 'P2002'
+      ) {
+        const existing = await prisma.shopOrder.findUnique({ where: { idempotencyKey } });
+        if (existing) {
+          return NextResponse.json({
+            success: true,
+            orderId: existing.id,
+            checkoutUrl: null,
+            provider: existing.paymentProvider ?? 'mock',
+          });
+        }
+      }
+      throw error;
+    }
 
     // Send confirmation
     const itemsHtml = (shopOrder.items ?? []).map((i) =>
@@ -116,7 +166,10 @@ export async function POST(request: Request) {
       // No dejar que el comprador avance a "confirmación" como si hubiera pagado
       // cuando la pasarela real (no mock) no pudo crear la sesión de cobro.
       console.error('Shop checkout session error:', error instanceof Error ? error.message : error);
-      await prisma.shopOrder.update({ where: { id: shopOrder.id }, data: { status: 'CANCELLED' } });
+      await prisma.shopOrder.update({
+        where: { id: shopOrder.id },
+        data: { status: 'CANCELLED', idempotencyKey: null },
+      });
       return NextResponse.json(
         { success: false, error: 'No se ha podido iniciar el pago. Inténtalo de nuevo en unos minutos.' },
         { status: 502 }

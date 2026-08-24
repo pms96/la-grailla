@@ -1,3 +1,4 @@
+import { ShoppingBag } from 'lucide-react';
 import { Container } from '@/components/layouts/container';
 import { FadeIn } from '@/components/ui/animate';
 import ShopGrid from './_components/shop-grid';
@@ -14,17 +15,17 @@ export default function TiendaPage() {
     <Container size="lg">
       <div className="py-8">
         <FadeIn>
-          <div className="relative mb-10">
-            <div className="absolute -top-10 -left-10 w-64 h-64 rounded-full bg-lima/8 blur-3xl pointer-events-none" />
-            <div className="inline-flex brand-sticker text-xs text-lima border-lima/60 shadow-lima/30 mb-4">
-              🛒 MERCH OFICIAL
+          {/* Cabecera compacta de catálogo — no hero de fiesta */}
+          <div className="mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 border-b border-border/50 pb-8">
+            <div>
+              <div className="inline-flex items-center gap-1.5 text-xs font-display font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+                <ShoppingBag className="h-3.5 w-3.5" /> Merch
+              </div>
+              <h1 className="font-display text-3xl md:text-4xl font-bold tracking-tight mb-2">Tienda</h1>
+              <p className="text-muted-foreground max-w-md">
+                Productos oficiales bajo pedido. Elige talla y color antes de pagar.
+              </p>
             </div>
-            <h1 className="font-display text-3xl md:text-5xl font-bold tracking-tight mb-3">
-              Tienda
-            </h1>
-            <p className="text-muted-foreground text-lg max-w-xl">
-              Lleva La Grailla contigo. Merch oficial bajo pedido. ¡Que no se diga! 💜
-            </p>
           </div>
         </FadeIn>
         <ShopGrid />

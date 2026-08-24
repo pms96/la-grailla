@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { Product } from '@prisma/client';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Dialog,
@@ -15,83 +15,68 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, type CarouselApi } from '@/components/ui/carousel';
-import { ShoppingBag, Loader2, Package, Plus, Minus, Trash2, ShoppingCart } from 'lucide-react';
+import { ShoppingBag, Package, Plus, Minus, Trash2, ShoppingCart } from 'lucide-react';
 import { Stagger, StaggerItem, SkeletonPulse, PressScale } from '@/components/ui/animate';
-
-type CartLine = {
-  key: string;
-  productId: string;
-  name: string;
-  price: number;
-  imageUrl?: string | null;
-  size?: string | null;
-  color?: string | null;
-  quantity: number;
-};
-
-function parseOptions(value?: string | null): string[] {
-  if (!value) return [];
-  return value
-    .split(',')
-    .map((v) => v.trim())
-    .filter(Boolean);
-}
+import {
+  type CartLine,
+  cartTotals,
+  parseProductOptions,
+  readCart,
+  writeCart,
+} from '@/lib/shop-cart';
 
 export default function ShopGrid() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [selected, setSelected] = useState<Product | null>(null);
   const [chosenSize, setChosenSize] = useState<string>('');
   const [chosenColor, setChosenColor] = useState<string>('');
+  const [optionError, setOptionError] = useState<string>('');
   const [carouselApi, setCarouselApi] = useState<CarouselApi>();
   const [carouselIndex, setCarouselIndex] = useState(0);
-  const [checkout, setCheckout] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string>('');
-  const [form, setForm] = useState({
-    buyerName: '',
-    buyerEmail: '',
-    shippingAddress: '',
-    shippingCity: '',
-    shippingZip: '',
-    shippingPhone: '',
-  });
 
-  useEffect(() => {
+  const loadProducts = () => {
+    setLoading(true);
+    setLoadError(false);
     fetch('/api/products')
-      .then((r) => r.json())
-      .then((data) => setProducts(data ?? []))
-      .catch(() => {})
+      .then(async (r) => {
+        if (!r.ok) throw new Error('products_failed');
+        return r.json();
+      })
+      .then((data) => setProducts(Array.isArray(data) ? data : []))
+      .catch(() => {
+        setProducts([]);
+        setLoadError(true);
+      })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadProducts();
   }, []);
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem('lagrailla_cart');
-      if (raw) setCart(JSON.parse(raw));
-    } catch {}
+    setCart(readCart());
   }, []);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem('lagrailla_cart', JSON.stringify(cart));
-    } catch {}
+    writeCart(cart);
   }, [cart]);
 
-  const totalItems = useMemo(() => cart.reduce((sum, l) => sum + l.quantity, 0), [cart]);
-  const totalAmount = useMemo(() => cart.reduce((sum, l) => sum + l.price * l.quantity, 0), [cart]);
+  const { totalItems, totalAmount } = useMemo(() => cartTotals(cart), [cart]);
 
   const openProduct = (product: Product) => {
-    const sizes = parseOptions(product?.sizes);
-    const colors = parseOptions(product?.colors);
     setSelected(product);
-    setChosenSize(sizes[0] ?? '');
-    setChosenColor(colors[0] ?? '');
+    // Sin preselección: el comprador confirma talla/color a propósito.
+    setChosenSize('');
+    setChosenColor('');
+    setOptionError('');
     setCarouselIndex(0);
   };
 
@@ -100,11 +85,23 @@ export default function ShopGrid() {
     setCarouselIndex(carouselApi.selectedScrollSnap());
     const onSelect = () => setCarouselIndex(carouselApi.selectedScrollSnap());
     carouselApi.on('select', onSelect);
-    return () => { carouselApi.off('select', onSelect); };
+    return () => {
+      carouselApi.off('select', onSelect);
+    };
   }, [carouselApi]);
 
   const addToCart = () => {
     if (!selected) return;
+    const sizes = parseProductOptions(selected.sizes);
+    const colors = parseProductOptions(selected.colors);
+    if (sizes.length > 0 && !chosenSize) {
+      setOptionError('Elige una talla');
+      return;
+    }
+    if (colors.length > 0 && !chosenColor) {
+      setOptionError('Elige un color');
+      return;
+    }
     const key = [selected.id, chosenSize, chosenColor].join('|');
     setCart((prev) => {
       const existing = prev.find((l) => l.key === key);
@@ -126,6 +123,7 @@ export default function ShopGrid() {
       ];
     });
     setSelected(null);
+    setOptionError('');
     setCartOpen(true);
   };
 
@@ -139,43 +137,10 @@ export default function ShopGrid() {
 
   const removeLine = (key: string) => setCart((prev) => prev.filter((l) => l.key !== key));
 
-  const submitOrder = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormError('');
+  const goCheckout = () => {
     if (!cart.length) return;
-    setSubmitting(true);
-    try {
-      const res = await fetch('/api/shop/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...form,
-          items: cart.map((l) => ({
-            productId: l.productId,
-            quantity: l.quantity,
-            size: l.size,
-            color: l.color,
-          })),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data?.success) {
-        setFormError(data?.error ?? 'No se ha podido procesar el pedido');
-        return;
-      }
-      setCart([]);
-      setCheckout(false);
-      setCartOpen(false);
-      if (data?.checkoutUrl) {
-        window.location.href = data.checkoutUrl;
-        return;
-      }
-      router.push('/tienda/confirmacion/' + data.orderId);
-    } catch {
-      setFormError('Error de conexión. Inténtalo de nuevo.');
-    } finally {
-      setSubmitting(false);
-    }
+    setCartOpen(false);
+    router.push('/tienda/checkout');
   };
 
   if (loading) {
@@ -198,95 +163,52 @@ export default function ShopGrid() {
     );
   }
 
-  if ((products?.length ?? 0) === 0) {
+  if (loadError) {
     return (
-      <div className="text-center py-20">
-        <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-        <p className="text-muted-foreground">No hay productos disponibles en este momento</p>
+      <div className="rounded-2xl border border-destructive/30 bg-destructive/5 px-6 py-16 text-center mt-6" role="alert">
+        <Package className="h-12 w-12 text-destructive/60 mx-auto mb-4" aria-hidden />
+        <h2 className="font-display text-xl font-bold tracking-tight mb-2">No hemos podido cargar la tienda</h2>
+        <p className="text-muted-foreground max-w-md mx-auto mb-6">
+          Parece un fallo de conexión o del servidor — no es que el catálogo esté vacío.
+        </p>
+        <Button onClick={loadProducts} className="font-display font-semibold gap-2">
+          Reintentar
+        </Button>
       </div>
     );
   }
 
-  const selectedSizes = parseOptions(selected?.sizes);
-  const selectedColors = parseOptions(selected?.colors);
+  if ((products?.length ?? 0) === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 px-6 py-20 text-center mt-6">
+        <Package className="h-12 w-12 text-primary/40 mx-auto mb-4" aria-hidden />
+        <h2 className="font-display text-xl font-bold tracking-tight mb-2">Catálogo en preparación</h2>
+        <p className="text-muted-foreground max-w-md mx-auto">
+          Ahora mismo no hay productos a la venta. Mientras tanto, las entradas de los eventos están el plan.
+        </p>
+        <Button asChild variant="outline" className="mt-6 font-display font-semibold">
+          <Link href="/eventos">Ver eventos</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  const selectedSizes = parseProductOptions(selected?.sizes);
+  const selectedColors = parseProductOptions(selected?.colors);
 
   return (
     <>
-      <div className="flex justify-end mt-6">
-        <Sheet open={cartOpen} onOpenChange={setCartOpen}>
-          <SheetTrigger asChild>
-            <Button variant="outline" className="gap-2">
-              <ShoppingCart className="h-4 w-4" />
-              Carrito
-              {totalItems > 0 && <Badge className="ml-1">{totalItems}</Badge>}
-            </Button>
-          </SheetTrigger>
-          <SheetContent className="w-full sm:max-w-md flex flex-col">
-            <SheetHeader>
-              <SheetTitle>Tu carrito</SheetTitle>
-            </SheetHeader>
-            <div className="flex-1 overflow-y-auto py-4 space-y-3">
-              {cart.length === 0 && (
-                <p className="text-sm text-muted-foreground py-10 text-center">Tu carrito está vacío</p>
-              )}
-              {cart.map((line) => (
-                <div key={line.key} className="flex gap-3 rounded-lg bg-muted/50 p-3">
-                  <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md bg-muted">
-                    {line.imageUrl ? (
-                      <img src={line.imageUrl} alt={line.name} className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center">
-                        <ShoppingBag className="h-5 w-5 text-primary/40" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{line.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {[line.size, line.color].filter(Boolean).join(' · ') || 'Estándar'}
-                    </p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <PressScale>
-                        <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => changeQty(line.key, -1)}>
-                          <Minus className="h-3 w-3" />
-                        </Button>
-                      </PressScale>
-                      <span className="w-6 text-center text-sm">{line.quantity}</span>
-                      <PressScale>
-                        <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => changeQty(line.key, 1)}>
-                          <Plus className="h-3 w-3" />
-                        </Button>
-                      </PressScale>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 ml-auto text-muted-foreground"
-                        onClick={() => removeLine(line.key)}
-                        aria-label="Quitar del carrito"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                  <p className="font-semibold text-sm shrink-0">{(line.price * line.quantity).toFixed(2)}€</p>
-                </div>
-              ))}
-            </div>
-            <div className="border-t pt-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Total</span>
-                <span className="font-display text-xl font-bold">{totalAmount.toFixed(2)}€</span>
-              </div>
-              <Button className="w-full" disabled={!cart.length} onClick={() => setCheckout(true)}>
-                Finalizar compra
-              </Button>
-            </div>
-          </SheetContent>
-        </Sheet>
+      {/* Desktop: acceso al carrito arriba a la derecha */}
+      <div className="hidden md:flex justify-end mt-6">
+        <Button variant="outline" className="gap-2" onClick={() => setCartOpen(true)}>
+          <ShoppingCart className="h-4 w-4" />
+          Carrito
+          {totalItems > 0 && <Badge className="ml-1">{totalItems}</Badge>}
+        </Button>
       </div>
 
       <Stagger staggerDelay={0.08}>
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6 pb-24 md:pb-0">
           {products.map((product, index) => (
             <StaggerItem key={product?.id ?? `prod-${index}`}>
               <Card variant="interactive" className="overflow-hidden group h-full flex flex-col">
@@ -301,13 +223,17 @@ export default function ShopGrid() {
                   <h3 className="font-display font-bold text-lg mb-1 group-hover:text-primary transition-colors">
                     {product?.name ?? ''}
                   </h3>
-                  {product?.category && <Badge variant="outline" className="text-xs mb-2 w-fit">{product.category}</Badge>}
+                  {product?.category && (
+                    <Badge variant="outline" className="text-xs mb-2 w-fit">
+                      {product.category}
+                    </Badge>
+                  )}
                   {product?.description && (
                     <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{product.description}</p>
                   )}
-                  {parseOptions(product?.sizes).length > 0 && (
+                  {parseProductOptions(product?.sizes).length > 0 && (
                     <p className="text-xs text-muted-foreground mb-3">
-                      Tallas: {parseOptions(product.sizes).join(', ')}
+                      Tallas: {parseProductOptions(product.sizes).join(', ')}
                     </p>
                   )}
                   <div className="mt-auto flex items-center justify-between gap-2">
@@ -323,11 +249,110 @@ export default function ShopGrid() {
         </div>
       </Stagger>
 
+      {/* FAB móvil — zona del pulgar */}
+      <div
+        className="sticky-purchase-bar fixed bottom-0 inset-x-0 z-40 md:hidden pointer-events-none transition-[bottom] duration-200"
+        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+      >
+        <div className="max-w-[1200px] mx-auto px-4 flex justify-end pointer-events-auto">
+          <Button
+            size="lg"
+            onClick={() => setCartOpen(true)}
+            className="gap-2 font-display font-semibold rounded-full h-14 px-5 shadow-lg shadow-primary/30"
+            aria-label={totalItems > 0 ? `Abrir carrito, ${totalItems} artículos` : 'Abrir carrito'}
+          >
+            <ShoppingCart className="h-5 w-5" />
+            Carrito
+            {totalItems > 0 && (
+              <Badge className="bg-lima text-accent-foreground border-0 ml-0.5">{totalItems}</Badge>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      <Sheet open={cartOpen} onOpenChange={setCartOpen}>
+        <SheetContent className="w-full sm:max-w-md flex flex-col p-0">
+          <SheetHeader className="px-6 pt-6 pb-2">
+            <SheetTitle>Tu carrito</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+            {cart.length === 0 && (
+              <p className="text-sm text-muted-foreground py-10 text-center">Tu carrito está vacío</p>
+            )}
+            {cart.map((line) => (
+              <div key={line.key} className="flex gap-3 rounded-lg bg-muted/50 p-3">
+                <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md bg-muted">
+                  {line.imageUrl ? (
+                    <img src={line.imageUrl} alt={line.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center">
+                      <ShoppingBag className="h-5 w-5 text-primary/40" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{line.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {[line.size, line.color].filter(Boolean).join(' · ') || 'Estándar'}
+                  </p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <PressScale>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => changeQty(line.key, -1)}
+                        aria-label="Quitar una unidad"
+                      >
+                        <Minus className="h-3.5 w-3.5" />
+                      </Button>
+                    </PressScale>
+                    <span className="w-6 text-center text-sm font-mono tabular-nums">{line.quantity}</span>
+                    <PressScale>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => changeQty(line.key, 1)}
+                        aria-label="Añadir una unidad"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </Button>
+                    </PressScale>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 ml-auto text-muted-foreground"
+                      onClick={() => removeLine(line.key)}
+                      aria-label="Quitar del carrito"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                <p className="font-semibold text-sm shrink-0">{(line.price * line.quantity).toFixed(2)}€</p>
+              </div>
+            ))}
+          </div>
+          <div className="border-t px-6 py-4 space-y-3" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Total</span>
+              <span className="font-display text-xl font-bold tabular-nums">{totalAmount.toFixed(2)}€</span>
+            </div>
+            <Button className="w-full font-display font-semibold" disabled={!cart.length} onClick={goCheckout}>
+              Finalizar compra
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
       <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selected?.name ?? ''}</DialogTitle>
-            <DialogDescription>{selected?.description ?? 'Elige las opciones y añade al carrito.'}</DialogDescription>
+            <DialogDescription>
+              {selected?.description ?? 'Elige las opciones y añade al carrito.'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             {(() => {
@@ -359,14 +384,17 @@ export default function ShopGrid() {
             {selectedSizes.length > 0 && (
               <div className="space-y-2">
                 <Label>Talla</Label>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Talla">
                   {selectedSizes.map((size) => (
                     <Button
                       key={size}
                       type="button"
                       variant={chosenSize === size ? 'default' : 'outline'}
                       size="sm"
-                      onClick={() => setChosenSize(size)}
+                      onClick={() => {
+                        setChosenSize(size);
+                        setOptionError('');
+                      }}
                     >
                       {size}
                     </Button>
@@ -377,14 +405,17 @@ export default function ShopGrid() {
             {selectedColors.length > 0 && (
               <div className="space-y-2">
                 <Label>Color</Label>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Color">
                   {selectedColors.map((color) => (
                     <Button
                       key={color}
                       type="button"
                       variant={chosenColor === color ? 'default' : 'outline'}
                       size="sm"
-                      onClick={() => setChosenColor(color)}
+                      onClick={() => {
+                        setChosenColor(color);
+                        setOptionError('');
+                      }}
                     >
                       {color}
                     </Button>
@@ -392,8 +423,15 @@ export default function ShopGrid() {
                 </div>
               </div>
             )}
-            <div className="flex items-center justify-between pt-2">
-              <span className="font-display text-xl font-bold">{(selected?.price ?? 0).toFixed(2)}€</span>
+            {optionError && (
+              <p className="text-sm text-destructive" role="alert">
+                {optionError}
+              </p>
+            )}
+            <div className="flex items-center justify-between gap-3 pt-2">
+              <span className="font-display text-xl font-bold tabular-nums">
+                {(selected?.price ?? 0).toFixed(2)}€
+              </span>
               <PressScale>
                 <Button onClick={addToCart} className="gap-2">
                   <ShoppingCart className="h-4 w-4" /> Añadir al carrito
@@ -401,105 +439,6 @@ export default function ShopGrid() {
               </PressScale>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={checkout} onOpenChange={setCheckout}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Datos de envío</DialogTitle>
-            <DialogDescription>Completa tus datos para finalizar el pedido.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={submitOrder} className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="buyerName">Nombre y apellidos</Label>
-                <Input
-                  id="buyerName"
-                  required
-                  value={form.buyerName}
-                  onChange={(e) => setForm({ ...form, buyerName: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="buyerEmail">Email</Label>
-                <Input
-                  id="buyerEmail"
-                  type="email"
-                  required
-                  value={form.buyerEmail}
-                  onChange={(e) => setForm({ ...form, buyerEmail: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="shippingAddress">Dirección</Label>
-              <Input
-                id="shippingAddress"
-                required
-                placeholder="Calle, número, piso"
-                value={form.shippingAddress}
-                onChange={(e) => setForm({ ...form, shippingAddress: e.target.value })}
-              />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="shippingCity">Ciudad</Label>
-                <Input
-                  id="shippingCity"
-                  required
-                  value={form.shippingCity}
-                  onChange={(e) => setForm({ ...form, shippingCity: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="shippingZip">Código postal</Label>
-                <Input
-                  id="shippingZip"
-                  required
-                  inputMode="numeric"
-                  pattern="[0-9]{5}"
-                  title="Introduce un código postal de 5 dígitos"
-                  value={form.shippingZip}
-                  onChange={(e) => setForm({ ...form, shippingZip: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="shippingPhone">Teléfono (opcional)</Label>
-              <Input
-                id="shippingPhone"
-                type="tel"
-                value={form.shippingPhone}
-                onChange={(e) => setForm({ ...form, shippingPhone: e.target.value })}
-              />
-            </div>
-
-            <div className="rounded-lg bg-muted/50 p-4 space-y-1">
-              {cart.map((line) => (
-                <div key={line.key} className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">
-                    {line.quantity} x {line.name}
-                    {[line.size, line.color].filter(Boolean).length > 0
-                      ? ' (' + [line.size, line.color].filter(Boolean).join(', ') + ')'
-                      : ''}
-                  </span>
-                  <span>{(line.price * line.quantity).toFixed(2)}€</span>
-                </div>
-              ))}
-              <div className="flex justify-between border-t pt-2 mt-2 font-bold">
-                <span>Total</span>
-                <span>{totalAmount.toFixed(2)}€</span>
-              </div>
-            </div>
-
-            {formError && <p className="text-sm text-destructive">{formError}</p>}
-
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Confirmar pedido
-            </Button>
-          </form>
         </DialogContent>
       </Dialog>
     </>

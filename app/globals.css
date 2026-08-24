@@ -188,4 +188,9 @@
     pointer-events: none;
   }
   .dark .texture-noise::before { opacity: 0.06; }
+
+  /* Barras de compra/pago: suben cuando el banner de cookies está abierto */
+  html[data-cookies-open="true"] .sticky-purchase-bar {
+    bottom: var(--cookie-banner-h, 0px);
+  }
 }

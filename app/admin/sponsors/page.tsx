@@ -45,7 +45,7 @@ export default function SponsorsAdminPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Solicitudes de Patrocinio" description="Gestiona las solicitudes de sponsors" />
+      <PageHeader title="Solicitudes de Patrocinio" description="Gestiona las solicitudes de patrocinio" />
 
       {(sponsors?.length ?? 0) === 0 ? (
         <div className="text-center py-20">

@@ -22,7 +22,7 @@ export default async function PublicFooter() {
             <div className="flex gap-6 text-sm font-medium">
               <Link href="/eventos" className="text-muted-foreground hover:text-primary transition-colors">Eventos</Link>
               <Link href="/tienda" className="text-muted-foreground hover:text-primary transition-colors">Tienda</Link>
-              <Link href="/sponsors" className="text-muted-foreground hover:text-primary transition-colors">Sponsors</Link>
+              <Link href="/sponsors" className="text-muted-foreground hover:text-primary transition-colors">Patrocinio</Link>
             </div>
             <div className="flex gap-4 text-xs text-muted-foreground/80">
               <Link href="/legal/aviso-legal" className="hover:text-primary transition-colors">Aviso legal</Link>

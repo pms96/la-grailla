@@ -305,6 +305,7 @@ model ShopOrder {
   status          ShopOrderStatus @default(PENDING)
   trackingNumber  String?
   notes           String?
+  idempotencyKey  String?         @unique
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   items           ShopOrderItem[]

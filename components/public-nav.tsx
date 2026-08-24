@@ -15,7 +15,7 @@ const EASE_OUT: [number, number, number, number] = [0.23, 1, 0.32, 1];
 const links = [
   { href: '/eventos', label: 'Eventos', icon: Music },
   { href: '/tienda', label: 'Tienda', icon: ShoppingBag },
-  { href: '/sponsors', label: 'Sponsors', icon: Handshake },
+  { href: '/sponsors', label: 'Patrocinio', icon: Handshake },
 ];
 
 export default function PublicNav() {
@@ -44,7 +44,7 @@ export default function PublicNav() {
         <Link href="/" className="flex items-center gap-2 group">
           <Logo variant="white" className="h-8 sm:h-9" priority />
           <span className="sr-only">La Grailla</span>
-          <span className="hidden sm:inline-flex brand-sticker text-[10px] text-lima border-lima/60 shadow-lima/30 py-0.5 px-2">
+          <span className="hidden sm:inline-flex brand-sticker text-xs text-lima border-lima/60 shadow-lima/30 py-0.5 px-2">
             GOOD VIBES
           </span>
         </Link>

@@ -1,12 +1,25 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import type { Prisma } from '@prisma/client';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle, Download, Loader2, Calendar, MapPin, Ticket, Mail, Wallet, Clock } from 'lucide-react';
+import {
+  CheckCircle,
+  Download,
+  Loader2,
+  Calendar,
+  MapPin,
+  Ticket,
+  Mail,
+  Wallet,
+  Clock,
+  ArrowLeft,
+  SearchX,
+} from 'lucide-react';
 import { FadeIn } from '@/components/ui/animate';
 
 type OrderWithTickets = Prisma.OrderGetPayload<{
@@ -21,6 +34,7 @@ const POLL_INTERVAL_MS = 3000;
 export default function ConfirmationClient({ orderId }: { orderId: string }) {
   const [order, setOrder] = useState<OrderState>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchFailed, setFetchFailed] = useState(false);
   const [emailStatus, setEmailStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [wallet, setWallet] = useState<{ google: boolean; apple: boolean }>({ google: false, apple: false });
   const [pollCount, setPollCount] = useState(0);
@@ -31,10 +45,17 @@ export default function ConfirmationClient({ orderId }: { orderId: string }) {
 
   const fetchOrder = () => {
     if (!orderId) return;
+    setFetchFailed(false);
     fetch(`/api/orders/${orderId}`)
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) throw new Error('order_failed');
+        return r.json();
+      })
       .then((data) => setOrder(data))
-      .catch(() => {})
+      .catch(() => {
+        setFetchFailed(true);
+        setOrder(null);
+      })
       .finally(() => setLoading(false));
   };
 
@@ -92,31 +113,97 @@ export default function ConfirmationClient({ orderId }: { orderId: string }) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div
+        className="flex flex-col items-center justify-center gap-3 py-20 text-center"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
+        <p className="font-display font-semibold">Cargando tu pedido…</p>
+        <p className="text-sm text-muted-foreground max-w-sm">Un momento mientras recuperamos la confirmación.</p>
       </div>
     );
   }
 
   if (!validOrder) {
     return (
-      <div className="text-center py-20">
-        <p className="text-muted-foreground">Pedido no encontrado</p>
-      </div>
+      <FadeIn>
+        <div className="text-center py-20 space-y-5 max-w-md mx-auto" role="alert">
+          <SearchX className="h-12 w-12 text-muted-foreground mx-auto" aria-hidden />
+          <div className="space-y-2">
+            <h1 className="font-display text-2xl font-bold tracking-tight">
+              {fetchFailed ? 'No hemos podido cargar el pedido' : 'Pedido no encontrado'}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {fetchFailed
+                ? 'Fallo de conexión o del servidor. Reintenta — si ya pagaste, el cobro no se duplica y el QR llegará por email.'
+                : (
+                  <>
+                    Puede que el enlace haya caducado o que el pago no se haya completado. Si ya pagaste, revisa el email
+                    del QR o escribe a{' '}
+                    <a href="mailto:grupolagrailla@gmail.com" className="text-primary underline-offset-2 hover:underline">
+                      grupolagrailla@gmail.com
+                    </a>
+                    .
+                  </>
+                )}
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            {fetchFailed && (
+              <Button
+                className="gap-2"
+                onClick={() => {
+                  setLoading(true);
+                  fetchOrder();
+                }}
+              >
+                Reintentar
+              </Button>
+            )}
+            <Button asChild variant={fetchFailed ? 'outline' : 'default'} className="gap-2">
+              <Link href="/eventos">
+                <Ticket className="h-4 w-4" /> Ver eventos
+              </Link>
+            </Button>
+            <Button variant="outline" asChild className="gap-2">
+              <Link href="/">
+                <ArrowLeft className="h-4 w-4" /> Ir al inicio
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </FadeIn>
     );
   }
 
   if (isPending) {
+    const stillPolling = pollCount < MAX_POLLS;
     return (
       <FadeIn>
-        <div className="text-center py-20 space-y-4">
-          <Clock className="h-16 w-16 text-primary mx-auto animate-pulse" />
-          <h1 className="font-display text-2xl font-bold tracking-tight">Confirmando tu pago...</h1>
+        <div className="text-center py-20 space-y-4" role="status" aria-live="polite">
+          <Clock className="h-16 w-16 text-primary mx-auto animate-pulse" aria-hidden />
+          <h1 className="font-display text-2xl font-bold tracking-tight">Confirmando tu pago…</h1>
           <p className="text-muted-foreground max-w-sm mx-auto">
-            {pollCount < MAX_POLLS
-              ? 'Estamos esperando la confirmación de la pasarela de pago. Esta página se actualizará sola.'
-              : 'La confirmación está tardando más de lo normal. Si has completado el pago, recibirás tus entradas por email en cuanto se confirme — puedes cerrar esta página.'}
+            {stillPolling
+              ? 'Estamos esperando la confirmación de la pasarela. Esta página se actualiza sola — no se cobrará dos veces.'
+              : 'La confirmación tarda más de lo normal. Si completaste el pago, recibirás el QR por email cuando se confirme. Puedes cerrar esta página.'}
           </p>
+          {!stillPolling && (
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+              <Button variant="outline" asChild className="gap-2">
+                <Link href="/eventos">
+                  <Ticket className="h-4 w-4" /> Ver eventos
+                </Link>
+              </Button>
+              <Button variant="ghost" asChild className="gap-2">
+                <a href="mailto:grupolagrailla@gmail.com">
+                  <Mail className="h-4 w-4" /> Contactar
+                </a>
+              </Button>
+            </div>
+          )}
         </div>
       </FadeIn>
     );
@@ -129,11 +216,7 @@ export default function ConfirmationClient({ orderId }: { orderId: string }) {
   return (
     <FadeIn>
       <div className="space-y-6">
-        <div className="text-center">
-          <CheckCircle className="h-16 w-16 text-lima mx-auto mb-4" />
-          <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Compra Confirmada</h1>
-          <p className="text-muted-foreground mt-2">Tus entradas están listas</p>
-        </div>
+        <ConfirmationPeak />
 
         <Card>
           <CardContent className="p-6">
@@ -238,5 +321,43 @@ export default function ConfirmationClient({ orderId }: { orderId: string }) {
         </Card>
       </div>
     </FadeIn>
+  );
+}
+
+/** Pico emocional de la compra: un solo momento authored (peak-end). */
+function ConfirmationPeak() {
+  const reduceMotion = useReducedMotion();
+
+  return (
+    <div className="text-center">
+      <motion.div
+        className="inline-flex mb-4"
+        initial={reduceMotion ? false : { scale: 0.6, opacity: 0, filter: 'blur(6px)' }}
+        animate={{ scale: 1, opacity: 1, filter: 'blur(0px)' }}
+        transition={
+          reduceMotion
+            ? { duration: 0 }
+            : { type: 'spring', stiffness: 380, damping: 18, mass: 0.7 }
+        }
+      >
+        <CheckCircle className="h-16 w-16 text-lima" aria-hidden />
+      </motion.div>
+      <motion.h1
+        className="font-display text-2xl md:text-3xl font-bold tracking-tight"
+        initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: reduceMotion ? 0 : 0.12, duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
+      >
+        Compra confirmada
+      </motion.h1>
+      <motion.p
+        className="text-muted-foreground mt-2"
+        initial={reduceMotion ? false : { opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: reduceMotion ? 0 : 0.22, duration: 0.3 }}
+      >
+        Tus entradas están listas — QR por email
+      </motion.p>
+    </div>
   );
 }

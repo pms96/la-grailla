@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Cookie, X } from 'lucide-react';
@@ -9,12 +9,35 @@ const STORAGE_KEY = 'lagrailla_cookie_consent';
 
 export default function CookieBanner() {
   const [visible, setVisible] = useState(false);
+  const bannerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     try {
       if (!window.localStorage.getItem(STORAGE_KEY)) setVisible(true);
     } catch {}
   }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!visible) {
+      delete root.dataset.cookiesOpen;
+      root.style.removeProperty('--cookie-banner-h');
+      return;
+    }
+
+    root.dataset.cookiesOpen = 'true';
+    const measure = () => {
+      const h = bannerRef.current?.offsetHeight ?? 0;
+      root.style.setProperty('--cookie-banner-h', `${h + 12}px`);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => {
+      window.removeEventListener('resize', measure);
+      delete root.dataset.cookiesOpen;
+      root.style.removeProperty('--cookie-banner-h');
+    };
+  }, [visible]);
 
   const decide = (value: 'all' | 'essential') => {
     try {
@@ -26,7 +49,13 @@ export default function CookieBanner() {
   if (!visible) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 p-3 sm:p-4">
+    <div
+      ref={bannerRef}
+      className="fixed inset-x-0 bottom-0 z-50 p-3 sm:p-4"
+      data-cookie-banner
+      role="dialog"
+      aria-label="Preferencias de cookies"
+    >
       <div className="mx-auto max-w-4xl rounded-2xl border border-border/60 bg-background/95 backdrop-blur shadow-2xl p-5 sm:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex gap-3">
