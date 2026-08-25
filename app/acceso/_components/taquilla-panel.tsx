@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Minus, Plus, Loader2, Banknote, CreditCard, Gift, CheckCircle2, DoorOpen } from 'lucide-react';
+import { Minus, Plus, Loader2, Banknote, CreditCard, Gift, CheckCircle2, DoorOpen, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import type { EventWithTicketTypes } from './access-client';
 
@@ -25,6 +25,7 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
   const [duringEvent, setDuringEvent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [lastSale, setLastSale] = useState<LastSale | null>(null);
+  const [printing, setPrinting] = useState(false);
   // Se manda al servidor para que un reintento de red tras un timeout (o un
   // doble tap en el datáfono) no cobre ni emita entradas dos veces — se
   // renueva solo tras una venta completada o si el usuario cambia de evento
@@ -106,6 +107,38 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
     }
   };
 
+  // Genera el PDF en formato rollo (110mm, Phomemo M832) y lo manda al
+  // selector nativo de "Compartir" del móvil/tablet — la M832 no aparece
+  // como impresora del sistema por Bluetooth, así que el vendedor elige la
+  // app Phomemo desde ahí para imprimir. Sin Web Share API con ficheros
+  // (navegador antiguo), se abre el PDF en una pestaña nueva como fallback,
+  // igual que ya hacía el enlace de "ver entradas" en A4.
+  const handlePrint = async () => {
+    if (!lastSale) return;
+    setPrinting(true);
+    try {
+      const url = '/api/taquilla/print/' + lastSale.orderId;
+      const canShareFiles = typeof navigator !== 'undefined' && typeof navigator.canShare === 'function';
+      if (canShareFiles) {
+        const res = await fetch(url);
+        if (!res.ok) { toast.error('No se pudo generar el tique'); return; }
+        const blob = await res.blob();
+        const file = new File([blob], `entradas-${lastSale.orderId.slice(0, 8)}.pdf`, { type: 'application/pdf' });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: 'Entradas' });
+          return;
+        }
+      }
+      window.open(url, '_blank', 'noreferrer');
+    } catch (e) {
+      // AbortError: el vendedor cerró el selector de compartir sin elegir nada — no es un error real.
+      if (e instanceof Error && e.name === 'AbortError') return;
+      toast.error('No se pudo compartir el tique');
+    } finally {
+      setPrinting(false);
+    }
+  };
+
   if (!event) {
     return <Card><CardContent className="p-6 text-sm text-muted-foreground">Selecciona un evento para vender entradas.</CardContent></Card>;
   }
@@ -122,7 +155,13 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
               </p>
               <p className="text-muted-foreground">Importe: {(lastSale?.totalAmount ?? 0).toFixed(2)} €</p>
               {!lastSale?.duringEvent && (
-                <a href={'/api/tickets/' + lastSale?.orderId + '/pdf-html'} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">Ver entradas para imprimir</a>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                  <a href={'/api/tickets/' + lastSale?.orderId + '/pdf-html'} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">Ver entradas para imprimir</a>
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5 h-7" onClick={handlePrint} disabled={printing}>
+                    {printing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
+                    Imprimir entrada{(lastSale?.tickets ?? 0) !== 1 ? 's' : ''}
+                  </Button>
+                </div>
               )}
             </div>
           </CardContent>
