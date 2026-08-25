@@ -14,6 +14,7 @@ import { getBaseUrl } from '@/lib/url';
 import { handleApiError } from '@/lib/api-error';
 import { orderAccessQuery, signOrderAccess } from '@/lib/access-token';
 import { hasEventEnded } from '@/lib/active-event';
+import { calculateCommission } from '@/lib/pricing';
 
 // Error de negocio esperado (sin stock, aforo lleno...) lanzado DENTRO de la
 // transacción para abortarla — se distingue de un error inesperado al
@@ -170,7 +171,7 @@ export async function POST(request: Request) {
           totalAmount += tt.price * quantity;
           ticketData.push({ ticketTypeId: tt.id, quantity, name: tt.name });
         }
-        commissionAmount = totalAmount * (commissionPct / 100);
+        commissionAmount = calculateCommission(totalAmount, commissionPct);
         totalAmount += commissionAmount;
 
         // Aforo: comparar contra entradas emitidas (vendidas), no contra el

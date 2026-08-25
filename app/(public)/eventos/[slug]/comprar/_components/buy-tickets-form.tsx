@@ -23,6 +23,7 @@ import {
 import { toast } from 'sonner';
 import { FadeIn, PressScale } from '@/components/ui/animate';
 import { cn } from '@/lib/utils';
+import { calculateCommission } from '@/lib/pricing';
 
 interface TicketType {
   id: string;
@@ -44,6 +45,10 @@ export interface EventData {
   minAge?: number | null;
   conditions?: string | null;
   ticketTypes: TicketType[];
+  // Mismo porcentaje que app/api/orders/route.ts añadirá al cobrar — se
+  // muestra ANTES de pagar para que el total no sea una sorpresa en la
+  // pasarela.
+  commissionPercent?: number;
 }
 
 type FieldErrors = {
@@ -112,6 +117,12 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
   const totalPrice = ticketTypes.reduce((s: number, tt: TicketType) => {
     return s + (tt?.price ?? 0) * (quantities?.[tt?.id] ?? 0);
   }, 0);
+  // Misma función que app/api/orders/route.ts usa al cobrar de verdad — así
+  // lo que se ve aquí nunca puede divergir del total real en la pasarela.
+  const commissionPercent = event?.commissionPercent ?? 0;
+  const commissionAmount = calculateCommission(totalPrice, commissionPercent);
+  const grandTotal = totalPrice + commissionAmount;
+  const showCommission = commissionPercent > 0 && totalItems > 0;
 
   const validate = (): FieldErrors => {
     const next: FieldErrors = {};
@@ -394,7 +405,19 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
                 <p className="text-sm text-muted-foreground">
                   {totalItems} entrada{totalItems !== 1 ? 's' : ''}
                 </p>
-                <p className="font-display text-2xl font-bold tabular-nums">{totalPrice.toFixed(2)}€</p>
+                {showCommission && (
+                  <div className="text-xs text-muted-foreground space-y-0.5 mt-1 mb-1.5">
+                    <div className="flex justify-between gap-6">
+                      <span>Subtotal</span>
+                      <span className="tabular-nums">{totalPrice.toFixed(2)}€</span>
+                    </div>
+                    <div className="flex justify-between gap-6">
+                      <span>Gastos de distribución</span>
+                      <span className="tabular-nums">{commissionAmount.toFixed(2)}€</span>
+                    </div>
+                  </div>
+                )}
+                <p className="font-display text-2xl font-bold tabular-nums">{grandTotal.toFixed(2)}€</p>
               </div>
               <PressScale>
                 <Button
@@ -426,8 +449,9 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
           <div className="min-w-0 flex-1">
             <p className="text-xs text-muted-foreground">
               {totalItems} entrada{totalItems !== 1 ? 's' : ''}
+              {showCommission && ` · +${commissionAmount.toFixed(2)}€ gastos de distribución`}
             </p>
-            <p className="font-display text-xl font-bold tabular-nums leading-none">{totalPrice.toFixed(2)}€</p>
+            <p className="font-display text-xl font-bold tabular-nums leading-none">{grandTotal.toFixed(2)}€</p>
           </div>
           <Button
             size="lg"

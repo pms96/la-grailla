@@ -5,6 +5,7 @@ import type { Prisma } from '@prisma/client';
 import { Container } from '@/components/layouts/container';
 import { Button } from '@/components/ui/button';
 import { hasEventEnded } from '@/lib/active-event';
+import { getConfig } from '@/lib/config';
 import WaitingRoomGate from './_components/waiting-room-gate';
 
 export const dynamic = 'force-dynamic';
@@ -42,7 +43,12 @@ export default async function ComprarPage({ params }: { params: { slug: string }
     );
   }
 
-  const serializedEvent = JSON.parse(JSON.stringify(event));
+  // Se calcula aquí (servidor) y se manda como prop en vez de que el
+  // formulario la pida por su cuenta: es la misma comisión que
+  // app/api/orders/route.ts añadirá al cobrar, así el comprador ve el total
+  // real ANTES de llegar a la pasarela, no una sorpresa al pagar.
+  const commissionPercent = parseFloat(await getConfig('commission_percentage')) || 0;
+  const serializedEvent = { ...JSON.parse(JSON.stringify(event)), commissionPercent };
 
   return (
     <Container size="md">

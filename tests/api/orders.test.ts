@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import { POST as createOrder } from '@/app/api/orders/route';
 import { createTestEvent, createTicketType, cleanupTestEvent, getAndSetConfig, restoreConfig } from '../helpers/fixtures';
+import { calculateCommission } from '@/lib/pricing';
 
 function orderRequest(body: unknown, ip: string) {
   return new Request('http://localhost/api/orders', {
@@ -59,6 +60,43 @@ describe('POST /api/orders', () => {
 
     const updatedTicketType = await prisma.ticketType.findUnique({ where: { id: ticketType.id } });
     expect(updatedTicketType?.soldCount).toBe(2);
+  });
+
+  // AUDIT (nueva funcionalidad): el checkout público ahora muestra "gastos
+  // de distribución" junto al precio antes de pagar, calculado con la misma
+  // fórmula que aquí — este test confirma que lo que de verdad se cobra
+  // (commission + totalAmount) sigue coincidiendo con esa fórmula tras
+  // extraerla a lib/pricing.ts.
+  it('añade la comisión configurada al total cobrado', async () => {
+    const originalCommissionForTest = await getAndSetConfig('commission_percentage', '5');
+    try {
+      const ticketType = await createTicketType(event.id, { maxQuantity: 5, price: 20 });
+
+      const res = await createOrder(
+        orderRequest(
+          {
+            eventId: event.id,
+            buyerName: 'Comisión',
+            buyerLastName: 'Test',
+            buyerEmail: 'comision-test@example.com',
+            items: [{ ticketTypeId: ticketType.id, quantity: 2 }],
+          },
+          '203.0.113.9'
+        )
+      );
+      const json = await res.json();
+      expect(res.status).toBe(200);
+
+      const expectedCommission = calculateCommission(40, 5);
+      expect(expectedCommission).toBeCloseTo(2);
+      expect(json.totalAmount).toBeCloseTo(40 + expectedCommission);
+
+      const order = await prisma.order.findUnique({ where: { id: json.orderId } });
+      expect(order?.commission).toBeCloseTo(2);
+      expect(order?.totalAmount).toBeCloseTo(42);
+    } finally {
+      await restoreConfig('commission_percentage', originalCommissionForTest);
+    }
   });
 
   it('rechaza un ticketTypeId que no existe', async () => {
