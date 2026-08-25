@@ -11,25 +11,51 @@ function esc(value: unknown): string {
     .replace(/>/g, '&gt;');
 }
 
+/** Avisa al equipo cuando un pago se confirma sobre un pedido que ya fue cancelado/liberado — requiere intervención manual (el stock ya pudo venderse a otra persona). */
+async function alertPaidButInactiveOrder(kind: 'entradas' | 'tienda', orderId: string, status: string): Promise<void> {
+  console.error(`[order-reconciliation] Pago confirmado para pedido de ${kind} ${orderId} pero su estado ya era ${status} — requiere revisión manual.`);
+  try {
+    await sendMail({
+      to: 'grupolagrailla@gmail.com',
+      subject: `⚠️ Pago confirmado sobre pedido ya anulado (${orderId.slice(0, 8)})`,
+      html:
+        `<p>Se ha confirmado un pago de ${kind} para el pedido <strong>${esc(orderId)}</strong>, ` +
+        `pero su estado ya era <strong>${esc(status)}</strong> (probablemente liberado por caducidad antes de que llegara la confirmación de pago).</p>` +
+        `<p>El stock de este pedido puede haberse vendido ya a otra persona. Revisar manualmente y contactar con el comprador si es necesario.</p>`,
+    });
+  } catch (error) {
+    console.error('[alertPaidButInactiveOrder] Error enviando alerta:', error instanceof Error ? error.message : error);
+  }
+}
+
 // Compartido entre el webhook de Stripe y la reconciliación periódica de
 // SumUp (app/api/cron/reconcile-payments) — ambos necesitan exactamente la
 // misma operación "marcar como pagado" y no tiene sentido mantenerla
 // duplicada en dos sitios.
-// Idempotente: puede llamarse más de una vez para el mismo pedido (un
-// webhook reenviado, o el cron y el webhook confirmando casi a la vez) sin
-// efecto duplicado, porque solo actúa si el pedido sigue en PENDING.
-// Tras completar (o si ya estaba COMPLETED sin email), intenta enviar las
-// entradas: el comprador no debe depender de volver a /confirmacion.
+// Idempotente y seguro ante concurrencia: la transición PENDING -> COMPLETED
+// se hace con un updateMany condicionado al estado actual (atómico a nivel
+// de fila en la base de datos), no con un "leer estado, decidir, escribir"
+// — así, si el webhook y el cron (o dos reintentos del webhook) llegan casi
+// a la vez, solo uno de los dos gana la transición y el resto no reescribe
+// nada. Tras completar (o si ya estaba COMPLETED sin email), intenta enviar
+// las entradas: el comprador no debe depender de volver a /confirmacion.
 export async function completeOrder(orderId: string, baseUrl?: string): Promise<void> {
-  const order = await prisma.order.findUnique({ where: { id: orderId } });
-  if (!order) return;
+  const result = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.order.updateMany({
+      where: { id: orderId, status: 'PENDING' },
+      data: { status: 'COMPLETED' },
+    });
+    if (count > 0) {
+      await tx.ticket.updateMany({ where: { orderId, status: 'PENDING' }, data: { status: 'VALID' } });
+    }
+    const order = await tx.order.findUnique({ where: { id: orderId } });
+    return { transitioned: count > 0, order };
+  });
 
-  if (order.status === 'PENDING') {
-    await prisma.$transaction([
-      prisma.order.update({ where: { id: orderId }, data: { status: 'COMPLETED' } }),
-      prisma.ticket.updateMany({ where: { orderId, status: 'PENDING' }, data: { status: 'VALID' } }),
-    ]);
-  } else if (order.status !== 'COMPLETED') {
+  const { transitioned, order } = result;
+  if (!order) return;
+  if (!transitioned && order.status !== 'COMPLETED') {
+    await alertPaidButInactiveOrder('entradas', orderId, order.status);
     return;
   }
 
@@ -57,29 +83,32 @@ export async function completeOrder(orderId: string, baseUrl?: string): Promise<
 // hay que soltar el stock reservado en la creación del pedido — si no, las
 // entradas de ese carrito quedan "vendidas" para siempre y un evento con
 // aforo ajustado puede marcarse como agotado sin haber cobrado nada.
+// La transición PENDING -> CANCELLED es atómica (updateMany condicionado al
+// estado actual): si completeOrder ya ganó la carrera para este pedido, el
+// updateMany afecta 0 filas y no tocamos tickets ni soldCount — evita soltar
+// stock que ya pertenece a un pedido pagado.
 export async function releaseExpiredOrder(orderId: string): Promise<void> {
-  const order = await prisma.order.findUnique({
-    where: { id: orderId },
-    include: { tickets: true },
-  });
-  if (!order || order.status !== 'PENDING') return;
-
-  const quantityByType = new Map<string, number>();
-  for (const ticket of order.tickets) {
-    if (!ticket.ticketTypeId) continue;
-    quantityByType.set(ticket.ticketTypeId, (quantityByType.get(ticket.ticketTypeId) ?? 0) + 1);
-  }
-
-  await prisma.$transaction([
-    prisma.order.update({
-      where: { id: orderId },
+  await prisma.$transaction(async (tx) => {
+    const { count } = await tx.order.updateMany({
+      where: { id: orderId, status: 'PENDING' },
       data: { status: 'CANCELLED', idempotencyKey: null },
-    }),
-    prisma.ticket.updateMany({ where: { orderId, status: 'PENDING' }, data: { status: 'CANCELLED' } }),
-    ...Array.from(quantityByType.entries()).map(([ticketTypeId, quantity]) =>
-      prisma.ticketType.update({ where: { id: ticketTypeId }, data: { soldCount: { decrement: quantity } } })
-    ),
-  ]);
+    });
+    if (count === 0) return;
+
+    const order = await tx.order.findUnique({ where: { id: orderId }, include: { tickets: true } });
+    if (!order) return;
+
+    const quantityByType = new Map<string, number>();
+    for (const ticket of order.tickets) {
+      if (!ticket.ticketTypeId) continue;
+      quantityByType.set(ticket.ticketTypeId, (quantityByType.get(ticket.ticketTypeId) ?? 0) + 1);
+    }
+
+    await tx.ticket.updateMany({ where: { orderId, status: 'PENDING' }, data: { status: 'CANCELLED' } });
+    for (const [ticketTypeId, quantity] of quantityByType.entries()) {
+      await tx.ticketType.update({ where: { id: ticketTypeId }, data: { soldCount: { decrement: quantity } } });
+    }
+  });
 }
 
 export type InvalidateOrderResult =
@@ -160,17 +189,22 @@ export async function invalidateOrder(
 
 /** Marca un pedido de tienda como pagado y envía el email de confirmación (una sola vez). */
 export async function completeShopOrder(orderId: string): Promise<void> {
+  const { count } = await prisma.shopOrder.updateMany({
+    where: { id: orderId, status: 'PENDING' },
+    data: { status: 'PAID' },
+  });
+
   const order = await prisma.shopOrder.findUnique({
     where: { id: orderId },
     include: { items: { include: { product: true } } },
   });
   if (!order) return;
-  if (order.status !== 'PENDING') return;
-
-  await prisma.shopOrder.update({
-    where: { id: orderId },
-    data: { status: 'PAID' },
-  });
+  if (count === 0) {
+    if (order.status !== 'PAID') {
+      await alertPaidButInactiveOrder('tienda', orderId, order.status);
+    }
+    return;
+  }
 
   const itemsHtml = (order.items ?? [])
     .map(
@@ -210,13 +244,16 @@ export async function completeShopOrder(orderId: string): Promise<void> {
 }
 
 export async function releaseExpiredShopOrder(orderId: string): Promise<void> {
-  const order = await prisma.shopOrder.findUnique({
-    where: { id: orderId },
-    include: { items: true },
-  });
-  if (!order || order.status !== 'PENDING') return;
-
   await prisma.$transaction(async (tx) => {
+    const { count } = await tx.shopOrder.updateMany({
+      where: { id: orderId, status: 'PENDING' },
+      data: { status: 'CANCELLED', idempotencyKey: null },
+    });
+    if (count === 0) return;
+
+    const order = await tx.shopOrder.findUnique({ where: { id: orderId }, include: { items: true } });
+    if (!order) return;
+
     const { releaseShopStock } = await import('@/lib/product-stock');
     await releaseShopStock(
       tx,
@@ -227,10 +264,6 @@ export async function releaseExpiredShopOrder(orderId: string): Promise<void> {
         color: i.color,
       }))
     );
-    await tx.shopOrder.update({
-      where: { id: orderId },
-      data: { status: 'CANCELLED', idempotencyKey: null },
-    });
   });
 }
 

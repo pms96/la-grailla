@@ -56,6 +56,7 @@ export default function ProductosPage() {
   const [editing, setEditing] = useState<ProductWithVariants | null>(null);
   const [form, setForm] = useState<ProductFormState>(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [stockTouched, setStockTouched] = useState(false);
 
   const fetchProducts = useCallback(() => {
     fetch('/api/admin/products')
@@ -83,6 +84,7 @@ export default function ProductosPage() {
   const openCreate = () => {
     setEditing(null);
     setForm(EMPTY);
+    setStockTouched(false);
     setDialogOpen(true);
   };
 
@@ -104,6 +106,7 @@ export default function ProductosPage() {
       isActive: p?.isActive === false ? 'false' : 'true',
       stockByKey,
     });
+    setStockTouched(false);
     setDialogOpen(true);
   };
 
@@ -114,6 +117,16 @@ export default function ProductosPage() {
     }
     setSaving(true);
     try {
+      const hadVariants = (editing?.variants ?? []).length > 0;
+      const sizesChanged = editing ? (form.sizes ?? '') !== (editing.sizes ?? '') : false;
+      const colorsChanged = editing ? (form.colors ?? '') !== (editing.colors ?? '') : false;
+      // Solo mandamos `variants` (y por tanto disparamos la sincronización de
+      // stock en el servidor) si hay algo real que sincronizar: el producto ya
+      // llevaba stock por variante, el admin ha tocado algún número de stock, o
+      // ha cambiado las tallas/colores disponibles. Si no, un producto editado
+      // sin tocar su stock (p.ej. solo cambiar el precio) no debe quedar
+      // "Agotado" por generar filas de stock a 0 que nunca existieron.
+      const shouldSyncVariants = !editing || hadVariants || stockTouched || sizesChanged || colorsChanged;
       const variants = matrixKeys.map((k) => ({
         size: k.size || null,
         color: k.color || null,
@@ -129,7 +142,7 @@ export default function ProductosPage() {
         sizes: form.sizes ?? '',
         colors: form.colors ?? '',
         isActive: form.isActive === 'true',
-        variants,
+        ...(shouldSyncVariants ? { variants } : {}),
       };
       const url = editing ? '/api/admin/products/' + editing.id : '/api/admin/products';
       const res = await fetch(url, {
@@ -384,12 +397,13 @@ export default function ProductosPage() {
                         min={0}
                         className="w-24"
                         value={form.stockByKey[key] ?? 0}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          setStockTouched(true);
                           updateField('stockByKey', {
                             ...form.stockByKey,
                             [key]: Math.max(0, parseInt(e.target.value, 10) || 0),
-                          })
-                        }
+                          });
+                        }}
                       />
                     </div>
                   );

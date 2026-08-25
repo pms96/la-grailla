@@ -12,7 +12,7 @@ import { syncProductVariants } from '@/lib/product-stock';
 const variantStockSchema = z.object({
   size: z.string().optional().nullable(),
   color: z.string().optional().nullable(),
-  stock: z.coerce.number().int().min(0),
+  stock: z.coerce.number().int().min(0).optional(),
 });
 
 const updateProductSchema = z.object({
@@ -50,11 +50,13 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       if (body?.isActive !== undefined) data.isActive = Boolean(body.isActive);
 
       const updated = await tx.product.update({ where: { id: params?.id }, data });
-      if (
-        body?.sizes !== undefined ||
-        body?.colors !== undefined ||
-        body?.variants !== undefined
-      ) {
+      // Solo se sincronizan variantes si el cliente manda explícitamente `variants`.
+      // Antes se disparaba también con solo enviar `sizes`/`colors` (que el
+      // formulario de admin manda siempre en cada guardado), lo que reseteaba a 0
+      // el stock de productos que aún no tenían filas ProductVariant creadas —
+      // app/admin/productos/page.tsx ahora omite `variants` cuando no hay
+      // cambios reales de stock/tallas/colores que sincronizar.
+      if (body?.variants !== undefined) {
         await syncProductVariants(tx, updated.id, updated.sizes, updated.colors, body.variants);
       }
       return tx.product.findUniqueOrThrow({

@@ -48,6 +48,13 @@ describe('POST /api/webhooks/stripe', () => {
   afterAll(async () => {
     await restoreConfig('stripe_secret_key', originalSecretKey);
     await restoreConfig('stripe_webhook_secret', originalWebhookSecret);
+    // Los ids de evento de Stripe de este archivo son fijos (evt_test_*) para
+    // poder reenviar el mismo id dentro de un test — hay que borrarlos, o la
+    // siguiente ejecución de la suite los ve como "ya procesados" (por
+    // diseño: ProcessedWebhookEvent no caduca) y los tests fallan en falso.
+    await prisma.processedWebhookEvent.deleteMany({
+      where: { id: { in: ['evt_test_completed', 'evt_test_expired', 'evt_test_already_cancelled'] } },
+    });
     await cleanupTestEvent(event.id);
   });
 
@@ -66,6 +73,7 @@ describe('POST /api/webhooks/stripe', () => {
   it('checkout.session.completed completa el pedido y valida las entradas', async () => {
     const order = await createPendingOrder(event.id, ticketType.id, 'cs_test_completed');
     const payload = JSON.stringify({
+      id: 'evt_test_completed',
       type: 'checkout.session.completed',
       data: { object: { id: 'cs_test_completed', payment_status: 'paid', metadata: { orderId: order.id } } },
     });
@@ -91,6 +99,7 @@ describe('POST /api/webhooks/stripe', () => {
     await prisma.ticketType.update({ where: { id: ticketType.id }, data: { soldCount: { increment: 1 } } });
 
     const payload = JSON.stringify({
+      id: 'evt_test_expired',
       type: 'checkout.session.expired',
       data: { object: { id: 'cs_test_expired', metadata: { orderId: order.id } } },
     });
@@ -110,6 +119,7 @@ describe('POST /api/webhooks/stripe', () => {
     await prisma.order.update({ where: { id: order.id }, data: { status: 'CANCELLED' } });
 
     const payload = JSON.stringify({
+      id: 'evt_test_already_cancelled',
       type: 'checkout.session.expired',
       data: { object: { id: 'cs_test_already_cancelled', metadata: { orderId: order.id } } },
     });

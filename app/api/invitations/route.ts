@@ -9,9 +9,10 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { generateQRCode } from '@/lib/qr';
 import { sendTicketsEmail } from '@/lib/tickets';
-import { getIssuedTicketCount } from '@/lib/capacity-alerts';
 import { getBaseUrl } from '@/lib/url';
 import { handleApiError } from '@/lib/api-error';
+
+class InvitationRejectedError extends Error {}
 
 const createInvitationSchema = z.object({
   eventId: z.string().min(1),
@@ -69,12 +70,21 @@ export async function POST(request: Request) {
 
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return NextResponse.json({ error: 'Evento no encontrado' }, { status: 404 });
-    const issuedCount = await getIssuedTicketCount(eventId);
-    if (issuedCount + quantity > (event.maxCapacity ?? 0)) {
-      return NextResponse.json({ error: 'Aforo completo' }, { status: 400 });
-    }
 
     const created = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Mismo criterio que app/api/orders/route.ts y taquilla/sale: serializa
+      // por evento para que dos invitaciones (o una invitación y una compra)
+      // simultáneas no lean el aforo antes de que la otra lo actualice y
+      // acaben, entre las dos, sobrepasando el máximo.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${eventId}))`;
+
+      const issuedCount = await tx.ticket.count({
+        where: { eventId, status: { notIn: ['CANCELLED', 'REFUNDED'] } },
+      });
+      if (issuedCount + quantity > (event.maxCapacity ?? 0)) {
+        throw new InvitationRejectedError('Aforo completo');
+      }
+
       const order = await tx.order.create({
         data: {
           eventId,
@@ -116,7 +126,14 @@ export async function POST(request: Request) {
       });
 
       return { order, invitation };
+    }).catch((error) => {
+      if (error instanceof InvitationRejectedError) return error;
+      throw error;
     });
+
+    if (created instanceof InvitationRejectedError) {
+      return NextResponse.json({ error: created.message }, { status: 400 });
+    }
 
     let emailResult: Awaited<ReturnType<typeof sendTicketsEmail>> | null = null;
     if (sendEmail && guestEmail) {

@@ -1,17 +1,38 @@
 import { prisma } from '@/lib/prisma';
 
+// `x-forwarded-for` es un header que el propio cliente puede mandar ya
+// relleno (proxies estándar solo AÑADEN el IP real al final de la cadena,
+// nunca limpian lo que ya viene puesto) — coger el primer valor deja que
+// cualquiera se salte el rate-limit rotando ese header en cada petición.
+// En Vercel, `x-vercel-forwarded-for` lo pone el propio edge de Vercel y
+// sustituye cualquier valor que el cliente intente inyectar, así que es la
+// única fuente fiable en producción; como red de seguridad si faltara, se
+// usa el ÚLTIMO salto de `x-forwarded-for` (el más cercano a nuestra
+// infraestructura, no el que el cliente puede falsificar).
 export function getClientIp(request: Request): string {
   const h = request.headers;
+  const vercelIp = h.get('x-vercel-forwarded-for');
+  if (vercelIp) return vercelIp.split(',')[0]?.trim() || 'unknown';
   const fwd = h.get('x-forwarded-for');
-  if (fwd) return fwd.split(',')[0]?.trim() || 'unknown';
+  if (fwd) {
+    const hops = fwd.split(',').map((v) => v.trim()).filter(Boolean);
+    if (hops.length > 0) return hops[hops.length - 1];
+  }
   return h.get('x-real-ip') || h.get('cf-connecting-ip') || 'unknown';
 }
 
 // NextAuth's `authorize(credentials, req)` passes a plain headers record, not a Web `Headers` instance.
+// Mismo criterio de confianza que getClientIp: ver el comentario de arriba.
 export function getClientIpFromHeaderRecord(headers: Record<string, string | string[] | undefined> | undefined): string {
+  const vercel = headers?.['x-vercel-forwarded-for'];
+  const vercelValue = Array.isArray(vercel) ? vercel[0] : vercel;
+  if (vercelValue) return vercelValue.split(',')[0]?.trim() || 'unknown';
   const fwd = headers?.['x-forwarded-for'];
   const fwdValue = Array.isArray(fwd) ? fwd[0] : fwd;
-  if (fwdValue) return fwdValue.split(',')[0]?.trim() || 'unknown';
+  if (fwdValue) {
+    const hops = fwdValue.split(',').map((v) => v.trim()).filter(Boolean);
+    if (hops.length > 0) return hops[hops.length - 1];
+  }
   const real = headers?.['x-real-ip'];
   const realValue = Array.isArray(real) ? real[0] : real;
   return realValue || 'unknown';

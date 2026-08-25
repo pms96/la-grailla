@@ -2,10 +2,12 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import type Stripe from 'stripe';
+import { Prisma } from '@prisma/client';
 import { getConfig } from '@/lib/config';
 import { handleApiError } from '@/lib/api-error';
 import { resolveExpiredCheckout, resolvePaidCheckout } from '@/lib/order-reconciliation';
 import { getBaseUrl } from '@/lib/url';
+import { prisma } from '@/lib/prisma';
 
 export async function POST(request: Request) {
   try {
@@ -36,6 +38,21 @@ export async function POST(request: Request) {
     } catch (err) {
       console.error('[POST /api/webhooks/stripe] Firma inválida:', err instanceof Error ? err.message : err);
       return NextResponse.json({ error: 'Firma inválida' }, { status: 400 });
+    }
+
+    // Stripe reintenta la entrega si no respondemos 2xx a tiempo (timeout,
+    // deploy en curso, error transitorio) — el mismo evento puede llegar más
+    // de una vez. La constraint única de "id" hace que el segundo intento
+    // choque con P2002 y salga por aquí sin volver a procesar el pedido.
+    if (event.id) {
+      try {
+        await prisma.processedWebhookEvent.create({ data: { id: event.id } });
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          return NextResponse.json({ received: true, duplicate: true });
+        }
+        throw err;
+      }
     }
 
     const baseUrl = getBaseUrl(request);

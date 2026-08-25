@@ -9,7 +9,7 @@ export function normalizeVariantPart(value: string | null | undefined): string {
 
 export { expandVariantKeys };
 
-export type StockInput = { size?: string | null; color?: string | null; stock: number };
+export type StockInput = { size?: string | null; color?: string | null; stock?: number | null };
 
 /**
  * Sincroniza ProductVariant con tallas/colores del producto.
@@ -26,6 +26,7 @@ export async function syncProductVariants(
   const keys = expandVariantKeys(sizesCsv, colorsCsv);
   const stockMap = new Map<string, number>();
   for (const row of stockByKey ?? []) {
+    if (row.stock === undefined || row.stock === null) continue;
     const size = normalizeVariantPart(row.size);
     const color = normalizeVariantPart(row.color);
     stockMap.set(`${size}|${color}`, Math.max(0, Math.floor(Number(row.stock) || 0)));

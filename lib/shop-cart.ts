@@ -11,12 +11,23 @@ export type CartLine = {
   quantity: number;
 };
 
+// Sin dedup, un admin que escribe "M, M" (o repite un valor sin querer)
+// genera dos claves talla/color idénticas — expandVariantKeys las duplica y
+// syncProductVariants revienta al chocar con la constraint única
+// @@unique([productId, size, color]) del segundo insert.
 export function parseProductOptions(value?: string | null): string[] {
   if (!value) return [];
-  return value
-    .split(',')
-    .map((v) => v.trim())
-    .filter(Boolean);
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of value.split(',')) {
+    const v = raw.trim();
+    if (!v) continue;
+    const dedupeKey = v.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    result.push(v);
+  }
+  return result;
 }
 
 export type VariantKey = { size: string; color: string };

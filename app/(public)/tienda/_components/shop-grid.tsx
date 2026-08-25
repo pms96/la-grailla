@@ -19,6 +19,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, type CarouselApi } from '@/components/ui/carousel';
 import { ShoppingBag, Package, Plus, Minus, Trash2, ShoppingCart } from 'lucide-react';
 import { Stagger, StaggerItem, SkeletonPulse, PressScale } from '@/components/ui/animate';
+import { toast } from 'sonner';
 import {
   type CartLine,
   cartTotals,
@@ -154,10 +155,31 @@ export default function ShopGrid() {
     setCartOpen(true);
   };
 
+  // Igual que addToCart: si el producto tiene stock por variante configurado,
+  // no dejamos que el "+" del carrito pase de lo disponible. Antes solo se
+  // validaba al añadir la primera unidad — el pedido se rechazaba igualmente
+  // en el servidor, pero el comprador no se enteraba hasta pagar.
+  const lineStock = (line: CartLine): number | null => {
+    const product = products.find((p) => p.id === line.productId);
+    if (!product) return null;
+    return variantStock(product, line.size ?? '', line.color ?? '');
+  };
+
   const changeQty = (key: string, delta: number) => {
     setCart((prev) =>
       prev
-        .map((l) => (l.key === key ? { ...l, quantity: l.quantity + delta } : l))
+        .map((l) => {
+          if (l.key !== key) return l;
+          const nextQuantity = l.quantity + delta;
+          if (delta > 0) {
+            const stock = lineStock(l);
+            if (stock !== null && nextQuantity > stock) {
+              toast.error(`Solo quedan ${stock} unidad${stock === 1 ? '' : 'es'} de ${l.name}`);
+              return l;
+            }
+          }
+          return { ...l, quantity: nextQuantity };
+        })
         .filter((l) => l.quantity > 0)
     );
   };

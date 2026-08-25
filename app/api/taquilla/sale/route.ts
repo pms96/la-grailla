@@ -7,8 +7,10 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { generateQRCode } from '@/lib/qr';
-import { checkCapacityAlerts, getIssuedTicketCount } from '@/lib/capacity-alerts';
+import { checkCapacityAlerts } from '@/lib/capacity-alerts';
 import { handleApiError } from '@/lib/api-error';
+
+class TaquillaSaleRejectedError extends Error {}
 
 const taquillaSaleSchema = z.object({
   eventId: z.string().min(1),
@@ -51,33 +53,48 @@ export async function POST(request: Request) {
     const finalBuyerLastName = duringEvent ? '' : (buyerLastName ?? '');
     const holderName = duringEvent ? DIRECT_ENTRY_NAME : finalBuyerName + ' ' + finalBuyerLastName;
 
-    const event = await prisma.event.findUnique({ where: { id: eventId }, include: { ticketTypes: true } });
+    const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return NextResponse.json({ error: 'Evento no encontrado' }, { status: 404 });
 
-    let totalAmount = 0;
-    const ticketData: { ticketTypeId: string; quantity: number }[] = [];
-
+    const requestedQuantities = new Map<string, number>();
     for (const item of items) {
-      const tt = event.ticketTypes?.find((t) => t?.id === item?.ticketTypeId);
-      if (!tt) return NextResponse.json({ error: 'Tipo de entrada no valido' }, { status: 400 });
       const quantity = Math.max(1, parseInt(String(item?.quantity ?? 1), 10));
-      if ((tt.soldCount ?? 0) + quantity > (tt.maxQuantity ?? 0)) {
-        return NextResponse.json({ error: 'No quedan entradas de ' + tt.name }, { status: 400 });
-      }
-      totalAmount += (tt.price ?? 0) * quantity;
-      ticketData.push({ ticketTypeId: tt.id, quantity });
-    }
-
-    const totalTickets = ticketData.reduce((sum, t) => sum + t.quantity, 0);
-    const issuedCount = await getIssuedTicketCount(eventId);
-    if (issuedCount + totalTickets > (event.maxCapacity ?? 0)) {
-      return NextResponse.json({ error: 'Aforo completo' }, { status: 400 });
+      requestedQuantities.set(item.ticketTypeId, (requestedQuantities.get(item.ticketTypeId) ?? 0) + quantity);
     }
 
     const method = paymentMethod === 'card' ? 'CARD' : paymentMethod === 'free' ? 'FREE' : 'CASH';
-    if (method === 'FREE') totalAmount = 0;
 
     const order = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Mismo criterio que app/api/orders/route.ts: serializa por evento
+      // para que dos ventas de taquilla (o una venta y una compra online)
+      // simultáneas no puedan leer stock/aforo obsoleto y sobrevender.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${eventId}))`;
+
+      const freshTicketTypes = await tx.ticketType.findMany({
+        where: { id: { in: Array.from(requestedQuantities.keys()) } },
+      });
+
+      let totalAmount = 0;
+      const ticketData: { ticketTypeId: string; quantity: number }[] = [];
+      for (const [ticketTypeId, quantity] of requestedQuantities) {
+        const tt = freshTicketTypes.find((t) => t.id === ticketTypeId);
+        if (!tt) throw new TaquillaSaleRejectedError('Tipo de entrada no valido');
+        if ((tt.soldCount ?? 0) + quantity > (tt.maxQuantity ?? 0)) {
+          throw new TaquillaSaleRejectedError('No quedan entradas de ' + tt.name);
+        }
+        totalAmount += (tt.price ?? 0) * quantity;
+        ticketData.push({ ticketTypeId: tt.id, quantity });
+      }
+      if (method === 'FREE') totalAmount = 0;
+
+      const totalTickets = ticketData.reduce((sum, t) => sum + t.quantity, 0);
+      const issuedCount = await tx.ticket.count({
+        where: { eventId, status: { notIn: ['CANCELLED', 'REFUNDED'] } },
+      });
+      if (issuedCount + totalTickets > (event.maxCapacity ?? 0)) {
+        throw new TaquillaSaleRejectedError('Aforo completo');
+      }
+
       const newOrder = await tx.order.create({
         data: {
           eventId,
@@ -122,12 +139,25 @@ export async function POST(request: Request) {
         await tx.event.update({ where: { id: eventId }, data: { currentCount: { increment: totalTickets } } });
       }
 
-      return newOrder;
+      return { order: newOrder, totalAmount, totalTickets };
+    }).catch((error) => {
+      if (error instanceof TaquillaSaleRejectedError) return error;
+      throw error;
     });
+
+    if (order instanceof TaquillaSaleRejectedError) {
+      return NextResponse.json({ error: order.message }, { status: 400 });
+    }
 
     void checkCapacityAlerts(eventId);
 
-    return NextResponse.json({ success: true, orderId: order.id, totalAmount, tickets: totalTickets, duringEvent: Boolean(duringEvent) });
+    return NextResponse.json({
+      success: true,
+      orderId: order.order.id,
+      totalAmount: order.totalAmount,
+      tickets: order.totalTickets,
+      duringEvent: Boolean(duringEvent),
+    });
   } catch (error) {
     return handleApiError(error, 'POST /api/taquilla/sale');
   }

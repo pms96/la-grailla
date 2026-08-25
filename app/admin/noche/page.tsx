@@ -55,6 +55,7 @@ const channelLabels: Record<string, string> = {
   ONLINE: 'Online',
   TAQUILLA: 'Taquilla',
   INVITATION: 'Invitación',
+  INVITACION: 'Invitación',
 };
 
 const scanResultLabel: Record<string, string> = {

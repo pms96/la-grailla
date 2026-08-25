@@ -417,3 +417,13 @@ model RateLimitBucket {
 
   @@index([resetAt])
 }
+
+// Stripe reintenta la entrega de un webhook si no respondemos 2xx a tiempo
+// (timeout, deploy en curso, error transitorio) — el mismo `event.id` puede
+// llegar más de una vez. Guardamos el id procesado con una constraint única:
+// el segundo intento choca con P2002 y no se reprocesa. No hace falta TTL,
+// el volumen de eventos de Stripe de esta tienda es bajo.
+model ProcessedWebhookEvent {
+  id          String   @id
+  processedAt DateTime @default(now())
+}

@@ -7,8 +7,14 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 
+// Si una celda empieza por =, +, -, @, tab o retorno de carro, Excel/Sheets
+// la puede interpretar como fórmula al abrir el CSV — y estas celdas vienen
+// de datos escritos por compradores (nombre, etc.), no de nadie de
+// confianza. Anteponer un apóstrofo neutraliza la fórmula sin cambiar lo
+// que ve quien abre el archivo.
 function csvEscape(value: unknown): string {
-  const s = String(value ?? '');
+  let s = String(value ?? '');
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }

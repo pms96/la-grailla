@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Ticket, Hourglass, RotateCcw, ArrowLeft, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FadeIn } from '@/components/ui/animate';
+import { toast } from 'sonner';
 import BuyTicketsForm, { type EventData } from './buy-tickets-form';
 
 type WaitingRoomEvent = EventData & { waitingRoomEnabled: boolean };
@@ -37,6 +38,16 @@ function pollIntervalFor(position: number): number {
 
 function storageKey(eventId: string): string {
   return `queue_token_${eventId}`;
+}
+
+// `Number(header) * 1000 || 5000` trataba un `Retry-After: 0` real (el
+// servidor pidiendo reintentar ya mismo) como "sin cabecera", porque
+// `0 || 5000` cae al valor por defecto — retrasaba el reintento 5s de más
+// justo cuando el servidor pedía lo contrario.
+function retryAfterMs(res: Response, fallbackMs: number): number {
+  const raw = res.headers.get('Retry-After');
+  const seconds = raw === null ? NaN : Number(raw);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : fallbackMs;
 }
 
 const CHECKING_SLOW_MS = 12000;
@@ -112,7 +123,12 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
         // después de terminar la compra, o se vuelve atrás desde la pasarela).
         // Ese token ya no representa una espera en curso — no tiene ningún
         // sentido seguir haciendo polling sobre él para siempre. Se limpia y
-        // se vuelve a entrar de cero, como con un turno que ya no existe.
+        // se vuelve a entrar de cero, como con un turno que ya no existe, pero
+        // avisando: sin esto, el comprador ve que le meten otra vez en la cola
+        // sin explicación y puede pensar que su compra anterior no se guardó.
+        if (data.status === 'COMPLETED') {
+          toast.info('Ya completaste una compra para este evento. Te llevamos de nuevo a la cola por si quieres más entradas.');
+        }
         if (typeof window !== 'undefined') window.localStorage.removeItem(storageKey(event.id));
         setState({ status: 'CHECKING' });
         startSlowWatch();
@@ -143,8 +159,7 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
       // siempre. Reintentar es lo correcto: el turno, si ya existía, sigue
       // vivo en el servidor aunque esta llamada concreta haya fallado.
       if (!res.ok) {
-        const retryAfterMs = Number(res.headers.get('Retry-After')) * 1000 || 5000;
-        scheduleRetry(() => joinRef.current(), retryAfterMs, gen);
+        scheduleRetry(() => joinRef.current(), retryAfterMs(res, 5000), gen);
         return;
       }
       applyResult(data);
@@ -168,8 +183,7 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
       if (generationRef.current !== gen) return;
       const data = (await res.json()) as QueueApiResult;
       if (!res.ok) {
-        const retryAfterMs = Number(res.headers.get('Retry-After')) * 1000 || 5000;
-        scheduleRetry(() => pollRef.current(), retryAfterMs, gen);
+        scheduleRetry(() => pollRef.current(), retryAfterMs(res, 5000), gen);
         return;
       }
       applyResult(data);

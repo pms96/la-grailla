@@ -33,6 +33,7 @@ const channelLabels: Record<string, string> = {
   ONLINE: 'Online',
   TAQUILLA: 'Taquilla',
   INVITATION: 'Invitación',
+  INVITACION: 'Invitación',
 };
 
 type OrderListItem = Prisma.OrderGetPayload<{
