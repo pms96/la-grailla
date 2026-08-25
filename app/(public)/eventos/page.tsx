@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { EVENT_GRACE_PERIOD_MS } from '@/lib/active-event';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,7 +25,7 @@ export default async function EventosPage() {
   let loadError = false;
   try {
     events = await prisma.event.findMany({
-      where: { status: 'PUBLISHED' },
+      where: { status: 'PUBLISHED', date: { gte: new Date(Date.now() - EVENT_GRACE_PERIOD_MS) } },
       include: { ticketTypes: { where: { isActive: true }, orderBy: { price: 'asc' }, take: 1 } },
       orderBy: { date: 'asc' },
     });

@@ -1,7 +1,10 @@
+import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import type { Prisma } from '@prisma/client';
 import { Container } from '@/components/layouts/container';
+import { Button } from '@/components/ui/button';
+import { hasEventEnded } from '@/lib/active-event';
 import WaitingRoomGate from './_components/waiting-room-gate';
 
 export const dynamic = 'force-dynamic';
@@ -22,6 +25,22 @@ export default async function ComprarPage({ params }: { params: { slug: string }
   }
 
   if (!event || event?.status !== 'PUBLISHED') notFound();
+
+  if (hasEventEnded(event.date)) {
+    return (
+      <Container size="md">
+        <div className="py-20 text-center space-y-4">
+          <p className="font-display text-xl font-bold tracking-tight">Este evento ya ha finalizado</p>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            Ya no se pueden comprar entradas para {event.name}. Echa un vistazo a la próxima fecha.
+          </p>
+          <Button asChild>
+            <Link href="/eventos">Ver programación</Link>
+          </Button>
+        </div>
+      </Container>
+    );
+  }
 
   const serializedEvent = JSON.parse(JSON.stringify(event));
 

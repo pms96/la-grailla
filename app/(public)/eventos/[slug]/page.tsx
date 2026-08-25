@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
+import { hasEventEnded } from '@/lib/active-event';
 import type { Prisma } from '@prisma/client';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -78,6 +79,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
     (tt) => (tt?.maxQuantity ?? 0) - (tt?.soldCount ?? 0) > 0
   );
   const soldOut = spotsLeft <= 0 || !anyTicketsLeft || activeTypes.length === 0;
+  const eventEnded = hasEventEnded(event?.date);
 
   const ticketsCard = (
     <Card id="entradas">
@@ -87,7 +89,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
         </h2>
         <p className="text-sm text-muted-foreground mb-4 flex items-center gap-1">
           <Users className="h-3.5 w-3.5" />
-          {spotsLeft > 0 ? `${spotsLeft} plazas disponibles` : 'Sin plazas online'}
+          {eventEnded ? 'Evento finalizado' : spotsLeft > 0 ? `${spotsLeft} plazas disponibles` : 'Sin plazas online'}
         </p>
         <div className="space-y-3">
           {activeTypes.map((tt) => {
@@ -111,7 +113,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
             );
           })}
         </div>
-        {!soldOut && (
+        {!soldOut && !eventEnded && (
           <Link href={`/eventos/${event?.slug ?? ''}/comprar`} className="hidden lg:block">
             <Button
               className="w-full mt-4 gap-2 font-display font-semibold rounded-full shadow-lg shadow-primary/25"
@@ -270,6 +272,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
         slug={event?.slug ?? ''}
         minPrice={minPrice}
         soldOut={soldOut}
+        ended={eventEnded}
       />
     </>
   );

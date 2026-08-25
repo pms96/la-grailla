@@ -271,6 +271,37 @@ describe('POST /api/orders', () => {
     expect(newOrder?.status).toBe('COMPLETED');
   });
 
+  // AUDIT: /api/orders solo comprobaba event.status !== 'PUBLISHED', nunca la
+  // fecha del evento — un evento PUBLISHED con fecha pasada seguía vendiendo
+  // entradas indefinidamente. Severidad: Alto.
+  it('rechaza el pedido cuando el evento ya ha finalizado', async () => {
+    const pastEvent = await createTestEvent({ date: new Date('2025-09-26T19:00:00.000Z') });
+    const ticketType = await createTicketType(pastEvent.id);
+
+    try {
+      const res = await createOrder(
+        orderRequest(
+          {
+            eventId: pastEvent.id,
+            buyerName: 'Ana',
+            buyerLastName: 'García',
+            buyerEmail: 'ana-evento-pasado@example.com',
+            items: [{ ticketTypeId: ticketType.id, quantity: 1 }],
+          },
+          '203.0.113.6'
+        )
+      );
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toMatch(/finalizado/i);
+
+      const updatedTicketType = await prisma.ticketType.findUnique({ where: { id: ticketType.id } });
+      expect(updatedTicketType?.soldCount).toBe(0);
+    } finally {
+      await cleanupTestEvent(pastEvent.id);
+    }
+  });
+
   it('rechaza el pedido cuando supera el aforo del evento', async () => {
     const smallEvent = await createTestEvent({ maxCapacity: 1 });
     const ticketType = await createTicketType(smallEvent.id, { maxQuantity: 10 });

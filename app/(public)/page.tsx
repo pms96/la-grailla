@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getConfigs } from '@/lib/config';
+import { EVENT_GRACE_PERIOD_MS } from '@/lib/active-event';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -20,7 +21,10 @@ export default async function HomePage() {
   let loadError = false;
   try {
     events = await prisma.event.findMany({
-      where: { status: 'PUBLISHED' },
+      // No anunciar como "próxima noche" un evento cuya fecha ya pasó (más el
+      // margen de gracia nocturno) — sin este filtro, un PUBLISHED que nadie
+      // marcó a mano como FINISHED se seguía vendiendo indefinidamente.
+      where: { status: 'PUBLISHED', date: { gte: new Date(Date.now() - EVENT_GRACE_PERIOD_MS) } },
       include: { ticketTypes: { where: { isActive: true }, orderBy: { price: 'asc' }, take: 1 } },
       orderBy: { date: 'asc' },
       take: 6,

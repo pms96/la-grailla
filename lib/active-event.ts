@@ -19,6 +19,9 @@ export function setStoredActiveEventId(id: string): void {
   }
 }
 
+/** Margen tras la hora de inicio durante el cual un evento nocturno se considera "en curso". */
+export const EVENT_GRACE_PERIOD_MS = 6 * 60 * 60 * 1000;
+
 const MADRID = 'Europe/Madrid';
 
 function madridDateKey(d: Date): string {
@@ -57,7 +60,7 @@ export function pickDefaultActiveEventId<
   const now = Date.now();
   const upcoming = pool
     .map((e) => ({ e, t: parseEventDate(e.date)?.getTime() ?? 0 }))
-    .filter(({ t }) => t >= now - 6 * 60 * 60 * 1000)
+    .filter(({ t }) => t >= now - EVENT_GRACE_PERIOD_MS)
     .sort((a, b) => a.t - b.t);
   if (upcoming.length) return upcoming[0].e.id;
 
@@ -67,6 +70,18 @@ export function pickDefaultActiveEventId<
     return db - da;
   });
   return byRecent[0]?.id ?? '';
+}
+
+/**
+ * Un evento se considera finalizado a efectos de venta/cartelería pública
+ * cuando ya pasó su hora de inicio + el margen de gracia nocturno (el mismo
+ * usado para elegir el evento activo en /acceso). Sin este corte, un evento
+ * PUBLISHED con fecha pasada se seguía anunciando y vendiendo indefinidamente.
+ */
+export function hasEventEnded(date: Date | string | null | undefined): boolean {
+  const d = parseEventDate(date);
+  if (!d) return false;
+  return d.getTime() < Date.now() - EVENT_GRACE_PERIOD_MS;
 }
 
 export function isEventTonight(date: Date | string | null | undefined): boolean {

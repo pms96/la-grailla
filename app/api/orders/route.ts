@@ -13,6 +13,7 @@ import { getPaymentProvider } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
 import { handleApiError } from '@/lib/api-error';
 import { orderAccessQuery, signOrderAccess } from '@/lib/access-token';
+import { hasEventEnded } from '@/lib/active-event';
 
 // Error de negocio esperado (sin stock, aforo lleno...) lanzado DENTRO de la
 // transacción para abortarla — se distingue de un error inesperado al
@@ -90,6 +91,9 @@ export async function POST(request: Request) {
     });
     if (!event || event.status !== 'PUBLISHED') {
       return NextResponse.json({ error: 'Evento no disponible' }, { status: 400 });
+    }
+    if (hasEventEnded(event.date)) {
+      return NextResponse.json({ error: 'Este evento ya ha finalizado' }, { status: 400 });
     }
 
     // Con la sala de espera activa, solo se puede comprar con un turno

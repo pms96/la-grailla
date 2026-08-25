@@ -15,6 +15,7 @@ import { Plus, Pencil, Trash2, Loader2, Calendar, Hourglass } from 'lucide-react
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
+import { hasEventEnded } from '@/lib/active-event';
 
 type EventWithCount = Event & { _count?: { tickets: number } };
 
@@ -288,6 +289,11 @@ export default function EventsManager() {
                   <Badge variant={event?.status === 'PUBLISHED' ? 'default' : event?.status === 'DRAFT' ? 'secondary' : 'outline'} className="text-xs">
                     {event?.status === 'PUBLISHED' ? 'Publicado' : event?.status === 'DRAFT' ? 'Borrador' : event?.status === 'FINISHED' ? 'Finalizado' : 'Cancelado'}
                   </Badge>
+                  {event?.status === 'PUBLISHED' && hasEventEnded(event?.date) && (
+                    <Badge variant="outline" className="text-xs text-muted-foreground">
+                      Ya ha pasado — no se vende
+                    </Badge>
+                  )}
                   <Button variant="ghost" size="icon-sm" onClick={() => openEdit(event)}><Pencil className="h-3.5 w-3.5" /></Button>
                   <Button variant="ghost" size="icon-sm" onClick={() => handleDelete(event?.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
                 </div>

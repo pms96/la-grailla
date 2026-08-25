@@ -8,7 +8,7 @@ function uniqueSuffix() {
   return `test-${Date.now()}-${counter}`;
 }
 
-export async function createTestEvent(overrides: { maxCapacity?: number } = {}) {
+export async function createTestEvent(overrides: { maxCapacity?: number; date?: Date; status?: 'DRAFT' | 'PUBLISHED' | 'FINISHED' | 'CANCELLED' } = {}) {
   const suffix = uniqueSuffix();
   const event = await prisma.event.create({
     data: {
@@ -16,9 +16,9 @@ export async function createTestEvent(overrides: { maxCapacity?: number } = {}) 
       slug: `test-evento-${suffix}`,
       venue: 'Sala de pruebas',
       city: 'Testville',
-      date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      date: overrides.date ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       maxCapacity: overrides.maxCapacity ?? 500,
-      status: 'PUBLISHED',
+      status: overrides.status ?? 'PUBLISHED',
     },
   });
   return event;
