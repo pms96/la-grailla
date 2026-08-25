@@ -11,6 +11,12 @@ export async function getIssuedTicketCount(eventId: string): Promise<number> {
   });
 }
 
+/**
+ * Alertas de aforo por **entradas emitidas** (preventa / taquilla), no por
+ * personas dentro. Así se avisa de "casi agotado" durante la venta online.
+ * Los umbrales y alertsSent viven en el evento; son independientes del aforo
+ * en puerta (currentCount), que se monitoriza en /admin/aforo y /acceso.
+ */
 export async function checkCapacityAlerts(eventId: string) {
   try {
     const event = await prisma.event.findUnique({ where: { id: eventId } });
@@ -30,7 +36,8 @@ export async function checkCapacityAlerts(eventId: string) {
       .map((t) => t.trim())
       .filter(Boolean);
 
-    const percent = Math.round(((event.currentCount || 0) / capacity) * 100);
+    const sold = await getIssuedTicketCount(eventId);
+    const percent = Math.round((sold / capacity) * 100);
     const pending = thresholds.filter((t) => percent >= t && !alreadySent.includes(String(t)));
     if (!pending.length) return;
 
@@ -40,19 +47,32 @@ export async function checkCapacityAlerts(eventId: string) {
     const highest = pending[pending.length - 1];
     const html =
       '<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;">' +
-      '<h2 style="color:#a855f7;margin:0 0 12px;">Alerta de aforo</h2>' +
-      '<p>El evento <strong>' + event.name + '</strong> ha alcanzado el <strong>' + percent + '%</strong> de su aforo.</p>' +
+      '<h2 style="color:#a855f7;margin:0 0 12px;">Alerta de aforo (ventas)</h2>' +
+      '<p>El evento <strong>' +
+      event.name +
+      '</strong> ha alcanzado el <strong>' +
+      percent +
+      '%</strong> de entradas emitidas sobre aforo.</p>' +
       '<div style="background:#f6f4ff;border-radius:10px;padding:16px;margin:16px 0;">' +
-      '<p style="margin:4px 0;">Asistentes registrados: <strong>' + (event.currentCount || 0) + '</strong></p>' +
-      '<p style="margin:4px 0;">Aforo maximo: <strong>' + capacity + '</strong></p>' +
-      '<p style="margin:4px 0;">Umbral superado: <strong>' + highest + '%</strong></p>' +
+      '<p style="margin:4px 0;">Entradas emitidas: <strong>' +
+      sold +
+      '</strong></p>' +
+      '<p style="margin:4px 0;">Dentro ahora: <strong>' +
+      (event.currentCount || 0) +
+      '</strong></p>' +
+      '<p style="margin:4px 0;">Aforo maximo: <strong>' +
+      capacity +
+      '</strong></p>' +
+      '<p style="margin:4px 0;">Umbral superado: <strong>' +
+      highest +
+      '%</strong></p>' +
       '</div>' +
-      '<p style="font-size:12px;color:#999;">Puedes ajustar los umbrales de alerta desde el panel de administracion.</p>' +
+      '<p style="font-size:12px;color:#999;">Puedes ajustar los umbrales desde el panel de administracion.</p>' +
       '</div>';
 
     const result = await sendMail({
       to: adminEmail,
-      subject: 'Aforo al ' + percent + '% - ' + event.name,
+      subject: 'Ventas al ' + percent + '% del aforo - ' + event.name,
       html,
     });
 

@@ -6,6 +6,7 @@ import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { completeOrder } from '@/lib/order-reconciliation';
 import { getBaseUrl } from '@/lib/url';
 import { handleApiError } from '@/lib/api-error';
+import { allowOrderAccess, getTokenFromRequest } from '@/lib/access-token';
 
 const includeTicketsAndEvent = { event: true, tickets: { include: { ticketType: true } } } as const;
 
@@ -14,8 +15,13 @@ export async function GET(
   { params }: { params: { orderId: string } }
 ) {
   try {
+    const orderId = params?.orderId;
+    if (!(await allowOrderAccess(orderId, getTokenFromRequest(request)))) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+
     let order = await prisma.order.findUnique({
-      where: { id: params?.orderId },
+      where: { id: orderId },
       include: includeTicketsAndEvent,
     });
 

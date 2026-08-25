@@ -3,7 +3,7 @@ import { Container } from '@/components/layouts/container';
 import { FadeIn } from '@/components/ui/animate';
 import ShopGrid from './_components/shop-grid';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 60;
 
 export const metadata = {
   title: 'Tienda | La Grailla',

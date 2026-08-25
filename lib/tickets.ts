@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { generateQRDataUrl } from '@/lib/qr';
 import { sendMail } from '@/lib/mailer';
+import { orderAccessQuery } from '@/lib/access-token';
 
 type OrderWithTickets = Prisma.OrderGetPayload<{
   include: { event: true; tickets: { include: { ticketType: true } } };
@@ -140,7 +141,7 @@ export async function sendTicketsEmail(
   }
 
   const appUrl = baseUrl ?? process.env.NEXTAUTH_URL ?? '';
-  const printUrl = appUrl + '/api/tickets/' + order.id + '/pdf-html';
+  const printUrl = appUrl + '/api/tickets/' + order.id + '/pdf-html?' + orderAccessQuery(order.id);
   const logoUrl = appUrl + '/brand/logo-black.png';
 
   const result = await sendMail({

@@ -4,6 +4,8 @@ import { Handshake, Building2, Users, Megaphone } from 'lucide-react';
 import { FadeIn, SlideIn } from '@/components/ui/animate';
 import SponsorForm from './_components/sponsor-form';
 
+export const revalidate = 60;
+
 export const metadata = {
   title: 'Patrocinio | La Grailla',
   description: 'Tu marca en la mejor caseta de la feria. Llega a miles de asistentes y sé parte de La Grailla.',

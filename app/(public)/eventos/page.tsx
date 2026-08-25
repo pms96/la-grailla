@@ -9,7 +9,7 @@ import { FadeIn, Stagger, StaggerItem } from '@/components/ui/animate';
 import { Container } from '@/components/layouts/container';
 import { ReloadButton } from '@/components/reload-button';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 60;
 
 export const metadata = {
   title: 'Eventos | La Grailla',

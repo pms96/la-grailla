@@ -170,7 +170,8 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
         window.location.href = data.checkoutUrl;
         return;
       }
-      router.push(`/confirmacion/${data.orderId}`);
+      const tokenQs = data?.accessToken ? `?t=${encodeURIComponent(data.accessToken)}` : '';
+      router.push(`/confirmacion/${data.orderId}${tokenQs}`);
     } catch {
       // Fallo de red: no sabemos si el servidor llegó a procesar la
       // petición, así que se conserva la clave para que un reintento se

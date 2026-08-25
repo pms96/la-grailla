@@ -5,8 +5,6 @@ import { Toaster } from '@/components/ui/sonner';
 import { ChunkLoadErrorHandler } from '@/components/chunk-load-error-handler';
 import Providers from './providers';
 
-export const dynamic = 'force-dynamic';
-
 const spaceGrotesk = Space_Grotesk({ subsets: ['latin'], variable: '--font-sans' });
 const fredoka = Fredoka({ subsets: ['latin'], variable: '--font-display', weight: ['400', '500', '600', '700'] });
 const spaceMono = Space_Mono({ subsets: ['latin'], variable: '--font-mono', weight: ['400', '700'] });

@@ -12,6 +12,7 @@ import { checkCapacityAlerts } from '@/lib/capacity-alerts';
 import { getPaymentProvider } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
 import { handleApiError } from '@/lib/api-error';
+import { orderAccessQuery, signOrderAccess } from '@/lib/access-token';
 
 // Error de negocio esperado (sin stock, aforo lleno...) lanzado DENTRO de la
 // transacción para abortarla — se distingue de un error inesperado al
@@ -72,7 +73,13 @@ export async function POST(request: Request) {
     if (idempotencyKey) {
       const existingOrder = await prisma.order.findUnique({ where: { idempotencyKey } });
       if (existingOrder) {
-        return NextResponse.json({ success: true, orderId: existingOrder.id, totalAmount: existingOrder.totalAmount, checkoutUrl: null });
+        return NextResponse.json({
+          success: true,
+          orderId: existingOrder.id,
+          totalAmount: existingOrder.totalAmount,
+          checkoutUrl: null,
+          accessToken: signOrderAccess(existingOrder.id),
+        });
       }
     }
 
@@ -280,7 +287,13 @@ export async function POST(request: Request) {
       if (!existingOrder) {
         return NextResponse.json({ error: 'No se ha podido procesar el pedido. Inténtalo de nuevo.' }, { status: 409 });
       }
-      return NextResponse.json({ success: true, orderId: existingOrder.id, totalAmount: existingOrder.totalAmount, checkoutUrl: null });
+      return NextResponse.json({
+        success: true,
+        orderId: existingOrder.id,
+        totalAmount: existingOrder.totalAmount,
+        checkoutUrl: null,
+        accessToken: signOrderAccess(existingOrder.id),
+      });
     }
 
     // Libera el hueco de la sala de espera ya, en vez de esperar a que
@@ -295,7 +308,13 @@ export async function POST(request: Request) {
     if (!isGatewayLive) {
       void checkCapacityAlerts(eventId);
       await releaseQueueSlot();
-      return NextResponse.json({ success: true, orderId: order.id, totalAmount, checkoutUrl: null });
+      return NextResponse.json({
+        success: true,
+        orderId: order.id,
+        totalAmount,
+        checkoutUrl: null,
+        accessToken: signOrderAccess(order.id),
+      });
     }
 
     const baseUrl = getBaseUrl(request);
@@ -305,14 +324,20 @@ export async function POST(request: Request) {
         currency: 'EUR',
         description: `Entradas ${event.name}`,
         orderId: order.id,
-        successUrl: baseUrl + '/confirmacion/' + order.id,
+        successUrl: baseUrl + '/confirmacion/' + order.id + '?' + orderAccessQuery(order.id),
         cancelUrl: baseUrl + '/eventos/' + event.slug + '/comprar',
         customerEmail: buyerEmail,
         metadata: { orderType: 'ticket' },
       });
       await prisma.order.update({ where: { id: order.id }, data: { paymentId: session.sessionId } });
       await releaseQueueSlot();
-      return NextResponse.json({ success: true, orderId: order.id, totalAmount, checkoutUrl: session.checkoutUrl });
+      return NextResponse.json({
+        success: true,
+        orderId: order.id,
+        totalAmount,
+        checkoutUrl: session.checkoutUrl,
+        accessToken: signOrderAccess(order.id),
+      });
     } catch (error) {
       // La pasarela no pudo crear la sesión de cobro: no dejar entradas PENDING
       // colgadas ni que el comprador acabe en "confirmación" sin haber pagado.

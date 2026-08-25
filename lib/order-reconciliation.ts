@@ -41,6 +41,16 @@ export async function completeOrder(orderId: string, baseUrl?: string): Promise<
       error instanceof Error ? error.message : error
     );
   }
+
+  try {
+    const { checkCapacityAlerts } = await import('@/lib/capacity-alerts');
+    await checkCapacityAlerts(order.eventId);
+  } catch (error) {
+    console.error(
+      `[completeOrder] Error alertas aforo ${order.eventId}:`,
+      error instanceof Error ? error.message : error
+    );
+  }
 }
 
 // Si el checkout expira sin pagarse (el comprador nunca completa el pago),

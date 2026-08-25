@@ -11,7 +11,7 @@ import { Container } from '@/components/layouts/container';
 import { MobileBuyBar } from './_components/mobile-buy-bar';
 import { ReloadButton } from '@/components/reload-button';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 60;
 
 type EventWithTicketTypes = Prisma.EventGetPayload<{ include: { ticketTypes: true } }>;
 

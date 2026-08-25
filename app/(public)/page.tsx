@@ -11,7 +11,7 @@ import { Logo } from '@/components/logo';
 import { ReloadButton } from '@/components/reload-button';
 import Image from 'next/image';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 60;
 
 type EventWithTicketTypes = Prisma.EventGetPayload<{ include: { ticketTypes: true } }>;
 

@@ -4,14 +4,20 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateQRDataUrl } from '@/lib/qr';
 import { handleApiError } from '@/lib/api-error';
+import { allowOrderAccess, getTokenFromRequest } from '@/lib/access-token';
 
 export async function GET(
   request: Request,
   { params }: { params: { orderId: string } }
 ) {
   try {
+    const orderId = params?.orderId;
+    if (!(await allowOrderAccess(orderId, getTokenFromRequest(request)))) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+
     const order = await prisma.order.findUnique({
-      where: { id: params?.orderId },
+      where: { id: orderId },
       include: {
         event: true,
         tickets: { include: { ticketType: true } },

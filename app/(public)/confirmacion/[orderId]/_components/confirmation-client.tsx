@@ -31,7 +31,13 @@ type OrderState = OrderWithTickets | { error: string } | null;
 const MAX_POLLS = 15;
 const POLL_INTERVAL_MS = 3000;
 
-export default function ConfirmationClient({ orderId }: { orderId: string }) {
+export default function ConfirmationClient({
+  orderId,
+  accessToken = '',
+}: {
+  orderId: string;
+  accessToken?: string;
+}) {
   const [order, setOrder] = useState<OrderState>(null);
   const [loading, setLoading] = useState(true);
   const [fetchFailed, setFetchFailed] = useState(false);
@@ -42,11 +48,12 @@ export default function ConfirmationClient({ orderId }: { orderId: string }) {
   const orderError = order && 'error' in order ? order.error : null;
   const validOrder = order && !('error' in order) ? order : null;
   const isPending = validOrder?.status === 'PENDING';
+  const tokenQs = accessToken ? `?t=${encodeURIComponent(accessToken)}` : '';
 
   const fetchOrder = () => {
     if (!orderId) return;
     setFetchFailed(false);
-    fetch(`/api/orders/${orderId}`)
+    fetch(`/api/orders/${orderId}${tokenQs}`)
       .then(async (r) => {
         if (!r.ok) throw new Error('order_failed');
         return r.json();
@@ -65,7 +72,8 @@ export default function ConfirmationClient({ orderId }: { orderId: string }) {
       .then((r) => r.json())
       .then((data) => setWallet({ google: Boolean(data?.google), apple: Boolean(data?.apple) }))
       .catch(() => {});
-  }, [orderId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when orderId/token change
+  }, [orderId, accessToken]);
 
   // La pasarela confirma el pago de forma asíncrona: si volvemos aquí y el
   // pedido sigue PENDING, reintentamos la verificación cada pocos segundos
@@ -89,12 +97,12 @@ export default function ConfirmationClient({ orderId }: { orderId: string }) {
     fetch(`/api/orders/${validOrder.id}/send-tickets`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ t: accessToken || undefined }),
     })
       .then((r) => r.json())
       .then((data) => setEmailStatus(data?.success ? 'sent' : 'error'))
       .catch(() => setEmailStatus('error'));
-  }, [validOrder?.id, validOrder?.emailSentAt, orderError, isPending]);
+  }, [validOrder?.id, validOrder?.emailSentAt, orderError, isPending, accessToken]);
 
   const resendEmail = async () => {
     setEmailStatus('sending');
@@ -102,7 +110,7 @@ export default function ConfirmationClient({ orderId }: { orderId: string }) {
       const res = await fetch(`/api/orders/${orderId}/send-tickets`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ softResend: true }),
+        body: JSON.stringify({ softResend: true, t: accessToken || undefined }),
       });
       const data = await res.json();
       setEmailStatus(data?.success ? 'sent' : 'error');
@@ -283,14 +291,14 @@ export default function ConfirmationClient({ orderId }: { orderId: string }) {
                     <div className="flex flex-wrap gap-2">
                       {wallet.google && (
                         <Button asChild variant="outline" size="sm" className="gap-2">
-                          <a href={`/api/wallet/google/${ticket?.id}`} target="_blank" rel="noopener noreferrer">
+                          <a href={`/api/wallet/google/${ticket?.id}${tokenQs}`} target="_blank" rel="noopener noreferrer">
                             <Wallet className="h-3.5 w-3.5" /> Google Wallet
                           </a>
                         </Button>
                       )}
                       {wallet.apple && (
                         <Button asChild variant="outline" size="sm" className="gap-2">
-                          <a href={`/api/wallet/apple/${ticket?.id}`}>
+                          <a href={`/api/wallet/apple/${ticket?.id}${tokenQs}`}>
                             <Wallet className="h-3.5 w-3.5" /> Apple Wallet
                           </a>
                         </Button>
@@ -311,7 +319,7 @@ export default function ConfirmationClient({ orderId }: { orderId: string }) {
                 <p className="font-display text-2xl font-bold">{(validOrder?.totalAmount ?? 0).toFixed(2)}€</p>
               </div>
               <Button asChild className="gap-2">
-                <a href={`/api/tickets/${orderId}/pdf-html`} target="_blank" rel="noopener noreferrer">
+                <a href={`/api/tickets/${orderId}/pdf-html${tokenQs}`} target="_blank" rel="noopener noreferrer">
                   <Download className="h-4 w-4" />
                   Ver e Imprimir
                 </a>

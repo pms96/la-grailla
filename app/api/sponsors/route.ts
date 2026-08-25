@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { sendMail } from '@/lib/mailer';
 import { handleApiError } from '@/lib/api-error';
+import { rateLimit, getClientIp } from '@/lib/rate-limit';
 
 const createSponsorRequestSchema = z.object({
   companyName: z.string().min(1),
@@ -17,6 +18,14 @@ const createSponsorRequestSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    const limit = await rateLimit('sponsors', getClientIp(request), 5, 60 * 60_000);
+    if (!limit.ok) {
+      return NextResponse.json(
+        { error: 'Has enviado demasiadas solicitudes. Espera un rato e inténtalo de nuevo.' },
+        { status: 429, headers: { 'Retry-After': String(limit.retryAfter) } }
+      );
+    }
+
     const { companyName, contactName, email, phone, sponsorType, message } = createSponsorRequestSchema.parse(
       await request.json()
     );
@@ -25,7 +34,6 @@ export async function POST(request: Request) {
       data: { companyName, contactName, email, phone, sponsorType, message },
     });
 
-    // Notify admin
     const adminHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #a855f7; border-bottom: 2px solid #a855f7; padding-bottom: 10px;">Nueva Solicitud de Patrocinio</h2>
@@ -47,7 +55,6 @@ export async function POST(request: Request) {
       replyTo: email,
     });
 
-    // Confirm to sponsor
     const logoUrl = (process.env.NEXTAUTH_URL ?? '') + '/brand/logo-black.png';
     const confirmHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">

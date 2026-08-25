@@ -51,7 +51,7 @@ export default function CapacityAlertsEditor({ event, onSaved }: Props) {
         <DialogHeader><DialogTitle>Alertas de aforo · {event?.name ?? ''}</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Se enviará un aviso por email al administrador cada vez que el aforo alcance uno de estos porcentajes. Escríbelos separados por comas.
+            Se enviará un aviso por email al administrador cuando las <strong>entradas emitidas</strong> alcancen uno de estos porcentajes del aforo. Escríbelos separados por comas.
           </p>
           <div>
             <Label>Umbrales (%)</Label>
