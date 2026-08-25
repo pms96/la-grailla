@@ -3,7 +3,11 @@ import LoginForm from './_components/login-form';
 
 export default function LoginPage() {
   return (
-    <AuthLayout title="Iniciar Sesión" description="Panel de administración de La Grailla 💜">
+    <AuthLayout
+      variant="sober"
+      title="Acceso staff"
+      description="Panel de administración y control de acceso"
+    >
       <LoginForm />
     </AuthLayout>
   );

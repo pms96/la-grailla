@@ -102,13 +102,36 @@ function buildEmailHtml(order: OrderWithTickets, printUrl: string, logoUrl: stri
   );
 }
 
-export async function sendTicketsEmail(orderId: string, force: boolean = false, baseUrl?: string) {
+const PUBLIC_RESEND_COOLDOWN_MS = 60_000;
+
+export async function sendTicketsEmail(
+  orderId: string,
+  force: boolean = false,
+  baseUrl?: string,
+  options?: { softResend?: boolean }
+) {
   const built = await buildTicketsHtml(orderId);
   if (!built) return { success: false, error: 'Pedido no encontrado' };
   const { order } = built;
 
+  if (order.status === 'CANCELLED' || order.status === 'REFUNDED') {
+    return { success: false, error: 'order_inactive' };
+  }
+
   if (order.emailSentAt && !force) {
-    return { success: true, alreadySent: true };
+    if (options?.softResend) {
+      const elapsed = Date.now() - new Date(order.emailSentAt).getTime();
+      if (elapsed < PUBLIC_RESEND_COOLDOWN_MS) {
+        return {
+          success: true,
+          alreadySent: true,
+          cooldownMs: PUBLIC_RESEND_COOLDOWN_MS - elapsed,
+        };
+      }
+      // Tras el cooldown, el comprador con la URL de confirmación puede reenviar.
+    } else {
+      return { success: true, alreadySent: true };
+    }
   }
 
   // No enviar (ni PDF, ni QR válidos) mientras el pago siga pendiente de confirmar.

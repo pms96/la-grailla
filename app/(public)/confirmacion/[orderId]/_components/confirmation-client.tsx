@@ -102,7 +102,7 @@ export default function ConfirmationClient({ orderId }: { orderId: string }) {
       const res = await fetch(`/api/orders/${orderId}/send-tickets`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force: true }),
+        body: JSON.stringify({ softResend: true }),
       });
       const data = await res.json();
       setEmailStatus(data?.success ? 'sent' : 'error');

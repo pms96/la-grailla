@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ComponentType } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
@@ -11,31 +11,97 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ChangePasswordDialog } from '@/app/admin/_components/change-password-dialog';
 import {
   LayoutDashboard, Calendar, Ticket, Users, ShoppingBag, Package,
-  BarChart3, Handshake, Settings, LogOut, Menu, X, QrCode, KeyRound
+  BarChart3, Handshake, Settings, LogOut, Menu, X, QrCode, KeyRound, Receipt, Moon,
+  UserPlus, ScanLine, Gauge,
 } from 'lucide-react';
 
-const navItems = [
-  { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { href: '/admin/eventos', label: 'Eventos', icon: Calendar },
-  { href: '/admin/entradas', label: 'Entradas', icon: Ticket },
-  { href: '/admin/aforo', label: 'Aforo', icon: Users },
-  { href: '/admin/productos', label: 'Productos', icon: ShoppingBag },
-  { href: '/admin/pedidos', label: 'Pedidos Tienda', icon: Package },
-  { href: '/admin/estadisticas', label: 'Estadísticas', icon: BarChart3 },
-  { href: '/admin/sponsors', label: 'Patrocinios', icon: Handshake },
-  { href: '/admin/usuarios', label: 'Usuarios', icon: Users },
-  { href: '/admin/configuracion', label: 'Configuración', icon: Settings },
+type NavItem = {
+  href: string;
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+  exact?: boolean;
+  highlight?: boolean;
+};
+
+type NavGroup = {
+  label?: string;
+  items: NavItem[];
+};
+
+const navGroups: NavGroup[] = [
+  {
+    items: [
+      { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+      { href: '/admin/noche', label: 'Modo noche', icon: Moon, highlight: true },
+    ],
+  },
+  {
+    label: 'Eventos',
+    items: [
+      { href: '/admin/eventos', label: 'Eventos', icon: Calendar },
+      { href: '/admin/entradas', label: 'Tipos de entrada', icon: Ticket },
+      { href: '/admin/invitaciones', label: 'Invitaciones', icon: UserPlus },
+      { href: '/admin/ventas', label: 'Ventas', icon: Receipt },
+    ],
+  },
+  {
+    label: 'Operaciones',
+    items: [
+      { href: '/admin/aforo', label: 'Aforo', icon: Gauge },
+      { href: '/admin/escaneos', label: 'Escaneos', icon: ScanLine },
+      { href: '/admin/estadisticas', label: 'Estadísticas', icon: BarChart3 },
+    ],
+  },
+  {
+    label: 'Tienda',
+    items: [
+      { href: '/admin/productos', label: 'Productos', icon: ShoppingBag },
+      { href: '/admin/pedidos', label: 'Pedidos tienda', icon: Package },
+    ],
+  },
+  {
+    label: 'Sistema',
+    items: [
+      { href: '/admin/sponsors', label: 'Patrocinios', icon: Handshake },
+      { href: '/admin/usuarios', label: 'Usuarios', icon: Users },
+      { href: '/admin/configuracion', label: 'Configuración', icon: Settings },
+    ],
+  },
 ];
+
+function NavLink({
+  item,
+  pathname,
+  onNavigate,
+}: {
+  item: NavItem;
+  pathname: string;
+  onNavigate: () => void;
+}) {
+  const isActive = item.exact ? pathname === item.href : pathname.startsWith(item.href);
+  return (
+    <Link href={item.href} onClick={onNavigate}>
+      <Button
+        variant={isActive ? 'secondary' : item.highlight ? 'default' : 'ghost'}
+        className="w-full justify-start gap-2 text-sm"
+        size="sm"
+      >
+        <item.icon className="h-4 w-4" />
+        {item.label}
+      </Button>
+    </Link>
+  );
+}
 
 export default function AdminShell({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession() || {};
   const pathname = usePathname() ?? '';
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const closeSidebar = () => setSidebarOpen(false);
 
   return (
     <div className="min-h-screen flex">
-      {/* Sidebar */}
       <aside className={cn(
         'fixed inset-y-0 left-0 z-50 w-64 bg-card border-r border-border transform transition-transform md:translate-x-0 md:static',
         sidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -46,31 +112,28 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
               <Link href="/admin" className="flex items-center gap-2">
                 <Logo variant="white" className="h-7" />
               </Link>
-              <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={() => setSidebarOpen(false)}>
+              <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={closeSidebar}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">Panel de Administración</p>
+            <p className="text-xs text-muted-foreground mt-1">Panel de administración</p>
           </div>
 
-          <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-            {navItems.map((item) => {
-              const isActive = item?.exact ? pathname === item.href : pathname?.startsWith(item.href);
-              return (
-                <Link key={item.href} href={item.href} onClick={() => setSidebarOpen(false)}>
-                  <Button
-                    variant={isActive ? 'secondary' : 'ghost'}
-                    className="w-full justify-start gap-2 text-sm"
-                    size="sm"
-                  >
-                    <item.icon className="h-4 w-4" />
-                    {item.label}
-                  </Button>
-                </Link>
-              );
-            })}
-            <div className="pt-2 border-t border-border mt-2">
-              <Link href="/acceso" onClick={() => setSidebarOpen(false)}>
+          <nav className="flex-1 p-3 space-y-4 overflow-y-auto">
+            {navGroups.map((group, gi) => (
+              <div key={group.label ?? `g-${gi}`} className="space-y-1">
+                {group.label && (
+                  <p className="px-2 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground/80">
+                    {group.label}
+                  </p>
+                )}
+                {group.items.map((item) => (
+                  <NavLink key={item.href} item={item} pathname={pathname} onNavigate={closeSidebar} />
+                ))}
+              </div>
+            ))}
+            <div className="pt-2 border-t border-border">
+              <Link href="/acceso" onClick={closeSidebar}>
                 <Button variant="ghost" className="w-full justify-start gap-2 text-sm" size="sm">
                   <QrCode className="h-4 w-4" /> Escáner QR
                 </Button>
@@ -105,12 +168,10 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         </div>
       </aside>
 
-      {/* Overlay for mobile */}
       {sidebarOpen && (
-        <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setSidebarOpen(false)} />
+        <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={closeSidebar} />
       )}
 
-      {/* Main content */}
       <div className="flex-1 min-w-0">
         <header className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b border-border md:hidden">
           <div className="flex items-center gap-3 px-4 h-14">

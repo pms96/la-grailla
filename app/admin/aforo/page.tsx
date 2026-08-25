@@ -5,7 +5,8 @@ import type { Event, TicketType } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, RefreshCw, Users, AlertTriangle, TrendingUp } from 'lucide-react';
+import { Loader2, RefreshCw, Users, AlertTriangle, TrendingUp, Moon } from 'lucide-react';
+import Link from 'next/link';
 import { PageHeader } from '@/components/layouts/page-header';
 import CapacityAlertsEditor from '@/components/admin/capacity-alerts-editor';
 import { CapacityBar } from '@/components/admin/capacity-bar';
@@ -123,6 +124,11 @@ export default function AforoPage() {
                       </div>
                     </div>
                   )}
+                  <Button asChild variant="outline" size="sm" className="w-full mt-4 gap-2">
+                    <Link href={`/admin/noche?eventId=${encodeURIComponent(ev?.id ?? '')}`}>
+                      <Moon className="h-4 w-4" /> Modo noche
+                    </Link>
+                  </Button>
                 </CardContent>
               </Card>
             );

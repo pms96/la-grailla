@@ -8,12 +8,18 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { QrCode, Users, RefreshCw, Keyboard, Camera, LogOut, Ticket, UserPlus, TrendingUp, AlertTriangle } from 'lucide-react';
+import { QrCode, Users, RefreshCw, Keyboard, Camera, LogOut, Ticket, UserPlus, TrendingUp, AlertTriangle, Moon } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TaquillaPanel from './taquilla-panel';
 import InvitationsPanel from './invitations-panel';
+import {
+  getStoredActiveEventId,
+  pickDefaultActiveEventId,
+  setStoredActiveEventId,
+} from '@/lib/active-event';
 
 const QrScanner = dynamic(() => import('./qr-scanner'), { ssr: false });
 
@@ -34,6 +40,7 @@ export default function AccessClient() {
   const { data: session } = useSession() || {};
   const [events, setEvents] = useState<EventWithTicketTypes[]>([]);
   const [selectedEvent, setSelectedEvent] = useState('');
+  const [activeTab, setActiveTab] = useState('scan');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [capacity, setCapacity] = useState({ current: 0, max: 0, sold: 0, entryRate5min: 0, rejectionRate5min: null as number | null });
   const [mode, setMode] = useState<'camera' | 'manual'>('camera');
@@ -42,16 +49,37 @@ export default function AccessClient() {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadEvents = useCallback(() => {
+    const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+    const fromUrl = params.get('eventId');
+    const tab = params.get('tab');
+    if (tab === 'scan' || tab === 'taquilla' || tab === 'invitaciones') {
+      setActiveTab(tab);
+    }
+
     fetch('/api/events?status=PUBLISHED')
       .then((r) => r.json())
-      .then((data) => {
-        setEvents(data ?? []);
-        setSelectedEvent((prev) => prev || (data?.[0]?.id ?? ''));
+      .then((data: EventWithTicketTypes[]) => {
+        const list = data ?? [];
+        setEvents(list);
+        setSelectedEvent((prev) => {
+          if (prev && list.some((e) => e.id === prev)) return prev;
+          if (fromUrl && list.some((e) => e.id === fromUrl)) return fromUrl;
+          const stored = getStoredActiveEventId();
+          if (stored && list.some((e) => e.id === stored)) return stored;
+          return pickDefaultActiveEventId(list) || list[0]?.id || '';
+        });
       })
       .catch(() => {});
   }, []);
 
-  useEffect(() => { loadEvents(); }, [loadEvents]);
+  useEffect(() => {
+    if (selectedEvent) setStoredActiveEventId(selectedEvent);
+  }, [selectedEvent]);
+
+  const handleEventChange = (id: string) => {
+    setSelectedEvent(id);
+    setStoredActiveEventId(id);
+  };
 
   const refreshCapacity = useCallback(() => {
     if (!selectedEvent) return;
@@ -152,6 +180,13 @@ export default function AccessClient() {
             <h1 className="font-display font-bold text-lg">Control de Acceso</h1>
           </div>
           <div className="flex items-center gap-2">
+            {session?.user?.role === 'ADMIN' && (
+              <Button variant="outline" size="sm" className="gap-1.5" asChild>
+                <Link href={`/admin/noche?eventId=${encodeURIComponent(selectedEvent)}`}>
+                  <Moon className="h-3.5 w-3.5" /> Modo noche
+                </Link>
+              </Button>
+            )}
             <Badge variant="outline">{session?.user?.role ?? ''}</Badge>
             <Button variant="ghost" size="icon-sm" onClick={() => signOut?.({ callbackUrl: '/auth/login' })}>
               <LogOut className="h-4 w-4" />
@@ -164,7 +199,7 @@ export default function AccessClient() {
         {/* Event selector */}
         <Card>
           <CardContent className="p-4">
-            <Select value={selectedEvent} onValueChange={setSelectedEvent}>
+            <Select value={selectedEvent} onValueChange={handleEventChange}>
               <SelectTrigger><SelectValue placeholder="Selecciona evento" /></SelectTrigger>
               <SelectContent>
                 {(events ?? []).map((ev) => (
@@ -214,7 +249,7 @@ export default function AccessClient() {
           </CardContent>
         </Card>
 
-        <Tabs defaultValue="scan" className="space-y-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="scan" className="gap-1.5 text-xs sm:text-sm"><QrCode className="h-3.5 w-3.5" /> Escáner</TabsTrigger>
             <TabsTrigger value="taquilla" className="gap-1.5 text-xs sm:text-sm"><Ticket className="h-3.5 w-3.5" /> Taquilla</TabsTrigger>
