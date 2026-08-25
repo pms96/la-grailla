@@ -33,6 +33,12 @@ export default function PedidosPage() {
   useEffect(() => { fetchOrders(); }, []);
 
   const updateOrder = async (id: string, data: Partial<Pick<ShopOrderWithItems, 'status' | 'trackingNumber'>>) => {
+    if (
+      (data.status === 'CANCELLED' || data.status === 'REFUNDED') &&
+      !confirm(`¿Marcar este pedido como ${statusLabels[data.status]?.toLowerCase()}?`)
+    ) {
+      return;
+    }
     try {
       await fetch(`/api/admin/shop-orders/${id}`, {
         method: 'PUT',

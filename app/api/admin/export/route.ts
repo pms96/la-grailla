@@ -1,11 +1,11 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { buildOrdersWhere } from '@/lib/order-filters';
 
 // Si una celda empieza por =, +, -, @, tab o retorno de carro, Excel/Sheets
 // la puede interpretar como fórmula al abrir el CSV — y estas celdas vienen
@@ -50,10 +50,15 @@ export async function GET(request: Request) {
     const day = new Date().toISOString().slice(0, 10);
 
     if (type === 'orders') {
-      const where: Prisma.OrderWhereInput = {
-        status: 'COMPLETED',
-        ...(eventId ? { eventId } : {}),
-      };
+      // Mismos filtros que /api/admin/orders (lista en pantalla) para que
+      // el CSV descargado sea exactamente lo que el admin está viendo
+      // filtrado, no todos los pedidos completados del evento.
+      const where = buildOrdersWhere({
+        q: url.searchParams.get('q') ?? '',
+        status: url.searchParams.get('status') ?? 'COMPLETED',
+        eventId,
+        emailFailed: url.searchParams.get('emailFailed') === '1',
+      });
       const orders = await prisma.order.findMany({
         where,
         orderBy: { createdAt: 'desc' },

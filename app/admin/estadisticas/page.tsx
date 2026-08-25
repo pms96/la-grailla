@@ -26,12 +26,20 @@ type Stats = {
   ticketTypeProgress: { id: string; name: string; phaseName: string | null; soldCount: number; maxQuantity: number }[];
   waitingRoomFunnel: { status: string; count: number }[];
   salesByDay: { date: string; revenue: number; count: number }[];
+  recentOrders: {
+    id: string;
+    buyerName: string;
+    buyerLastName: string;
+    totalAmount: number;
+    channel: string;
+    createdAt: string;
+    event: { name: string } | null;
+  }[];
 };
 
 const CHANNEL_LABELS: Record<string, string> = {
   ONLINE: 'Online',
   TAQUILLA: 'Taquilla',
-  INVITATION: 'Invitación',
   INVITACION: 'Invitación',
 };
 const WAITING_ROOM_LABELS: Record<string, string> = {
@@ -221,6 +229,40 @@ export default function EstadisticasPage() {
                       </div>
                     );
                   })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {(stats?.recentOrders?.length ?? 0) > 0 && (
+            <Card>
+              <CardContent className="p-6">
+                <h2 className="font-display font-bold text-lg mb-4">Últimas ventas</h2>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-muted-foreground border-b border-border">
+                        <th className="pb-2 pr-4 font-medium">Evento</th>
+                        <th className="pb-2 pr-4 font-medium">Comprador</th>
+                        <th className="pb-2 pr-4 font-medium">Canal</th>
+                        <th className="pb-2 pr-4 font-medium">Fecha</th>
+                        <th className="pb-2 font-medium text-right">Importe</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(stats?.recentOrders ?? []).map((o) => (
+                        <tr key={o.id} className="border-b border-border/40 last:border-0">
+                          <td className="py-2 pr-4 truncate max-w-[160px]">{o.event?.name ?? ''}</td>
+                          <td className="py-2 pr-4 truncate max-w-[160px]">{o.buyerName} {o.buyerLastName}</td>
+                          <td className="py-2 pr-4 text-muted-foreground">{CHANNEL_LABELS[o.channel] ?? o.channel}</td>
+                          <td className="py-2 pr-4 text-muted-foreground whitespace-nowrap">
+                            {new Date(o.createdAt).toLocaleString('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td className="py-2 text-right font-medium">{o.totalAmount.toFixed(2)}€</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </CardContent>
             </Card>

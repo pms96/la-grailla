@@ -54,7 +54,6 @@ type NochePayload = {
 const channelLabels: Record<string, string> = {
   ONLINE: 'Online',
   TAQUILLA: 'Taquilla',
-  INVITATION: 'Invitación',
   INVITACION: 'Invitación',
 };
 
@@ -77,12 +76,26 @@ export default function NochePage() {
   const [data, setData] = useState<NochePayload | null>(null);
   const [loadingEvents, setLoadingEvents] = useState(true);
   const [loadingData, setLoadingData] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const [lastFetchFailed, setLastFetchFailed] = useState(false);
+  const [, setTick] = useState(0);
+
+  // Fuerza un re-render cada 5s solo para que "Actualizado hace Ns" avance
+  // aunque el propio poll de datos (cada 8s) no haya disparado un cambio de
+  // estado — sin esto el texto se quedaría clavado entre polls.
+  useEffect(() => {
+    const i = setInterval(() => setTick((t) => t + 1), 5000);
+    return () => clearInterval(i);
+  }, []);
 
   useEffect(() => {
     fetch('/api/admin/events')
       .then((r) => r.json())
       .then((list: Event[]) => {
-        const published = (list ?? []).filter((e) => e.status === 'PUBLISHED');
+        // Incluye también el evento recién FINISHED (además de PUBLISHED)
+        // para poder repasar el cierre justo al terminar, igual que ya
+        // permite /admin/escaneos.
+        const published = (list ?? []).filter((e) => e.status === 'PUBLISHED' || e.status === 'FINISHED');
         setEvents(published);
         const fromUrl = new URLSearchParams(window.location.search).get('eventId');
         const stored = getStoredActiveEventId();
@@ -102,9 +115,15 @@ export default function NochePage() {
     fetch(`/api/admin/noche?eventId=${encodeURIComponent(eventId)}`)
       .then((r) => r.json())
       .then((d) => {
-        if (!d?.error) setData(d);
+        if (!d?.error) {
+          setData(d);
+          setLastUpdatedAt(Date.now());
+          setLastFetchFailed(false);
+        } else {
+          setLastFetchFailed(true);
+        }
       })
-      .catch(() => {})
+      .catch(() => setLastFetchFailed(true))
       .finally(() => setLoadingData(false));
   }, [eventId]);
 
@@ -173,6 +192,14 @@ export default function NochePage() {
           </Button>
         </div>
       </div>
+
+      {lastUpdatedAt && (
+        <p className={`text-xs -mt-2 ${lastFetchFailed ? 'text-yellow-600' : 'text-muted-foreground'}`}>
+          {lastFetchFailed
+            ? `No se ha podido actualizar — viendo datos de hace ${Math.max(0, Math.round((Date.now() - lastUpdatedAt) / 1000))}s`
+            : `Actualizado hace ${Math.max(0, Math.round((Date.now() - lastUpdatedAt) / 1000))}s`}
+        </p>
+      )}
 
       {data && (
         <>

@@ -32,7 +32,6 @@ const statusVariant: Record<OrderStatus, 'default' | 'secondary' | 'destructive'
 const channelLabels: Record<string, string> = {
   ONLINE: 'Online',
   TAQUILLA: 'Taquilla',
-  INVITATION: 'Invitación',
   INVITACION: 'Invitación',
 };
 
@@ -180,6 +179,9 @@ export default function VentasPage() {
       await downloadAdminCsv({
         type: 'orders',
         eventId: eventFilter === 'all' ? undefined : eventFilter,
+        status: status !== 'all' && !emailFailedOnly ? status : undefined,
+        q: q.trim() || undefined,
+        emailFailed: emailFailedOnly,
       });
       toast.success('CSV de ventas descargado');
     } catch (e) {

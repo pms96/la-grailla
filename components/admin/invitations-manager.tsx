@@ -76,6 +76,7 @@ export default function InvitationsManager({ selectedEvent }: Props) {
   };
 
   const deleteList = async (id: string) => {
+    if (!confirm('¿Eliminar esta lista? Se perderán sus invitaciones.')) return;
     const res = await fetch('/api/guest-lists?id=' + id, { method: 'DELETE' });
     if (res.ok) { toast.success('Lista eliminada'); load(); } else { toast.error('No se pudo eliminar'); }
   };
@@ -111,6 +112,7 @@ export default function InvitationsManager({ selectedEvent }: Props) {
   };
 
   const deleteInvitation = async (id: string) => {
+    if (!confirm('¿Anular esta invitación? Se cancelará la entrada asociada y bajará el aforo.')) return;
     const res = await fetch('/api/invitations?id=' + id, { method: 'DELETE' });
     if (res.ok) { toast.success('Invitación anulada'); load(); } else { toast.error('No se pudo anular'); }
   };

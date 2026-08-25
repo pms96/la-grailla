@@ -22,16 +22,25 @@ type EventWithCount = Event & {
 export default function AforoPage() {
   const [events, setEvents] = useState<EventWithCount[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const [lastFetchFailed, setLastFetchFailed] = useState(false);
+  const [, setTick] = useState(0);
 
   const fetchData = () => {
     fetch('/api/admin/events')
       .then((r) => r.json())
-      .then((d: EventWithCount[]) => setEvents((d ?? []).filter((e) => e?.status === 'PUBLISHED')))
-      .catch(() => {})
+      .then((d: EventWithCount[]) => {
+        setEvents((d ?? []).filter((e) => e?.status === 'PUBLISHED'));
+        setLastUpdatedAt(Date.now());
+        setLastFetchFailed(false);
+      })
+      .catch(() => setLastFetchFailed(true))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => { fetchData(); const i = setInterval(fetchData, 10000); return () => clearInterval(i); }, []);
+  // Re-render periódico solo para que "Actualizado hace Ns" avance entre polls.
+  useEffect(() => { const i = setInterval(() => setTick((t) => t + 1), 5000); return () => clearInterval(i); }, []);
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
 
@@ -41,6 +50,14 @@ export default function AforoPage() {
         <PageHeader title="Aforo en Tiempo Real" description="Control de capacidad de eventos activos" />
         <Button variant="outline" onClick={fetchData} className="gap-2"><RefreshCw className="h-4 w-4" /> Actualizar</Button>
       </div>
+
+      {lastUpdatedAt && (
+        <p className={`text-xs -mt-4 ${lastFetchFailed ? 'text-yellow-600' : 'text-muted-foreground'}`}>
+          {lastFetchFailed
+            ? `No se ha podido actualizar — viendo datos de hace ${Math.max(0, Math.round((Date.now() - lastUpdatedAt) / 1000))}s`
+            : `Actualizado hace ${Math.max(0, Math.round((Date.now() - lastUpdatedAt) / 1000))}s`}
+        </p>
+      )}
 
       {(events?.length ?? 0) === 0 ? (
         <p className="text-center py-20 text-muted-foreground">No hay eventos publicados</p>

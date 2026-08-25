@@ -4,9 +4,15 @@
 export async function downloadAdminCsv(params: {
   type: 'orders' | 'tickets';
   eventId?: string;
+  status?: string;
+  q?: string;
+  emailFailed?: boolean;
 }): Promise<void> {
   const qs = new URLSearchParams({ type: params.type });
   if (params.eventId) qs.set('eventId', params.eventId);
+  if (params.status) qs.set('status', params.status);
+  if (params.q) qs.set('q', params.q);
+  if (params.emailFailed) qs.set('emailFailed', '1');
   const res = await fetch(`/api/admin/export?${qs.toString()}`);
   if (!res.ok) {
     let message = 'No se pudo exportar';

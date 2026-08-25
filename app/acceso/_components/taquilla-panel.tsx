@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { TicketType } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,11 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
   const [duringEvent, setDuringEvent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [lastSale, setLastSale] = useState<LastSale | null>(null);
+  // Se manda al servidor para que un reintento de red tras un timeout (o un
+  // doble tap en el datáfono) no cobre ni emita entradas dos veces — se
+  // renueva solo tras una venta completada o si el usuario cambia de evento
+  // sin llegar a vender, nunca durante el mismo intento en curso.
+  const idempotencyKeyRef = useRef(crypto.randomUUID());
 
   const event = useMemo(() => (events ?? []).find((e) => e?.id === selectedEvent), [events, selectedEvent]);
   const ticketTypes: TicketType[] = event?.ticketTypes ?? [];
@@ -74,12 +79,14 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
           items,
           paymentMethod,
           duringEvent,
+          idempotencyKey: idempotencyKeyRef.current,
         }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data?.error ?? 'Error al registrar la venta'); return; }
 
       setLastSale(data);
+      idempotencyKeyRef.current = crypto.randomUUID();
       toast.success(duringEvent ? 'Acceso concedido' : 'Venta registrada');
       const hadEmail = !duringEvent && buyerEmail.trim();
       reset();

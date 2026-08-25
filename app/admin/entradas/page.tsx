@@ -80,7 +80,9 @@ export default function EntradasPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm('¿Eliminar este tipo de entrada?')) return;
-    await fetch(`/api/admin/ticket-types/${id}`, { method: 'DELETE' });
+    const res = await fetch(`/api/admin/ticket-types/${id}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(data?.error ?? 'No se pudo eliminar'); return; }
     toast.success('Eliminado');
     fetchEvents();
   };
@@ -115,8 +117,8 @@ export default function EntradasPage() {
               <div><Label>Nombre</Label><Input value={form?.name ?? ''} onChange={handleChange('name')} className="mt-1" /></div>
               <div><Label>Descripción</Label><Input value={form?.description ?? ''} onChange={handleChange('description')} className="mt-1" /></div>
               <div className="grid grid-cols-2 gap-4">
-                <div><Label>Precio (€)</Label><Input type="number" step="0.01" value={form?.price ?? 0} onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField('price', parseFloat(e?.target?.value) || 0)} className="mt-1" /></div>
-                <div><Label>Stock máximo</Label><Input type="number" value={form?.maxQuantity ?? 100} onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField('maxQuantity', parseInt(e?.target?.value) || 100)} className="mt-1" /></div>
+                <div><Label>Precio (€)</Label><Input type="number" step="0.01" min="0" value={form?.price ?? 0} onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField('price', Math.max(0, parseFloat(e?.target?.value) || 0))} className="mt-1" /></div>
+                <div><Label>Stock máximo</Label><Input type="number" min="0" value={form?.maxQuantity ?? 100} onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField('maxQuantity', Math.max(0, parseInt(e?.target?.value) || 100))} className="mt-1" /></div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div><Label>Fase</Label><Input type="number" value={form?.phase ?? 1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField('phase', parseInt(e?.target?.value) || 1)} className="mt-1" /></div>

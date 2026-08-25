@@ -12,6 +12,8 @@ export default function QrScannerComponent({ onScan }: QrScannerProps) {
   const [error, setError] = useState('');
   const html5QrRef = useRef<Html5Qrcode | null>(null);
   const lastScanned = useRef('');
+  const onScanRef = useRef(onScan);
+  onScanRef.current = onScan;
 
   useEffect(() => {
     let mounted = true;
@@ -48,7 +50,7 @@ export default function QrScannerComponent({ onScan }: QrScannerProps) {
           (decodedText: string) => {
             if (decodedText && decodedText !== lastScanned.current) {
               lastScanned.current = decodedText;
-              onScan?.(decodedText);
+              onScanRef.current?.(decodedText);
               setTimeout(() => { lastScanned.current = ''; }, 3000);
             }
           },
@@ -69,7 +71,11 @@ export default function QrScannerComponent({ onScan }: QrScannerProps) {
       mounted = false;
       if (html5QrRef.current) safeStop(html5QrRef.current);
     };
-  }, [onScan]);
+    // Se monta/desmonta una sola vez — `onScan` cambia de referencia en cada
+    // escaneo (depende de `scanning` en access-client.tsx) y si estuviera en
+    // las deps, este efecto pararía y reiniciaría la cámara en cada lectura.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (error) {
     return <p className="text-sm text-destructive text-center py-4">{error}</p>;

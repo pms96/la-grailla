@@ -1,13 +1,11 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import type { OrderStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
-
-const ORDER_STATUSES: OrderStatus[] = ['PENDING', 'COMPLETED', 'CANCELLED', 'REFUNDED'];
+import { buildOrdersWhere } from '@/lib/order-filters';
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
@@ -16,37 +14,14 @@ export async function GET(request: Request) {
   }
   try {
     const url = new URL(request.url);
-    const q = (url.searchParams.get('q') ?? '').trim();
-    const statusParam = url.searchParams.get('status') ?? '';
-    const eventId = url.searchParams.get('eventId') ?? '';
-    const emailFailed = url.searchParams.get('emailFailed') === '1';
     const take = Math.min(Number(url.searchParams.get('take') ?? 100) || 100, 200);
 
-    const status = ORDER_STATUSES.includes(statusParam as OrderStatus)
-      ? (statusParam as OrderStatus)
-      : undefined;
-
-    const where: Prisma.OrderWhereInput = {
-      ...(status ? { status } : {}),
-      ...(eventId ? { eventId } : {}),
-      ...(emailFailed
-        ? {
-            status: 'COMPLETED',
-            emailSentAt: null,
-          }
-        : {}),
-      ...(q
-        ? {
-            OR: [
-              { buyerEmail: { contains: q, mode: 'insensitive' } },
-              { buyerName: { contains: q, mode: 'insensitive' } },
-              { buyerLastName: { contains: q, mode: 'insensitive' } },
-              { id: { contains: q, mode: 'insensitive' } },
-              { paymentId: { contains: q, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    };
+    const where = buildOrdersWhere({
+      q: url.searchParams.get('q') ?? '',
+      status: url.searchParams.get('status') ?? '',
+      eventId: url.searchParams.get('eventId') ?? '',
+      emailFailed: url.searchParams.get('emailFailed') === '1',
+    });
 
     const orders = await prisma.order.findMany({
       where,

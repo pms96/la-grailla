@@ -30,6 +30,7 @@ const taquillaSaleSchema = z.object({
   // escáner de puerta — no tiene sentido pedirle nombre ni mandarle un email
   // con una entrada que ya se ha marcado como usada.
   duringEvent: z.boolean().optional(),
+  idempotencyKey: z.string().optional(),
 });
 
 const DIRECT_ENTRY_NAME = 'Venta en taquilla';
@@ -42,9 +43,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
-    const { eventId, buyerName, buyerLastName, buyerEmail, items, paymentMethod, duringEvent } = taquillaSaleSchema.parse(
-      await request.json()
-    );
+    const { eventId, buyerName, buyerLastName, buyerEmail, items, paymentMethod, duringEvent, idempotencyKey } =
+      taquillaSaleSchema.parse(await request.json());
+
+    // Mismo criterio que app/api/orders/route.ts: un reintento (timeout de
+    // red, doble tap en el datáfono) con la misma clave que una venta que ya
+    // se registró no debe cobrar ni emitir entradas dos veces.
+    if (idempotencyKey) {
+      const existing = await prisma.order.findUnique({
+        where: { idempotencyKey },
+        include: { _count: { select: { tickets: true } }, tickets: { take: 1, select: { status: true } } },
+      });
+      if (existing) {
+        return NextResponse.json({
+          success: true,
+          orderId: existing.id,
+          totalAmount: existing.totalAmount,
+          tickets: existing._count.tickets,
+          duringEvent: existing.tickets[0]?.status === 'USED',
+        });
+      }
+    }
 
     if (!duringEvent && !buyerName?.trim()) {
       return NextResponse.json({ error: 'Introduce el nombre del comprador' }, { status: 400 });
@@ -107,6 +126,7 @@ export async function POST(request: Request) {
           status: 'COMPLETED',
           channel: 'TAQUILLA',
           soldById: session.user?.id ?? null,
+          idempotencyKey: idempotencyKey ?? null,
         },
       });
 

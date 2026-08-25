@@ -10,7 +10,7 @@ import { handleApiError } from '@/lib/api-error';
 
 const createUserSchema = z.object({
   email: z.string().min(1, 'email_is_required').email('invalid_email'),
-  password: z.string().min(1, 'password_is_required'),
+  password: z.string().min(8, 'password_too_short'),
   name: z.string().optional(),
   role: z.enum(['ADMIN', 'TAQUILLA', 'USER']).optional(),
 });

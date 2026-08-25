@@ -165,6 +165,7 @@ export default function ProductosPage() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!confirm('¿Retirar este producto de la tienda?')) return;
     const res = await fetch('/api/admin/products/' + id, { method: 'DELETE' });
     if (res.ok) {
       toast.success('Producto retirado de la tienda');

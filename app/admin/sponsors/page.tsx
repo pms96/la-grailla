@@ -29,16 +29,22 @@ export default function SponsorsAdminPage() {
 
   useEffect(() => { fetchSponsors(); }, []);
 
-  const updateSponsor = async (id: string, data: Partial<Pick<SponsorRequest, 'status'>>) => {
+  const updateSponsor = async (id: string, data: Partial<Pick<SponsorRequest, 'status' | 'adminNotes'>>, opts?: { silent?: boolean }) => {
     try {
       await fetch(`/api/admin/sponsors/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      toast.success('Actualizado');
+      if (!opts?.silent) toast.success('Actualizado');
       fetchSponsors();
     } catch { toast.error('Error'); }
+  };
+
+  const saveNotes = (id: string, notes: string) => (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    const value = e?.target?.value ?? '';
+    if (value === (notes ?? '')) return;
+    updateSponsor(id, { adminNotes: value }, { silent: true });
   };
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
@@ -73,6 +79,16 @@ export default function SponsorsAdminPage() {
                       {Object.entries(statusLabels).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
                     </SelectContent>
                   </Select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Notas internas</label>
+                  <Textarea
+                    defaultValue={s?.adminNotes ?? ''}
+                    onBlur={saveNotes(s?.id, s?.adminNotes ?? '')}
+                    placeholder="Notas visibles solo para el equipo (no se envían al sponsor)"
+                    className="text-sm"
+                    rows={2}
+                  />
                 </div>
               </CardContent>
             </Card>

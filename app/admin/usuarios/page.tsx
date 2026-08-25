@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { User, UserRole } from '@prisma/client';
+import { useSession } from 'next-auth/react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Pencil, Trash2, Loader2, Users } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, Users, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 
@@ -21,12 +22,17 @@ type UserFormState = {
 };
 
 export default function UsuariosPage() {
+  const { data: session } = useSession() || {};
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
   const [form, setForm] = useState<Partial<UserFormState>>({});
   const [saving, setSaving] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetTarget, setResetTarget] = useState<User | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetting, setResetting] = useState(false);
 
   const fetchUsers = () => {
     fetch('/api/admin/users')
@@ -65,9 +71,35 @@ export default function UsuariosPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm('¿Eliminar este usuario?')) return;
-    await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
+    const res = await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(data?.error ?? 'No se pudo eliminar'); return; }
     toast.success('Eliminado');
     fetchUsers();
+  };
+
+  const openReset = (user: User) => {
+    setResetTarget(user);
+    setResetPassword('');
+    setResetOpen(true);
+  };
+
+  const handleReset = async () => {
+    if (!resetTarget) return;
+    if (resetPassword.length < 8) { toast.error('La contraseña debe tener al menos 8 caracteres'); return; }
+    setResetting(true);
+    try {
+      const res = await fetch(`/api/admin/users/${resetTarget.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: resetPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.error) { toast.error(data?.error ?? 'No se pudo restablecer la contraseña'); return; }
+      toast.success('Contraseña actualizada');
+      setResetOpen(false);
+    } catch { toast.error('Error'); }
+    finally { setResetting(false); }
   };
 
   const updateField = <K extends keyof UserFormState>(key: K, value: UserFormState[K]) =>
@@ -132,13 +164,44 @@ export default function UsuariosPage() {
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant={user?.role === 'ADMIN' ? 'default' : 'secondary'}>{roleLabel(user?.role ?? '')}</Badge>
+                <Button variant="ghost" size="icon-sm" onClick={() => openReset(user)} title="Restablecer contraseña"><KeyRound className="h-3.5 w-3.5" /></Button>
                 <Button variant="ghost" size="icon-sm" onClick={() => openEdit(user)}><Pencil className="h-3.5 w-3.5" /></Button>
-                <Button variant="ghost" size="icon-sm" onClick={() => handleDelete(user?.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={user?.id === session?.user?.id}
+                  title={user?.id === session?.user?.id ? 'No puedes eliminar tu propia cuenta' : undefined}
+                  onClick={() => handleDelete(user?.id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                </Button>
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
+
+      <Dialog open={resetOpen} onOpenChange={setResetOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Restablecer contraseña de {resetTarget?.name || resetTarget?.email}</DialogTitle></DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div>
+              <Label>Nueva contraseña</Label>
+              <Input
+                type="password"
+                value={resetPassword}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setResetPassword(e?.target?.value ?? '')}
+                className="mt-1"
+                placeholder="Mínimo 8 caracteres"
+              />
+            </div>
+            <Button onClick={handleReset} disabled={resetting} className="w-full">
+              {resetting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Restablecer
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

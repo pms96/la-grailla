@@ -9,12 +9,12 @@ import { handleApiError } from '@/lib/api-error';
 
 const createTicketTypeSchema = z.object({
   eventId: z.string().min(1),
-  name: z.string().optional(),
+  name: z.string().min(1),
   description: z.string().optional(),
-  price: z.coerce.number().optional(),
+  price: z.coerce.number().min(0).optional(),
   phase: z.coerce.number().optional(),
   phaseName: z.string().optional(),
-  maxQuantity: z.coerce.number().optional(),
+  maxQuantity: z.coerce.number().min(0).optional(),
   sortOrder: z.coerce.number().optional(),
   isActive: z.boolean().optional(),
 });
