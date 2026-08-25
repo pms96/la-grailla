@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { Html5Qrcode } from 'html5-qrcode';
-import { Loader2 } from 'lucide-react';
 
 interface QrScannerProps {
   onScan: (code: string) => void;
@@ -16,6 +15,21 @@ export default function QrScannerComponent({ onScan }: QrScannerProps) {
 
   useEffect(() => {
     let mounted = true;
+
+    // html5-qrcode lanza de forma SÍNCRONA (no como promesa rechazada) si se
+    // llama a stop() cuando el escáner no está en estado SCANNING/PAUSED (p.
+    // ej. sigue inicializando la cámara, o start() nunca llegó a arrancar
+    // porque se denegó el permiso). Sin este guard, cambiar de pestaña justo
+    // en ese momento tira una excepción no capturada que tumba el árbol de
+    // React entero (el usuario lo ve como "no puedo cambiar de pestaña").
+    const safeStop = async (scanner: Html5Qrcode) => {
+      try {
+        if (!scanner.isScanning) return;
+        await scanner.stop();
+      } catch {
+        // Ya estaba parado o nunca llegó a arrancar — nada que hacer.
+      }
+    };
 
     const init = async () => {
       try {
@@ -40,6 +54,10 @@ export default function QrScannerComponent({ onScan }: QrScannerProps) {
           },
           () => {} // ignore errors
         );
+
+        // El componente se desmontó (cambio de pestaña) mientras start()
+        // seguía en vuelo — parar la cámara que acaba de arrancar.
+        if (!mounted) await safeStop(scanner);
       } catch {
         if (mounted) setError('No se pudo acceder a la cámara. Asegúrate de dar permiso.');
       }
@@ -49,9 +67,7 @@ export default function QrScannerComponent({ onScan }: QrScannerProps) {
 
     return () => {
       mounted = false;
-      if (html5QrRef.current) {
-        html5QrRef.current.stop?.().catch?.(() => {});
-      }
+      if (html5QrRef.current) safeStop(html5QrRef.current);
     };
   }, [onScan]);
 

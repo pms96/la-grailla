@@ -73,6 +73,10 @@ export default function AccessClient() {
   }, []);
 
   useEffect(() => {
+    loadEvents();
+  }, [loadEvents]);
+
+  useEffect(() => {
     if (selectedEvent) setStoredActiveEventId(selectedEvent);
   }, [selectedEvent]);
 
