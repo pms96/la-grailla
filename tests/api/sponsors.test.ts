@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { prisma } from '@/lib/prisma';
 
-const sendMailMock = vi.fn(async () => ({ success: true, transport: 'smtp' as const }));
+type SentMail = { html: string; to: string; subject?: string; replyTo?: string };
+
+const sendMailMock = vi.fn(async (_params: SentMail) => ({ success: true, transport: 'smtp' as const }));
 
 vi.mock('@/lib/mailer', () => ({
-  sendMail: (...args: unknown[]) => sendMailMock(...args),
+  sendMail: (params: SentMail) => sendMailMock(params),
 }));
 
 const { POST: createSponsorRequest } = await import('@/app/api/sponsors/route');
@@ -43,7 +45,7 @@ describe('POST /api/sponsors', () => {
     expect(json.success).toBe(true);
 
     expect(sendMailMock).toHaveBeenCalledTimes(2);
-    const [adminCall, confirmCall] = sendMailMock.mock.calls.map((c) => c[0] as { html: string; to: string });
+    const [adminCall, confirmCall] = sendMailMock.mock.calls.map((c) => c[0]);
 
     expect(adminCall.to).toBe('grupolagrailla@gmail.com');
     expect(adminCall.html).not.toContain('<img src=x onerror=alert(1)>');
