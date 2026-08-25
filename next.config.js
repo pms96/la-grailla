@@ -11,6 +11,12 @@ const nextConfig = {
     ignoreBuildErrors: false,
   },
   images: { unoptimized: true },
+  async redirects() {
+    return [
+      { source: '/patrocinio', destination: '/sponsors', permanent: true },
+      { source: '/patrocinio/:path*', destination: '/sponsors', permanent: true },
+    ];
+  },
   async headers() {
     return [
       {

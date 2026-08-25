@@ -210,12 +210,27 @@ export async function completeShopOrder(orderId: string): Promise<void> {
 }
 
 export async function releaseExpiredShopOrder(orderId: string): Promise<void> {
-  const order = await prisma.shopOrder.findUnique({ where: { id: orderId } });
+  const order = await prisma.shopOrder.findUnique({
+    where: { id: orderId },
+    include: { items: true },
+  });
   if (!order || order.status !== 'PENDING') return;
 
-  await prisma.shopOrder.update({
-    where: { id: orderId },
-    data: { status: 'CANCELLED', idempotencyKey: null },
+  await prisma.$transaction(async (tx) => {
+    const { releaseShopStock } = await import('@/lib/product-stock');
+    await releaseShopStock(
+      tx,
+      (order.items ?? []).map((i) => ({
+        productId: i.productId,
+        quantity: i.quantity,
+        size: i.size,
+        color: i.color,
+      }))
+    );
+    await tx.shopOrder.update({
+      where: { id: orderId },
+      data: { status: 'CANCELLED', idempotencyKey: null },
+    });
   });
 }
 

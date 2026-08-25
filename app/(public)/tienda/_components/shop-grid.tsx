@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { Product } from '@prisma/client';
+import type { Product, ProductVariant } from '@prisma/client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -27,14 +27,31 @@ import {
   writeCart,
 } from '@/lib/shop-cart';
 
+type ShopProduct = Product & {
+  variants?: Pick<ProductVariant, 'id' | 'size' | 'color' | 'stock'>[];
+};
+
+function variantStock(product: ShopProduct, size: string, color: string): number | null {
+  const variants = product.variants ?? [];
+  if (variants.length === 0) return null; // sin control de stock
+  const match = variants.find((v) => v.size === size && v.color === color);
+  return match?.stock ?? 0;
+}
+
+function productHasAnyStock(product: ShopProduct): boolean {
+  const variants = product.variants ?? [];
+  if (variants.length === 0) return true;
+  return variants.some((v) => v.stock > 0);
+}
+
 export default function ShopGrid() {
   const router = useRouter();
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<ShopProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
-  const [selected, setSelected] = useState<Product | null>(null);
+  const [selected, setSelected] = useState<ShopProduct | null>(null);
   const [chosenSize, setChosenSize] = useState<string>('');
   const [chosenColor, setChosenColor] = useState<string>('');
   const [optionError, setOptionError] = useState<string>('');
@@ -71,7 +88,7 @@ export default function ShopGrid() {
 
   const { totalItems, totalAmount } = useMemo(() => cartTotals(cart), [cart]);
 
-  const openProduct = (product: Product) => {
+  const openProduct = (product: ShopProduct) => {
     setSelected(product);
     // Sin preselección: el comprador confirma talla/color a propósito.
     setChosenSize('');
@@ -102,7 +119,17 @@ export default function ShopGrid() {
       setOptionError('Elige un color');
       return;
     }
+    const stock = variantStock(selected, chosenSize, chosenColor);
+    if (stock !== null && stock <= 0) {
+      setOptionError('Agotado en esta combinación');
+      return;
+    }
     const key = [selected.id, chosenSize, chosenColor].join('|');
+    const inCart = cart.find((l) => l.key === key)?.quantity ?? 0;
+    if (stock !== null && inCart + 1 > stock) {
+      setOptionError(`Solo quedan ${stock} unidad${stock === 1 ? '' : 'es'}`);
+      return;
+    }
     setCart((prev) => {
       const existing = prev.find((l) => l.key === key);
       if (existing) {
@@ -238,9 +265,13 @@ export default function ShopGrid() {
                   )}
                   <div className="mt-auto flex items-center justify-between gap-2">
                     <p className="font-bold text-primary text-lg">{(product?.price ?? 0).toFixed(2)}€</p>
-                    <Button size="sm" className="gap-2" onClick={() => openProduct(product)}>
-                      <Plus className="h-3.5 w-3.5" /> Añadir
-                    </Button>
+                    {productHasAnyStock(product) ? (
+                      <Button size="sm" className="gap-2" onClick={() => openProduct(product)}>
+                        <Plus className="h-3.5 w-3.5" /> Añadir
+                      </Button>
+                    ) : (
+                      <Badge variant="secondary">Agotado</Badge>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -385,20 +416,31 @@ export default function ShopGrid() {
               <div className="space-y-2">
                 <Label>Talla</Label>
                 <div className="flex flex-wrap gap-2" role="group" aria-label="Talla">
-                  {selectedSizes.map((size) => (
-                    <Button
-                      key={size}
-                      type="button"
-                      variant={chosenSize === size ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => {
-                        setChosenSize(size);
-                        setOptionError('');
-                      }}
-                    >
-                      {size}
-                    </Button>
-                  ))}
+                  {selectedSizes.map((size) => {
+                    const stockForSize =
+                      selectedColors.length === 0
+                        ? variantStock(selected!, size, '')
+                        : chosenColor
+                          ? variantStock(selected!, size, chosenColor)
+                          : null;
+                    const disabled = stockForSize !== null && stockForSize <= 0;
+                    return (
+                      <Button
+                        key={size}
+                        type="button"
+                        variant={chosenSize === size ? 'default' : 'outline'}
+                        size="sm"
+                        disabled={disabled}
+                        onClick={() => {
+                          setChosenSize(size);
+                          setOptionError('');
+                        }}
+                      >
+                        {size}
+                        {disabled ? ' · 0' : ''}
+                      </Button>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -406,20 +448,31 @@ export default function ShopGrid() {
               <div className="space-y-2">
                 <Label>Color</Label>
                 <div className="flex flex-wrap gap-2" role="group" aria-label="Color">
-                  {selectedColors.map((color) => (
-                    <Button
-                      key={color}
-                      type="button"
-                      variant={chosenColor === color ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => {
-                        setChosenColor(color);
-                        setOptionError('');
-                      }}
-                    >
-                      {color}
-                    </Button>
-                  ))}
+                  {selectedColors.map((color) => {
+                    const stockForColor =
+                      selectedSizes.length === 0
+                        ? variantStock(selected!, '', color)
+                        : chosenSize
+                          ? variantStock(selected!, chosenSize, color)
+                          : null;
+                    const disabled = stockForColor !== null && stockForColor <= 0;
+                    return (
+                      <Button
+                        key={color}
+                        type="button"
+                        variant={chosenColor === color ? 'default' : 'outline'}
+                        size="sm"
+                        disabled={disabled}
+                        onClick={() => {
+                          setChosenColor(color);
+                          setOptionError('');
+                        }}
+                      >
+                        {color}
+                        {disabled ? ' · 0' : ''}
+                      </Button>
+                    );
+                  })}
                 </div>
               </div>
             )}

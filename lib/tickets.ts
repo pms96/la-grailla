@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { generateQRDataUrl } from '@/lib/qr';
 import { sendMail } from '@/lib/mailer';
 import { orderAccessQuery } from '@/lib/access-token';
+import { buildTicketsPdf } from '@/lib/ticket-pdf';
 
 type OrderWithTickets = Prisma.OrderGetPayload<{
   include: { event: true; tickets: { include: { ticketType: true } } };
@@ -98,7 +99,7 @@ function buildEmailHtml(order: OrderWithTickets, printUrl: string, logoUrl: stri
     '<p style="margin:4px 0;"><strong>Referencia:</strong> ' + esc(order.id?.slice(0, 8)?.toUpperCase()) + '</p>' +
     '</div>' +
     cta +
-    '<p style="font-size:12px;color:#999;">Presenta el codigo QR de cada entrada en la puerta. No compartas tus codigos con nadie.</p>' +
+    '<p style="font-size:12px;color:#999;">Adjuntamos un PDF con tus entradas. Tambien puedes abrir el enlace de arriba para verlas e imprimirlas. No compartas tus codigos con nadie.</p>' +
     '</div>'
   );
 }
@@ -144,18 +145,40 @@ export async function sendTicketsEmail(
   const printUrl = appUrl + '/api/tickets/' + order.id + '/pdf-html?' + orderAccessQuery(order.id);
   const logoUrl = appUrl + '/brand/logo-black.png';
 
+  let pdfBytes: Uint8Array | null = null;
+  try {
+    pdfBytes = await buildTicketsPdf(order);
+  } catch (error) {
+    console.error(
+      `[sendTicketsEmail] PDF fallido para ${orderId}:`,
+      error instanceof Error ? error.message : error
+    );
+  }
+
   const result = await sendMail({
     to: order.buyerEmail,
     subject: 'Tus entradas para ' + (order.event?.name ?? 'La Grailla'),
     html: buildEmailHtml(order, printUrl, logoUrl),
+    attachments: pdfBytes
+      ? [
+          {
+            filename: `entradas-${order.id.slice(0, 8)}.pdf`,
+            content: Buffer.from(pdfBytes),
+            contentType: 'application/pdf',
+          },
+        ]
+      : undefined,
   });
 
-  if (result.success) {
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { emailSentAt: new Date() },
-    });
-  }
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      emailAttempts: { increment: 1 },
+      ...(result.success
+        ? { emailSentAt: new Date(), emailLastError: null }
+        : { emailLastError: result.error ?? 'Error desconocido al enviar' }),
+    },
+  });
 
-  return { success: result.success, transport: result.transport };
+  return { success: result.success, transport: result.transport, error: result.error };
 }

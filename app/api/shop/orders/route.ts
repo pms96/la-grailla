@@ -9,6 +9,7 @@ import { getBaseUrl } from '@/lib/url';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { handleApiError } from '@/lib/api-error';
 import { completeShopOrder } from '@/lib/order-reconciliation';
+import { reserveShopStock, releaseShopStock } from '@/lib/product-stock';
 
 const createShopOrderSchema = z.object({
   buyerName: z.string().min(1),
@@ -64,41 +65,58 @@ export async function POST(request: Request) {
       }
     }
 
-    let totalAmount = 0;
-    const itemsData: Prisma.ShopOrderItemUncheckedCreateWithoutShopOrderInput[] = [];
-    for (const item of items) {
-      const product = await prisma.product.findUnique({ where: { id: item?.productId } });
-      if (!product) continue;
-      const qty = item?.quantity ?? 1;
-      totalAmount += (product?.price ?? 0) * qty;
-      itemsData.push({
-        productId: product.id,
-        quantity: qty,
-        unitPrice: product?.price ?? 0,
-        size: item?.size ?? null,
-        color: item?.color ?? null,
-      });
-    }
-
-    if (itemsData.length === 0) {
-      return NextResponse.json({ error: 'No hay productos válidos en el pedido' }, { status: 400 });
-    }
-
-    let shopOrder;
+    type ShopOrderWithItems = Prisma.ShopOrderGetPayload<{ include: { items: true } }>;
+    let shopOrder: ShopOrderWithItems | undefined;
     try {
-      shopOrder = await prisma.shopOrder.create({
-        data: {
-          buyerName,
-          buyerEmail,
-          shippingAddress,
-          shippingCity,
-          shippingZip,
-          shippingPhone: shippingPhone ?? null,
-          totalAmount,
-          status: 'PENDING',
-          idempotencyKey: idempotencyKey ?? null,
-          items: { create: itemsData },
-        },
+      shopOrder = await prisma.$transaction(async (tx) => {
+        let totalAmount = 0;
+        const itemsData: Prisma.ShopOrderItemUncheckedCreateWithoutShopOrderInput[] = [];
+        const reserveItems: { productId: string; quantity: number; size?: string | null; color?: string | null }[] = [];
+
+        for (const item of items) {
+          const product = await tx.product.findUnique({ where: { id: item?.productId } });
+          if (!product || !product.isActive) continue;
+          const qty = item?.quantity ?? 1;
+          totalAmount += (product?.price ?? 0) * qty;
+          itemsData.push({
+            productId: product.id,
+            quantity: qty,
+            unitPrice: product?.price ?? 0,
+            size: item?.size ?? null,
+            color: item?.color ?? null,
+          });
+          reserveItems.push({
+            productId: product.id,
+            quantity: qty,
+            size: item?.size,
+            color: item?.color,
+          });
+        }
+
+        if (itemsData.length === 0) {
+          throw new Error('NO_VALID_ITEMS');
+        }
+
+        const stockError = await reserveShopStock(tx, reserveItems);
+        if (stockError) {
+          throw Object.assign(new Error(stockError), { code: 'OUT_OF_STOCK' as const });
+        }
+
+        return tx.shopOrder.create({
+          data: {
+            buyerName,
+            buyerEmail,
+            shippingAddress,
+            shippingCity,
+            shippingZip,
+            shippingPhone: shippingPhone ?? null,
+            totalAmount,
+            status: 'PENDING',
+            idempotencyKey: idempotencyKey ?? null,
+            items: { create: itemsData },
+          },
+          include: { items: true },
+        });
       });
     } catch (error) {
       if (
@@ -118,8 +136,26 @@ export async function POST(request: Request) {
           });
         }
       }
+      if (error instanceof Error && error.message === 'NO_VALID_ITEMS') {
+        return NextResponse.json({ error: 'No hay productos válidos en el pedido' }, { status: 400 });
+      }
+      if (
+        error instanceof Error &&
+        'code' in error &&
+        (error as Error & { code?: string }).code === 'OUT_OF_STOCK'
+      ) {
+        return NextResponse.json(
+          { error: error.message || 'Sin stock suficiente' },
+          { status: 409 }
+        );
+      }
       throw error;
     }
+
+    if (!shopOrder) {
+      return NextResponse.json({ error: 'No se pudo crear el pedido' }, { status: 500 });
+    }
+    const createdOrder = shopOrder;
 
     let checkoutUrl: string | null = null;
     let provider = 'mock';
@@ -127,13 +163,13 @@ export async function POST(request: Request) {
       const baseUrl = getBaseUrl(request);
       const paymentProvider = await getPaymentProvider();
       provider = paymentProvider.name;
-      if (paymentProvider.name !== 'mock' && totalAmount > 0) {
+      if (paymentProvider.name !== 'mock' && createdOrder.totalAmount > 0) {
         const session = await paymentProvider.createCheckoutSession({
-          amount: totalAmount,
+          amount: createdOrder.totalAmount,
           currency: 'EUR',
           description: 'Pedido tienda La Grailla',
-          orderId: shopOrder.id,
-          successUrl: baseUrl + '/tienda/confirmacion/' + shopOrder.id,
+          orderId: createdOrder.id,
+          successUrl: baseUrl + '/tienda/confirmacion/' + createdOrder.id,
           cancelUrl: baseUrl + '/tienda',
           customerEmail: buyerEmail,
           metadata: { orderType: 'shop' },
@@ -141,23 +177,33 @@ export async function POST(request: Request) {
         checkoutUrl = session?.checkoutUrl ?? null;
         if (session?.sessionId) {
           await prisma.shopOrder.update({
-            where: { id: shopOrder.id },
+            where: { id: createdOrder.id },
             data: { paymentProvider: session.provider, paymentId: session.sessionId },
           });
         }
       } else {
-        // Mock o importe 0: no hay pasarela real — marcar pagado y enviar email aquí.
         await prisma.shopOrder.update({
-          where: { id: shopOrder.id },
+          where: { id: createdOrder.id },
           data: { paymentProvider: provider },
         });
-        await completeShopOrder(shopOrder.id);
+        await completeShopOrder(createdOrder.id);
       }
     } catch (error) {
       console.error('Shop checkout session error:', error instanceof Error ? error.message : error);
-      await prisma.shopOrder.update({
-        where: { id: shopOrder.id },
-        data: { status: 'CANCELLED', idempotencyKey: null },
+      await prisma.$transaction(async (tx) => {
+        await releaseShopStock(
+          tx,
+          (createdOrder.items ?? []).map((i) => ({
+            productId: i.productId,
+            quantity: i.quantity,
+            size: i.size,
+            color: i.color,
+          }))
+        );
+        await tx.shopOrder.update({
+          where: { id: createdOrder.id },
+          data: { status: 'CANCELLED', idempotencyKey: null },
+        });
       });
       return NextResponse.json(
         { success: false, error: 'No se ha podido iniciar el pago. Inténtalo de nuevo en unos minutos.' },
@@ -165,7 +211,7 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ success: true, orderId: shopOrder.id, checkoutUrl, provider });
+    return NextResponse.json({ success: true, orderId: createdOrder.id, checkoutUrl, provider });
   } catch (error) {
     return handleApiError(error, 'POST /api/shop/orders');
   }

@@ -19,6 +19,26 @@ export function parseProductOptions(value?: string | null): string[] {
     .filter(Boolean);
 }
 
+export type VariantKey = { size: string; color: string };
+
+/** Cartesian product of sizes × colors. Sin opciones → una variante ""/"". */
+export function expandVariantKeys(
+  sizesCsv: string | null | undefined,
+  colorsCsv: string | null | undefined
+): VariantKey[] {
+  const sizes = parseProductOptions(sizesCsv);
+  const colors = parseProductOptions(colorsCsv);
+  const sizeList = sizes.length > 0 ? sizes : [''];
+  const colorList = colors.length > 0 ? colors : [''];
+  const keys: VariantKey[] = [];
+  for (const size of sizeList) {
+    for (const color of colorList) {
+      keys.push({ size, color });
+    }
+  }
+  return keys;
+}
+
 export function readCart(): CartLine[] {
   if (typeof window === 'undefined') return [];
   try {

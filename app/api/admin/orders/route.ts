@@ -19,6 +19,7 @@ export async function GET(request: Request) {
     const q = (url.searchParams.get('q') ?? '').trim();
     const statusParam = url.searchParams.get('status') ?? '';
     const eventId = url.searchParams.get('eventId') ?? '';
+    const emailFailed = url.searchParams.get('emailFailed') === '1';
     const take = Math.min(Number(url.searchParams.get('take') ?? 100) || 100, 200);
 
     const status = ORDER_STATUSES.includes(statusParam as OrderStatus)
@@ -28,6 +29,12 @@ export async function GET(request: Request) {
     const where: Prisma.OrderWhereInput = {
       ...(status ? { status } : {}),
       ...(eventId ? { eventId } : {}),
+      ...(emailFailed
+        ? {
+            status: 'COMPLETED',
+            emailSentAt: null,
+          }
+        : {}),
       ...(q
         ? {
             OR: [

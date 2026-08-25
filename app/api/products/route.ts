@@ -9,6 +9,12 @@ export async function GET() {
     const products = await prisma.product.findMany({
       where: { isActive: true },
       orderBy: { createdAt: 'desc' },
+      include: {
+        variants: {
+          select: { id: true, size: true, color: true, stock: true },
+          orderBy: [{ size: 'asc' }, { color: 'asc' }],
+        },
+      },
     });
     return NextResponse.json(products ?? []);
   } catch (error) {

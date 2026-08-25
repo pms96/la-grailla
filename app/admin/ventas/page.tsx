@@ -58,6 +58,7 @@ export default function VentasPage() {
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<string>('all');
+  const [emailFailedOnly, setEmailFailedOnly] = useState(false);
   const [eventFilter, setEventFilter] = useState<string>('all');
   const [events, setEvents] = useState<{ id: string; name: string }[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -70,14 +71,15 @@ export default function VentasPage() {
     setLoading(true);
     const params = new URLSearchParams();
     if (q.trim()) params.set('q', q.trim());
-    if (status !== 'all') params.set('status', status);
+    if (status !== 'all' && !emailFailedOnly) params.set('status', status);
+    if (emailFailedOnly) params.set('emailFailed', '1');
     if (eventFilter !== 'all') params.set('eventId', eventFilter);
     fetch(`/api/admin/orders?${params.toString()}`)
       .then((r) => r.json())
       .then((d) => setOrders(Array.isArray(d) ? d : []))
       .catch(() => toast.error('No se pudieron cargar las ventas'))
       .finally(() => setLoading(false));
-  }, [q, status, eventFilter]);
+  }, [q, status, eventFilter, emailFailedOnly]);
 
   useEffect(() => {
     fetch('/api/admin/events')
@@ -231,6 +233,16 @@ export default function VentasPage() {
             ))}
           </SelectContent>
         </Select>
+        <Button
+          type="button"
+          variant={emailFailedOnly ? 'default' : 'outline'}
+          size="sm"
+          className="gap-2 shrink-0"
+          onClick={() => setEmailFailedOnly((v) => !v)}
+        >
+          <Mail className="h-4 w-4" />
+          Sin email
+        </Button>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
@@ -268,6 +280,9 @@ export default function VentasPage() {
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <Badge variant={statusVariant[order.status]}>{statusLabels[order.status]}</Badge>
+                      {order.status === 'COMPLETED' && !order.emailSentAt && (
+                        <Badge variant="destructive" className="text-xs">Sin email</Badge>
+                      )}
                       <span className="font-bold text-primary">{order.totalAmount.toFixed(2)}€</span>
                     </div>
                   </CardContent>
@@ -334,6 +349,13 @@ export default function VentasPage() {
                     <p>
                       <span className="text-muted-foreground">Email:</span>{' '}
                       {new Date(detail.emailSentAt).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}
+                    </p>
+                  )}
+                  {detail.status === 'COMPLETED' && !detail.emailSentAt && (
+                    <p className="text-destructive">
+                      <span className="text-muted-foreground">Email:</span> no enviado
+                      {detail.emailLastError ? ` — ${detail.emailLastError}` : ''}
+                      {detail.emailAttempts > 0 ? ` (${detail.emailAttempts} intento${detail.emailAttempts === 1 ? '' : 's'})` : ''}
                     </p>
                   )}
                   {detail.invitation && (
