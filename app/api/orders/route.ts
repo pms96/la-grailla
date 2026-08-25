@@ -308,6 +308,7 @@ export async function POST(request: Request) {
         successUrl: baseUrl + '/confirmacion/' + order.id,
         cancelUrl: baseUrl + '/eventos/' + event.slug + '/comprar',
         customerEmail: buyerEmail,
+        metadata: { orderType: 'ticket' },
       });
       await prisma.order.update({ where: { id: order.id }, data: { paymentId: session.sessionId } });
       await releaseQueueSlot();

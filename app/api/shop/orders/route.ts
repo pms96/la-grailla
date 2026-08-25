@@ -4,11 +4,11 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { sendMail } from '@/lib/mailer';
 import { getPaymentProvider } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { handleApiError } from '@/lib/api-error';
+import { completeShopOrder } from '@/lib/order-reconciliation';
 
 const createShopOrderSchema = z.object({
   buyerName: z.string().min(1),
@@ -64,7 +64,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // Calculate total
     let totalAmount = 0;
     const itemsData: Prisma.ShopOrderItemUncheckedCreateWithoutShopOrderInput[] = [];
     for (const item of items) {
@@ -100,10 +99,8 @@ export async function POST(request: Request) {
           idempotencyKey: idempotencyKey ?? null,
           items: { create: itemsData },
         },
-        include: { items: { include: { product: true } } },
       });
     } catch (error) {
-      // Carrera: otra petición ya creó el pedido con la misma clave.
       if (
         idempotencyKey &&
         typeof error === 'object' &&
@@ -124,20 +121,6 @@ export async function POST(request: Request) {
       throw error;
     }
 
-    // Send confirmation
-    const itemsHtml = (shopOrder.items ?? []).map((i) =>
-      `<tr><td style="padding:8px;border-bottom:1px solid #eee;">${i?.product?.name ?? ''}</td><td style="padding:8px;border-bottom:1px solid #eee;">${i?.quantity ?? 0}</td><td style="padding:8px;border-bottom:1px solid #eee;">${(i?.unitPrice ?? 0).toFixed(2)}\u20ac</td></tr>`
-    ).join('');
-
-    const emailResult = await sendMail({
-      subject: `Pedido confirmado - La Grailla #${shopOrder.id?.slice(0, 8)}`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;"><h2 style="color:#a855f7;">Pedido Confirmado</h2><p>Hola ${buyerName},</p><p>Tu pedido ha sido registrado.</p><table style="width:100%;border-collapse:collapse;"><tr style="background:#f3f4f6;"><th style="padding:8px;text-align:left;">Producto</th><th style="padding:8px;">Cant.</th><th style="padding:8px;">Precio</th></tr>${itemsHtml}</table><p style="font-size:18px;font-weight:bold;margin-top:16px;">Total: ${totalAmount.toFixed(2)}\u20ac</p><p style="color:#666;">Te notificaremos cuando tu pedido sea enviado.</p></div>`,
-      to: buyerEmail,
-    });
-    if (!emailResult.success) {
-      console.error('Shop order confirmation email failed:', emailResult.error);
-    }
-
     let checkoutUrl: string | null = null;
     let provider = 'mock';
     try {
@@ -153,6 +136,7 @@ export async function POST(request: Request) {
           successUrl: baseUrl + '/tienda/confirmacion/' + shopOrder.id,
           cancelUrl: baseUrl + '/tienda',
           customerEmail: buyerEmail,
+          metadata: { orderType: 'shop' },
         });
         checkoutUrl = session?.checkoutUrl ?? null;
         if (session?.sessionId) {
@@ -161,10 +145,15 @@ export async function POST(request: Request) {
             data: { paymentProvider: session.provider, paymentId: session.sessionId },
           });
         }
+      } else {
+        // Mock o importe 0: no hay pasarela real — marcar pagado y enviar email aquí.
+        await prisma.shopOrder.update({
+          where: { id: shopOrder.id },
+          data: { paymentProvider: provider },
+        });
+        await completeShopOrder(shopOrder.id);
       }
     } catch (error) {
-      // No dejar que el comprador avance a "confirmación" como si hubiera pagado
-      // cuando la pasarela real (no mock) no pudo crear la sesión de cobro.
       console.error('Shop checkout session error:', error instanceof Error ? error.message : error);
       await prisma.shopOrder.update({
         where: { id: shopOrder.id },

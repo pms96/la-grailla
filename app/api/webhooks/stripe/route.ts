@@ -4,7 +4,8 @@ import { NextResponse } from 'next/server';
 import type Stripe from 'stripe';
 import { getConfig } from '@/lib/config';
 import { handleApiError } from '@/lib/api-error';
-import { completeOrder, releaseExpiredOrder } from '@/lib/order-reconciliation';
+import { resolveExpiredCheckout, resolvePaidCheckout } from '@/lib/order-reconciliation';
+import { getBaseUrl } from '@/lib/url';
 
 export async function POST(request: Request) {
   try {
@@ -37,13 +38,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Firma inválida' }, { status: 400 });
     }
 
+    const baseUrl = getBaseUrl(request);
+
     switch (event.type) {
       case 'checkout.session.completed':
       case 'checkout.session.async_payment_succeeded': {
         const session = event.data.object as Stripe.Checkout.Session;
         const orderId = session.metadata?.orderId;
         if (orderId && session.payment_status === 'paid') {
-          await completeOrder(orderId);
+          await resolvePaidCheckout(orderId, baseUrl);
         }
         break;
       }
@@ -52,7 +55,7 @@ export async function POST(request: Request) {
         const session = event.data.object as Stripe.Checkout.Session;
         const orderId = session.metadata?.orderId;
         if (orderId) {
-          await releaseExpiredOrder(orderId);
+          await resolveExpiredCheckout(orderId);
         }
         break;
       }

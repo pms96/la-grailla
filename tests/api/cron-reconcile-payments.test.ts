@@ -98,17 +98,27 @@ describe('GET /api/cron/reconcile-payments', () => {
     expect(updated?.status).toBe('PENDING');
   });
 
-  it('no toca un pedido demasiado reciente, todavía en pleno checkout', async () => {
-    const paymentId = `chk-fresh-${Date.now()}`;
-    const order = await createOrderAt(event.id, ticketType.id, paymentId, new Date());
-    // Si el cron llegara a consultarlo, esta pasarela mockeada diría PAID —
-    // que siga en PENDING después de correr el cron prueba que ni siquiera
-    // entró en el lote por ser demasiado reciente.
-    vi.stubGlobal('fetch', mockSumUpFetch({ [paymentId]: 'PAID' }));
+  it('libera un pedido PENDING más antiguo que 24h si la pasarela no confirma el pago', async () => {
+    await prisma.ticketType.update({ where: { id: ticketType.id }, data: { soldCount: 0 } });
+    const paymentId = `chk-abandon-${Date.now()}`;
+    const order = await createOrderAt(
+      event.id,
+      ticketType.id,
+      paymentId,
+      new Date(Date.now() - 25 * 60 * 60_000)
+    );
+    await prisma.ticketType.update({ where: { id: ticketType.id }, data: { soldCount: { increment: 1 } } });
+    vi.stubGlobal('fetch', mockSumUpFetch({ [paymentId]: 'PENDING' }));
 
-    await reconcilePayments(cronRequest(TEST_SECRET));
+    const res = await reconcilePayments(cronRequest(TEST_SECRET));
+    const json = await res.json();
+    expect(json.released).toBeGreaterThanOrEqual(1);
 
-    const updated = await prisma.order.findUnique({ where: { id: order.id } });
-    expect(updated?.status).toBe('PENDING');
+    const updated = await prisma.order.findUnique({ where: { id: order.id }, include: { tickets: true } });
+    expect(updated?.status).toBe('CANCELLED');
+    expect(updated?.tickets.every((t) => t.status === 'CANCELLED')).toBe(true);
+
+    const tt = await prisma.ticketType.findUnique({ where: { id: ticketType.id } });
+    expect(tt?.soldCount).toBe(0);
   });
 });

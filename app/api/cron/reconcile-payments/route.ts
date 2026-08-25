@@ -3,7 +3,12 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
-import { completeOrder } from '@/lib/order-reconciliation';
+import {
+  completeOrder,
+  completeShopOrder,
+  releaseExpiredOrder,
+  releaseExpiredShopOrder,
+} from '@/lib/order-reconciliation';
 import { handleApiError } from '@/lib/api-error';
 
 // Solo Stripe tiene webhook (app/api/webhooks/stripe) — SumUp no, así que un
@@ -14,8 +19,12 @@ import { handleApiError } from '@/lib/api-error';
 // cron es la red de seguridad: revisa periódicamente los pedidos pendientes
 // y comprueba el estado real contra la pasarela, igual que ya hace esa
 // misma ruta al vuelo.
+//
+// Además, pasados MAX_AGE_MS libera el stock de PENDING que la pasarela no
+// confirma como pagados (checkout abandonado) — crítico para SumUp, que no
+// emite evento de expiración como Stripe.
 const MIN_AGE_MS = 2 * 60_000; // deja margen a que el comprador siga en pleno checkout
-const MAX_AGE_MS = 24 * 60 * 60_000; // más allá de esto se considera abandonado; no se sigue reintentando sin límite
+const MAX_AGE_MS = 24 * 60 * 60_000; // ventana de reintentos de verificación
 const BATCH_SIZE = 50;
 
 export async function GET(request: Request) {
@@ -30,25 +39,58 @@ export async function GET(request: Request) {
     }
 
     const now = Date.now();
-    const pendingOrders = await prisma.order.findMany({
-      where: {
-        status: 'PENDING',
-        paymentProvider: { notIn: ['mock'] },
-        paymentId: { not: null },
-        createdAt: { lte: new Date(now - MIN_AGE_MS), gte: new Date(now - MAX_AGE_MS) },
-      },
-      take: BATCH_SIZE,
-      orderBy: { createdAt: 'asc' },
-    });
+    const minCreated = new Date(now - MAX_AGE_MS);
+    const maxCreated = new Date(now - MIN_AGE_MS);
+
+    const [pendingTicketOrders, abandonedTicketOrders, pendingShopOrders, abandonedShopOrders] =
+      await Promise.all([
+        prisma.order.findMany({
+          where: {
+            status: 'PENDING',
+            paymentProvider: { notIn: ['mock'] },
+            paymentId: { not: null },
+            createdAt: { lte: maxCreated, gte: minCreated },
+          },
+          take: BATCH_SIZE,
+          orderBy: { createdAt: 'asc' },
+        }),
+        // Más viejos que MAX_AGE: un último intento de verificar; si no hay
+        // pago, liberar stock para no dejar el aforo bloqueado.
+        prisma.order.findMany({
+          where: {
+            status: 'PENDING',
+            createdAt: { lt: minCreated },
+          },
+          take: BATCH_SIZE,
+          orderBy: { createdAt: 'asc' },
+        }),
+        prisma.shopOrder.findMany({
+          where: {
+            status: 'PENDING',
+            paymentProvider: { notIn: ['mock'] },
+            paymentId: { not: null },
+            createdAt: { lte: maxCreated, gte: minCreated },
+          },
+          take: BATCH_SIZE,
+          orderBy: { createdAt: 'asc' },
+        }),
+        prisma.shopOrder.findMany({
+          where: {
+            status: 'PENDING',
+            createdAt: { lt: minCreated },
+          },
+          take: BATCH_SIZE,
+          orderBy: { createdAt: 'asc' },
+        }),
+      ]);
 
     let completed = 0;
+    let released = 0;
     let stillPending = 0;
     let errors = 0;
 
-    for (const order of pendingOrders) {
+    for (const order of pendingTicketOrders) {
       try {
-        // paymentProvider/paymentId ya filtrados como no-null en la query,
-        // pero TypeScript no lo sabe a partir del `where`.
         const provider = await getPaymentProviderByName(order.paymentProvider!);
         const result = await provider.verifyPayment(order.paymentId!);
         if (result.success) {
@@ -59,11 +101,87 @@ export async function GET(request: Request) {
         }
       } catch (error) {
         errors += 1;
-        console.error(`[GET /api/cron/reconcile-payments] Error verificando pedido ${order.id}:`, error instanceof Error ? error.message : error);
+        console.error(
+          `[GET /api/cron/reconcile-payments] Error verificando pedido ${order.id}:`,
+          error instanceof Error ? error.message : error
+        );
       }
     }
 
-    return NextResponse.json({ checked: pendingOrders.length, completed, stillPending, errors });
+    for (const order of abandonedTicketOrders) {
+      try {
+        if (order.paymentProvider && order.paymentProvider !== 'mock' && order.paymentId) {
+          const provider = await getPaymentProviderByName(order.paymentProvider);
+          const result = await provider.verifyPayment(order.paymentId);
+          if (result.success) {
+            await completeOrder(order.id);
+            completed += 1;
+            continue;
+          }
+        }
+        await releaseExpiredOrder(order.id);
+        released += 1;
+      } catch (error) {
+        errors += 1;
+        console.error(
+          `[GET /api/cron/reconcile-payments] Error liberando pedido ${order.id}:`,
+          error instanceof Error ? error.message : error
+        );
+      }
+    }
+
+    for (const order of pendingShopOrders) {
+      try {
+        const provider = await getPaymentProviderByName(order.paymentProvider!);
+        const result = await provider.verifyPayment(order.paymentId!);
+        if (result.success) {
+          await completeShopOrder(order.id);
+          completed += 1;
+        } else {
+          stillPending += 1;
+        }
+      } catch (error) {
+        errors += 1;
+        console.error(
+          `[GET /api/cron/reconcile-payments] Error verificando shop ${order.id}:`,
+          error instanceof Error ? error.message : error
+        );
+      }
+    }
+
+    for (const order of abandonedShopOrders) {
+      try {
+        if (order.paymentProvider && order.paymentProvider !== 'mock' && order.paymentId) {
+          const provider = await getPaymentProviderByName(order.paymentProvider);
+          const result = await provider.verifyPayment(order.paymentId);
+          if (result.success) {
+            await completeShopOrder(order.id);
+            completed += 1;
+            continue;
+          }
+        }
+        await releaseExpiredShopOrder(order.id);
+        released += 1;
+      } catch (error) {
+        errors += 1;
+        console.error(
+          `[GET /api/cron/reconcile-payments] Error liberando shop ${order.id}:`,
+          error instanceof Error ? error.message : error
+        );
+      }
+    }
+
+    return NextResponse.json({
+      checked:
+        pendingTicketOrders.length +
+        abandonedTicketOrders.length +
+        pendingShopOrders.length +
+        abandonedShopOrders.length,
+      completed,
+      released,
+      stillPending,
+      errors,
+    });
   } catch (error) {
     return handleApiError(error, 'GET /api/cron/reconcile-payments');
   }

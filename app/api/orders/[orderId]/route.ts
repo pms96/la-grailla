@@ -3,6 +3,8 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
+import { completeOrder } from '@/lib/order-reconciliation';
+import { getBaseUrl } from '@/lib/url';
 import { handleApiError } from '@/lib/api-error';
 
 const includeTicketsAndEvent = { event: true, tickets: { include: { ticketType: true } } } as const;
@@ -30,10 +32,7 @@ export async function GET(
         const provider = await getPaymentProviderByName(order.paymentProvider);
         const result = await provider.verifyPayment(order.paymentId);
         if (result.success) {
-          await prisma.$transaction([
-            prisma.order.update({ where: { id: order.id }, data: { status: 'COMPLETED' } }),
-            prisma.ticket.updateMany({ where: { orderId: order.id, status: 'PENDING' }, data: { status: 'VALID' } }),
-          ]);
+          await completeOrder(order.id, getBaseUrl(request));
           order = await prisma.order.findUnique({ where: { id: order.id }, include: includeTicketsAndEvent });
         }
       } catch (error) {
