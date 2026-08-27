@@ -56,7 +56,14 @@ export async function POST(request: Request) {
     let entry = body.token
       ? await prisma.waitingRoomEntry.findUnique({ where: { token: body.token } })
       : null;
-    if (!entry || entry.eventId !== event.id) {
+    // Un token EXPIRED nunca vuelve a WAITING por sí solo — sin este chequeo,
+    // alguien que vuelve a /comprar días después (con el token todavía en su
+    // localStorage) se encuentra la pantalla de "tu turno ha terminado" de
+    // entrada en vez de entrar en la cola de nuevo, porque se reutilizaba esa
+    // misma fila y se le devolvía EXPIRED en bucle. COMPLETED no entra aquí a
+    // propósito: el cliente ya lo trata aparte para poder avisar con un toast
+    // de que su compra anterior sí se guardó.
+    if (!entry || entry.eventId !== event.id || entry.status === 'EXPIRED') {
       const liveEntriesFromIp = await prisma.waitingRoomEntry.count({
         where: { eventId: event.id, ip, status: { in: ['WAITING', 'ADMITTED'] } },
       });

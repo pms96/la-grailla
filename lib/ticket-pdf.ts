@@ -1,5 +1,7 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import type { Prisma } from '@prisma/client';
+import { readFile } from 'fs/promises';
+import path from 'path';
 import { generateQRDataUrl } from '@/lib/qr';
 
 type OrderForPdf = Prisma.OrderGetPayload<{
@@ -123,6 +125,10 @@ export async function buildTicketsPdfForRoll(order: OrderForPdf): Promise<Uint8A
       })
     : '';
 
+  const logoBytes = await readFile(path.join(process.cwd(), 'public', 'brand', 'logo-black.png'));
+  const logoImage = await pdf.embedPng(logoBytes);
+  const logoAspect = logoImage.height / logoImage.width;
+
   for (const ticket of order.tickets ?? []) {
     const page = pdf.addPage([ROLL_WIDTH_PT, ROLL_HEIGHT_PT]);
     const { width } = page.getSize();
@@ -144,8 +150,10 @@ export async function buildTicketsPdfForRoll(order: OrderForPdf): Promise<Uint8A
       y -= size + 4;
     };
 
-    draw('LA GRAILLA', { size: 13, bold: true, center: true, color: rgb(0.55, 0.2, 0.85) });
-    y -= 2;
+    const logoWidth = width - margin * 2 - 60;
+    const logoHeight = logoWidth * logoAspect;
+    page.drawImage(logoImage, { x: (width - logoWidth) / 2, y: y - logoHeight, width: logoWidth, height: logoHeight });
+    y -= logoHeight + 8;
     draw(order.event?.name ?? 'Evento', { size: 10, bold: true, center: true });
     draw(eventDateShort, { size: 8, center: true, color: rgb(0.4, 0.4, 0.4) });
     if (order.event?.venue) {

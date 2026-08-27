@@ -1,0 +1,26 @@
+name: Cleanup waiting room
+
+# Purga filas EXPIRED/COMPLETED de más de 24h en WaitingRoomEntry a nivel
+# global. Mismo motivo que reconcile-payments.yml: Vercel Cron (plan Hobby)
+# solo permite tareas diarias, y esto conviene que corra más a menudo para
+# que la tabla no se llene entre evento y evento.
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar a /api/cron/cleanup-waiting-room
+        run: |
+          status=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://www.lagrailla.es/api/cron/cleanup-waiting-room")
+          echo "HTTP $status"
+          cat /tmp/response.json
+          if [ "$status" -ge 400 ]; then
+            echo "::error::La limpieza de la sala de espera devolvió $status"
+            exit 1
+          fi

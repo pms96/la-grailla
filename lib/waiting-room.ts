@@ -14,6 +14,20 @@ export async function cleanupStaleEntries(eventId: string): Promise<void> {
   });
 }
 
+// Versión sin scope de evento para el cron (app/api/cron/cleanup-waiting-room):
+// la limpieza de arriba solo se dispara con tráfico sobre ESE evento
+// concreto, así que un evento ya pasado (sin nadie más entrando a su cola)
+// nunca la activa y sus filas EXPIRED/COMPLETED se quedan para siempre.
+export async function cleanupAllStaleEntries(): Promise<number> {
+  const result = await prisma.waitingRoomEntry.deleteMany({
+    where: {
+      status: { in: ['COMPLETED', 'EXPIRED'] },
+      joinedAt: { lt: new Date(Date.now() - 24 * 60 * 60_000) },
+    },
+  });
+  return result.count;
+}
+
 // Con una probabilidad baja en vez de en cada llamada: no hace falta que
 // TODA petición pague el coste de este DELETE, solo que ocurra de vez en
 // cuando para que la tabla no crezca sin límite con filas COMPLETED o

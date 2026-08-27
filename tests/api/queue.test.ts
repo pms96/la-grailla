@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import { POST as joinQueue } from '@/app/api/queue/join/route';
 import { GET as queueStatus } from '@/app/api/queue/status/route';
-import { cleanupStaleEntries } from '@/lib/waiting-room';
+import { cleanupStaleEntries, cleanupAllStaleEntries } from '@/lib/waiting-room';
 import { createTestEvent, cleanupTestEvent } from '../helpers/fixtures';
 
 function joinRequest(body: unknown, ip: string) {
@@ -177,6 +177,54 @@ describe('sala de espera (queue/join, queue/status)', () => {
     expect(remainingIds).not.toContain(old.id);
     expect(remainingIds).toContain(recent.id);
     expect(remainingIds).toContain(stillWaiting.id);
+  });
+
+  it('con un token EXPIRED guardado, crea una entrada nueva en vez de devolver EXPIRED en bucle', async () => {
+    // AUDIT: alguien que vuelve a /comprar días después con el token de un
+    // turno ya caducado en localStorage se encontraba la pantalla de "tu
+    // turno ha terminado" de entrada, para siempre, porque join() reutilizaba
+    // la misma fila EXPIRED y devolvía ese mismo estado en cada visita.
+    const event = await createWaitingRoomEvent({ concurrentSlots: 1 });
+    createdEventIds.push(event.id);
+
+    const expired = await prisma.waitingRoomEntry.create({
+      data: { eventId: event.id, token: `expired-${Date.now()}`, status: 'EXPIRED', ip: '203.0.113.60' },
+    });
+
+    const res = await joinQueue(joinRequest({ eventId: event.id, token: expired.token }, '203.0.113.60'));
+    const json = await res.json();
+
+    expect(json.status).not.toBe('EXPIRED');
+    expect(json.token).not.toBe(expired.token);
+
+    const entries = await prisma.waitingRoomEntry.count({ where: { eventId: event.id } });
+    expect(entries).toBe(2);
+  });
+
+  it('cleanupAllStaleEntries borra entradas terminales viejas de cualquier evento', async () => {
+    const eventA = await createWaitingRoomEvent();
+    const eventB = await createWaitingRoomEvent();
+    createdEventIds.push(eventA.id, eventB.id);
+
+    const oldA = await prisma.waitingRoomEntry.create({
+      data: { eventId: eventA.id, token: `old-a-${Date.now()}`, status: 'EXPIRED', joinedAt: new Date(Date.now() - 25 * 60 * 60_000) },
+    });
+    const oldB = await prisma.waitingRoomEntry.create({
+      data: { eventId: eventB.id, token: `old-b-${Date.now()}`, status: 'COMPLETED', joinedAt: new Date(Date.now() - 48 * 60 * 60_000) },
+    });
+    const recent = await prisma.waitingRoomEntry.create({
+      data: { eventId: eventA.id, token: `recent-${Date.now()}`, status: 'EXPIRED', joinedAt: new Date() },
+    });
+
+    const deleted = await cleanupAllStaleEntries();
+    expect(deleted).toBeGreaterThanOrEqual(2);
+
+    const remainingIds = (await prisma.waitingRoomEntry.findMany({ where: { eventId: { in: [eventA.id, eventB.id] } } })).map(
+      (e) => e.id
+    );
+    expect(remainingIds).not.toContain(oldA.id);
+    expect(remainingIds).not.toContain(oldB.id);
+    expect(remainingIds).toContain(recent.id);
   });
 
   it('al reenviar el token guardado, reutiliza la misma entrada en vez de crear otra', async () => {
