@@ -23,6 +23,7 @@ export async function GET(request: Request, { params }: { params: { ticketId: st
 
     const buffer = await buildApplePass({
       ticketId: ticket.id,
+      eventId: ticket.eventId,
       qrCode: ticket.qrCode,
       holderName: ticket.holderName,
       eventName: ticket.event.name,

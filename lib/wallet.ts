@@ -29,6 +29,7 @@ export async function getWalletAvailability(): Promise<WalletAvailability> {
 
 type TicketPayload = {
   ticketId: string;
+  eventId: string;
   qrCode: string;
   holderName: string;
   eventName: string;
@@ -52,7 +53,13 @@ export async function buildGoogleWalletSaveUrl(ticket: TicketPayload): Promise<s
   }
   if (!credentials?.client_email || !credentials?.private_key) return null;
 
-  const classId = issuerId + '.lagrailla_event';
+  // Una clase por evento, no una única compartida por todo el emisor: los
+  // campos eventName/venue/dateTime viven en la CLASE, no en el objeto —
+  // con una sola clase para todos los eventos, guardar una entrada de un
+  // evento pisaba esos datos para cualquiera que ya se hubiera guardado la
+  // entrada de OTRO evento (visto en producción: dos eventos a la vez, las
+  // dos tarjetas de Wallet acababan mostrando el nombre del último guardado).
+  const classId = issuerId + '.event_' + ticket.eventId.replace(/[^A-Za-z0-9_.-]/g, '');
   const objectId = issuerId + '.tk_' + ticket.ticketId.replace(/[^A-Za-z0-9_.-]/g, '');
 
   const appUrl = process.env.NEXTAUTH_URL ?? '';
