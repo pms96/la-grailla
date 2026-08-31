@@ -37,6 +37,7 @@ type TicketPayload = {
   city: string;
   date: Date;
   ticketTypeName: string;
+  eventImageUrl?: string | null;
 };
 
 export async function buildGoogleWalletSaveUrl(ticket: TicketPayload): Promise<string | null> {
@@ -63,10 +64,16 @@ export async function buildGoogleWalletSaveUrl(ticket: TicketPayload): Promise<s
   const objectId = issuerId + '.tk_' + ticket.ticketId.replace(/[^A-Za-z0-9_.-]/g, '');
 
   const appUrl = process.env.NEXTAUTH_URL ?? '';
-  const eventTicketClass = {
+  // Wallet no admite CSS a medida (dos tonos, avatar circular, etc.) — esto es
+  // la mejor aproximación con los campos nativos que expone Google: la foto
+  // del cartel como heroImage (banner ancho, no circular) y hexBackgroundColor
+  // en el oscuro de la cabecera del diseño (#1F1A22), ya que la tarjeta solo
+  // admite un color de fondo, no dos zonas distintas.
+  const eventTicketClass: Record<string, unknown> = {
     id: classId,
     issuerName: 'La Grailla',
     reviewStatus: 'UNDER_REVIEW',
+    hexBackgroundColor: '#1F1A22',
     logo: {
       sourceUri: { uri: appUrl + '/brand/logo-white.png' },
       contentDescription: { defaultValue: { language: 'es-ES', value: 'La Grailla' } },
@@ -78,6 +85,12 @@ export async function buildGoogleWalletSaveUrl(ticket: TicketPayload): Promise<s
     },
     dateTime: { start: new Date(ticket.date).toISOString() },
   };
+  if (ticket.eventImageUrl) {
+    eventTicketClass.heroImage = {
+      sourceUri: { uri: ticket.eventImageUrl },
+      contentDescription: { defaultValue: { language: 'es-ES', value: ticket.eventName } },
+    };
+  }
 
   const eventTicketObject = {
     id: objectId,
@@ -115,6 +128,16 @@ async function fetchLogoBuffer(): Promise<Buffer> {
   const appUrl = process.env.NEXTAUTH_URL ?? '';
   const res = await fetch(appUrl + '/brand/logo-white.png');
   return Buffer.from(await res.arrayBuffer());
+}
+
+async function fetchImageBuffer(url: string): Promise<Buffer | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return Buffer.from(await res.arrayBuffer());
+  } catch {
+    return null;
+  }
 }
 
 // passkit-generator firma el .pkpass con node-forge y espera el certificado
@@ -159,6 +182,9 @@ export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | nu
     const { PKPass } = await import('passkit-generator');
     const { certPem, keyPem } = await extractPemFromP12(cfg.apple_wallet_cert_p12_base64, cfg.apple_wallet_cert_password);
     const iconBuffer = await fetchLogoBuffer();
+    // Apple recorta el thumbnail a su propio layout (esquina, no circular) —
+    // es lo más parecido que permite PassKit al avatar con foto del diseño.
+    const thumbnailBuffer = ticket.eventImageUrl ? await fetchImageBuffer(ticket.eventImageUrl) : null;
 
     const passJson = {
       formatVersion: 1,
@@ -167,9 +193,9 @@ export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | nu
       organizationName: 'La Grailla',
       description: 'Entrada ' + ticket.eventName,
       serialNumber: ticket.ticketId,
-      foregroundColor: 'rgb(255,255,255)',
-      backgroundColor: 'rgb(168,85,247)',
-      labelColor: 'rgb(255,255,255)',
+      foregroundColor: 'rgb(228,230,242)',
+      backgroundColor: 'rgb(31,26,34)',
+      labelColor: 'rgb(207,166,168)',
       eventTicket: {},
     };
 
@@ -179,6 +205,7 @@ export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | nu
         'icon.png': iconBuffer,
         'icon@2x.png': iconBuffer,
         'logo.png': iconBuffer,
+        ...(thumbnailBuffer ? { 'thumbnail.png': thumbnailBuffer, 'thumbnail@2x.png': thumbnailBuffer } : {}),
       },
       {
         wwdr: Buffer.from(APPLE_WWDR_CERT_PEM),

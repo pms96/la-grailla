@@ -31,6 +31,7 @@ export async function GET(request: Request, { params }: { params: { ticketId: st
       city: ticket.event.city,
       date: ticket.event.date,
       ticketTypeName: ticket.ticketType?.name ?? 'General',
+      eventImageUrl: ticket.event.imageUrl,
     });
 
     if (!url) {
