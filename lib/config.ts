@@ -32,6 +32,7 @@ const CONFIG_DEFAULTS: Record<string, string> = {
   apple_wallet_team_id: '',
   apple_wallet_cert_p12_base64: '',
   apple_wallet_cert_password: '',
+  abacus_ai_api_key: '',
   cookies_banner_enabled: 'true',
   maps_provider: 'osm',
   orders_rate_limit_per_ip: '10',

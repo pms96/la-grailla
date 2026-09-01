@@ -1,20 +1,20 @@
 generator client {
-    provider = "prisma-client-js"
-    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
 }
 
 datasource db {
-    provider  = "postgresql"
-    // Conexión pooleada (p. ej. la URL "-pooler" de Neon) — la que usa la app
-    // en caliente. Con Vercel serverless, cada invocación puede abrir su
-    // propia conexión; sin pool delante, un pico de tráfico agota
-    // max_connections de Postgres en segundos.
-    url       = env("DATABASE_URL")
-    // Conexión directa (sin pool) — Prisma la necesita para `migrate`/`db push`,
-    // que usan prepared statements incompatibles con el modo transacción de
-    // PgBouncer/Neon pooler. Si no vas a poolear (VPS propio sin pooler),
-    // puedes apuntar ambas a la misma URL.
-    directUrl = env("DIRECT_URL")
+  provider  = "postgresql"
+  // Conexión pooleada (p. ej. la URL "-pooler" de Neon) — la que usa la app
+  // en caliente. Con Vercel serverless, cada invocación puede abrir su
+  // propia conexión; sin pool delante, un pico de tráfico agota
+  // max_connections de Postgres en segundos.
+  url       = env("DATABASE_URL")
+  // Conexión directa (sin pool) — Prisma la necesita para `migrate`/`db push`,
+  // que usan prepared statements incompatibles con el modo transacción de
+  // PgBouncer/Neon pooler. Si no vas a poolear (VPS propio sin pooler),
+  // puedes apuntar ambas a la misma URL.
+  directUrl = env("DIRECT_URL")
 }
 
 enum UserRole {
@@ -69,18 +69,20 @@ enum SponsorRequestStatus {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String    @unique
-  emailVerified DateTime?
-  hashedPassword String?
-  image         String?
-  role          UserRole  @default(USER)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  accounts      Account[]
-  sessions      Session[]
-  scanLogs      ScanLog[]
+  id                String                @id @default(cuid())
+  name              String?
+  email             String                @unique
+  emailVerified     DateTime?
+  hashedPassword    String?
+  image             String?
+  role              UserRole              @default(USER)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  accounts          Account[]
+  sessions          Session[]
+  scanLogs          ScanLog[]
+  promptApprovals   SponsorVideoPrompt[]  @relation("SponsorPromptApprovals")
+  promptGenerations PromptGenerationLog[] @relation("SponsorPromptGenerations")
 }
 
 model Account {
@@ -118,43 +120,43 @@ model VerificationToken {
 }
 
 model Event {
-  id            String      @id @default(cuid())
-  name          String
-  slug          String      @unique
-  description   String?     @db.Text
-  venue         String
-  city          String
-  address       String?
-  imageUrl      String?
-  artists       String?     @db.Text
-  date          DateTime
-  doorsOpen     String?
-  endTime       String?
-  minAge        Int         @default(18)
-  conditions    String?     @db.Text
-  maxCapacity   Int         @default(500)
-  currentCount  Int         @default(0)
-  maxTicketsPerEmail Int?
-  waitingRoomEnabled Boolean     @default(false)
+  id                               String             @id @default(cuid())
+  name                             String
+  slug                             String             @unique
+  description                      String?            @db.Text
+  venue                            String
+  city                             String
+  address                          String?
+  imageUrl                         String?
+  artists                          String?            @db.Text
+  date                             DateTime
+  doorsOpen                        String?
+  endTime                          String?
+  minAge                           Int                @default(18)
+  conditions                       String?            @db.Text
+  maxCapacity                      Int                @default(500)
+  currentCount                     Int                @default(0)
+  maxTicketsPerEmail               Int?
+  waitingRoomEnabled               Boolean            @default(false)
   waitingRoomConcurrentSlots       Int?
   waitingRoomPurchaseWindowSeconds Int?
-  waitingRoomMessage String?     @db.Text
-  status        EventStatus @default(DRAFT)
-  alertAt80     Boolean     @default(true)
-  alertAt95     Boolean     @default(true)
-  alertThresholds String    @default("80,95,100")
-  alertsSent    String      @default("")
-  latitude      Float?
-  longitude     Float?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  ticketTypes   TicketType[]
-  orders        Order[]
-  tickets       Ticket[]
-  scanLogs      ScanLog[]
-  guestLists    GuestList[]
-  invitations   Invitation[]
-  waitingRoomEntries WaitingRoomEntry[]
+  waitingRoomMessage               String?            @db.Text
+  status                           EventStatus        @default(DRAFT)
+  alertAt80                        Boolean            @default(true)
+  alertAt95                        Boolean            @default(true)
+  alertThresholds                  String             @default("80,95,100")
+  alertsSent                       String             @default("")
+  latitude                         Float?
+  longitude                        Float?
+  createdAt                        DateTime           @default(now())
+  updatedAt                        DateTime           @updatedAt
+  ticketTypes                      TicketType[]
+  orders                           Order[]
+  tickets                          Ticket[]
+  scanLogs                         ScanLog[]
+  guestLists                       GuestList[]
+  invitations                      Invitation[]
+  waitingRoomEntries               WaitingRoomEntry[]
 }
 
 enum WaitingRoomStatus {
@@ -267,7 +269,7 @@ model ScanLog {
   ticketId  String
   eventId   String
   scannerId String?
-  result    String   
+  result    String
   createdAt DateTime @default(now())
   ticket    Ticket   @relation(fields: [ticketId], references: [id])
   event     Event    @relation(fields: [eventId], references: [id])
@@ -344,17 +346,108 @@ model ShopOrderItem {
 }
 
 model SponsorRequest {
-  id            String               @id @default(cuid())
-  companyName   String
-  contactName   String
-  email         String
-  phone         String?
-  sponsorType   String               
-  message       String?              @db.Text
-  status        SponsorRequestStatus @default(PENDING)
-  adminNotes    String?              @db.Text
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
+  id          String               @id @default(cuid())
+  companyName String
+  contactName String
+  email       String
+  phone       String?
+  sponsorType String
+  message     String?              @db.Text
+  status      SponsorRequestStatus @default(PENDING)
+  adminNotes  String?              @db.Text
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  sponsor     Sponsor?
+}
+
+enum SponsorPortalStatus {
+  PENDIENTE_MATERIALES
+  PENDIENTE_REVISION
+  LISTO_PARA_GENERAR
+  PROMPT_GENERADO
+  APROBADO_PARA_VIDEO
+  RECHAZADO
+}
+
+// Se crea al aceptar un SponsorRequest — el lead (SponsorRequest) no se toca,
+// esto es el ciclo de vida aparte del portal de materiales + prompt de vídeo.
+model Sponsor {
+  id               String              @id @default(cuid())
+  sponsorRequestId String              @unique
+  status           SponsorPortalStatus @default(PENDIENTE_MATERIALES)
+  guidedAnswers    Json?
+  freeText         String?             @db.Text
+  currentAssetId   String?             @unique
+  isGenerating     Boolean             @default(false)
+  generationCount  Int                 @default(0)
+  maxGenerations   Int                 @default(3)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  sponsorRequest SponsorRequest        @relation(fields: [sponsorRequestId], references: [id])
+  currentAsset   SponsorAsset?         @relation("CurrentAsset", fields: [currentAssetId], references: [id])
+  assets         SponsorAsset[]        @relation("SponsorAssets")
+  videoPrompt    SponsorVideoPrompt?
+  generationLogs PromptGenerationLog[]
+
+  @@index([status])
+}
+
+// Nunca se borra ni se sobreescribe — cada subida es una fila nueva; Sponsor.currentAssetId
+// apunta a la vigente, así queda "logo versionado" sin un sistema de versiones aparte.
+model SponsorAsset {
+  id         String   @id @default(cuid())
+  sponsorId  String
+  url        String
+  fileType   String
+  fileName   String
+  fileSize   Int
+  uploadedAt DateTime @default(now())
+
+  sponsor    Sponsor  @relation("SponsorAssets", fields: [sponsorId], references: [id], onDelete: Cascade)
+  currentFor Sponsor? @relation("CurrentAsset")
+
+  @@index([sponsorId])
+}
+
+// Prompt "de trabajo": lo que devolvió la IA se guarda en PromptGenerationLog (inmutable);
+// esto es lo que el admin edita a mano y aprueba, para no reescribir el historial de auditoría.
+model SponsorVideoPrompt {
+  id           String    @id @default(cuid())
+  sponsorId    String    @unique
+  promptEs     String    @db.Text
+  promptEn     String    @db.Text
+  sourceLogId  String?
+  approvedAt   DateTime?
+  approvedById String?
+  notifiedAt   DateTime?
+  updatedAt    DateTime  @updatedAt
+
+  sponsor    Sponsor @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+  approvedBy User?   @relation("SponsorPromptApprovals", fields: [approvedById], references: [id])
+}
+
+// Historial inmutable de cada llamada a Abacus.AI, salga bien o mal — cuenta para el
+// límite de 3 intentos por sponsor independientemente del resultado (el coste ya se generó).
+model PromptGenerationLog {
+  id                    String   @id @default(cuid())
+  sponsorId             String
+  attemptNumber         Int
+  adminId               String?
+  assetIdUsed           String?
+  descriptionSnapshot   String?  @db.Text
+  guidedAnswersSnapshot Json?
+  rawResponse           Json?
+  promptEs              String?  @db.Text
+  promptEn              String?  @db.Text
+  success               Boolean  @default(false)
+  errorMessage          String?
+  createdAt             DateTime @default(now())
+
+  sponsor Sponsor @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+  admin   User?   @relation("SponsorPromptGenerations", fields: [adminId], references: [id])
+
+  @@index([sponsorId])
 }
 
 model GuestList {
@@ -393,9 +486,9 @@ model Invitation {
 }
 
 model AppConfig {
-  id    String @id @default(cuid())
-  key   String @unique
-  value String @db.Text
+  id    String  @id @default(cuid())
+  key   String  @unique
+  value String  @db.Text
   label String?
   group String?
 

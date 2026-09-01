@@ -6,6 +6,8 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { getBaseUrl } from '@/lib/url';
+import { ensureSponsorPortalInvite } from '@/lib/sponsor-portal';
 
 const updateSponsorSchema = z.object({
   status: z.enum(['PENDING', 'CONTACTED', 'ACCEPTED', 'REJECTED']).optional(),
@@ -26,6 +28,11 @@ export async function PUT(
       where: { id: params?.id },
       data: { status: body?.status, adminNotes: body?.adminNotes },
     });
+
+    if (body?.status === 'ACCEPTED') {
+      void ensureSponsorPortalInvite(sponsor.id, getBaseUrl(request));
+    }
+
     return NextResponse.json(sponsor);
   } catch (error) {
     return handleApiError(error, 'PUT /api/admin/sponsors/[id]');

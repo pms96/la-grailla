@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { Loader2, Save, CreditCard, Mail, Globe, FileText, Send, Wallet, ShieldAlert, Zap, Sparkles } from 'lucide-react';
+import { Loader2, Save, CreditCard, Mail, Globe, FileText, Send, Wallet, ShieldAlert, Zap, Sparkles, Clapperboard } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -100,6 +100,7 @@ export default function ConfiguracionPage() {
           <TabsTrigger value="social" className="gap-2"><Globe className="h-3.5 w-3.5" /> Redes sociales</TabsTrigger>
           <TabsTrigger value="smtp" className="gap-2"><Send className="h-3.5 w-3.5" /> Email</TabsTrigger>
           <TabsTrigger value="wallet" className="gap-2"><Wallet className="h-3.5 w-3.5" /> Wallets</TabsTrigger>
+          <TabsTrigger value="abacus" className="gap-2"><Clapperboard className="h-3.5 w-3.5" /> Vídeo IA</TabsTrigger>
           <TabsTrigger value="security" className="gap-2"><ShieldAlert className="h-3.5 w-3.5" /> Seguridad</TabsTrigger>
           <TabsTrigger value="legal" className="gap-2"><FileText className="h-3.5 w-3.5" /> Legal</TabsTrigger>
           <TabsTrigger value="general" className="gap-2"><Mail className="h-3.5 w-3.5" /> General</TabsTrigger>
@@ -250,6 +251,23 @@ export default function ConfiguracionPage() {
               </div>
               <ConfigField label="Certificado .p12 (en base64)" type="textarea" rows={4} value={values?.apple_wallet_cert_p12_base64 ?? ''} onChange={(v) => updateValue('apple_wallet_cert_p12_base64', v)} />
             </div>
+          </CardContent></Card>
+        </TabsContent>
+
+        <TabsContent value="abacus">
+          <Card><CardContent className="p-6 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Se usa en el Portal de Sponsors (`/admin/sponsors-portal`) para generar el prompt de
+              vídeo ES/EN a partir del logo y las respuestas del sponsor. Sin API key, ese botón usa
+              un texto de ejemplo (modo mock) — útil para probar el flujo sin gastar generaciones reales.
+            </p>
+            <ConfigField
+              label="API Key de Abacus.AI"
+              type="password"
+              value={values?.abacus_ai_api_key ?? ''}
+              onChange={(v) => updateValue('abacus_ai_api_key', v)}
+              description="La API key de tu cuenta de Abacus.AI (ChatLLM). El contrato exacto del endpoint no se ha podido verificar contra documentación en vivo — si al generar un prompt real ves un error, puede que el payload/endpoint necesiten un ajuste en lib/abacus-ai-adapter.ts."
+            />
           </CardContent></Card>
         </TabsContent>
 

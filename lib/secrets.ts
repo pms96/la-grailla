@@ -21,6 +21,7 @@ export const SENSITIVE_CONFIG_KEYS = [
   'google_wallet_service_account',
   'apple_wallet_cert_p12_base64',
   'apple_wallet_cert_password',
+  'abacus_ai_api_key',
 ];
 
 export function isSensitiveConfigKey(key: string): boolean {

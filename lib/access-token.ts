@@ -88,6 +88,33 @@ export async function allowTicketAccess(
   return isStaffSession();
 }
 
+/** Token de acceso al portal de un sponsor (sin cuenta, como los de pedido/ticket). */
+export function signSponsorAccess(sponsorId: string): string {
+  return sign('sponsor', sponsorId);
+}
+
+export function verifySponsorAccess(sponsorId: string, token: string | null | undefined): boolean {
+  if (!token) return false;
+  try {
+    return safeEqual(signSponsorAccess(sponsorId), token);
+  } catch {
+    return false;
+  }
+}
+
+export function sponsorAccessQuery(sponsorId: string): string {
+  return `t=${encodeURIComponent(signSponsorAccess(sponsorId))}`;
+}
+
+/** Token de sponsor válido o sesión de admin (staff revisando el portal). */
+export async function allowSponsorAccess(
+  sponsorId: string,
+  token: string | null | undefined
+): Promise<boolean> {
+  if (verifySponsorAccess(sponsorId, token)) return true;
+  return isStaffSession();
+}
+
 export function getTokenFromRequest(request: Request): string | null {
   const url = new URL(request.url);
   const fromQuery = url.searchParams.get('t');

@@ -1,5 +1,15 @@
 import { getConfigs } from '@/lib/config';
 
+// Cualquier dato de un tercero (nombre de comprador, mensaje de un
+// formulario) que acabe interpolado en el HTML de un email debe pasar por
+// aquí — sin escapar, ese texto podría llevar HTML/enlaces manipulados.
+export function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 export type MailAttachment = { filename: string; content: Buffer; contentType?: string };
 
 export type SendMailParams = {
