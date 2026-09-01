@@ -1,12 +1,11 @@
 /* Adaptador para Abacus.AI — mismo patrón que lib/payment-adapter.ts (interfaz +
- * implementación real + mock, fetch() plano, credenciales vía getConfig()).
+ * implementación real + mock, credenciales vía getConfig()).
  *
- * El contrato exacto (endpoint/payload) de la API de Abacus.AI para "generar un
- * prompt de vídeo a partir de una imagen + texto" no se ha podido verificar
- * contra documentación en vivo — AbacusAIAdapter.generateVideoPrompt() deja el
- * fetch() con la URL/payload más plausibles según las convenciones de su API
- * documentada (ChatLLM, API key en cabecera), pero hay que confirmarlo contra
- * la referencia real de la cuenta antes de dar el flujo por definitivo.
+ * Contrato confirmado: RouteLLM de Abacus.AI expone una API compatible con
+ * OpenAI Chat Completions en https://routellm.abacus.ai/v1, modelo fijo
+ * "route-llm" (el propio RouteLLM decide el modelo real por debajo). Se usa
+ * el SDK oficial `openai` apuntando a esa base URL, igual que StripeAdapter
+ * importa el SDK de Stripe de forma diferida (solo se carga si de verdad se usa).
  */
 import { getConfig } from '@/lib/config';
 
@@ -46,17 +45,19 @@ function buildUserContext(input: GenerateVideoPromptInput): string {
   return `Logo: ${input.logoUrl}\n\nRespuestas guiadas:\n${answers}\n\nDescripción libre:\n${input.freeText || '(sin descripción adicional)'}`;
 }
 
-function parseAbacusResponse(raw: unknown): { promptEs: string; promptEn: string } {
-  const text =
-    typeof raw === 'string'
-      ? raw
-      : (raw as { result?: string; text?: string; content?: string })?.result ??
-        (raw as { text?: string })?.text ??
-        (raw as { content?: string })?.content ??
-        '';
+// Los modelos de chat casi nunca respetan al 100% "sin texto adicional" — a
+// veces envuelven el JSON en ```json ... ```. Se extrae el primer bloque
+// {...} de la respuesta antes de parsear, en vez de asumir que el string
+// completo ya es JSON puro.
+function parseAbacusResponse(content: string | null | undefined): { promptEs: string; promptEn: string } {
+  const text = content ?? '';
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('Abacus.AI no devolvió un JSON con prompt_es/prompt_en');
+  }
   let parsed: { prompt_es?: string; prompt_en?: string };
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(jsonMatch[0]);
   } catch {
     throw new Error('Abacus.AI no devolvió un JSON válido con prompt_es/prompt_en');
   }
@@ -70,27 +71,26 @@ export class AbacusAIAdapter implements AbacusAIProvider {
   constructor(private apiKey: string) {}
 
   async generateVideoPrompt(input: GenerateVideoPromptInput): Promise<GenerateVideoPromptResult> {
-    const response = await fetch('https://api.abacus.ai/api/v0/evaluatePrompt', {
-      method: 'POST',
-      headers: {
-        apiKey: this.apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        prompt: buildUserContext(input),
-        systemMessage: ABACUS_META_PROMPT,
-        imageUrls: [input.logoUrl],
-      }),
+    const OpenAI = (await import('openai')).default;
+    const client = new OpenAI({ baseURL: 'https://routellm.abacus.ai/v1', apiKey: this.apiKey });
+
+    const completion = await client.chat.completions.create({
+      model: 'route-llm',
+      stream: false,
+      messages: [
+        { role: 'system', content: ABACUS_META_PROMPT },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: buildUserContext(input) },
+            { type: 'image_url', image_url: { url: input.logoUrl } },
+          ],
+        },
+      ],
     });
 
-    const data = await response.json().catch(() => null);
-    if (!response.ok) {
-      const message = (data as { error?: string; message?: string })?.error ?? (data as { message?: string })?.message ?? `HTTP ${response.status}`;
-      throw new Error(`Abacus.AI: ${message}`);
-    }
-
-    const { promptEs, promptEn } = parseAbacusResponse(data);
-    return { promptEs, promptEn, raw: data };
+    const { promptEs, promptEn } = parseAbacusResponse(completion.choices[0]?.message?.content);
+    return { promptEs, promptEn, raw: completion };
   }
 }
 

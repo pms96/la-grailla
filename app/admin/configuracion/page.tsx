@@ -266,7 +266,7 @@ export default function ConfiguracionPage() {
               type="password"
               value={values?.abacus_ai_api_key ?? ''}
               onChange={(v) => updateValue('abacus_ai_api_key', v)}
-              description="La API key de tu cuenta de Abacus.AI (ChatLLM). El contrato exacto del endpoint no se ha podido verificar contra documentación en vivo — si al generar un prompt real ves un error, puede que el payload/endpoint necesiten un ajuste en lib/abacus-ai-adapter.ts."
+              description="La API key de tu cuenta de Abacus.AI (RouteLLM — https://abacus.ai/app/route-llm-apis)."
             />
           </CardContent></Card>
         </TabsContent>
