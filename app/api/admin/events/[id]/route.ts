@@ -30,6 +30,7 @@ const updateEventSchema = z.object({
   status: z.enum(['DRAFT', 'PUBLISHED', 'FINISHED', 'CANCELLED']).optional(),
   latitude: z.union([z.number(), z.string(), z.null()]).optional(),
   longitude: z.union([z.number(), z.string(), z.null()]).optional(),
+  temporadaId: z.string().optional().nullable(),
 });
 
 const patchEventSchema = z.object({
@@ -37,6 +38,8 @@ const patchEventSchema = z.object({
   resetAlerts: z.boolean().optional(),
   latitude: z.union([z.number(), z.string(), z.null()]).optional(),
   longitude: z.union([z.number(), z.string(), z.null()]).optional(),
+  temporadaId: z.string().optional().nullable(),
+  archivado: z.boolean().optional(),
 });
 
 export async function PUT(
@@ -85,6 +88,7 @@ export async function PUT(
         status: body?.status,
         latitude: body?.latitude === '' || body?.latitude == null ? null : Number(body.latitude),
         longitude: body?.longitude === '' || body?.longitude == null ? null : Number(body.longitude),
+        temporadaId: body?.temporadaId === undefined ? undefined : body.temporadaId || null,
       },
     });
     return NextResponse.json(event);
@@ -117,6 +121,10 @@ export async function PATCH(
     if (body?.resetAlerts === true) data.alertsSent = '';
     if (body?.latitude !== undefined) data.latitude = body.latitude === '' || body.latitude === null ? null : Number(body.latitude);
     if (body?.longitude !== undefined) data.longitude = body.longitude === '' || body.longitude === null ? null : Number(body.longitude);
+    if (body?.temporadaId !== undefined) {
+      data.temporada = body.temporadaId === null ? { disconnect: true } : { connect: { id: body.temporadaId } };
+    }
+    if (body?.archivado !== undefined) data.archivado = body.archivado;
 
     if (Object.keys(data).length === 0) {
       return NextResponse.json({ error: 'Nada que actualizar' }, { status: 400 });

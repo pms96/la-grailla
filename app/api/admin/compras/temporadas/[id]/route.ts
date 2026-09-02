@@ -15,6 +15,7 @@ const updateTemporadaSchema = z.object({
   fechaFin: z.string().optional().nullable(),
   status: z.enum(['ABIERTA', 'CERRADA']).optional(),
   notas: z.string().optional().nullable(),
+  archivado: z.boolean().optional(),
 });
 
 async function requireAdmin() {
@@ -33,6 +34,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     if (body.fechaFin !== undefined) data.fechaFin = body.fechaFin ? new Date(body.fechaFin) : null;
     if (body.status !== undefined) data.status = body.status;
     if (body.notas !== undefined) data.notas = body.notas || null;
+    if (body.archivado !== undefined) data.archivado = body.archivado;
 
     const temporada = await prisma.temporada.update({ where: { id: params?.id }, data });
     return NextResponse.json(temporada);

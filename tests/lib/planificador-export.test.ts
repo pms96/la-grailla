@@ -13,6 +13,7 @@ const temporada: Temporada = {
   fechaFin: null,
   status: 'ABIERTA',
   notas: null,
+  archivado: false,
   createdAt: new Date(),
   updatedAt: new Date(),
 };

@@ -15,13 +15,18 @@ const createTemporadaSchema = z.object({
   notas: z.string().optional().nullable(),
 });
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
   try {
-    const temporadas = await prisma.temporada.findMany({ orderBy: { anio: 'desc' } });
+    const { searchParams } = new URL(request.url);
+    const incluirArchivadas = searchParams.get('incluirArchivados') === '1';
+    const temporadas = await prisma.temporada.findMany({
+      where: incluirArchivadas ? undefined : { archivado: false },
+      orderBy: { anio: 'desc' },
+    });
     return NextResponse.json(temporadas ?? []);
   } catch (error) {
     return handleApiError(error, 'GET /api/admin/compras/temporadas');

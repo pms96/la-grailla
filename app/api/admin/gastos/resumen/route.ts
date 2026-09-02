@@ -33,17 +33,30 @@ export async function GET(request: Request) {
       orderBy: { anio: 'desc' },
     });
 
-    const [gastos, gastosAnterior, planes] = await Promise.all([
+    const [gastos, gastosAnterior, planes, eventosEnlazados] = await Promise.all([
       prisma.gasto.findMany({ where: { temporadaId } }),
       temporadaAnterior ? prisma.gasto.findMany({ where: { temporadaId: temporadaAnterior.id } }) : Promise.resolve([]),
       prisma.planCompra.findMany({
         where: { temporadaId, cantidadPlanificada: { gt: 0 } },
         include: { articulo: { include: { precios: { include: { proveedor: true } } } } },
       }),
+      prisma.event.findMany({ where: { temporadaId }, select: { id: true } }),
     ]);
 
     const gastoTotal = Math.round(gastos.reduce((acc, g) => acc + precioConIvaTotal(g.importeSinIva, g.ivaPercent), 0) * 100) / 100;
     const gastoTotalAnterior = Math.round(gastosAnterior.reduce((acc, g) => acc + precioConIvaTotal(g.importeSinIva, g.ivaPercent), 0) * 100) / 100;
+
+    // Ingresos reales de la temporada: solo se pueden calcular a partir de los eventos que el
+    // admin ha enlazado explícitamente (Fase 2) — sin backfill ni adivinanza por fecha/nombre.
+    const nEventosEnlazados = eventosEnlazados.length;
+    const ingresosAgg = nEventosEnlazados
+      ? await prisma.order.aggregate({
+          where: { eventId: { in: eventosEnlazados.map((e) => e.id) }, status: 'COMPLETED' },
+          _sum: { totalAmount: true },
+        })
+      : null;
+    const ingresos = Math.round((ingresosAgg?._sum.totalAmount ?? 0) * 100) / 100;
+    const margen = Math.round((ingresos - gastoTotal) * 100) / 100;
 
     const porCategoriaMap = new Map<string, number>();
     for (const g of gastos) {
@@ -95,6 +108,9 @@ export async function GET(request: Request) {
       porCategoria,
       comparativoCategorias,
       topAhorro,
+      ingresos,
+      margen,
+      nEventosEnlazados,
     });
   } catch (error) {
     return handleApiError(error, 'GET /api/admin/gastos/resumen');

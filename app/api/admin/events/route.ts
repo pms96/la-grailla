@@ -30,22 +30,27 @@ const createEventSchema = z.object({
   latitude: z.union([z.number(), z.string(), z.null()]).optional(),
   longitude: z.union([z.number(), z.string(), z.null()]).optional(),
   alertThresholds: z.string().optional(),
+  temporadaId: z.string().optional().nullable(),
 });
 
 const ENTRY_WINDOW_MS = 5 * 60 * 1000;
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
   try {
+    const { searchParams } = new URL(request.url);
+    const incluirArchivados = searchParams.get('incluirArchivados') === '1';
     const events = await prisma.event.findMany({
+      where: incluirArchivados ? undefined : { archivado: false },
       include: {
         ticketTypes: { orderBy: { sortOrder: 'asc' } },
         // tickets: excluye CANCELLED/REFUNDED para que represente entradas emitidas/vendidas,
         // no el histórico completo de tickets creados alguna vez.
         _count: { select: { tickets: { where: { status: { notIn: ['CANCELLED', 'REFUNDED'] } } }, orders: true } },
+        temporada: { select: { id: true, nombre: true } },
       },
       orderBy: { date: 'desc' },
     });
@@ -130,6 +135,7 @@ export async function POST(request: Request) {
         latitude: body?.latitude === '' || body?.latitude == null ? null : Number(body.latitude),
         longitude: body?.longitude === '' || body?.longitude == null ? null : Number(body.longitude),
         alertThresholds: body?.alertThresholds ?? '80,95,100',
+        temporadaId: body?.temporadaId || null,
       },
     });
     return NextResponse.json(event);

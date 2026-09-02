@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Prisma, ShopOrderStatus } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Loader2, Package, Truck } from 'lucide-react';
+import { Loader2, Package, Truck, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 
@@ -21,16 +21,24 @@ type ShopOrderWithItems = Prisma.ShopOrderGetPayload<{ include: { items: { inclu
 export default function PedidosPage() {
   const [orders, setOrders] = useState<ShopOrderWithItems[]>([]);
   const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState('');
+  const [status, setStatus] = useState<string>('all');
 
-  const fetchOrders = () => {
-    fetch('/api/admin/shop-orders')
+  const fetchOrders = useCallback(() => {
+    const params = new URLSearchParams();
+    if (q.trim()) params.set('q', q.trim());
+    if (status !== 'all') params.set('status', status);
+    fetch(`/api/admin/shop-orders?${params.toString()}`)
       .then((r) => r.json())
       .then((d) => setOrders(d ?? []))
       .catch(() => {})
       .finally(() => setLoading(false));
-  };
+  }, [q, status]);
 
-  useEffect(() => { fetchOrders(); }, []);
+  useEffect(() => {
+    const t = setTimeout(fetchOrders, 250);
+    return () => clearTimeout(t);
+  }, [fetchOrders]);
 
   const updateOrder = async (id: string, data: Partial<Pick<ShopOrderWithItems, 'status' | 'trackingNumber'>>) => {
     if (
@@ -50,14 +58,39 @@ export default function PedidosPage() {
     } catch { toast.error('Error'); }
   };
 
-  if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
-
   return (
     <div className="space-y-6">
       <PageHeader title="Pedidos de Tienda" description="Gestiona los pedidos de merchandising" />
 
-      {(orders?.length ?? 0) === 0 ? (
-        <p className="text-center py-20 text-muted-foreground">No hay pedidos aún</p>
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Nombre o email…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger className="w-full sm:w-44">
+            <SelectValue placeholder="Estado" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            {Object.entries(statusLabels).map(([k, v]) => (
+              <SelectItem key={k} value={k}>{v}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+      ) : (orders?.length ?? 0) === 0 ? (
+        <p className="text-center py-20 text-muted-foreground">
+          {q.trim() || status !== 'all' ? 'Sin pedidos con este filtro' : 'No hay pedidos aún'}
+        </p>
       ) : (
         <div className="space-y-4">
           {orders.map((order) => (

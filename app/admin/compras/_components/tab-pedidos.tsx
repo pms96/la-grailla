@@ -5,7 +5,7 @@ import type { Temporada, Pedido, Proveedor, LineaPedido, Articulo, Gasto } from 
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Sparkles, PackageCheck, Send, Wallet, FileSpreadsheet, FileText, Info } from 'lucide-react';
+import { Loader2, Sparkles, PackageCheck, Send, Wallet, FileSpreadsheet, FileText, Info, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { precioFinalUnidad } from '@/lib/compras/calculadora';
 import { PEDIDO_STATUS_LABEL as STATUS_LABEL } from '@/lib/compras/constantes';
@@ -19,8 +19,21 @@ type PedidoConDetalle = Pedido & {
   gasto: Gasto | null;
 };
 
-const STATUS_VARIANT: Record<string, 'secondary' | 'outline' | 'default'> = { BORRADOR: 'secondary', ENVIADO: 'outline', RECIBIDO: 'default' };
+// Colores semánticos por estado: ámbar = pendiente de enviar, azul = a la espera del proveedor,
+// verde = ya en la caseta. Así se distingue de un vistazo qué proveedor necesita atención.
+const STATUS_BADGE_CLASS: Record<string, string> = {
+  BORRADOR: 'border-amber-500/30 bg-amber-500/15 text-amber-600',
+  ENVIADO: 'border-blue-500/30 bg-blue-500/15 text-blue-600',
+  RECIBIDO: 'border-green-500/30 bg-green-500/15 text-green-600',
+};
 const SIGUIENTE_ESTADO: Record<string, string> = { BORRADOR: 'ENVIADO', ENVIADO: 'RECIBIDO' };
+// Un pedido "Enviado" que lleva muchos días sin marcarse como recibido es fácil de olvidar —
+// se destaca a partir de esta antigüedad, coincidiendo con el hallazgo de la auditoría UX.
+const DIAS_AVISO_ENVIADO = 5;
+
+function diasEnEstado(updatedAt: Date | string): number {
+  return Math.floor((Date.now() - new Date(updatedAt).getTime()) / (1000 * 60 * 60 * 24));
+}
 
 export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
   const [pedidos, setPedidos] = useState<PedidoConDetalle[]>([]);
@@ -76,7 +89,7 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
         body: JSON.stringify({ status: siguiente }),
       });
       if (!res.ok) { toast.error('No se pudo actualizar el estado'); return; }
-      toast.success(`Pedido marcado como ${STATUS_LABEL[siguiente].toLowerCase()}`);
+      toast.success(siguiente === 'ENVIADO' ? 'Envío confirmado (registro interno, no se ha notificado al proveedor)' : `Pedido marcado como ${STATUS_LABEL[siguiente].toLowerCase()}`);
       fetchPedidos();
     } catch {
       toast.error('Error de conexión');
@@ -155,7 +168,13 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
                     <p className="font-semibold text-sm">
                       {p.lineas.reduce((sum, l) => sum + precioFinalUnidad(l.precioSinIva, l.descuentoPercent, l.ivaPercent) * l.cantidad, 0).toFixed(2)}€
                     </p>
-                    <Badge variant={STATUS_VARIANT[p.status]}>{STATUS_LABEL[p.status]}</Badge>
+                    <div className="flex items-center justify-end gap-1.5">
+                      {p.status === 'ENVIADO' && diasEnEstado(p.updatedAt) >= DIAS_AVISO_ENVIADO && (
+                        <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                      )}
+                      <Badge variant="outline" className={STATUS_BADGE_CLASS[p.status]}>{STATUS_LABEL[p.status]}</Badge>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">hace {diasEnEstado(p.updatedAt)}d en este estado</p>
                   </div>
                 </CardContent>
               </Card>
@@ -170,7 +189,10 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
                     <p className="font-semibold">{selected.proveedor.nombre}</p>
                     <p className="text-xs text-muted-foreground">{selected.temporada.nombre}</p>
                   </div>
-                  <Badge variant={STATUS_VARIANT[selected.status]}>{STATUS_LABEL[selected.status]}</Badge>
+                  <div className="text-right">
+                    <Badge variant="outline" className={STATUS_BADGE_CLASS[selected.status]}>{STATUS_LABEL[selected.status]}</Badge>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">hace {diasEnEstado(selected.updatedAt)}d en este estado</p>
+                  </div>
                 </div>
 
                 <div className="space-y-1 text-sm">
@@ -193,7 +215,7 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
                   {selected.status !== 'RECIBIDO' && (
                     <Button size="sm" className="gap-2" onClick={() => avanzarEstado(selected)}>
                       {selected.status === 'BORRADOR' ? <Send className="h-4 w-4" /> : <PackageCheck className="h-4 w-4" />}
-                      Marcar como {STATUS_LABEL[SIGUIENTE_ESTADO[selected.status]].toLowerCase()}
+                      {selected.status === 'BORRADOR' ? 'Confirmar envío (registro interno)' : 'Marcar como recibido'}
                     </Button>
                   )}
                   {selected.status === 'RECIBIDO' && !selected.gasto && (

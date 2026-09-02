@@ -53,6 +53,8 @@ describe('buildTicketsPdf', () => {
         alertsSent: '',
         latitude: null,
         longitude: null,
+        temporadaId: null,
+        archivado: false,
         createdAt: new Date(),
         updatedAt: new Date(),
       },

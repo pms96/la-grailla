@@ -10,13 +10,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Loader2, Plus, Pencil, Trash2, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
+import { EventosEnlazados } from '@/app/admin/compras/_components/eventos-enlazados';
+import { ConfirmDeleteDialog } from '@/app/admin/_components/confirm-delete-dialog';
 import { GastoDialog } from '@/app/admin/gastos/_components/gasto-dialog';
 import { AhorroBarChart } from '@/app/admin/gastos/_components/ahorro-bar-chart';
 import { GastoPieChart } from '@/app/admin/gastos/_components/gasto-pie-chart';
 import { ComparativoBarChart } from '@/app/admin/gastos/_components/comparativo-bar-chart';
 import { CATEGORIAS_GASTO } from '@/lib/compras/constantes';
 
-type GastoConRelaciones = Gasto & { proveedor: Proveedor | null };
+type GastoConRelaciones = Gasto & { proveedor: Proveedor | null; createdBy: { id: string; name: string | null; email: string } | null };
 
 type Resumen = {
   gastoTotal: number;
@@ -26,11 +28,15 @@ type Resumen = {
   porCategoria: { categoria: string; total: number }[];
   comparativoCategorias: { categoria: string; actual: number; anterior: number }[];
   topAhorro: { articulo: string; ahorroTotal: number; proveedorRecomendado: string | null }[];
+  ingresos: number;
+  margen: number;
+  nEventosEnlazados: number;
 };
 
 export default function GastosPage() {
   const [temporadas, setTemporadas] = useState<Temporada[]>([]);
   const [temporadaId, setTemporadaId] = useState<string | null>(null);
+  const [incluirArchivadas, setIncluirArchivadas] = useState(false);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [gastos, setGastos] = useState<GastoConRelaciones[]>([]);
   const [resumen, setResumen] = useState<Resumen | null>(null);
@@ -38,20 +44,31 @@ export default function GastosPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Gasto | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<GastoConRelaciones | null>(null);
+
+  const fetchTemporadas = useCallback((preferId?: string, incluirArchivadasParam?: boolean) => {
+    const params = (incluirArchivadasParam ?? incluirArchivadas) ? '?incluirArchivados=1' : '';
+    return fetch(`/api/admin/compras/temporadas${params}`)
+      .then((r) => r.json())
+      .then((d: Temporada[]) => {
+        const list = Array.isArray(d) ? d : [];
+        setTemporadas(list);
+        setTemporadaId((prev) => {
+          const prevSigueDisponible = prev && list.some((t) => t.id === prev);
+          return preferId ?? (prevSigueDisponible ? prev : list[0]?.id ?? null);
+        });
+      })
+      .catch(() => {});
+  }, [incluirArchivadas]);
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/admin/compras/temporadas').then((r) => r.json()),
-      fetch('/api/admin/compras/proveedores').then((r) => r.json()),
+      fetchTemporadas(),
+      fetch('/api/admin/compras/proveedores').then((r) => r.json()).then((p) => setProveedores(Array.isArray(p) ? p : [])),
     ])
-      .then(([t, p]) => {
-        const list = Array.isArray(t) ? t : [];
-        setTemporadas(list);
-        setTemporadaId(list[0]?.id ?? null);
-        setProveedores(Array.isArray(p) ? p : []);
-      })
       .catch(() => {})
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchDatos = useCallback(() => {
@@ -76,10 +93,11 @@ export default function GastosPage() {
   const openCreate = () => { setEditing(null); setDialogOpen(true); };
   const openEdit = (g: Gasto) => { setEditing(g); setDialogOpen(true); };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('¿Eliminar este gasto? Esta acción no se puede deshacer.')) return;
-    const res = await fetch(`/api/admin/gastos/${id}`, { method: 'DELETE' });
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const res = await fetch(`/api/admin/gastos/${deleteTarget.id}`, { method: 'DELETE' });
     if (res.ok) { toast.success('Gasto eliminado'); fetchDatos(); } else { toast.error('No se pudo eliminar'); }
+    setDeleteTarget(null);
   };
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
@@ -88,19 +106,51 @@ export default function GastosPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <PageHeader title="Gastos" description="Contabilidad real de la caseta por temporada" className="pb-0 border-0" />
-        <TemporadaSelector
-          temporadas={temporadas}
-          temporadaId={temporadaId}
-          onChange={setTemporadaId}
-          onTemporadaCreada={(t) => { setTemporadas((prev) => [t, ...prev]); setTemporadaId(t.id); }}
-        />
+        <div className="flex flex-col items-end gap-1.5">
+          <TemporadaSelector
+            temporadas={temporadas}
+            temporadaId={temporadaId}
+            onChange={setTemporadaId}
+            onTemporadaCreada={(t) => { setTemporadas((prev) => [t, ...prev]); setTemporadaId(t.id); }}
+            showArchiveControls
+            incluirArchivadas={incluirArchivadas}
+            onIncluirArchivadasChange={(v) => { setIncluirArchivadas(v); fetchTemporadas(undefined, v); }}
+            onTemporadasChanged={() => fetchTemporadas()}
+          />
+          <EventosEnlazados temporadaId={temporadaId} />
+        </div>
       </div>
 
       {!temporada ? (
         <p className="text-sm text-muted-foreground py-10 text-center">Crea una temporada para empezar a registrar gastos.</p>
       ) : (
         <>
-          <div className="grid sm:grid-cols-3 gap-4">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">Ingresos ({temporada.nombre})</p>
+                {resumen && resumen.nEventosEnlazados === 0 ? (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Sin eventos enlazados —{' '}
+                    <a href="/admin/eventos" className="underline text-primary">enlázalos aquí</a>
+                  </p>
+                ) : (
+                  <p className="text-2xl font-bold text-green-500">{(resumen?.ingresos ?? 0).toFixed(2)}€</p>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">Margen ({temporada.nombre})</p>
+                {resumen && resumen.nEventosEnlazados === 0 ? (
+                  <p className="text-sm text-muted-foreground mt-1">Sin eventos enlazados</p>
+                ) : (
+                  <p className={`text-2xl font-bold ${(resumen?.margen ?? 0) >= 0 ? 'text-green-500' : 'text-destructive'}`}>
+                    {(resumen?.margen ?? 0) >= 0 ? '+' : ''}{(resumen?.margen ?? 0).toFixed(2)}€
+                  </p>
+                )}
+              </CardContent>
+            </Card>
             <Card>
               <CardContent className="p-4">
                 <p className="text-xs text-muted-foreground">Gasto total ({temporada.nombre})</p>
@@ -172,6 +222,7 @@ export default function GastosPage() {
                         {new Date(g.fecha).toLocaleDateString('es-ES')}
                         {g.proveedor ? ` · ${g.proveedor.nombre}` : ''}
                         {g.numDocumento ? ` · Nº ${g.numDocumento}` : ''}
+                        {g.createdBy ? ` · Registrado por ${g.createdBy.name ?? g.createdBy.email}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -179,7 +230,7 @@ export default function GastosPage() {
                         {(g.importeSinIva * (1 + g.ivaPercent / 100)).toFixed(2)}€
                       </span>
                       <Button variant="ghost" size="icon-sm" onClick={() => openEdit(g)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon-sm" onClick={() => handleDelete(g.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      <Button variant="ghost" size="icon-sm" onClick={() => setDeleteTarget(g)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -196,6 +247,18 @@ export default function GastosPage() {
         temporadaId={temporadaId}
         proveedores={proveedores}
         onSaved={fetchDatos}
+      />
+
+      <ConfirmDeleteDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => !v && setDeleteTarget(null)}
+        title="Eliminar gasto"
+        description={
+          deleteTarget
+            ? `Se eliminará "${deleteTarget.concepto}" por ${(deleteTarget.importeSinIva * (1 + deleteTarget.ivaPercent / 100)).toFixed(2)}€ del ${new Date(deleteTarget.fecha).toLocaleDateString('es-ES')}. Esta acción no se puede deshacer.`
+            : ''
+        }
+        onConfirm={confirmDelete}
       />
     </div>
   );

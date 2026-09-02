@@ -5,7 +5,7 @@ import Link from 'next/link';
 import type { Event, Prisma } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, DollarSign, Ticket, Calendar, Receipt, Mail, Moon, ArrowRight, BarChart3 } from 'lucide-react';
+import { Loader2, DollarSign, Ticket, Calendar, Receipt, Mail, Moon, ArrowRight, BarChart3, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { CapacityBar } from '@/components/admin/capacity-bar';
@@ -26,8 +26,11 @@ type DashboardStats = {
   events: DashboardEvent[];
 };
 
+type MargenTemporada = { nombre: string; margen: number; nEventosEnlazados: number };
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [margenTemporada, setMargenTemporada] = useState<MargenTemporada | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState<string | null>(null);
 
@@ -55,6 +58,19 @@ export default function AdminDashboard() {
       .then((data) => setStats(data))
       .catch(() => {})
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/admin/compras/temporadas')
+      .then((r) => r.json())
+      .then((temporadas: { id: string; nombre: string; status: string }[]) => {
+        const activa = (Array.isArray(temporadas) ? temporadas : []).find((t) => t.status === 'ABIERTA');
+        if (!activa) return;
+        return fetch(`/api/admin/gastos/resumen?temporadaId=${activa.id}`)
+          .then((r) => r.json())
+          .then((resumen) => setMargenTemporada({ nombre: activa.nombre, margen: resumen?.margen ?? 0, nEventosEnlazados: resumen?.nEventosEnlazados ?? 0 }));
+      })
+      .catch(() => {});
   }, []);
 
   if (loading) {
@@ -113,7 +129,7 @@ export default function AdminDashboard() {
         </Card>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-2 gap-4 ${margenTemporada && margenTemporada.nEventosEnlazados > 0 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}>
         {cards.map((c) => (
           <Card key={c.label}>
             <CardContent className="p-4">
@@ -125,6 +141,19 @@ export default function AdminDashboard() {
             </CardContent>
           </Card>
         ))}
+        {margenTemporada && margenTemporada.nEventosEnlazados > 0 && (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Wallet className={`h-5 w-5 ${margenTemporada.margen >= 0 ? 'text-green-500' : 'text-destructive'}`} />
+                <span className="text-xs text-muted-foreground">Margen ({margenTemporada.nombre})</span>
+              </div>
+              <p className="font-display text-2xl font-bold">
+                {margenTemporada.margen >= 0 ? '+' : ''}{margenTemporada.margen.toFixed(2)}€
+              </p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {activeEvents.length > 0 && (

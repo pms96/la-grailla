@@ -149,8 +149,15 @@ model Event {
   alertsSent                       String             @default("")
   latitude                         Float?
   longitude                        Float?
+  // Vínculo opcional a la temporada de Compras/Gastos a la que pertenece este
+  // evento (negocio de entradas), para poder calcular ingresos/margen reales
+  // por temporada. Null = evento sin asignar todavía; se enlaza manualmente
+  // desde la UI, sin backfill automático.
+  temporadaId                      String?
+  archivado                        Boolean            @default(false)
   createdAt                        DateTime           @default(now())
   updatedAt                        DateTime           @updatedAt
+  temporada                        Temporada?         @relation(fields: [temporadaId], references: [id])
   ticketTypes                      TicketType[]
   orders                           Order[]
   tickets                          Ticket[]
@@ -158,6 +165,8 @@ model Event {
   guestLists                       GuestList[]
   invitations                      Invitation[]
   waitingRoomEntries               WaitingRoomEntry[]
+
+  @@index([temporadaId])
 }
 
 enum WaitingRoomStatus {
@@ -554,6 +563,7 @@ model Temporada {
   fechaFin    DateTime?
   status      TemporadaStatus @default(ABIERTA)
   notas       String?         @db.Text
+  archivado   Boolean         @default(false)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
@@ -561,6 +571,7 @@ model Temporada {
   planes   PlanCompra[]
   pedidos  Pedido[]
   gastos   Gasto[]
+  eventos  Event[]
 
   @@index([anio])
 }
