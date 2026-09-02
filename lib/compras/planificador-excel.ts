@@ -30,10 +30,13 @@ export async function buildPlanificadorExcel(
     { header: 'Proveedor recomendado', key: 'recomendado', width: 20 },
     { header: 'Proveedor elegido', key: 'elegido', width: 20 },
     { header: 'Precio elegido (€ c/IVA)', key: 'precioElegido', width: 18 },
+    { header: 'Ud. mínima proveedor elegido', key: 'minElegido', width: 18 },
     { header: 'Ahorro vs. más caro (€/ud)', key: 'ahorro', width: 20 },
     { header: `Consumo ref. ${temporadaAnterior?.nombre ?? ''}`, key: 'consumoRef', width: 20 },
     { header: `Cantidad planificada ${temporada.anio}`, key: 'cantidad', width: 20 },
     { header: 'Coste total estimado (€)', key: 'coste', width: 20 },
+    { header: 'Ahorro total (vs. más caro)', key: 'ahorroTotal', width: 20 },
+    { header: 'Sobrecoste (vs. recomendado)', key: 'sobrecoste', width: 22 },
     { header: 'Observaciones', key: 'observaciones', width: 28 },
   ];
 
@@ -47,17 +50,21 @@ export async function buildPlanificadorExcel(
 
   filas.forEach((f) => {
     const preciosPorProveedor = new Map(f.precios.map((p) => [p.proveedorId, p.precioConIva]));
+    const precioElegido = f.precios.find((p) => p.proveedorId === f.proveedorElegidoId);
     const row: Record<string, unknown> = {
       categoria: f.categoria,
       nombre: f.nombre,
       formato: f.formato,
       recomendado: f.recomendado?.proveedorNombre ?? '',
-      elegido: f.precios.find((p) => p.proveedorId === f.proveedorElegidoId)?.proveedorNombre ?? '',
-      precioElegido: f.precios.find((p) => p.proveedorId === f.proveedorElegidoId)?.precioConIva ?? null,
+      elegido: precioElegido?.proveedorNombre ?? '',
+      precioElegido: precioElegido?.precioConIva ?? null,
+      minElegido: precioElegido?.unidadMinPedido ?? null,
       ahorro: f.ahorroUnidad || null,
       consumoRef: f.consumoReferencia?.cantidadNeta ?? null,
       cantidad: f.cantidadPlanificada,
       coste: f.costeTotalEstimado,
+      ahorroTotal: f.ahorroTotalEstimado || null,
+      sobrecoste: f.sobrecosteFrenteARecomendado || null,
       observaciones: f.observaciones,
     };
     proveedores.forEach((p, i) => {
@@ -66,7 +73,7 @@ export async function buildPlanificadorExcel(
     sheet.addRow(row);
   });
 
-  const moneyCols = ['precioElegido', 'ahorro', 'coste', ...proveedores.map((_, i) => `prov_${i}`)];
+  const moneyCols = ['precioElegido', 'ahorro', 'coste', 'ahorroTotal', 'sobrecoste', ...proveedores.map((_, i) => `prov_${i}`)];
   moneyCols.forEach((key) => {
     const col = sheet.getColumn(key);
     col.numFmt = '#,##0.00 €';
@@ -76,12 +83,16 @@ export async function buildPlanificadorExcel(
     nombre: 'TOTALES',
     cantidad: filas.reduce((sum, f) => sum + f.cantidadPlanificada, 0),
     coste: filas.reduce((sum, f) => sum + f.costeTotalEstimado, 0),
+    ahorroTotal: Math.round(filas.reduce((sum, f) => sum + f.ahorroTotalEstimado, 0) * 100) / 100,
+    sobrecoste: Math.round(filas.reduce((sum, f) => sum + f.sobrecosteFrenteARecomendado, 0) * 100) / 100,
   });
   totalRow.font = { bold: true };
   totalRow.eachCell((cell) => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GRIS_CLARO } };
   });
   totalRow.getCell('coste').numFmt = '#,##0.00 €';
+  totalRow.getCell('ahorroTotal').numFmt = '#,##0.00 €';
+  totalRow.getCell('sobrecoste').numFmt = '#,##0.00 €';
 
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: sheet.columns.length } };
 

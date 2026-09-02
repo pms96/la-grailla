@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont } from 'pdf-lib';
-import { precioConIva } from '@/lib/compras/calculadora';
+import { precioFinalUnidad } from '@/lib/compras/calculadora';
 import { PEDIDO_STATUS_LABEL } from '@/lib/compras/constantes';
 import type { PedidosParaExport, PedidoParaExport } from '@/lib/compras/pedidos-data';
 
@@ -9,12 +9,18 @@ const ROW_HEIGHT = 18;
 
 type Columna = { header: string; width: number; align?: 'left' | 'right' };
 
-const COLUMNAS: Columna[] = [
+const COLUMNAS_CON_PRECIO: Columna[] = [
   { header: 'Artículo', width: 210 },
   { header: 'Formato', width: 110 },
   { header: 'Cantidad', width: 60, align: 'right' },
   { header: 'Precio ud. c/IVA', width: 75, align: 'right' },
   { header: 'Subtotal', width: 75, align: 'right' },
+];
+
+const COLUMNAS_SIN_PRECIO: Columna[] = [
+  { header: 'Artículo', width: 300 },
+  { header: 'Formato', width: 150 },
+  { header: 'Cantidad', width: 80, align: 'right' },
 ];
 
 function truncar(texto: string, font: PDFFont, size: number, maxWidth: number): string {
@@ -26,7 +32,9 @@ function truncar(texto: string, font: PDFFont, size: number, maxWidth: number): 
   return `${out}…`;
 }
 
-export async function buildPedidosPdf(data: PedidosParaExport): Promise<Uint8Array> {
+export async function buildPedidosPdf(data: PedidosParaExport, opts: { incluirPrecios?: boolean } = {}): Promise<Uint8Array> {
+  const incluirPrecios = opts.incluirPrecios ?? true;
+  const COLUMNAS = incluirPrecios ? COLUMNAS_CON_PRECIO : COLUMNAS_SIN_PRECIO;
   const { temporada, pedidos } = data;
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -54,7 +62,8 @@ export async function buildPedidosPdf(data: PedidosParaExport): Promise<Uint8Arr
     y = page.getSize().height - MARGIN;
   };
 
-  const totalPedido = (p: PedidoParaExport) => p.lineas.reduce((sum, l) => sum + precioConIva(l.precioSinIva, l.ivaPercent) * l.cantidad, 0);
+  const totalPedido = (p: PedidoParaExport) =>
+    p.lineas.reduce((sum, l) => sum + precioFinalUnidad(l.precioSinIva, l.descuentoPercent, l.ivaPercent) * l.cantidad, 0);
 
   pedidos.forEach((pedido, index) => {
     if (index === 0) {
@@ -85,14 +94,10 @@ export async function buildPedidosPdf(data: PedidosParaExport): Promise<Uint8Arr
         newPage();
         drawHeaderRow();
       }
-      const precioUd = precioConIva(l.precioSinIva, l.ivaPercent);
-      const valores = [
-        l.articulo.nombre,
-        l.articulo.formato,
-        String(l.cantidad),
-        `${precioUd.toFixed(2)}€`,
-        `${(precioUd * l.cantidad).toFixed(2)}€`,
-      ];
+      const precioUd = precioFinalUnidad(l.precioSinIva, l.descuentoPercent, l.ivaPercent);
+      const valores = incluirPrecios
+        ? [l.articulo.nombre, l.articulo.formato, String(l.cantidad), `${precioUd.toFixed(2)}€`, `${(precioUd * l.cantidad).toFixed(2)}€`]
+        : [l.articulo.nombre, l.articulo.formato, String(l.cantidad)];
       let x = MARGIN;
       COLUMNAS.forEach((col, i) => {
         const texto = truncar(valores[i], font, 9, col.width - 8);
@@ -115,9 +120,11 @@ export async function buildPedidosPdf(data: PedidosParaExport): Promise<Uint8Arr
       });
     });
 
-    if (y < MARGIN + ROW_HEIGHT) newPage();
-    y -= 8;
-    page.drawText(`Total pedido: ${totalPedido(pedido).toFixed(2)}€ (c/IVA)`, { x: MARGIN, y, size: 12, font: fontBold, color: morado });
+    if (incluirPrecios) {
+      if (y < MARGIN + ROW_HEIGHT) newPage();
+      y -= 8;
+      page.drawText(`Total pedido: ${totalPedido(pedido).toFixed(2)}€ (c/IVA)`, { x: MARGIN, y, size: 12, font: fontBold, color: morado });
+    }
   });
 
   return pdf.save();

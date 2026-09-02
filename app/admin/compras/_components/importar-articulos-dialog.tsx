@@ -20,7 +20,9 @@ type FilaImportada = {
   nombre: string;
   categoria: string;
   formato: string;
+  ivaPercent: string;
   precioSinIva: string;
+  descuentoPercent: string;
   formatoVenta: string;
   unidadMinPedido: string;
 };
@@ -30,7 +32,9 @@ const FILA_VACIA: FilaImportada = {
   nombre: '',
   categoria: CATEGORIAS_ARTICULO[0],
   formato: '',
+  ivaPercent: '21',
   precioSinIva: '',
+  descuentoPercent: '0',
   formatoVenta: 'Unidad',
   unidadMinPedido: '1',
 };
@@ -106,8 +110,10 @@ export function ImportarArticulosDialog({ open, onClose, proveedores, articulos,
               nombre: coincidencia.nombre,
               categoria: coincidencia.categoria,
               formato: coincidencia.formato,
+              ivaPercent: String(coincidencia.ivaPercent),
               formatoVenta: it.formatoVenta,
               precioSinIva: String(it.precioSinIva ?? ''),
+              descuentoPercent: '0',
               unidadMinPedido: String(it.unidadMinPedido ?? 1),
             };
           }
@@ -116,8 +122,10 @@ export function ImportarArticulosDialog({ open, onClose, proveedores, articulos,
             nombre: it.nombre,
             categoria: it.categoria,
             formato: it.formato,
+            ivaPercent: '21',
             formatoVenta: it.formatoVenta,
             precioSinIva: String(it.precioSinIva ?? ''),
+            descuentoPercent: '0',
             unidadMinPedido: String(it.unidadMinPedido ?? 1),
           };
         })
@@ -145,7 +153,13 @@ export function ImportarArticulosDialog({ open, onClose, proveedores, articulos,
     }
     const articulo = articulos.find((a) => a.id === articuloId);
     if (!articulo) return;
-    updateFila(idx, { articuloId: articulo.id, nombre: articulo.nombre, categoria: articulo.categoria, formato: articulo.formato });
+    updateFila(idx, {
+      articuloId: articulo.id,
+      nombre: articulo.nombre,
+      categoria: articulo.categoria,
+      formato: articulo.formato,
+      ivaPercent: String(articulo.ivaPercent),
+    });
   };
   const removeFila = (idx: number) => setFilas((fs) => fs.filter((_, i) => i !== idx));
   const addFila = () => setFilas((fs) => [...fs, { ...FILA_VACIA }]);
@@ -165,7 +179,9 @@ export function ImportarArticulosDialog({ open, onClose, proveedores, articulos,
             nombre: f.nombre.trim(),
             categoria: f.categoria,
             formato: f.formato.trim(),
+            ivaPercent: Number(f.ivaPercent) || 21,
             precioSinIva: Number(f.precioSinIva) || 0,
+            descuentoPercent: Number(f.descuentoPercent) || 0,
             formatoVenta: f.formatoVenta.trim() || 'Unidad',
             unidadMinPedido: Number(f.unidadMinPedido) || 1,
           })),
@@ -277,6 +293,10 @@ export function ImportarArticulosDialog({ open, onClose, proveedores, articulos,
                           <Input disabled={vinculada} placeholder="Lata 33cl" value={f.formato} onChange={(e) => updateFila(idx, { formato: e.target.value })} className="h-8" />
                         </div>
                         <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">IVA %</Label>
+                          <Input disabled={vinculada} type="number" step="0.1" value={f.ivaPercent} onChange={(e) => updateFila(idx, { ivaPercent: e.target.value })} className="h-8" />
+                        </div>
+                        <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">Formato de venta del proveedor</Label>
                           <Input placeholder="Caja 24 uds" value={f.formatoVenta} onChange={(e) => updateFila(idx, { formatoVenta: e.target.value })} className="h-8" />
                         </div>
@@ -285,13 +305,17 @@ export function ImportarArticulosDialog({ open, onClose, proveedores, articulos,
                           <Input type="number" step="0.01" value={f.precioSinIva} onChange={(e) => updateFila(idx, { precioSinIva: e.target.value })} className="h-8" />
                         </div>
                         <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Descuento del proveedor (%)</Label>
+                          <Input type="number" step="0.1" min={0} max={100} value={f.descuentoPercent} onChange={(e) => updateFila(idx, { descuentoPercent: e.target.value })} className="h-8" />
+                        </div>
+                        <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">Unidad mínima de pedido</Label>
                           <Input type="number" min={1} value={f.unidadMinPedido} onChange={(e) => updateFila(idx, { unidadMinPedido: e.target.value })} className="h-8" />
                         </div>
                       </div>
                       {vinculada && (
                         <p className="text-xs text-muted-foreground">
-                          Nombre, categoría y formato vienen del artículo ya existente y no se pueden editar aquí — solo se añade/actualiza el precio de este proveedor.
+                          Nombre, categoría, formato e IVA vienen del artículo ya existente y no se pueden editar aquí — solo se añade/actualiza el precio de este proveedor.
                         </p>
                       )}
                     </div>

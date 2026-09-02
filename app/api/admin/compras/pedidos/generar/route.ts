@@ -6,7 +6,8 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
-import { precioConIva, proveedorRecomendado } from '@/lib/compras/calculadora';
+import { precioFinalUnidad, proveedorRecomendado } from '@/lib/compras/calculadora';
+import { PEDIDO_STATUS_LABEL } from '@/lib/compras/constantes';
 
 const generarPedidosSchema = z.object({ temporadaId: z.string().min(1) });
 
@@ -28,7 +29,7 @@ export async function POST(request: Request) {
     }
 
     // Agrupa por proveedor resuelto (elegido manualmente, o el recomendado por precio).
-    type Linea = { articuloId: string; cantidad: number; precioSinIva: number; ivaPercent: number };
+    type Linea = { articuloId: string; cantidad: number; precioSinIva: number; descuentoPercent: number; ivaPercent: number };
     const porProveedor = new Map<string, Linea[]>();
 
     for (const plan of planes) {
@@ -38,7 +39,8 @@ export async function POST(request: Request) {
           proveedorId: p.proveedorId,
           proveedorNombre: p.proveedor.nombre,
           precioSinIva: p.precioSinIva,
-          precioConIva: precioConIva(p.precioSinIva, plan.articulo.ivaPercent),
+          descuentoPercent: p.descuentoPercent,
+          precioConIva: precioFinalUnidad(p.precioSinIva, p.descuentoPercent, plan.articulo.ivaPercent),
         }));
       const recomendado = proveedorRecomendado(precios);
       const proveedorId = plan.proveedorElegidoId ?? recomendado?.proveedorId;
@@ -52,6 +54,7 @@ export async function POST(request: Request) {
         articuloId: plan.articuloId,
         cantidad: plan.cantidadPlanificada,
         precioSinIva: precio.precioSinIva,
+        descuentoPercent: precio.descuentoPercent,
         ivaPercent: plan.articulo.ivaPercent,
       });
       porProveedor.set(proveedorId, lineas);
@@ -61,20 +64,53 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Ningún artículo planificado tiene un proveedor con precio vigente' }, { status: 400 });
     }
 
-    const pedidos = await prisma.$transaction(
-      Array.from(porProveedor.entries()).map(([proveedorId, lineas]) =>
-        prisma.pedido.create({
-          data: {
-            temporadaId,
-            proveedorId,
-            lineas: { create: lineas },
-          },
-          include: { proveedor: true, lineas: true },
-        })
-      )
-    );
+    // Un proveedor puede ya tener un pedido de esta temporada de una
+    // generación anterior — un BORRADOR todavía no se ha enviado a nadie, así
+    // que es seguro sustituir sus líneas por las cantidades actuales del
+    // planificador. Uno ya ENVIADO/RECIBIDO representa un compromiso real y
+    // nunca se toca: se deja tal cual y se informa de que se ha omitido.
+    const existentes = await prisma.pedido.findMany({
+      where: { temporadaId, proveedorId: { in: Array.from(porProveedor.keys()) } },
+      include: { proveedor: true },
+    });
+    const existentePorProveedor = new Map(existentes.map((p) => [p.proveedorId, p]));
 
-    return NextResponse.json({ pedidos });
+    const resultado = await prisma.$transaction(async (tx) => {
+      const pedidos = [];
+      const omitidos: { proveedorNombre: string; motivo: string }[] = [];
+
+      for (const [proveedorId, lineas] of porProveedor) {
+        const existente = existentePorProveedor.get(proveedorId);
+
+        if (existente && existente.status !== 'BORRADOR') {
+          omitidos.push({
+            proveedorNombre: existente.proveedor.nombre,
+            motivo: `ya tiene un pedido en estado "${PEDIDO_STATUS_LABEL[existente.status] ?? existente.status}" — no se ha modificado`,
+          });
+          continue;
+        }
+
+        if (existente) {
+          await tx.lineaPedido.deleteMany({ where: { pedidoId: existente.id } });
+          const actualizado = await tx.pedido.update({
+            where: { id: existente.id },
+            data: { fechaPedido: new Date(), lineas: { create: lineas } },
+            include: { proveedor: true, lineas: true },
+          });
+          pedidos.push(actualizado);
+        } else {
+          const creado = await tx.pedido.create({
+            data: { temporadaId, proveedorId, lineas: { create: lineas } },
+            include: { proveedor: true, lineas: true },
+          });
+          pedidos.push(creado);
+        }
+      }
+
+      return { pedidos, omitidos };
+    });
+
+    return NextResponse.json(resultado);
   } catch (error) {
     return handleApiError(error, 'POST /api/admin/compras/pedidos/generar');
   }

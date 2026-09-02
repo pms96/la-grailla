@@ -602,15 +602,16 @@ model Articulo {
 }
 
 model PrecioArticulo {
-  id              String   @id @default(cuid())
-  articuloId      String
-  proveedorId     String
-  precioSinIva    Float
-  formatoVenta    String
-  unidadMinPedido Int      @default(1)
-  notas           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id               String   @id @default(cuid())
+  articuloId       String
+  proveedorId      String
+  precioSinIva     Float
+  descuentoPercent Float    @default(0)
+  formatoVenta     String
+  unidadMinPedido  Int      @default(1)
+  notas            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   articulo  Articulo  @relation(fields: [articuloId], references: [id], onDelete: Cascade)
   proveedor Proveedor @relation(fields: [proveedorId], references: [id], onDelete: Cascade)
@@ -681,12 +682,13 @@ model Pedido {
 }
 
 model LineaPedido {
-  id           String @id @default(cuid())
-  pedidoId     String
-  articuloId   String
-  cantidad     Float
-  precioSinIva Float
-  ivaPercent   Float
+  id               String @id @default(cuid())
+  pedidoId         String
+  articuloId       String
+  cantidad         Float
+  precioSinIva     Float
+  descuentoPercent Float  @default(0)
+  ivaPercent       Float
 
   pedido   Pedido   @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
   articulo Articulo @relation(fields: [articuloId], references: [id])

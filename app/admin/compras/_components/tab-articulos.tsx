@@ -12,13 +12,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Loader2, Plus, Pencil, Trash2, Package, X, FileSpreadsheet, FileText, ImageUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { CATEGORIAS_ARTICULO } from '@/lib/compras/constantes';
-import { precioConIva } from '@/lib/compras/calculadora';
+import { precioFinalUnidad } from '@/lib/compras/calculadora';
 import { downloadArticulosExport } from '@/lib/compras/articulos-export';
 import { ImportarArticulosDialog } from '@/app/admin/compras/_components/importar-articulos-dialog';
 
 type ArticuloConPrecios = Articulo & { precios: (PrecioArticulo & { proveedor: Proveedor })[] };
 
-type PrecioForm = { proveedorId: string; precioSinIva: string; formatoVenta: string; unidadMinPedido: string };
+type PrecioForm = { proveedorId: string; precioSinIva: string; descuentoPercent: string; formatoVenta: string; unidadMinPedido: string };
 
 type FormState = {
   nombre: string;
@@ -76,6 +76,7 @@ export function TabArticulos() {
       precios: a.precios.map((p) => ({
         proveedorId: p.proveedorId,
         precioSinIva: String(p.precioSinIva),
+        descuentoPercent: String(p.descuentoPercent),
         formatoVenta: p.formatoVenta,
         unidadMinPedido: String(p.unidadMinPedido),
       })),
@@ -87,7 +88,7 @@ export function TabArticulos() {
     const usados = new Set(form.precios.map((p) => p.proveedorId));
     const siguiente = proveedores.find((p) => !usados.has(p.id));
     if (!siguiente) { toast.error('Ya hay un precio para todos los proveedores activos'); return; }
-    setForm((f) => ({ ...f, precios: [...f.precios, { proveedorId: siguiente.id, precioSinIva: '', formatoVenta: '', unidadMinPedido: '1' }] }));
+    setForm((f) => ({ ...f, precios: [...f.precios, { proveedorId: siguiente.id, precioSinIva: '', descuentoPercent: '0', formatoVenta: '', unidadMinPedido: '1' }] }));
   };
   const updatePrecioRow = (idx: number, patch: Partial<PrecioForm>) => {
     setForm((f) => ({ ...f, precios: f.precios.map((p, i) => (i === idx ? { ...p, ...patch } : p)) }));
@@ -111,6 +112,7 @@ export function TabArticulos() {
           .map((p) => ({
             proveedorId: p.proveedorId,
             precioSinIva: Number(p.precioSinIva) || 0,
+            descuentoPercent: Number(p.descuentoPercent) || 0,
             formatoVenta: p.formatoVenta.trim() || 'Unidad',
             unidadMinPedido: Number(p.unidadMinPedido) || 1,
           })),
@@ -182,8 +184,8 @@ export function TabArticulos() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {articulos.map((a) => {
             const mejor = a.precios.reduce<typeof a.precios[number] | null>((min, p) => {
-              const c = precioConIva(p.precioSinIva, a.ivaPercent);
-              const cMin = min ? precioConIva(min.precioSinIva, a.ivaPercent) : Infinity;
+              const c = precioFinalUnidad(p.precioSinIva, p.descuentoPercent, a.ivaPercent);
+              const cMin = min ? precioFinalUnidad(min.precioSinIva, min.descuentoPercent, a.ivaPercent) : Infinity;
               return c < cMin ? p : min;
             }, null);
             return (
@@ -193,12 +195,14 @@ export function TabArticulos() {
                     <p className="font-semibold leading-tight">{a.nombre}</p>
                     {a.activo === false && <Badge variant="secondary">Inactivo</Badge>}
                   </div>
-                  <p className="text-xs text-muted-foreground">{a.categoria} · {a.formato}</p>
+                  <p className="text-xs text-muted-foreground">{a.categoria} · {a.formato} · IVA {a.ivaPercent}%</p>
                   <div className="flex flex-wrap gap-1">
                     {a.precios.length === 0 && <Badge variant="destructive">Sin precios</Badge>}
                     {a.precios.map((p) => (
                       <Badge key={p.id} variant={p.id === mejor?.id ? 'default' : 'outline'}>
-                        {p.proveedor.nombre}: {precioConIva(p.precioSinIva, a.ivaPercent).toFixed(2)}€
+                        {p.proveedor.nombre}: {precioFinalUnidad(p.precioSinIva, p.descuentoPercent, a.ivaPercent).toFixed(2)}€
+                        {p.descuentoPercent > 0 ? ` (-${p.descuentoPercent}%)` : ''}
+                        {p.unidadMinPedido > 1 ? ` · mín. ${p.unidadMinPedido}` : ''}
                       </Badge>
                     ))}
                   </div>
@@ -275,8 +279,12 @@ export function TabArticulos() {
                           value={p.precioSinIva} onChange={(e) => updatePrecioRow(idx, { precioSinIva: e.target.value })} className="h-8"
                         />
                         <Input
+                          type="number" step="0.1" min={0} max={100} placeholder="Descuento %"
+                          value={p.descuentoPercent} onChange={(e) => updatePrecioRow(idx, { descuentoPercent: e.target.value })} className="h-8"
+                        />
+                        <Input
                           placeholder="Formato venta" value={p.formatoVenta}
-                          onChange={(e) => updatePrecioRow(idx, { formatoVenta: e.target.value })} className="h-8 col-span-2"
+                          onChange={(e) => updatePrecioRow(idx, { formatoVenta: e.target.value })} className="h-8"
                         />
                       </div>
                       <Input

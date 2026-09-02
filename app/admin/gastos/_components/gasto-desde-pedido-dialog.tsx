@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { precioConIva } from '@/lib/compras/calculadora';
+import { precioFinalUnidad, precioTrasDescuento } from '@/lib/compras/calculadora';
 
 type PedidoConDetalle = Pedido & {
   proveedor: Proveedor;
@@ -29,14 +29,14 @@ export function GastoDesdePedidoDialog({ pedido, onClose, onSaved }: Props) {
 
   useEffect(() => {
     if (!pedido) return;
-    const total = pedido.lineas.reduce((sum, l) => sum + l.precioSinIva * l.cantidad, 0);
+    const total = pedido.lineas.reduce((sum, l) => sum + precioTrasDescuento(l.precioSinIva, l.descuentoPercent) * l.cantidad, 0);
     setImporteSinIva(total.toFixed(2));
     setNumDocumento('');
   }, [pedido]);
 
   if (!pedido) return null;
 
-  const totalConIva = pedido.lineas.reduce((sum, l) => sum + precioConIva(l.precioSinIva, l.ivaPercent) * l.cantidad, 0);
+  const totalConIva = pedido.lineas.reduce((sum, l) => sum + precioFinalUnidad(l.precioSinIva, l.descuentoPercent, l.ivaPercent) * l.cantidad, 0);
 
   const handleSave = async () => {
     setSaving(true);

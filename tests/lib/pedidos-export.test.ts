@@ -49,6 +49,7 @@ const data: PedidosParaExport = {
           articuloId: 'art-1',
           cantidad: 600,
           precioSinIva: 0.53,
+          descuentoPercent: 0,
           ivaPercent: 21,
           articulo: {
             id: 'art-1',
@@ -93,6 +94,7 @@ const data: PedidosParaExport = {
           articuloId: 'art-2',
           cantidad: 200,
           precioSinIva: 0.48,
+          descuentoPercent: 10,
           ivaPercent: 21,
           articulo: {
             id: 'art-2',
@@ -127,6 +129,25 @@ describe('buildPedidosExcel', () => {
     const hojaRamirez = workbook.getWorksheet('Ramírez Velasco')!;
     const textoHoja = hojaRamirez.getSheetValues().flat().join(' ');
     expect(textoHoja).toContain('Cruzcampo 1/3');
+
+    // Javi tiene un 10% de descuento: 0.48€ -> 0.43€ sin IVA -> 0.52€ c/IVA.
+    const hojaJavi = workbook.getWorksheet('Javi Sánchez-Garrido')!;
+    const textoJavi = hojaJavi.getSheetValues().flat().join(' ');
+    expect(textoJavi).toContain('0.52');
+  });
+
+  it('omite las columnas de precio cuando incluirPrecios es false', async () => {
+    const buffer = await buildPedidosExcel(data, { incluirPrecios: false });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+
+    const resumenHeaders = (workbook.getWorksheet('Resumen')!.getRow(1).values as unknown[]).map((v) => String(v ?? ''));
+    expect(resumenHeaders).not.toContain('Total estimado (€ c/IVA)');
+
+    const hojaRamirez = workbook.getWorksheet('Ramírez Velasco')!;
+    const textoHoja = hojaRamirez.getSheetValues().flat().join(' ');
+    expect(textoHoja).not.toContain('TOTAL');
+    expect(textoHoja).toContain('Cruzcampo 1/3');
   });
 });
 
@@ -136,5 +157,11 @@ describe('buildPedidosPdf', () => {
     const header = Buffer.from(bytes.slice(0, 4)).toString('utf8');
     expect(header).toBe('%PDF');
     expect(bytes.length).toBeGreaterThan(500);
+  });
+
+  it('genera un PDF sin precios cuando incluirPrecios es false', async () => {
+    const bytes = await buildPedidosPdf(data, { incluirPrecios: false });
+    expect(Buffer.from(bytes.slice(0, 4)).toString('utf8')).toBe('%PDF');
+    expect(bytes.length).toBeGreaterThan(300);
   });
 });

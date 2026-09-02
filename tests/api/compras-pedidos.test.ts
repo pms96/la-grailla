@@ -77,6 +77,95 @@ describe('POST /api/admin/compras/pedidos/generar', () => {
       await limpiar(temporada.id, [proveedorBarato.id, proveedorCaro.id], articulo.id);
     }
   });
+
+  it('congela el descuento del proveedor en la línea del pedido', async () => {
+    const { temporada, proveedorBarato, proveedorCaro, articulo } = await crearEscenario();
+    try {
+      await prisma.precioArticulo.update({
+        where: { articuloId_proveedorId: { articuloId: articulo.id, proveedorId: proveedorBarato.id } },
+        data: { descuentoPercent: 15 },
+      });
+      await putPlan(
+        new Request('http://localhost', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id, cantidadPlanificada: 10 }) }),
+        { params: { articuloId: articulo.id } }
+      );
+
+      const res = await generar(
+        new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id }) })
+      );
+      const data = await res.json();
+      expect(data.pedidos[0].lineas[0].descuentoPercent).toBe(15);
+    } finally {
+      await limpiar(temporada.id, [proveedorBarato.id, proveedorCaro.id], articulo.id);
+    }
+  });
+
+  it('regenerar actualiza un pedido en BORRADOR con las cantidades actuales en vez de duplicarlo', async () => {
+    const { temporada, proveedorBarato, proveedorCaro, articulo } = await crearEscenario();
+    try {
+      await putPlan(
+        new Request('http://localhost', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id, cantidadPlanificada: 10 }) }),
+        { params: { articuloId: articulo.id } }
+      );
+      const primera = await generar(
+        new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id }) })
+      );
+      const dataPrimera = await primera.json();
+      const pedidoId = dataPrimera.pedidos[0].id;
+
+      await putPlan(
+        new Request('http://localhost', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id, cantidadPlanificada: 25 }) }),
+        { params: { articuloId: articulo.id } }
+      );
+      const segunda = await generar(
+        new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id }) })
+      );
+      const dataSegunda = await segunda.json();
+
+      expect(dataSegunda.pedidos).toHaveLength(1);
+      expect(dataSegunda.pedidos[0].id).toBe(pedidoId); // mismo pedido, no uno nuevo
+      expect(dataSegunda.pedidos[0].lineas[0].cantidad).toBe(25);
+
+      const todos = await prisma.pedido.findMany({ where: { temporadaId: temporada.id } });
+      expect(todos).toHaveLength(1);
+    } finally {
+      await limpiar(temporada.id, [proveedorBarato.id, proveedorCaro.id], articulo.id);
+    }
+  });
+
+  it('no modifica un pedido ya ENVIADO/RECIBIDO y lo reporta como omitido', async () => {
+    const { temporada, proveedorBarato, proveedorCaro, articulo } = await crearEscenario();
+    try {
+      await putPlan(
+        new Request('http://localhost', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id, cantidadPlanificada: 10 }) }),
+        { params: { articuloId: articulo.id } }
+      );
+      const primera = await generar(
+        new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id }) })
+      );
+      const pedidoId = (await primera.json()).pedidos[0].id;
+      await prisma.pedido.update({ where: { id: pedidoId }, data: { status: 'ENVIADO' } });
+
+      await putPlan(
+        new Request('http://localhost', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id, cantidadPlanificada: 99 }) }),
+        { params: { articuloId: articulo.id } }
+      );
+      const segunda = await generar(
+        new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id }) })
+      );
+      const dataSegunda = await segunda.json();
+
+      expect(dataSegunda.pedidos).toHaveLength(0);
+      expect(dataSegunda.omitidos).toHaveLength(1);
+      expect(dataSegunda.omitidos[0].proveedorNombre).toBe(proveedorBarato.nombre);
+
+      const pedidoSinTocar = await prisma.pedido.findUnique({ where: { id: pedidoId }, include: { lineas: true } });
+      expect(pedidoSinTocar?.status).toBe('ENVIADO');
+      expect(pedidoSinTocar?.lineas[0].cantidad).toBe(10); // no se sobrescribió con 99
+    } finally {
+      await limpiar(temporada.id, [proveedorBarato.id, proveedorCaro.id], articulo.id);
+    }
+  });
 });
 
 describe('PATCH /api/admin/compras/pedidos/[id] — transición de estado', () => {

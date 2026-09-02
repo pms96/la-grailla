@@ -28,11 +28,13 @@ const filas: FilaPlanificador[] = [
     unidadesPorCaja: 24,
     ivaPercent: 21,
     precios: [
-      { proveedorId: 'prov-ramirez', proveedorNombre: 'Ramírez Velasco', precioSinIva: 0.53, precioConIva: 0.64, formatoVenta: 'Caja 24', unidadMinPedido: 24 },
-      { proveedorId: 'prov-javi', proveedorNombre: 'Javi', precioSinIva: 0.6, precioConIva: 0.73, formatoVenta: 'Caja 24', unidadMinPedido: 24 },
+      { proveedorId: 'prov-ramirez', proveedorNombre: 'Ramírez Velasco', precioSinIva: 0.53, descuentoPercent: 0, precioConIva: 0.64, formatoVenta: 'Caja 24', unidadMinPedido: 24 },
+      { proveedorId: 'prov-javi', proveedorNombre: 'Javi', precioSinIva: 0.6, descuentoPercent: 0, precioConIva: 0.73, formatoVenta: 'Caja 24', unidadMinPedido: 24 },
     ],
     recomendado: { proveedorId: 'prov-ramirez', proveedorNombre: 'Ramírez Velasco', precioConIva: 0.64 },
     ahorroUnidad: 0.09,
+    ahorroTotalEstimado: 54,
+    sobrecosteFrenteARecomendado: 0,
     consumoReferencia: { temporadaNombre: 'Feria de Septiembre 2025', cantidadNeta: 480 },
     proveedorElegidoId: 'prov-ramirez',
     cantidadPlanificada: 600,
@@ -49,6 +51,8 @@ const filas: FilaPlanificador[] = [
     precios: [],
     recomendado: null,
     ahorroUnidad: 0,
+    ahorroTotalEstimado: 0,
+    sobrecosteFrenteARecomendado: 0,
     consumoReferencia: null,
     proveedorElegidoId: null,
     cantidadPlanificada: 0,
@@ -74,14 +78,19 @@ describe('buildPlanificadorExcel', () => {
     const colNombre = headers.indexOf('Artículo');
     const colCoste = headers.indexOf('Coste total estimado (€)');
     const colCantidad = headers.indexOf(`Cantidad planificada ${temporada.anio}`);
+    const colAhorroTotal = headers.indexOf('Ahorro total (vs. más caro)');
+    const colMinElegido = headers.indexOf('Ud. mínima proveedor elegido');
 
     expect(sheet.getRow(2).getCell(colNombre).value).toBe('Cruzcampo 1/3');
     expect(sheet.getRow(2).getCell(colCoste).value).toBe(384);
+    expect(sheet.getRow(2).getCell(colAhorroTotal).value).toBe(54);
+    expect(sheet.getRow(2).getCell(colMinElegido).value).toBe(24);
 
     const totalRow = sheet.getRow(sheet.rowCount);
     expect(totalRow.getCell(colNombre).value).toBe('TOTALES');
     expect(totalRow.getCell(colCoste).value).toBe(384);
     expect(totalRow.getCell(colCantidad).value).toBe(600);
+    expect(totalRow.getCell(colAhorroTotal).value).toBe(54);
   });
 });
 

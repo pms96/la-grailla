@@ -9,13 +9,14 @@ const ROW_HEIGHT = 16;
 type Columna = { header: string; width: number; align?: 'left' | 'right' };
 
 const COLUMNAS: Columna[] = [
-  { header: 'Categoría', width: 90 },
-  { header: 'Artículo', width: 170 },
-  { header: 'Proveedor elegido', width: 120 },
-  { header: 'Precio ud. c/IVA', width: 80, align: 'right' },
-  { header: 'Cantidad', width: 60, align: 'right' },
-  { header: 'Coste estimado', width: 90, align: 'right' },
-  { header: 'Observaciones', width: 150 },
+  { header: 'Categoría', width: 80 },
+  { header: 'Artículo', width: 150 },
+  { header: 'Proveedor elegido', width: 105 },
+  { header: 'Precio ud. c/IVA', width: 70, align: 'right' },
+  { header: 'Cantidad', width: 50, align: 'right' },
+  { header: 'Coste estimado', width: 80, align: 'right' },
+  { header: 'Ahorro/sobrecoste', width: 90, align: 'right' },
+  { header: 'Observaciones', width: 130 },
 ];
 
 function truncar(texto: string, font: PDFFont, size: number, maxWidth: number): string {
@@ -84,6 +85,12 @@ export async function buildPlanificadorPdf(
     }
     const precioElegido = f.precios.find((p) => p.proveedorId === f.proveedorElegidoId);
     const proveedorNombre = precioElegido?.proveedorNombre ?? '—';
+    const ahorroSobrecoste =
+      f.sobrecosteFrenteARecomendado > 0
+        ? `+${f.sobrecosteFrenteARecomendado.toFixed(2)}€`
+        : f.ahorroTotalEstimado > 0
+          ? `-${f.ahorroTotalEstimado.toFixed(2)}€`
+          : '—';
     const valores = [
       f.categoria,
       f.nombre,
@@ -91,6 +98,7 @@ export async function buildPlanificadorPdf(
       precioElegido ? `${precioElegido.precioConIva.toFixed(2)}€` : '—',
       String(f.cantidadPlanificada),
       `${f.costeTotalEstimado.toFixed(2)}€`,
+      ahorroSobrecoste,
       f.observaciones || '',
     ];
 
@@ -119,9 +127,11 @@ export async function buildPlanificadorPdf(
   if (y < MARGIN + ROW_HEIGHT) newPage(false);
   const totalUnidades = filas.reduce((sum, f) => sum + f.cantidadPlanificada, 0);
   const totalCoste = filas.reduce((sum, f) => sum + f.costeTotalEstimado, 0);
+  const totalAhorro = filas.reduce((sum, f) => sum + f.ahorroTotalEstimado, 0);
+  const totalSobrecoste = filas.reduce((sum, f) => sum + f.sobrecosteFrenteARecomendado, 0);
   y -= 6;
   page.drawText(
-    `Totales — ${totalUnidades} unidades · ${totalCoste.toFixed(2)}€ estimados`,
+    `Totales — ${totalUnidades} unidades · ${totalCoste.toFixed(2)}€ estimados · ${totalAhorro.toFixed(2)}€ ahorrados · ${totalSobrecoste.toFixed(2)}€ de sobrecoste`,
     { x: MARGIN, y, size: 10, font: fontBold, color: morado }
   );
 

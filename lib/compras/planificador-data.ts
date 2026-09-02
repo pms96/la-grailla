@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { precioConIva, proveedorRecomendado, ahorroFrenteAlMasCaro } from '@/lib/compras/calculadora';
+import { precioFinalUnidad, proveedorRecomendado, ahorroFrenteAlMasCaro } from '@/lib/compras/calculadora';
 
 export type FilaPlanificador = {
   articuloId: string;
@@ -8,9 +8,23 @@ export type FilaPlanificador = {
   formato: string;
   unidadesPorCaja: number;
   ivaPercent: number;
-  precios: { proveedorId: string; proveedorNombre: string; precioSinIva: number; precioConIva: number; formatoVenta: string; unidadMinPedido: number }[];
+  precios: {
+    proveedorId: string;
+    proveedorNombre: string;
+    precioSinIva: number;
+    descuentoPercent: number;
+    precioConIva: number;
+    formatoVenta: string;
+    unidadMinPedido: number;
+  }[];
   recomendado: { proveedorId: string; proveedorNombre: string; precioConIva: number } | null;
   ahorroUnidad: number;
+  // Ahorro total frente al proveedor más caro si se compra toda la cantidad
+  // planificada al proveedor elegido — 0 si no hay cantidad o solo hay un proveedor.
+  ahorroTotalEstimado: number;
+  // Sobrecoste, para la cantidad planificada, de haber elegido a mano un
+  // proveedor distinto del recomendado (más barato) — 0 si coinciden.
+  sobrecosteFrenteARecomendado: number;
   consumoReferencia: { temporadaNombre: string; cantidadNeta: number } | null;
   proveedorElegidoId: string | null;
   cantidadPlanificada: number;
@@ -49,7 +63,8 @@ export async function getPlanificadorData(temporadaId: string) {
         proveedorId: p.proveedorId,
         proveedorNombre: p.proveedor.nombre,
         precioSinIva: p.precioSinIva,
-        precioConIva: precioConIva(p.precioSinIva, articulo.ivaPercent),
+        descuentoPercent: p.descuentoPercent,
+        precioConIva: precioFinalUnidad(p.precioSinIva, p.descuentoPercent, articulo.ivaPercent),
         formatoVenta: p.formatoVenta,
         unidadMinPedido: p.unidadMinPedido,
       }));
@@ -63,6 +78,12 @@ export async function getPlanificadorData(temporadaId: string) {
     const precioElegido = precios.find((p) => p.proveedorId === proveedorElegidoId) ?? null;
     const cantidadPlanificada = plan?.cantidadPlanificada ?? 0;
 
+    const ahorroTotalEstimado = Math.round(ahorro * cantidadPlanificada * 100) / 100;
+    const sobrecosteFrenteARecomendado =
+      precioElegido && recomendado && precioElegido.proveedorId !== recomendado.proveedorId
+        ? Math.max(0, Math.round((precioElegido.precioConIva - recomendado.precioConIva) * cantidadPlanificada * 100) / 100)
+        : 0;
+
     return {
       articuloId: articulo.id,
       nombre: articulo.nombre,
@@ -73,6 +94,8 @@ export async function getPlanificadorData(temporadaId: string) {
       precios,
       recomendado,
       ahorroUnidad: ahorro,
+      ahorroTotalEstimado,
+      sobrecosteFrenteARecomendado,
       consumoReferencia: consumo ? { temporadaNombre: temporadaAnterior?.nombre ?? '', cantidadNeta: consumo.cantidadNeta } : null,
       proveedorElegidoId,
       cantidadPlanificada,

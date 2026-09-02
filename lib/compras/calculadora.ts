@@ -2,6 +2,16 @@ export function precioConIva(precioSinIva: number, ivaPercent: number): number {
   return Math.round(precioSinIva * (1 + ivaPercent / 100) * 100) / 100;
 }
 
+/** Precio sin IVA tras aplicar el descuento que nos hace el proveedor en ese artículo. */
+export function precioTrasDescuento(precioSinIva: number, descuentoPercent: number): number {
+  return Math.round(precioSinIva * (1 - descuentoPercent / 100) * 100) / 100;
+}
+
+/** Precio final por unidad (con descuento e IVA aplicados) — el que se paga de verdad. */
+export function precioFinalUnidad(precioSinIva: number, descuentoPercent: number, ivaPercent: number): number {
+  return precioConIva(precioTrasDescuento(precioSinIva, descuentoPercent), ivaPercent);
+}
+
 export type PrecioComparado = {
   proveedorId: string;
   proveedorNombre: string;

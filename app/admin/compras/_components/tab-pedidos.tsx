@@ -5,9 +5,9 @@ import type { Temporada, Pedido, Proveedor, LineaPedido, Articulo, Gasto } from 
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Sparkles, PackageCheck, Send, Wallet, FileSpreadsheet, FileText } from 'lucide-react';
+import { Loader2, Sparkles, PackageCheck, Send, Wallet, FileSpreadsheet, FileText, Info } from 'lucide-react';
 import { toast } from 'sonner';
-import { precioConIva } from '@/lib/compras/calculadora';
+import { precioFinalUnidad } from '@/lib/compras/calculadora';
 import { PEDIDO_STATUS_LABEL as STATUS_LABEL } from '@/lib/compras/constantes';
 import { GastoDesdePedidoDialog } from '@/app/admin/gastos/_components/gasto-desde-pedido-dialog';
 import { downloadPedidosExport } from '@/lib/compras/pedidos-export';
@@ -29,6 +29,7 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [registrarGastoPedido, setRegistrarGastoPedido] = useState<PedidoConDetalle | null>(null);
   const [exportando, setExportando] = useState<'excel' | 'pdf' | null>(null);
+  const [incluirPrecios, setIncluirPrecios] = useState(true);
 
   const fetchPedidos = useCallback(() => {
     if (!temporada) { setPedidos([]); setLoading(false); return; }
@@ -53,7 +54,10 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data?.error ?? 'No se pudieron generar los pedidos'); return; }
-      toast.success(`${data?.pedidos?.length ?? 0} pedido(s) generado(s)`);
+      const nPedidos = data?.pedidos?.length ?? 0;
+      const omitidos: { proveedorNombre: string; motivo: string }[] = data?.omitidos ?? [];
+      toast.success(`${nPedidos} pedido(s) generado(s) o actualizado(s) con las cantidades del planificador`);
+      omitidos.forEach((o) => toast.warning(`${o.proveedorNombre} ${o.motivo}`));
       fetchPedidos();
     } catch {
       toast.error('Error de conexión');
@@ -83,7 +87,7 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
     if (!temporada) return;
     setExportando(format);
     try {
-      await downloadPedidosExport(temporada.id, format);
+      await downloadPedidosExport(temporada.id, format, incluirPrecios);
       toast.success(format === 'excel' ? 'Excel de pedidos descargado' : 'PDF de pedidos descargado');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error al exportar');
@@ -101,7 +105,20 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap justify-end gap-2">
+      <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+        <Info className="h-4 w-4 shrink-0 mt-0.5" />
+        <p>
+          <strong>Generar pedidos</strong> agrupa, por proveedor, todos los artículos con cantidad planificada en la pestaña Planificador. Si un
+          proveedor ya tiene un pedido en <strong>borrador</strong>, se actualiza con las cantidades actuales — puedes pulsarlo tantas veces como
+          quieras mientras sigas ajustando el planificador. Un pedido ya <strong>enviado</strong> o <strong>recibido</strong> nunca se modifica ni se
+          duplica.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground mr-1">
+          <input type="checkbox" checked={incluirPrecios} onChange={(e) => setIncluirPrecios(e.target.checked)} className="h-3.5 w-3.5" />
+          Incluir precios en la exportación
+        </label>
         <Button variant="outline" size="sm" className="gap-2" disabled={exportando !== null || pedidos.length === 0} onClick={() => handleExport('excel')}>
           {exportando === 'excel' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
           Exportar Excel
@@ -136,7 +153,7 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
                   </div>
                   <div className="text-right">
                     <p className="font-semibold text-sm">
-                      {p.lineas.reduce((sum, l) => sum + precioConIva(l.precioSinIva, l.ivaPercent) * l.cantidad, 0).toFixed(2)}€
+                      {p.lineas.reduce((sum, l) => sum + precioFinalUnidad(l.precioSinIva, l.descuentoPercent, l.ivaPercent) * l.cantidad, 0).toFixed(2)}€
                     </p>
                     <Badge variant={STATUS_VARIANT[p.status]}>{STATUS_LABEL[p.status]}</Badge>
                   </div>
@@ -160,7 +177,7 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
                   {selected.lineas.map((l) => (
                     <div key={l.id} className="flex justify-between gap-2">
                       <span className="text-muted-foreground">{l.articulo.nombre} × {l.cantidad}</span>
-                      <span>{(precioConIva(l.precioSinIva, l.ivaPercent) * l.cantidad).toFixed(2)}€</span>
+                      <span>{(precioFinalUnidad(l.precioSinIva, l.descuentoPercent, l.ivaPercent) * l.cantidad).toFixed(2)}€</span>
                     </div>
                   ))}
                 </div>
@@ -168,7 +185,7 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
                 <div className="flex justify-between font-semibold border-t border-border pt-2">
                   <span>Total c/IVA</span>
                   <span>
-                    {selected.lineas.reduce((sum, l) => sum + precioConIva(l.precioSinIva, l.ivaPercent) * l.cantidad, 0).toFixed(2)}€
+                    {selected.lineas.reduce((sum, l) => sum + precioFinalUnidad(l.precioSinIva, l.descuentoPercent, l.ivaPercent) * l.cantidad, 0).toFixed(2)}€
                   </span>
                 </div>
 

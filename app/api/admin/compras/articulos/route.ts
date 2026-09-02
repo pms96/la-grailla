@@ -11,6 +11,7 @@ import { syncPreciosArticulo } from '@/lib/compras/precios-articulo';
 const precioSchema = z.object({
   proveedorId: z.string().min(1),
   precioSinIva: z.coerce.number(),
+  descuentoPercent: z.coerce.number().min(0).max(100).default(0),
   formatoVenta: z.string().min(1),
   unidadMinPedido: z.coerce.number().int().min(1).default(1),
   notas: z.string().optional().nullable(),

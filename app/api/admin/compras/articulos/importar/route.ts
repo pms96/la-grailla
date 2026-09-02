@@ -15,7 +15,11 @@ const itemSchema = z.object({
   nombre: z.string().min(1),
   categoria: z.string().min(1),
   formato: z.string().min(1),
+  // Solo se usa al crear un artículo nuevo — si se vincula a uno existente, su
+  // IVA no cambia desde aquí (es un dato del artículo, no de este precio).
+  ivaPercent: z.coerce.number().min(0).max(100).default(21),
   precioSinIva: z.coerce.number().min(0),
+  descuentoPercent: z.coerce.number().min(0).max(100).default(0),
   formatoVenta: z.string().min(1),
   unidadMinPedido: z.coerce.number().int().min(1).default(1),
 });
@@ -64,7 +68,7 @@ export async function POST(request: Request) {
           ? existente.id
           : (
               await tx.articulo.create({
-                data: { nombre: item.nombre, categoria: item.categoria, formato: item.formato, activo: true },
+                data: { nombre: item.nombre, categoria: item.categoria, formato: item.formato, ivaPercent: item.ivaPercent, activo: true },
               })
             ).id;
 
@@ -77,11 +81,13 @@ export async function POST(request: Request) {
             articuloId,
             proveedorId,
             precioSinIva: item.precioSinIva,
+            descuentoPercent: item.descuentoPercent,
             formatoVenta: item.formatoVenta,
             unidadMinPedido: item.unidadMinPedido,
           },
           update: {
             precioSinIva: item.precioSinIva,
+            descuentoPercent: item.descuentoPercent,
             formatoVenta: item.formatoVenta,
             unidadMinPedido: item.unidadMinPedido,
           },

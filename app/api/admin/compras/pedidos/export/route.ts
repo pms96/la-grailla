@@ -17,6 +17,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const temporadaId = searchParams.get('temporadaId');
     const format = searchParams.get('format');
+    const incluirPrecios = searchParams.get('incluirPrecios') !== 'false';
     if (!temporadaId) {
       return NextResponse.json({ error: 'Falta temporadaId' }, { status: 400 });
     }
@@ -32,25 +33,26 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Esta temporada no tiene pedidos generados todavía' }, { status: 400 });
     }
     const slug = data.temporada.anio;
+    const sufijo = incluirPrecios ? '' : '-sin-precios';
 
     if (format === 'excel') {
-      const buffer = await buildPedidosExcel(data);
+      const buffer = await buildPedidosExcel(data, { incluirPrecios });
       return new NextResponse(buffer, {
         status: 200,
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'Content-Disposition': `attachment; filename="pedidos-${slug}.xlsx"`,
+          'Content-Disposition': `attachment; filename="pedidos-${slug}${sufijo}.xlsx"`,
           'Cache-Control': 'no-store',
         },
       });
     }
 
-    const pdfBytes = await buildPedidosPdf(data);
+    const pdfBytes = await buildPedidosPdf(data, { incluirPrecios });
     return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="pedidos-${slug}.pdf"`,
+        'Content-Disposition': `attachment; filename="pedidos-${slug}${sufijo}.pdf"`,
         'Cache-Control': 'no-store',
       },
     });

@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont } from 'pdf-lib';
 import type { Articulo, PrecioArticulo, Proveedor } from '@prisma/client';
-import { precioConIva } from '@/lib/compras/calculadora';
+import { precioFinalUnidad } from '@/lib/compras/calculadora';
 
 type ArticuloConPrecios = Articulo & { precios: (PrecioArticulo & { proveedor: Proveedor })[] };
 
@@ -11,12 +11,14 @@ const ROW_HEIGHT = 16;
 type Columna = { header: string; width: number; align?: 'left' | 'right' };
 
 const COLUMNAS: Columna[] = [
-  { header: 'Categoría', width: 90 },
-  { header: 'Artículo', width: 200 },
-  { header: 'Formato', width: 110 },
-  { header: 'Proveedor más barato', width: 140 },
-  { header: 'Precio ud. c/IVA', width: 90, align: 'right' },
-  { header: 'Estado', width: 80 },
+  { header: 'Categoría', width: 80 },
+  { header: 'Artículo', width: 175 },
+  { header: 'Formato', width: 100 },
+  { header: 'Proveedor más barato', width: 125 },
+  { header: 'Precio ud. c/IVA', width: 85, align: 'right' },
+  { header: 'Dto.', width: 45, align: 'right' },
+  { header: 'Ud. mín.', width: 50, align: 'right' },
+  { header: 'Estado', width: 70 },
 ];
 
 function truncar(texto: string, font: PDFFont, size: number, maxWidth: number): string {
@@ -68,8 +70,8 @@ export async function buildArticulosPdf(articulos: ArticuloConPrecios[]): Promis
   articulos.forEach((a) => {
     if (y < MARGIN + ROW_HEIGHT) newPage(false);
     const mejor = a.precios.reduce<(typeof a.precios)[number] | null>((min, p) => {
-      const c = precioConIva(p.precioSinIva, a.ivaPercent);
-      const cMin = min ? precioConIva(min.precioSinIva, a.ivaPercent) : Infinity;
+      const c = precioFinalUnidad(p.precioSinIva, p.descuentoPercent, a.ivaPercent);
+      const cMin = min ? precioFinalUnidad(min.precioSinIva, min.descuentoPercent, a.ivaPercent) : Infinity;
       return c < cMin ? p : min;
     }, null);
     const valores = [
@@ -77,7 +79,9 @@ export async function buildArticulosPdf(articulos: ArticuloConPrecios[]): Promis
       a.nombre,
       a.formato,
       mejor?.proveedor.nombre ?? '—',
-      mejor ? `${precioConIva(mejor.precioSinIva, a.ivaPercent).toFixed(2)}€` : '—',
+      mejor ? `${precioFinalUnidad(mejor.precioSinIva, mejor.descuentoPercent, a.ivaPercent).toFixed(2)}€` : '—',
+      mejor && mejor.descuentoPercent > 0 ? `${mejor.descuentoPercent}%` : '—',
+      mejor ? String(mejor.unidadMinPedido) : '—',
       a.activo ? 'Activo' : 'Inactivo',
     ];
     let x = MARGIN;

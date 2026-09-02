@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { precioConIva, proveedorRecomendado, ahorroFrenteAlMasCaro, porcentajeAhorro, type PrecioComparado } from '@/lib/compras/calculadora';
+import {
+  precioConIva,
+  precioTrasDescuento,
+  precioFinalUnidad,
+  proveedorRecomendado,
+  ahorroFrenteAlMasCaro,
+  porcentajeAhorro,
+  type PrecioComparado,
+} from '@/lib/compras/calculadora';
 
 describe('precioConIva', () => {
   it('aplica el IVA y redondea a 2 decimales', () => {
@@ -9,6 +17,27 @@ describe('precioConIva', () => {
 
   it('soporta el IVA reducido del agua (10%)', () => {
     expect(precioConIva(0.72, 10)).toBe(0.79);
+  });
+});
+
+describe('precioTrasDescuento', () => {
+  it('no cambia el precio sin descuento', () => {
+    expect(precioTrasDescuento(10, 0)).toBe(10);
+  });
+
+  it('resta el porcentaje de descuento', () => {
+    expect(precioTrasDescuento(10, 15)).toBe(8.5);
+  });
+});
+
+describe('precioFinalUnidad', () => {
+  it('coincide con precioConIva cuando no hay descuento', () => {
+    expect(precioFinalUnidad(0.6, 0, 21)).toBe(precioConIva(0.6, 21));
+  });
+
+  it('aplica el descuento antes del IVA', () => {
+    // 0.6€ -10% = 0.54€ sin IVA -> 0.54 * 1.21 = 0.6534 -> 0.65€
+    expect(precioFinalUnidad(0.6, 10, 21)).toBe(0.65);
   });
 });
 

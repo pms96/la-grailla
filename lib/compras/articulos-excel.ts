@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import type { Articulo, PrecioArticulo, Proveedor } from '@prisma/client';
-import { precioConIva } from '@/lib/compras/calculadora';
+import { precioFinalUnidad } from '@/lib/compras/calculadora';
 
 type ArticuloConPrecios = Articulo & { precios: (PrecioArticulo & { proveedor: Proveedor })[] };
 
@@ -23,7 +23,11 @@ export async function buildArticulosExcel(articulos: ArticuloConPrecios[]): Prom
     { header: 'Formato', key: 'formato', width: 16 },
     { header: 'Uds/caja', key: 'unidadesPorCaja', width: 10 },
     { header: 'IVA %', key: 'ivaPercent', width: 8 },
-    ...proveedores.map((p, i) => ({ header: `${p.nombre} (€ c/IVA)`, key: `prov_${i}`, width: 18 })),
+    ...proveedores.flatMap((p, i) => [
+      { header: `${p.nombre} (€ c/IVA, con dto.)`, key: `prov_${i}`, width: 20 },
+      { header: `${p.nombre} (dto. %)`, key: `dto_${i}`, width: 12 },
+      { header: `${p.nombre} (ud. mín.)`, key: `min_${i}`, width: 12 },
+    ]),
     { header: 'Proveedor más barato', key: 'mejor', width: 20 },
     { header: 'Estado', key: 'estado', width: 12 },
   ];
@@ -37,10 +41,12 @@ export async function buildArticulosExcel(articulos: ArticuloConPrecios[]): Prom
   headerRow.height = 30;
 
   articulos.forEach((a) => {
-    const preciosPorProveedor = new Map(a.precios.map((p) => [p.proveedorId, precioConIva(p.precioSinIva, a.ivaPercent)]));
+    const preciosPorProveedor = new Map(
+      a.precios.map((p) => [p.proveedorId, precioFinalUnidad(p.precioSinIva, p.descuentoPercent, a.ivaPercent)])
+    );
     const mejor = a.precios.reduce<(typeof a.precios)[number] | null>((min, p) => {
-      const c = precioConIva(p.precioSinIva, a.ivaPercent);
-      const cMin = min ? precioConIva(min.precioSinIva, a.ivaPercent) : Infinity;
+      const c = precioFinalUnidad(p.precioSinIva, p.descuentoPercent, a.ivaPercent);
+      const cMin = min ? precioFinalUnidad(min.precioSinIva, min.descuentoPercent, a.ivaPercent) : Infinity;
       return c < cMin ? p : min;
     }, null);
 
@@ -54,13 +60,17 @@ export async function buildArticulosExcel(articulos: ArticuloConPrecios[]): Prom
       estado: a.activo ? 'Activo' : 'Inactivo',
     };
     proveedores.forEach((p, i) => {
+      const precio = a.precios.find((x) => x.proveedorId === p.proveedorId);
       row[`prov_${i}`] = preciosPorProveedor.get(p.proveedorId) ?? null;
+      row[`dto_${i}`] = precio && precio.descuentoPercent > 0 ? precio.descuentoPercent : null;
+      row[`min_${i}`] = precio?.unidadMinPedido ?? null;
     });
     sheet.addRow(row);
   });
 
   proveedores.forEach((_, i) => {
     sheet.getColumn(`prov_${i}`).numFmt = '#,##0.00 €';
+    sheet.getColumn(`dto_${i}`).numFmt = '0.0"%"';
   });
 
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: sheet.columns.length } };

@@ -13,7 +13,15 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { downloadPlanificadorExport } from '@/lib/compras/planificador-export';
 
-type PrecioFila = { proveedorId: string; proveedorNombre: string; precioSinIva: number; precioConIva: number; formatoVenta: string; unidadMinPedido: number };
+type PrecioFila = {
+  proveedorId: string;
+  proveedorNombre: string;
+  precioSinIva: number;
+  descuentoPercent: number;
+  precioConIva: number;
+  formatoVenta: string;
+  unidadMinPedido: number;
+};
 
 type Fila = {
   articuloId: string;
@@ -23,6 +31,8 @@ type Fila = {
   precios: PrecioFila[];
   recomendado: { proveedorId: string; proveedorNombre: string; precioConIva: number } | null;
   ahorroUnidad: number;
+  ahorroTotalEstimado: number;
+  sobrecosteFrenteARecomendado: number;
   consumoReferencia: { temporadaNombre: string; cantidadNeta: number } | null;
   proveedorElegidoId: string | null;
   cantidadPlanificada: number;
@@ -84,6 +94,11 @@ export function TabPlanificador({ temporada }: { temporada: Temporada | null }) 
       const next = { ...f, ...patch };
       const precioElegido = next.precios.find((p) => p.proveedorId === next.proveedorElegidoId);
       next.costeTotalEstimado = precioElegido ? Math.round(precioElegido.precioConIva * next.cantidadPlanificada * 100) / 100 : 0;
+      next.ahorroTotalEstimado = Math.round(next.ahorroUnidad * next.cantidadPlanificada * 100) / 100;
+      next.sobrecosteFrenteARecomendado =
+        precioElegido && next.recomendado && precioElegido.proveedorId !== next.recomendado.proveedorId
+          ? Math.max(0, Math.round((precioElegido.precioConIva - next.recomendado.precioConIva) * next.cantidadPlanificada * 100) / 100)
+          : 0;
       return next;
     }));
   };
@@ -142,7 +157,7 @@ export function TabPlanificador({ temporada }: { temporada: Temporada | null }) 
                 <TableRow>
                   <TableHead className="min-w-[180px]">Artículo</TableHead>
                   <TableHead>Precios (c/IVA)</TableHead>
-                  <TableHead>Ahorro</TableHead>
+                  <TableHead className="min-w-[110px]">Ahorro / sobrecoste</TableHead>
                   <TableHead>Consumo ref.</TableHead>
                   <TableHead className="min-w-[160px]">Proveedor elegido</TableHead>
                   <TableHead className="w-28">Cantidad 2026</TableHead>
@@ -171,12 +186,21 @@ export function TabPlanificador({ temporada }: { temporada: Temporada | null }) 
                             {f.precios.map((p) => (
                               <Badge key={p.proveedorId} variant={p.proveedorId === f.recomendado?.proveedorId ? 'default' : 'outline'} className="w-fit">
                                 {p.proveedorNombre}: {p.precioConIva.toFixed(2)}€
+                                {p.descuentoPercent > 0 ? ` (-${p.descuentoPercent}%)` : ''}
+                                {p.unidadMinPedido > 1 ? ` · mín. ${p.unidadMinPedido}` : ''}
                               </Badge>
                             ))}
                           </div>
                         )}
                       </TableCell>
-                      <TableCell><AhorroBar pct={pctAhorro} /></TableCell>
+                      <TableCell>
+                        <AhorroBar pct={pctAhorro} />
+                        {f.sobrecosteFrenteARecomendado > 0 ? (
+                          <p className="text-xs text-amber-500 whitespace-nowrap">+{f.sobrecosteFrenteARecomendado.toFixed(2)}€ vs. más barato</p>
+                        ) : f.ahorroTotalEstimado > 0 ? (
+                          <p className="text-xs text-[hsl(var(--chart-2))] whitespace-nowrap">Ahorras {f.ahorroTotalEstimado.toFixed(2)}€</p>
+                        ) : null}
+                      </TableCell>
                       <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                         {f.consumoReferencia ? `${f.consumoReferencia.cantidadNeta} ud.` : '—'}
                       </TableCell>
@@ -199,6 +223,9 @@ export function TabPlanificador({ temporada }: { temporada: Temporada | null }) 
                           onChange={(e) => updateLocal(f.articuloId, { cantidadPlanificada: Number(e.target.value) || 0 })}
                           onBlur={(e) => guardarPlan(f.articuloId, { cantidadPlanificada: Number(e.target.value) || 0 })}
                         />
+                        {precioElegido && f.cantidadPlanificada > 0 && f.cantidadPlanificada < precioElegido.unidadMinPedido && (
+                          <p className="text-xs text-amber-500 whitespace-nowrap">Mín. proveedor: {precioElegido.unidadMinPedido}</p>
+                        )}
                       </TableCell>
                       <TableCell className="font-medium whitespace-nowrap">{f.costeTotalEstimado.toFixed(2)}€</TableCell>
                       <TableCell>

@@ -31,12 +31,12 @@ const articulos: (Articulo & { precios: (PrecioArticulo & { proveedor: Proveedor
     updatedAt: new Date(),
     precios: [
       {
-        id: 'precio-1', articuloId: 'art-1', proveedorId: 'prov-ramirez', precioSinIva: 0.53,
+        id: 'precio-1', articuloId: 'art-1', proveedorId: 'prov-ramirez', precioSinIva: 0.53, descuentoPercent: 0,
         formatoVenta: 'Caja 24', unidadMinPedido: 24, notas: null, createdAt: new Date(), updatedAt: new Date(),
         proveedor: proveedorRamirez,
       },
       {
-        id: 'precio-2', articuloId: 'art-1', proveedorId: 'prov-javi', precioSinIva: 0.6,
+        id: 'precio-2', articuloId: 'art-1', proveedorId: 'prov-javi', precioSinIva: 0.6, descuentoPercent: 10,
         formatoVenta: 'Caja 24', unidadMinPedido: 24, notas: null, createdAt: new Date(), updatedAt: new Date(),
         proveedor: proveedorJavi,
       },
@@ -69,11 +69,16 @@ describe('buildArticulosExcel', () => {
     const colNombre = headers.indexOf('Artículo');
     const colMejor = headers.indexOf('Proveedor más barato');
     const colEstado = headers.indexOf('Estado');
-    const colPrecioRamirez = headers.indexOf('Ramírez Velasco (€ c/IVA)');
+    const colPrecioRamirez = headers.indexOf('Ramírez Velasco (€ c/IVA, con dto.)');
+    const colPrecioJavi = headers.indexOf('Javi (€ c/IVA, con dto.)');
+    const colDtoJavi = headers.indexOf('Javi (dto. %)');
 
     expect(sheet.getRow(2).getCell(colNombre).value).toBe('Cruzcampo 1/3');
     expect(sheet.getRow(2).getCell(colMejor).value).toBe('Ramírez Velasco');
     expect(sheet.getRow(2).getCell(colPrecioRamirez).value).toBeCloseTo(0.64, 2);
+    // Javi tiene un 10% de descuento: 0.6€ -> 0.54€ sin IVA -> 0.65€ c/IVA.
+    expect(sheet.getRow(2).getCell(colPrecioJavi).value).toBeCloseTo(0.65, 2);
+    expect(sheet.getRow(2).getCell(colDtoJavi).value).toBe(10);
     expect(sheet.getRow(3).getCell(colEstado).value).toBe('Inactivo');
   });
 });

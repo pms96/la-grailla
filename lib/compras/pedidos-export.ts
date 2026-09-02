@@ -1,8 +1,8 @@
 'use client';
 
-/** Descarga los pedidos de una temporada (uno por proveedor) en Excel o PDF. */
-export async function downloadPedidosExport(temporadaId: string, format: 'excel' | 'pdf'): Promise<void> {
-  const qs = new URLSearchParams({ temporadaId, format });
+/** Descarga los pedidos de una temporada (uno por proveedor) en Excel o PDF, con o sin precios. */
+export async function downloadPedidosExport(temporadaId: string, format: 'excel' | 'pdf', incluirPrecios = true): Promise<void> {
+  const qs = new URLSearchParams({ temporadaId, format, incluirPrecios: String(incluirPrecios) });
   const res = await fetch(`/api/admin/compras/pedidos/export?${qs.toString()}`);
   if (!res.ok) {
     let message = 'No se pudo exportar';

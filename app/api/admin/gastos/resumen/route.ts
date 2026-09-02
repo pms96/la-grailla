@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
-import { precioConIva, proveedorRecomendado, ahorroFrenteAlMasCaro } from '@/lib/compras/calculadora';
+import { precioFinalUnidad, proveedorRecomendado, ahorroFrenteAlMasCaro } from '@/lib/compras/calculadora';
 
 function precioConIvaTotal(importeSinIva: number, ivaPercent: number): number {
   return Math.round(importeSinIva * (1 + ivaPercent / 100) * 100) / 100;
@@ -72,7 +72,7 @@ export async function GET(request: Request) {
             proveedorId: p.proveedorId,
             proveedorNombre: p.proveedor.nombre,
             precioSinIva: p.precioSinIva,
-            precioConIva: precioConIva(p.precioSinIva, plan.articulo.ivaPercent),
+            precioConIva: precioFinalUnidad(p.precioSinIva, p.descuentoPercent, plan.articulo.ivaPercent),
           }));
         const recomendado = proveedorRecomendado(precios);
         const ahorroUnidad = ahorroFrenteAlMasCaro(precios);

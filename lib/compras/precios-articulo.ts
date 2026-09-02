@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 export type PrecioInput = {
   proveedorId: string;
   precioSinIva: number;
+  descuentoPercent?: number;
   formatoVenta: string;
   unidadMinPedido: number;
   notas?: string | null;
@@ -36,12 +37,14 @@ export async function syncPreciosArticulo(
         articuloId,
         proveedorId: precio.proveedorId,
         precioSinIva: precio.precioSinIva,
+        descuentoPercent: precio.descuentoPercent ?? 0,
         formatoVenta: precio.formatoVenta,
         unidadMinPedido: precio.unidadMinPedido,
         notas: precio.notas || null,
       },
       update: {
         precioSinIva: precio.precioSinIva,
+        descuentoPercent: precio.descuentoPercent ?? 0,
         formatoVenta: precio.formatoVenta,
         unidadMinPedido: precio.unidadMinPedido,
         notas: precio.notas || null,
