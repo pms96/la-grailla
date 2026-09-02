@@ -15,7 +15,10 @@ export async function POST(request: Request, { params }: { params: { id: string 
   }
   try {
     const sponsorId = params?.id;
-    const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId }, include: { currentAsset: true } });
+    const sponsor = await prisma.sponsor.findUnique({
+      where: { id: sponsorId },
+      include: { currentAsset: true, sponsorRequest: true },
+    });
     if (!sponsor) {
       return NextResponse.json({ error: 'Sponsor no encontrado' }, { status: 404 });
     }
@@ -55,6 +58,8 @@ export async function POST(request: Request, { params }: { params: { id: string 
         logoUrl: sponsor.currentAsset.url,
         guidedAnswers: (sponsor.guidedAnswers as Record<string, string>) ?? {},
         freeText: sponsor.freeText ?? '',
+        brandContext: sponsor.brandContext ?? undefined,
+        companyName: sponsor.sponsorRequest.companyName,
       });
       promptEs = result.promptEs;
       promptEn = result.promptEn;
@@ -69,7 +74,9 @@ export async function POST(request: Request, { params }: { params: { id: string 
         attemptNumber,
         adminId: session.user?.id,
         assetIdUsed: sponsor.currentAssetId,
-        descriptionSnapshot: sponsor.freeText,
+        descriptionSnapshot: [sponsor.freeText, sponsor.brandContext ? `\n\n[Contexto de marca]\n${sponsor.brandContext}` : '']
+          .filter(Boolean)
+          .join(''),
         guidedAnswersSnapshot: (sponsor.guidedAnswers ?? undefined) as Prisma.InputJsonValue,
         rawResponse: (raw ?? undefined) as Prisma.InputJsonValue,
         promptEs,

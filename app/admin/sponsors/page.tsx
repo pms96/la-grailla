@@ -71,6 +71,11 @@ export default function SponsorsAdminPage() {
                   <Badge>{statusLabels[s?.status ?? ''] ?? s?.status}</Badge>
                 </div>
                 <p className="text-sm text-muted-foreground"><strong>Tipo:</strong> {s?.sponsorType ?? ''}</p>
+                {s?.website && (
+                  <p className="text-sm text-muted-foreground">
+                    <strong>Web:</strong> <a href={s.website} target="_blank" rel="noopener noreferrer" className="underline">{s.website}</a>
+                  </p>
+                )}
                 {s?.message && <p className="text-sm text-muted-foreground bg-muted/50 p-3 rounded">{s.message}</p>}
                 <div className="flex items-center gap-2">
                   <Select value={s?.status ?? 'PENDING'} onValueChange={(v: SponsorRequestStatus) => updateSponsor(s?.id, { status: v })}>

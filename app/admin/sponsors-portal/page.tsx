@@ -7,9 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, Clapperboard, Sparkles, Check, X as XIcon, Mail } from 'lucide-react';
+import { Loader2, Clapperboard, Sparkles, Check, X as XIcon, Mail, Search, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
+import { SPONSOR_GUIDED_QUESTIONS } from '@/lib/sponsor-guided-questions';
 
 type SponsorPortalStatus =
   | 'PENDIENTE_MATERIALES'
@@ -31,12 +32,13 @@ type SponsorRow = {
   isGenerating: boolean;
   currentAsset: SponsorAsset | null;
   videoPrompt: SponsorVideoPrompt | null;
-  sponsorRequest: { companyName: string; contactName: string; email: string };
+  sponsorRequest: { companyName: string; contactName: string; email: string; website: string | null };
 };
 
 type SponsorDetail = SponsorRow & {
   guidedAnswers: Record<string, string> | null;
   freeText: string | null;
+  brandContext: string | null;
   generationLogs: PromptGenerationLog[];
 };
 
@@ -58,6 +60,7 @@ export default function SponsorsPortalAdminPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [promptDraft, setPromptDraft] = useState({ promptEs: '', promptEn: '' });
+  const [brandContextDraft, setBrandContextDraft] = useState('');
 
   const fetchSponsors = () => {
     const qs = statusFilter ? `?status=${statusFilter}` : '';
@@ -87,6 +90,7 @@ export default function SponsorsPortalAdminPage() {
       .then((d) => {
         setDetail(d);
         setPromptDraft({ promptEs: d?.videoPrompt?.promptEs ?? '', promptEn: d?.videoPrompt?.promptEn ?? '' });
+        setBrandContextDraft(d?.brandContext ?? '');
       })
       .catch(() => toast.error('No se pudo cargar el detalle'))
       .finally(() => setDetailLoading(false));
@@ -130,6 +134,23 @@ export default function SponsorsPortalAdminPage() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error al generar');
       fetchSponsors();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveBrandContext = async (id: string) => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/sponsors-portal/${id}/brand-context`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brandContext: brandContextDraft }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success('Contexto de marca guardado');
+    } catch {
+      toast.error('No se pudo guardar el contexto');
     } finally {
       setBusy(false);
     }
@@ -248,10 +269,33 @@ export default function SponsorsPortalAdminPage() {
                         {detail.guidedAnswers && Object.keys(detail.guidedAnswers).length > 0 && (
                           <div className="text-sm grid grid-cols-2 gap-2">
                             {Object.entries(detail.guidedAnswers).map(([k, v]) => (
-                              <div key={k}><span className="text-muted-foreground">{k}:</span> {v}</div>
+                              <div key={k}>
+                                <span className="text-muted-foreground">{SPONSOR_GUIDED_QUESTIONS.find((q) => q.key === k)?.label ?? k}:</span> {v}
+                              </div>
                             ))}
                           </div>
                         )}
+
+                        <div className="rounded-lg border border-border p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium flex items-center gap-2"><Search className="h-3.5 w-3.5" /> Contexto de marca (investigación)</p>
+                            {detail.sponsorRequest?.website && (
+                              <a href={detail.sponsorRequest.website} target="_blank" rel="noopener noreferrer" className="text-xs underline flex items-center gap-1 text-muted-foreground">
+                                {detail.sponsorRequest.website} <ExternalLink className="h-3 w-3" />
+                              </a>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            A qué se dedica de verdad esta marca (mira su web/redes) — sin esto, la IA generaliza y todos los vídeos salen parecidos.
+                          </p>
+                          <Textarea
+                            rows={3}
+                            value={brandContextDraft}
+                            onChange={(e) => setBrandContextDraft(e.target.value)}
+                            placeholder="Ej. Vende barcos cebadores de radiocontrol para carpfishing, baterías Li-Po y accesorios electrónicos de pesca técnica. Ambiente ideal: agua en calma de noche, precisión mecánica."
+                          />
+                          <Button size="sm" variant="outline" disabled={busy} onClick={() => saveBrandContext(s.id)}>Guardar contexto</Button>
+                        </div>
 
                         <div className="flex flex-wrap gap-2">
                           {s.status === 'PENDIENTE_REVISION' && (

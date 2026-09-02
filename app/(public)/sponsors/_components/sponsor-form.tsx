@@ -18,6 +18,7 @@ export default function SponsorForm() {
     contactName: '',
     email: '',
     phone: '',
+    website: '',
     sponsorType: '',
     message: '',
   });
@@ -89,6 +90,16 @@ export default function SponsorForm() {
             <Label>Teléfono</Label>
             <Input value={form?.phone ?? ''} onChange={handleChange('phone')} className="mt-1" placeholder="+34 600 000 000" />
           </div>
+        </div>
+        <div>
+          <Label>Web o Instagram</Label>
+          <Input
+            value={form?.website ?? ''}
+            onChange={handleChange('website')}
+            className="mt-1"
+            placeholder="https://tuempresa.com o instagram.com/tuempresa"
+          />
+          <p className="text-xs text-muted-foreground mt-1">Nos ayuda a conocer tu marca para adaptar mejor el material que preparemos.</p>
         </div>
         <div>
           <Label>Tipo de patrocinio *</Label>

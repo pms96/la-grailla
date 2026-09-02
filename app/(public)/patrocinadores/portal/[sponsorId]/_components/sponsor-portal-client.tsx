@@ -5,21 +5,65 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Upload, CheckCircle, Clapperboard, SearchX, Pencil, Sparkles, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { FadeIn } from '@/components/ui/animate';
 import { cn } from '@/lib/utils';
+import { SPONSOR_GUIDED_QUESTIONS, CUSTOM_OPTION_LABEL, type GuidedQuestion } from '@/lib/sponsor-guided-questions';
 
-const GUIDED_QUESTIONS: { key: string; label: string; placeholder: string }[] = [
-  { key: 'estiloVisual', label: 'Estilo visual', placeholder: 'Ej. minimalista, retro, neón, elegante...' },
-  { key: 'ambiente', label: 'Ambiente / vibra deseada', placeholder: 'Ej. enérgico, sofisticado, festivo...' },
-  { key: 'tipoAnimacion', label: 'Tipo de animación', placeholder: 'Ej. revelación progresiva, glitch, partículas...' },
-  { key: 'coloresClave', label: 'Colores clave de tu marca', placeholder: 'Ej. azul #1a2b3c y dorado' },
-  { key: 'ritmo', label: 'Ritmo', placeholder: 'Ej. pausado y cinematográfico, o rápido y dinámico' },
-  { key: 'enfoqueMarca', label: 'Enfoque de marca', placeholder: '¿Qué quieres que transmita tu marca?' },
-];
+function GuidedQuestionField({ question, value, onChange }: { question: GuidedQuestion; value: string; onChange: (v: string) => void }) {
+  if (question.type === 'text') {
+    return (
+      <div>
+        <label className="text-sm font-medium mb-1 block">{question.label}</label>
+        <Input value={value} placeholder={question.placeholder} onChange={(e) => onChange(e.target.value)} />
+        {question.helperText && <p className="text-xs text-muted-foreground mt-1">{question.helperText}</p>}
+      </div>
+    );
+  }
+
+  const options = question.options ?? [];
+  const valueIsCustom = Boolean(value) && !options.includes(value);
+  const [forceCustom, setForceCustom] = useState(valueIsCustom);
+  const showCustom = forceCustom || valueIsCustom;
+
+  return (
+    <div>
+      <label className="text-sm font-medium mb-1 block">{question.label}</label>
+      <Select
+        value={showCustom ? CUSTOM_OPTION_LABEL : value}
+        onValueChange={(v) => {
+          if (v === CUSTOM_OPTION_LABEL) {
+            setForceCustom(true);
+            onChange('');
+          } else {
+            setForceCustom(false);
+            onChange(v);
+          }
+        }}
+      >
+        <SelectTrigger><SelectValue placeholder="Elige una opción" /></SelectTrigger>
+        <SelectContent>
+          {options.map((opt) => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
+          <SelectItem value={CUSTOM_OPTION_LABEL}>{CUSTOM_OPTION_LABEL}</SelectItem>
+        </SelectContent>
+      </Select>
+      {question.helperText && <p className="text-xs text-muted-foreground mt-1">{question.helperText}</p>}
+      {showCustom && (
+        <Input
+          className="mt-2"
+          autoFocus
+          value={value}
+          placeholder="Escribe tu propia opción"
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </div>
+  );
+}
 
 // Pasos tal como los ve el sponsor — LISTO_PARA_GENERAR es un detalle interno
 // del panel admin, de cara al sponsor sigue siendo "en revisión".
@@ -313,15 +357,13 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
               <CardContent className="p-6 space-y-4">
                 <h2 className="font-display font-bold text-lg">Cuéntanos cómo lo imaginas</h2>
                 <div className="grid sm:grid-cols-2 gap-4">
-                  {GUIDED_QUESTIONS.map((q) => (
-                    <div key={q.key}>
-                      <label className="text-sm font-medium mb-1 block">{q.label}</label>
-                      <Input
-                        value={answers[q.key] ?? ''}
-                        placeholder={q.placeholder}
-                        onChange={(e) => setAnswers((a) => ({ ...a, [q.key]: e.target.value }))}
-                      />
-                    </div>
+                  {SPONSOR_GUIDED_QUESTIONS.map((q) => (
+                    <GuidedQuestionField
+                      key={q.key}
+                      question={q}
+                      value={answers[q.key] ?? ''}
+                      onChange={(v) => setAnswers((a) => ({ ...a, [q.key]: v }))}
+                    />
                   ))}
                 </div>
                 <div>

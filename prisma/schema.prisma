@@ -351,6 +351,7 @@ model SponsorRequest {
   contactName String
   email       String
   phone       String?
+  website     String?
   sponsorType String
   message     String?              @db.Text
   status      SponsorRequestStatus @default(PENDING)
@@ -377,6 +378,11 @@ model Sponsor {
   status           SponsorPortalStatus @default(PENDIENTE_MATERIALES)
   guidedAnswers    Json?
   freeText         String?             @db.Text
+  // Investigación de marca que el ADMIN añade (web, redes, a qué se dedica de
+  // verdad) antes de generar — sin esto, la IA solo veía el logo + 6
+  // respuestas cortas y todos los vídeos salían con la misma estructura
+  // genérica de "partículas convirtiéndose en logo", diera igual la marca.
+  brandContext     String?             @db.Text
   currentAssetId   String?             @unique
   isGenerating     Boolean             @default(false)
   generationCount  Int                 @default(0)

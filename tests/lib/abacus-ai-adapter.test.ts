@@ -8,6 +8,11 @@ vi.mock('openai', () => ({
   },
 }));
 
+// La BD de dev compartida puede tener una API key real de Abacus.AI
+// configurada (para probar el flujo de verdad) — este test no debe depender
+// de ese estado ambiental, así que fuerza "sin configurar" explícitamente.
+vi.mock('@/lib/config', () => ({ getConfig: vi.fn(async () => '') }));
+
 describe('AbacusAIAdapter.generateVideoPrompt', () => {
   beforeAll(() => {
     if (!process.env.NEXTAUTH_SECRET) {

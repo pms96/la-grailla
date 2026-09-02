@@ -14,6 +14,14 @@ vi.mock('next-auth', () => ({
 }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
 
+// La BD de dev compartida puede tener una API key real de Abacus.AI
+// configurada — sin este mock, "generate" llamaría a la API real por cada
+// test (lento, con coste, y dependiente de red). Se fuerza siempre el mock.
+vi.mock('@/lib/abacus-ai-adapter', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/abacus-ai-adapter')>('@/lib/abacus-ai-adapter');
+  return { ...actual, getAbacusAIProvider: vi.fn(async () => new actual.MockAbacusAIAdapter()) };
+});
+
 // PromptGenerationLog.adminId y SponsorVideoPrompt.approvedById tienen FK
 // real a User — el id de sesión mockeado ('admin-test') debe existir de verdad.
 await prisma.user.upsert({

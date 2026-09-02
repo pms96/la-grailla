@@ -22,6 +22,7 @@ const createSponsorRequestSchema = z.object({
   contactName: z.string().min(1),
   email: z.string().email(),
   phone: z.string().optional().nullable(),
+  website: z.string().optional().nullable(),
   sponsorType: z.string().min(1),
   message: z.string().optional().nullable(),
 });
@@ -36,12 +37,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const { companyName, contactName, email, phone, sponsorType, message } = createSponsorRequestSchema.parse(
+    const { companyName, contactName, email, phone, website, sponsorType, message } = createSponsorRequestSchema.parse(
       await request.json()
     );
 
     const sponsorReq = await prisma.sponsorRequest.create({
-      data: { companyName, contactName, email, phone, sponsorType, message },
+      data: { companyName, contactName, email, phone, website, sponsorType, message },
     });
 
     const adminHtml = `
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
           <p><strong>Contacto:</strong> ${esc(contactName)}</p>
           <p><strong>Email:</strong> <a href="mailto:${esc(email)}">${esc(email)}</a></p>
           <p><strong>Tel\u00e9fono:</strong> ${esc(phone) || 'No proporcionado'}</p>
+          <p><strong>Web/redes:</strong> ${website ? `<a href="${esc(website)}">${esc(website)}</a>` : 'No proporcionada'}</p>
           <p><strong>Tipo:</strong> ${esc(sponsorType)}</p>
           ${message ? `<p><strong>Mensaje:</strong></p><div style="background: white; padding: 15px; border-radius: 4px; border-left: 4px solid #a855f7;">${esc(message)}</div>` : ''}
         </div>
