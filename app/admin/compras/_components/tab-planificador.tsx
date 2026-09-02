@@ -7,9 +7,11 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableFooter } from '@/components/ui/table';
-import { Loader2, ClipboardList } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Loader2, ClipboardList, FileSpreadsheet, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { downloadPlanificadorExport } from '@/lib/compras/planificador-export';
 
 type PrecioFila = { proveedorId: string; proveedorNombre: string; precioSinIva: number; precioConIva: number; formatoVenta: string; unidadMinPedido: number };
 
@@ -44,6 +46,7 @@ export function TabPlanificador({ temporada }: { temporada: Temporada | null }) 
   const [filas, setFilas] = useState<Fila[]>([]);
   const [temporadaAnterior, setTemporadaAnterior] = useState<Temporada | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exportando, setExportando] = useState<'excel' | 'pdf' | null>(null);
 
   const fetchPlanificador = useCallback(() => {
     if (!temporada) { setFilas([]); setLoading(false); return; }
@@ -85,6 +88,19 @@ export function TabPlanificador({ temporada }: { temporada: Temporada | null }) 
     }));
   };
 
+  const handleExport = async (format: 'excel' | 'pdf') => {
+    if (!temporada) return;
+    setExportando(format);
+    try {
+      await downloadPlanificadorExport(temporada.id, format);
+      toast.success(format === 'excel' ? 'Excel del planificador descargado' : 'PDF del planificador descargado');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al exportar');
+    } finally {
+      setExportando(null);
+    }
+  };
+
   if (!temporada) {
     return <p className="text-sm text-muted-foreground py-10 text-center">Selecciona o crea una temporada para planificar sus compras.</p>;
   }
@@ -103,9 +119,21 @@ export function TabPlanificador({ temporada }: { temporada: Temporada | null }) 
 
   return (
     <div className="space-y-3">
-      {temporadaAnterior && (
-        <p className="text-xs text-muted-foreground">Consumo de referencia: {temporadaAnterior.nombre}</p>
-      )}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {temporadaAnterior ? (
+          <p className="text-xs text-muted-foreground">Consumo de referencia: {temporadaAnterior.nombre}</p>
+        ) : <span />}
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="gap-2" disabled={exportando !== null} onClick={() => handleExport('excel')}>
+            {exportando === 'excel' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+            Exportar Excel
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2" disabled={exportando !== null} onClick={() => handleExport('pdf')}>
+            {exportando === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+            Exportar PDF
+          </Button>
+        </div>
+      </div>
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
