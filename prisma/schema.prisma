@@ -83,6 +83,7 @@ model User {
   scanLogs          ScanLog[]
   promptApprovals   SponsorVideoPrompt[]  @relation("SponsorPromptApprovals")
   promptGenerations PromptGenerationLog[] @relation("SponsorPromptGenerations")
+  gastosCreados     Gasto[]
 }
 
 model Account {
@@ -525,4 +526,199 @@ model RateLimitBucket {
 model ProcessedWebhookEvent {
   id          String   @id
   processedAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Módulo de Compras y Gastos por Temporada — planificación de compras de la
+// caseta de feria (bebidas y demás suministros) y contabilidad general de
+// costes, agrupado por edición anual de la feria. Independiente del modelo
+// Event (venta de entradas), que es un negocio aparte.
+// ---------------------------------------------------------------------------
+
+enum TemporadaStatus {
+  ABIERTA
+  CERRADA
+}
+
+enum PedidoStatus {
+  BORRADOR
+  ENVIADO
+  RECIBIDO
+}
+
+model Temporada {
+  id          String          @id @default(cuid())
+  nombre      String
+  anio        Int
+  fechaInicio DateTime?
+  fechaFin    DateTime?
+  status      TemporadaStatus @default(ABIERTA)
+  notas       String?         @db.Text
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  consumos ConsumoHistorico[]
+  planes   PlanCompra[]
+  pedidos  Pedido[]
+  gastos   Gasto[]
+
+  @@index([anio])
+}
+
+model Proveedor {
+  id        String   @id @default(cuid())
+  nombre    String
+  contacto  String?
+  telefono  String?
+  email     String?
+  notas     String?  @db.Text
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  precios       PrecioArticulo[]
+  planesElegido PlanCompra[]
+  pedidos       Pedido[]
+  gastos        Gasto[]
+}
+
+model Articulo {
+  id              String   @id @default(cuid())
+  nombre          String
+  categoria       String
+  formato         String
+  unidadesPorCaja Int      @default(1)
+  ivaPercent      Float    @default(21)
+  activo          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  precios      PrecioArticulo[]
+  consumos     ConsumoHistorico[]
+  planes       PlanCompra[]
+  lineasPedido LineaPedido[]
+
+  @@index([categoria])
+}
+
+model PrecioArticulo {
+  id              String   @id @default(cuid())
+  articuloId      String
+  proveedorId     String
+  precioSinIva    Float
+  formatoVenta    String
+  unidadMinPedido Int      @default(1)
+  notas           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  articulo  Articulo  @relation(fields: [articuloId], references: [id], onDelete: Cascade)
+  proveedor Proveedor @relation(fields: [proveedorId], references: [id], onDelete: Cascade)
+
+  @@unique([articuloId, proveedorId])
+  @@index([articuloId])
+  @@index([proveedorId])
+}
+
+// Consumo neto de una temporada pasada, usado como referencia al planificar
+// la siguiente — no se edita desde el planificador, solo se importa/corrige.
+model ConsumoHistorico {
+  id           String   @id @default(cuid())
+  articuloId   String
+  temporadaId  String
+  cantidadNeta Float
+  fuenteDatos  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  articulo  Articulo  @relation(fields: [articuloId], references: [id], onDelete: Cascade)
+  temporada Temporada @relation(fields: [temporadaId], references: [id], onDelete: Cascade)
+
+  @@unique([articuloId, temporadaId])
+  @@index([temporadaId])
+}
+
+// La intención de compra del admin para una temporada — separado del
+// ConsumoHistorico (dato pasado, de solo lectura) y del Pedido ya generado
+// (documento formal), para poder replanificar sin perder lo ya pedido.
+model PlanCompra {
+  id                  String   @id @default(cuid())
+  temporadaId         String
+  articuloId          String
+  proveedorElegidoId  String?
+  cantidadPlanificada Float    @default(0)
+  observaciones       String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  temporada        Temporada  @relation(fields: [temporadaId], references: [id], onDelete: Cascade)
+  articulo         Articulo   @relation(fields: [articuloId], references: [id], onDelete: Cascade)
+  proveedorElegido Proveedor? @relation(fields: [proveedorElegidoId], references: [id])
+
+  @@unique([temporadaId, articuloId])
+  @@index([temporadaId])
+}
+
+model Pedido {
+  id            String       @id @default(cuid())
+  temporadaId   String
+  proveedorId   String
+  status        PedidoStatus @default(BORRADOR)
+  fechaPedido   DateTime     @default(now())
+  fechaEnviado  DateTime?
+  fechaRecibido DateTime?
+  notas         String?      @db.Text
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  temporada Temporada     @relation(fields: [temporadaId], references: [id])
+  proveedor Proveedor     @relation(fields: [proveedorId], references: [id])
+  lineas    LineaPedido[]
+  gasto     Gasto?
+
+  @@index([temporadaId, status])
+  @@index([proveedorId])
+}
+
+model LineaPedido {
+  id           String @id @default(cuid())
+  pedidoId     String
+  articuloId   String
+  cantidad     Float
+  precioSinIva Float
+  ivaPercent   Float
+
+  pedido   Pedido   @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  articulo Articulo @relation(fields: [articuloId], references: [id])
+
+  @@index([pedidoId])
+}
+
+// El libro de contabilidad real de la caseta: cualquier coste (no solo
+// bebida), opcionalmente ligado a un Proveedor y/o a un Pedido ya recibido.
+// El importe puede ser negativo (abonos/devoluciones de proveedor).
+model Gasto {
+  id            String   @id @default(cuid())
+  temporadaId   String
+  categoria     String
+  concepto      String
+  proveedorId   String?
+  pedidoId      String?  @unique
+  importeSinIva Float
+  ivaPercent    Float    @default(21)
+  fecha         DateTime @default(now())
+  numDocumento  String?
+  tipoDocumento String   @default("Factura")
+  notas         String?  @db.Text
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  temporada Temporada  @relation(fields: [temporadaId], references: [id])
+  proveedor Proveedor? @relation(fields: [proveedorId], references: [id])
+  pedido    Pedido?    @relation(fields: [pedidoId], references: [id])
+  createdBy User?      @relation(fields: [createdById], references: [id])
+
+  @@index([temporadaId, categoria])
+  @@index([proveedorId])
 }
