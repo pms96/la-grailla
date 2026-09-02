@@ -20,3 +20,9 @@ export const CATEGORIAS_GASTO = [
 ] as const;
 
 export const TIPOS_DOCUMENTO_GASTO = ['Factura', 'Abono', 'Otro'] as const;
+
+export const PEDIDO_STATUS_LABEL: Record<string, string> = {
+  BORRADOR: 'Borrador',
+  ENVIADO: 'Enviado',
+  RECIBIDO: 'Recibido',
+};

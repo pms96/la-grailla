@@ -5,10 +5,12 @@ import type { Temporada, Pedido, Proveedor, LineaPedido, Articulo, Gasto } from 
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Sparkles, PackageCheck, Send, Wallet } from 'lucide-react';
+import { Loader2, Sparkles, PackageCheck, Send, Wallet, FileSpreadsheet, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { precioConIva } from '@/lib/compras/calculadora';
+import { PEDIDO_STATUS_LABEL as STATUS_LABEL } from '@/lib/compras/constantes';
 import { GastoDesdePedidoDialog } from '@/app/admin/gastos/_components/gasto-desde-pedido-dialog';
+import { downloadPedidosExport } from '@/lib/compras/pedidos-export';
 
 type PedidoConDetalle = Pedido & {
   proveedor: Proveedor;
@@ -17,7 +19,6 @@ type PedidoConDetalle = Pedido & {
   gasto: Gasto | null;
 };
 
-const STATUS_LABEL: Record<string, string> = { BORRADOR: 'Borrador', ENVIADO: 'Enviado', RECIBIDO: 'Recibido' };
 const STATUS_VARIANT: Record<string, 'secondary' | 'outline' | 'default'> = { BORRADOR: 'secondary', ENVIADO: 'outline', RECIBIDO: 'default' };
 const SIGUIENTE_ESTADO: Record<string, string> = { BORRADOR: 'ENVIADO', ENVIADO: 'RECIBIDO' };
 
@@ -27,6 +28,7 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
   const [generando, setGenerando] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [registrarGastoPedido, setRegistrarGastoPedido] = useState<PedidoConDetalle | null>(null);
+  const [exportando, setExportando] = useState<'excel' | 'pdf' | null>(null);
 
   const fetchPedidos = useCallback(() => {
     if (!temporada) { setPedidos([]); setLoading(false); return; }
@@ -77,6 +79,19 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
     }
   };
 
+  const handleExport = async (format: 'excel' | 'pdf') => {
+    if (!temporada) return;
+    setExportando(format);
+    try {
+      await downloadPedidosExport(temporada.id, format);
+      toast.success(format === 'excel' ? 'Excel de pedidos descargado' : 'PDF de pedidos descargado');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al exportar');
+    } finally {
+      setExportando(null);
+    }
+  };
+
   if (!temporada) {
     return <p className="text-sm text-muted-foreground py-10 text-center">Selecciona una temporada para ver sus pedidos.</p>;
   }
@@ -86,7 +101,15 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button variant="outline" size="sm" className="gap-2" disabled={exportando !== null || pedidos.length === 0} onClick={() => handleExport('excel')}>
+          {exportando === 'excel' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+          Exportar Excel
+        </Button>
+        <Button variant="outline" size="sm" className="gap-2" disabled={exportando !== null || pedidos.length === 0} onClick={() => handleExport('pdf')}>
+          {exportando === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+          Exportar PDF
+        </Button>
         <Button onClick={generarPedidos} disabled={generando} size="sm" className="gap-2">
           {generando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
           Generar pedidos desde el planificador
@@ -111,7 +134,12 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
                     <p className="font-medium">{p.proveedor.nombre}</p>
                     <p className="text-xs text-muted-foreground">{new Date(p.fechaPedido).toLocaleDateString('es-ES')} · {p.lineas.length} artículos</p>
                   </div>
-                  <Badge variant={STATUS_VARIANT[p.status]}>{STATUS_LABEL[p.status]}</Badge>
+                  <div className="text-right">
+                    <p className="font-semibold text-sm">
+                      {p.lineas.reduce((sum, l) => sum + precioConIva(l.precioSinIva, l.ivaPercent) * l.cantidad, 0).toFixed(2)}€
+                    </p>
+                    <Badge variant={STATUS_VARIANT[p.status]}>{STATUS_LABEL[p.status]}</Badge>
+                  </div>
                 </CardContent>
               </Card>
             ))}
