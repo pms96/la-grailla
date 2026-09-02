@@ -63,3 +63,56 @@ describe('getAbacusAIProvider', () => {
     expect(provider).toBeInstanceOf(MockAbacusAIAdapter);
   });
 });
+
+describe('AbacusAIAdapter.extractArticulosFromImage', () => {
+  beforeAll(() => {
+    if (!process.env.NEXTAUTH_SECRET) {
+      process.env.NEXTAUTH_SECRET = 'test-secret-for-abacus-adapter-vitest';
+    }
+  });
+
+  it('extrae los artículos de la imagen y normaliza categoría/precio/unidad mínima', async () => {
+    createMock.mockResolvedValueOnce({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              items: [
+                { nombre: 'Cruzcampo 1/3', categoria: 'Cervezas', formato: 'Botella 1/3', formatoVenta: 'Caja 24', precioSinIva: '0.534', unidadMinPedido: '24' },
+                // categoría inventada por el modelo -> debe caer a 'Otros'; sin formatoVenta -> 'Unidad'
+                { nombre: 'Producto raro', categoria: 'Lácteos', formato: 'Botella 1L', precioSinIva: 1.2 },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    const { AbacusAIAdapter } = await import('@/lib/abacus-ai-adapter');
+    const adapter = new AbacusAIAdapter('fake-key');
+    const { items } = await adapter.extractArticulosFromImage({ imageUrl: 'https://example.com/lista.jpg' });
+
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ nombre: 'Cruzcampo 1/3', categoria: 'Cervezas', precioSinIva: 0.53, unidadMinPedido: 24 });
+    expect(items[1]).toMatchObject({ nombre: 'Producto raro', categoria: 'Otros', formatoVenta: 'Unidad', unidadMinPedido: 1 });
+  });
+
+  it('devuelve una lista vacía si la imagen no tiene artículos legibles', async () => {
+    createMock.mockResolvedValueOnce({ choices: [{ message: { content: '{"items":[]}' } }] });
+
+    const { AbacusAIAdapter } = await import('@/lib/abacus-ai-adapter');
+    const adapter = new AbacusAIAdapter('fake-key');
+    const { items } = await adapter.extractArticulosFromImage({ imageUrl: 'https://example.com/lista.jpg' });
+    expect(items).toEqual([]);
+  });
+
+  it('lanza un error claro si la respuesta no trae JSON parseable', async () => {
+    createMock.mockResolvedValueOnce({ choices: [{ message: { content: 'no puedo leer la imagen' } }] });
+
+    const { AbacusAIAdapter } = await import('@/lib/abacus-ai-adapter');
+    const adapter = new AbacusAIAdapter('fake-key');
+    await expect(
+      adapter.extractArticulosFromImage({ imageUrl: 'https://example.com/lista.jpg' })
+    ).rejects.toThrow(/JSON/);
+  });
+});

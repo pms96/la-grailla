@@ -82,8 +82,81 @@ Devuelve EXCLUSIVAMENTE un JSON con esta forma, sin texto adicional antes ni des
 {"prompt_es": "...", "prompt_en": "..."}
 Cada campo debe ser un único prompt con la estructura de 3 tramos descrita arriba, en prosa continua (no listas ni saltos de línea), con la duración exacta y los requisitos técnicos incluidos al final.`;
 
+export type ExtractArticulosFromImageInput = { imageUrl: string };
+
+export type ArticuloExtraido = {
+  nombre: string;
+  categoria: string;
+  formato: string;
+  formatoVenta: string;
+  precioSinIva: number;
+  unidadMinPedido: number;
+};
+
+export type ExtractArticulosFromImageResult = { items: ArticuloExtraido[]; raw: unknown };
+
 export interface AbacusAIProvider {
   generateVideoPrompt(input: GenerateVideoPromptInput): Promise<GenerateVideoPromptResult>;
+  extractArticulosFromImage(input: ExtractArticulosFromImageInput): Promise<ExtractArticulosFromImageResult>;
+}
+
+// Prompt de sistema para digitalizar listados de precios de proveedores
+// (fotos o escaneos de tarifas) en artículos estructurados para el
+// planificador de compras. El admin siempre revisa/edita cada fila antes de
+// confirmar la importación, así que el prompt prioriza no omitir líneas
+// ambiguas frente a acertar el 100% de los campos.
+export const ABACUS_ARTICULOS_META_PROMPT = `Eres un asistente que digitaliza listados de precios de proveedores de bebidas para una caseta de feria. A partir de la imagen adjunta (foto o escaneo de una tarifa/lista de precios de un proveedor), extrae cada artículo como una fila estructurada.
+
+Para cada línea del listado, identifica:
+- "nombre": nombre del producto tal cual aparece (ej. "Cruzcampo 1/3", "Fanta Naranja 33cl").
+- "categoria": la que mejor encaje de entre exactamente estas opciones: Refrescos, Cervezas, Espirituosos, Aguas, Vinos, Otros.
+- "formato": el formato del producto en sí (ej. "Lata 33cl", "Botella 1L"), no la unidad de venta del proveedor.
+- "formatoVenta": cómo lo vende el proveedor (ej. "Caja 24 uds", "Palet", "Por botella"). Si no se especifica, usa "Unidad".
+- "precioSinIva": el precio SIN IVA, como número (ej. 12.72). Si el precio impreso parece incluir IVA (lo indica el documento, o es una tarifa a consumidor final), calcula el precio sin IVA asumiendo un 21% de IVA salvo que el documento indique otro tipo distinto. Si no puedes determinarlo con seguridad, da tu mejor estimación.
+- "unidadMinPedido": cantidad mínima de unidades de venta por pedido, como número entero, si se indica; si no, usa 1.
+
+Ignora encabezados, logos, condiciones comerciales y cualquier línea que no sea un artículo con precio. Si una línea es ambigua o el texto es difícil de leer, haz tu mejor estimación razonable en vez de omitirla, salvo que sea completamente indescifrable.
+
+Devuelve EXCLUSIVAMENTE un JSON con esta forma, sin texto adicional antes ni después, sin bloque de código:
+{"items":[{"nombre":"...","categoria":"...","formato":"...","formatoVenta":"...","precioSinIva":0.0,"unidadMinPedido":1}]}
+Si no detectas ningún artículo legible en la imagen, devuelve {"items":[]}.`;
+
+const CATEGORIAS_VALIDAS = ['Refrescos', 'Cervezas', 'Espirituosos', 'Aguas', 'Vinos', 'Otros'];
+
+function parseArticulosResponse(content: string | null | undefined): ArticuloExtraido[] {
+  const text = content ?? '';
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('Abacus.AI no devolvió un JSON con la lista de artículos');
+  }
+  let parsed: { items?: unknown[] };
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch {
+    throw new Error('Abacus.AI no devolvió un JSON válido con la lista de artículos');
+  }
+  if (!Array.isArray(parsed.items)) {
+    throw new Error('La respuesta de Abacus.AI no incluye un array "items"');
+  }
+  return parsed.items
+    .filter((raw): raw is Record<string, unknown> => typeof raw === 'object' && raw !== null)
+    .map((raw) => {
+      const nombre = String(raw.nombre ?? '').trim();
+      const categoria = CATEGORIAS_VALIDAS.includes(String(raw.categoria)) ? String(raw.categoria) : 'Otros';
+      const formato = String(raw.formato ?? '').trim();
+      const formatoVenta = String(raw.formatoVenta ?? '').trim() || 'Unidad';
+      const precioSinIva = Number(raw.precioSinIva);
+      const unidadMinPedido = Number(raw.unidadMinPedido);
+      return {
+        nombre,
+        categoria,
+        formato,
+        formatoVenta,
+        precioSinIva: Number.isFinite(precioSinIva) ? Math.round(precioSinIva * 100) / 100 : 0,
+        unidadMinPedido: Number.isFinite(unidadMinPedido) && unidadMinPedido > 0 ? Math.round(unidadMinPedido) : 1,
+      };
+    })
+    .filter((item) => item.nombre.length > 0);
 }
 
 function buildUserContext(input: GenerateVideoPromptInput): string {
@@ -150,6 +223,29 @@ export class AbacusAIAdapter implements AbacusAIProvider {
     const { promptEs, promptEn } = parseAbacusResponse(completion.choices[0]?.message?.content);
     return { promptEs, promptEn, raw: completion };
   }
+
+  async extractArticulosFromImage(input: ExtractArticulosFromImageInput): Promise<ExtractArticulosFromImageResult> {
+    const OpenAI = (await import('openai')).default;
+    const client = new OpenAI({ baseURL: 'https://routellm.abacus.ai/v1', apiKey: this.apiKey });
+
+    const completion = await client.chat.completions.create({
+      model: 'route-llm',
+      stream: false,
+      messages: [
+        { role: 'system', content: ABACUS_ARTICULOS_META_PROMPT },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Extrae los artículos de esta imagen de listado de precios.' },
+            { type: 'image_url', image_url: { url: input.imageUrl } },
+          ],
+        },
+      ],
+    });
+
+    const items = parseArticulosResponse(completion.choices[0]?.message?.content);
+    return { items, raw: completion };
+  }
 }
 
 export class MockAbacusAIAdapter implements AbacusAIProvider {
@@ -157,6 +253,14 @@ export class MockAbacusAIAdapter implements AbacusAIProvider {
     const promptEs = `[MOCK] Vídeo cinemático de 15 segundos, mudo, revelando el logo de la marca con transiciones elegantes de luz, sin alterar tipografía ni colores. Contexto: ${input.freeText || 'sin descripción'}.`;
     const promptEn = `[MOCK] 15-second silent cinematic video revealing the brand logo with elegant light transitions, no typography or color changes. Context: ${input.freeText || 'no description'}.`;
     return { promptEs, promptEn, raw: { mock: true } };
+  }
+
+  async extractArticulosFromImage(_input: ExtractArticulosFromImageInput): Promise<ExtractArticulosFromImageResult> {
+    const items: ArticuloExtraido[] = [
+      { nombre: '[MOCK] Cruzcampo 1/3', categoria: 'Cervezas', formato: 'Botella 1/3', formatoVenta: 'Caja 24 uds', precioSinIva: 0.53, unidadMinPedido: 1 },
+      { nombre: '[MOCK] Fanta Naranja 33cl', categoria: 'Refrescos', formato: 'Lata 33cl', formatoVenta: 'Caja 24 uds', precioSinIva: 0.48, unidadMinPedido: 1 },
+    ];
+    return { items, raw: { mock: true } };
   }
 }
 

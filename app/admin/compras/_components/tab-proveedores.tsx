@@ -9,8 +9,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Loader2, Plus, Pencil, Trash2, Truck } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, Truck, FileSpreadsheet, FileText } from 'lucide-react';
 import { toast } from 'sonner';
+import { downloadProveedoresExport } from '@/lib/compras/proveedores-export';
 
 type FormState = { nombre: string; contacto: string; telefono: string; email: string; notas: string };
 const EMPTY: FormState = { nombre: '', contacto: '', telefono: '', email: '', notas: '' };
@@ -22,6 +23,7 @@ export function TabProveedores() {
   const [editing, setEditing] = useState<Proveedor | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [exportando, setExportando] = useState<'excel' | 'pdf' | null>(null);
 
   const fetchProveedores = useCallback(() => {
     fetch('/api/admin/compras/proveedores')
@@ -67,11 +69,31 @@ export function TabProveedores() {
     if (res.ok) { toast.success('Proveedor desactivado'); fetchProveedores(); } else { toast.error('No se pudo desactivar'); }
   };
 
+  const handleExport = async (format: 'excel' | 'pdf') => {
+    setExportando(format);
+    try {
+      await downloadProveedoresExport(format);
+      toast.success(format === 'excel' ? 'Excel de proveedores descargado' : 'PDF de proveedores descargado');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al exportar');
+    } finally {
+      setExportando(null);
+    }
+  };
+
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button variant="outline" size="sm" className="gap-2" disabled={exportando !== null || proveedores.length === 0} onClick={() => handleExport('excel')}>
+          {exportando === 'excel' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+          Exportar Excel
+        </Button>
+        <Button variant="outline" size="sm" className="gap-2" disabled={exportando !== null || proveedores.length === 0} onClick={() => handleExport('pdf')}>
+          {exportando === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+          Exportar PDF
+        </Button>
         <Button onClick={openCreate} size="sm" className="gap-2"><Plus className="h-4 w-4" /> Nuevo proveedor</Button>
       </div>
 
