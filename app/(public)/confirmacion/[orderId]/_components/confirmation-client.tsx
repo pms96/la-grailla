@@ -6,7 +6,6 @@ import type { Prisma } from '@prisma/client';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
   CheckCircle,
   Download,
@@ -21,6 +20,9 @@ import {
   SearchX,
 } from 'lucide-react';
 import { FadeIn } from '@/components/ui/animate';
+import { EventTicket, TICKET_BARCODE_BG } from '@/components/event-ticket';
+import { Logo } from '@/components/logo';
+import QRCode from 'qrcode';
 
 type OrderWithTickets = Prisma.OrderGetPayload<{
   include: { event: true; tickets: { include: { ticketType: true } } };
@@ -272,44 +274,12 @@ export default function ConfirmationClient({
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
-            <h3 className="font-display font-bold text-lg mb-4 flex items-center gap-2">
-              <Ticket className="h-5 w-5 text-primary" /> Tus Entradas ({(validOrder?.tickets?.length ?? 0)})
-            </h3>
-            <div className="space-y-3">
-              {(validOrder?.tickets ?? []).map((ticket) => (
-                <div key={ticket?.id} className="p-3 rounded-lg bg-muted/50 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-medium">{ticket?.holderName ?? ''}</p>
-                      <p className="text-xs text-muted-foreground">{ticket?.ticketType?.name ?? 'General'}</p>
-                    </div>
-                    <Badge variant="secondary" className="font-mono text-xs">{ticket?.qrCode?.slice(0, 12) ?? ''}</Badge>
-                  </div>
-                  {(wallet.google || wallet.apple) && (
-                    <div className="flex flex-wrap gap-2">
-                      {wallet.google && (
-                        <Button asChild variant="outline" size="sm" className="gap-2">
-                          <a href={`/api/wallet/google/${ticket?.id}${tokenQs}`} target="_blank" rel="noopener noreferrer">
-                            <Wallet className="h-3.5 w-3.5" /> Google Wallet
-                          </a>
-                        </Button>
-                      )}
-                      {wallet.apple && (
-                        <Button asChild variant="outline" size="sm" className="gap-2">
-                          <a href={`/api/wallet/apple/${ticket?.id}${tokenQs}`}>
-                            <Wallet className="h-3.5 w-3.5" /> Apple Wallet
-                          </a>
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        <div className="space-y-3">
+          <h3 className="font-display font-bold text-lg flex items-center gap-2">
+            <Ticket className="h-5 w-5 text-primary" /> Tus Entradas ({(validOrder?.tickets?.length ?? 0)})
+          </h3>
+          <TicketCarousel order={validOrder} wallet={wallet} tokenQs={tokenQs} />
+        </div>
 
         <Card>
           <CardContent className="p-6">
@@ -366,6 +336,134 @@ function ConfirmationPeak() {
       >
         Tus entradas están listas — QR por email
       </motion.p>
+    </div>
+  );
+}
+
+/** Genera el QR real de cada entrada en el navegador a partir del código ya cargado (no hace falta un endpoint nuevo). */
+function useTicketQrCodes(codes: string[]): Record<string, string> {
+  const [dataUrls, setDataUrls] = useState<Record<string, string>>({});
+  const key = codes.join(',');
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      codes.map(async (code) => [
+        code,
+        await QRCode.toDataURL(code, { width: 240, margin: 1, errorCorrectionLevel: 'H', color: { dark: '#000000', light: '#ffffff' } }),
+      ] as const),
+    ).then((entries) => {
+      if (!cancelled) setDataUrls(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` ya representa el contenido de `codes`
+  }, [key]);
+
+  return dataUrls;
+}
+
+/** Carrusel horizontal con una entrada física por ticket, QR real incluido. */
+function TicketCarousel({
+  order,
+  wallet,
+  tokenQs,
+}: {
+  order: OrderWithTickets;
+  wallet: { google: boolean; apple: boolean };
+  tokenQs: string;
+}) {
+  const tickets = order?.tickets ?? [];
+  const qrCodes = useTicketQrCodes(tickets.map((t) => t?.qrCode ?? '').filter(Boolean));
+  const eventDate = order?.event?.date ? new Date(order.event.date) : null;
+  const shortDate = eventDate
+    ? `${String(eventDate.getDate()).padStart(2, '0')}.${String(eventDate.getMonth() + 1).padStart(2, '0')}`
+    : '';
+  const hasWallet = wallet.google || wallet.apple;
+
+  return (
+    <div className="-mx-4 flex snap-x snap-proximity gap-4 overflow-x-auto px-4 pb-2">
+      {tickets.map((ticket) => (
+        <div key={ticket?.id} className="w-[220px] shrink-0 snap-start">
+          <EventTicket
+            aria-label={`Entrada de ${ticket?.holderName ?? ''} para ${order?.event?.name ?? ''}`}
+            stubHeight={hasWallet ? 172 : 128}
+            body={
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between gap-2">
+                  <Logo variant="black" aria-hidden className="h-3 w-auto opacity-80" />
+                  <span className="truncate font-mono text-xs uppercase tracking-wide text-black/50">
+                    {order?.event?.city ?? ''}
+                  </span>
+                </div>
+                <div className="mx-auto rounded-md bg-white p-2.5 shadow-[0_1px_2px_rgb(0_0_0/0.15)]">
+                  {qrCodes[ticket?.qrCode ?? ''] ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- data URL generada en el cliente, no aplica next/image
+                    <img src={qrCodes[ticket?.qrCode ?? '']} alt="Código QR de la entrada" className="h-28 w-28" />
+                  ) : (
+                    <div className="h-28 w-28 animate-pulse rounded bg-black/10" />
+                  )}
+                </div>
+                <h3 className="font-display text-lg font-bold uppercase leading-none tracking-tight text-black">
+                  {order?.event?.name ?? ''}
+                </h3>
+                <dl className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-0.5">
+                    <dt className="font-display text-xs font-semibold uppercase tracking-wide text-black/55">Fecha</dt>
+                    <dd className="font-mono text-xs font-bold text-black">{shortDate}</dd>
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    <dt className="font-display text-xs font-semibold uppercase tracking-wide text-black/55">Tipo</dt>
+                    <dd className="truncate font-mono text-xs font-bold text-black">{ticket?.ticketType?.name ?? 'General'}</dd>
+                  </div>
+                </dl>
+              </div>
+            }
+            stub={
+              <div className="flex h-full flex-col justify-between gap-2.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="font-display text-xs font-semibold uppercase tracking-wide text-black/55">Titular</span>
+                    <strong className="truncate font-display text-sm font-bold uppercase leading-none text-black">
+                      {ticket?.holderName ?? ''}
+                    </strong>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-0.5 text-right">
+                    <span className="font-display text-xs font-semibold uppercase tracking-wide text-black/55">Ref</span>
+                    <strong className="font-mono text-xs font-bold uppercase leading-none text-black">
+                      {ticket?.qrCode?.slice(0, 12) ?? ''}
+                    </strong>
+                  </div>
+                </div>
+                {hasWallet && (
+                  <div className="flex items-center justify-center gap-1.5">
+                    {wallet.google && (
+                      <a
+                        href={`/api/wallet/google/${ticket?.id}${tokenQs}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex flex-1 items-center justify-center gap-1 rounded-full border border-black/70 px-2 py-1 font-display text-xs font-semibold uppercase tracking-wide text-black transition-colors hover:bg-black/10 active:scale-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black/70"
+                      >
+                        <Wallet className="h-3 w-3" aria-hidden /> Google
+                      </a>
+                    )}
+                    {wallet.apple && (
+                      <a
+                        href={`/api/wallet/apple/${ticket?.id}${tokenQs}`}
+                        className="inline-flex flex-1 items-center justify-center gap-1 rounded-full border border-black/70 px-2 py-1 font-display text-xs font-semibold uppercase tracking-wide text-black transition-colors hover:bg-black/10 active:scale-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black/70"
+                      >
+                        <Wallet className="h-3 w-3" aria-hidden /> Apple
+                      </a>
+                    )}
+                  </div>
+                )}
+                <div aria-hidden="true" className="h-4 w-full opacity-70" style={{ background: TICKET_BARCODE_BG }} />
+              </div>
+            }
+          />
+        </div>
+      ))}
     </div>
   );
 }

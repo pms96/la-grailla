@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle, Clock, Package, XCircle, Loader2 } from 'lucide-react';
+import { ReceiptPrinter, usePrintSequence } from '@/components/receipt-printer';
 
 type ShopOrderView = {
   id: string;
@@ -131,42 +132,7 @@ export default function ShopConfirmationClient({ orderId }: { orderId: string })
         </p>
       </div>
 
-      <Card>
-        <CardContent className="p-6 space-y-4">
-          <div className="flex items-center gap-2">
-            <Package className="h-5 w-5 text-primary" />
-            <h2 className="font-display font-bold text-lg">
-              Pedido #{order.id.slice(0, 8).toUpperCase()}
-            </h2>
-          </div>
-          <div className="space-y-2">
-            {(order.items ?? []).map((item) => (
-              <div key={item.id} className="flex justify-between text-sm">
-                <span className="text-muted-foreground">
-                  {item.quantity} x {item.product?.name ?? ''}
-                  {[item.size, item.color].filter(Boolean).length > 0
-                    ? ' (' + [item.size, item.color].filter(Boolean).join(', ') + ')'
-                    : ''}
-                </span>
-                <span>{(item.unitPrice * item.quantity).toFixed(2)}€</span>
-              </div>
-            ))}
-            <div className="flex justify-between border-t pt-2 font-bold">
-              <span>Total</span>
-              <span>{order.totalAmount.toFixed(2)}€</span>
-            </div>
-          </div>
-          <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground mb-1">Dirección de envío</p>
-            <p>{order.buyerName}</p>
-            <p>{order.shippingAddress}</p>
-            <p>
-              {order.shippingZip} {order.shippingCity}
-            </p>
-            {order.shippingPhone && <p>{order.shippingPhone}</p>}
-          </div>
-        </CardContent>
-      </Card>
+      <ShopReceiptPrinter order={order} />
 
       <div className="flex justify-center">
         <Button asChild variant="outline">
@@ -174,5 +140,67 @@ export default function ShopConfirmationClient({ orderId }: { orderId: string })
         </Button>
       </div>
     </div>
+  );
+}
+
+/** Recibo imprimiéndose con los artículos y el envío del pedido de tienda. */
+function ShopReceiptPrinter({ order }: { order: ShopOrderView }) {
+  const stage = usePrintSequence(true);
+  const shortCode = order.id.slice(0, 8).toUpperCase();
+
+  return (
+    <ReceiptPrinter.Root stage={stage}>
+      <ReceiptPrinter.Machine orderCode={shortCode}>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2 font-mono text-xs">
+            <span className="truncate text-white/70">Pedido de tienda</span>
+            <span className="shrink-0 font-bold text-white">{order.totalAmount.toFixed(2)}€</span>
+          </div>
+          <ReceiptPrinter.Status />
+        </div>
+      </ReceiptPrinter.Machine>
+      <ReceiptPrinter.Output>
+        <ReceiptPrinter.Paper>
+          <header className="text-center">
+            <p className="text-xs tracking-[0.2em] text-black/45">LA GRAILLA · RECIBO</p>
+            <h3 className="mt-1 font-display text-base font-bold leading-tight text-black">
+              Pedido #{shortCode}
+            </h3>
+          </header>
+          <ReceiptPrinter.DashedRule />
+          <div className="flex items-center gap-2">
+            <Package className="h-3.5 w-3.5 text-black/60" />
+            <p className="text-xs font-bold uppercase tracking-wide text-black">Artículos</p>
+          </div>
+          <div className="mt-2 space-y-1.5">
+            {(order.items ?? []).map((item) => (
+              <div key={item.id} className="flex justify-between gap-2 text-xs">
+                <span className="text-black/70">
+                  {item.quantity} x {item.product?.name ?? ''}
+                  {[item.size, item.color].filter(Boolean).length > 0
+                    ? ' (' + [item.size, item.color].filter(Boolean).join(', ') + ')'
+                    : ''}
+                </span>
+                <span className="shrink-0 text-black">{(item.unitPrice * item.quantity).toFixed(2)}€</span>
+              </div>
+            ))}
+          </div>
+          <ReceiptPrinter.DashedRule />
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wide text-black/60">Total</span>
+            <span className="font-display text-lg font-bold text-black">{order.totalAmount.toFixed(2)}€</span>
+          </div>
+          <ReceiptPrinter.DashedRule />
+          <p className="text-xs font-bold uppercase tracking-wide text-black">Dirección de envío</p>
+          <div className="mt-1.5 space-y-0.5 text-xs text-black/70">
+            <p>{order.buyerName}</p>
+            <p>{order.shippingAddress}</p>
+            <p>{order.shippingZip} {order.shippingCity}</p>
+            {order.shippingPhone && <p>{order.shippingPhone}</p>}
+          </div>
+          <p className="mt-4 text-center text-xs text-black/40">¡Nos vemos en la caseta! 🍻</p>
+        </ReceiptPrinter.Paper>
+      </ReceiptPrinter.Output>
+    </ReceiptPrinter.Root>
   );
 }
