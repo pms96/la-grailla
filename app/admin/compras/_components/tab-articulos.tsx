@@ -274,23 +274,35 @@ export function TabArticulos() {
                         </SelectContent>
                       </Select>
                       <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs font-normal text-muted-foreground">Precio s/IVA</Label>
+                          <Input
+                            type="number" step="0.01" placeholder="Precio s/IVA"
+                            value={p.precioSinIva} onChange={(e) => updatePrecioRow(idx, { precioSinIva: e.target.value })} className="h-8"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs font-normal text-muted-foreground">Descuento %</Label>
+                          <Input
+                            type="number" step="0.1" min={0} max={100} placeholder="Descuento %"
+                            value={p.descuentoPercent} onChange={(e) => updatePrecioRow(idx, { descuentoPercent: e.target.value })} className="h-8"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs font-normal text-muted-foreground">Formato venta</Label>
+                          <Input
+                            placeholder="Formato venta" value={p.formatoVenta}
+                            onChange={(e) => updatePrecioRow(idx, { formatoVenta: e.target.value })} className="h-8"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs font-normal text-muted-foreground">Unidad mínima de pedido</Label>
                         <Input
-                          type="number" step="0.01" placeholder="Precio s/IVA"
-                          value={p.precioSinIva} onChange={(e) => updatePrecioRow(idx, { precioSinIva: e.target.value })} className="h-8"
-                        />
-                        <Input
-                          type="number" step="0.1" min={0} max={100} placeholder="Descuento %"
-                          value={p.descuentoPercent} onChange={(e) => updatePrecioRow(idx, { descuentoPercent: e.target.value })} className="h-8"
-                        />
-                        <Input
-                          placeholder="Formato venta" value={p.formatoVenta}
-                          onChange={(e) => updatePrecioRow(idx, { formatoVenta: e.target.value })} className="h-8"
+                          type="number" min={1} placeholder="Unidad mínima de pedido"
+                          value={p.unidadMinPedido} onChange={(e) => updatePrecioRow(idx, { unidadMinPedido: e.target.value })} className="h-8"
                         />
                       </div>
-                      <Input
-                        type="number" min={1} placeholder="Unidad mínima de pedido"
-                        value={p.unidadMinPedido} onChange={(e) => updatePrecioRow(idx, { unidadMinPedido: e.target.value })} className="h-8"
-                      />
                     </div>
                     <Button type="button" variant="ghost" size="icon-sm" onClick={() => removePrecioRow(idx)}>
                       <X className="h-3.5 w-3.5" />
