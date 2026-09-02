@@ -8,6 +8,10 @@ import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 
 const itemSchema = z.object({
+  // Si viene, la fila se une a ese artículo ya existente en vez de buscarlo por
+  // nombre — permite unificar el mismo producto entre proveedores aunque el
+  // texto detectado en cada imagen no coincida exactamente.
+  articuloId: z.string().optional(),
   nombre: z.string().min(1),
   categoria: z.string().min(1),
   formato: z.string().min(1),
@@ -38,15 +42,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 });
     }
 
+    const idsVinculados = Array.from(new Set(items.map((i) => i.articuloId).filter((id): id is string => Boolean(id))));
+    if (idsVinculados.length > 0) {
+      const encontrados = await prisma.articulo.findMany({ where: { id: { in: idsVinculados } }, select: { id: true } });
+      if (encontrados.length !== idsVinculados.length) {
+        return NextResponse.json({ error: 'Alguno de los artículos a los que quieres vincular ya no existe' }, { status: 400 });
+      }
+    }
+
     const resultado = await prisma.$transaction(async (tx) => {
       let creados = 0;
       let actualizados = 0;
       const articulos = [];
 
       for (const item of items) {
-        const existente = await tx.articulo.findFirst({
-          where: { nombre: { equals: item.nombre, mode: 'insensitive' } },
-        });
+        const existente = item.articuloId
+          ? { id: item.articuloId }
+          : await tx.articulo.findFirst({ where: { nombre: { equals: item.nombre, mode: 'insensitive' } } });
 
         const articuloId = existente
           ? existente.id

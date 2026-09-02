@@ -1,17 +1,22 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import type { Proveedor } from '@prisma/client';
+import type { Articulo, PrecioArticulo, Proveedor } from '@prisma/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, ImageUp, Plus, Trash2, Sparkles } from 'lucide-react';
+import { Loader2, ImageUp, Plus, Trash2, Sparkles, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { CATEGORIAS_ARTICULO } from '@/lib/compras/constantes';
 
+type ArticuloConPrecios = Articulo & { precios: (PrecioArticulo & { proveedor: Proveedor })[] };
+
+const CREAR_NUEVO = '__nuevo__';
+
 type FilaImportada = {
+  articuloId: string | null; // null = crear artículo nuevo; si no, se une al ya existente
   nombre: string;
   categoria: string;
   formato: string;
@@ -21,6 +26,7 @@ type FilaImportada = {
 };
 
 const FILA_VACIA: FilaImportada = {
+  articuloId: null,
   nombre: '',
   categoria: CATEGORIAS_ARTICULO[0],
   formato: '',
@@ -29,14 +35,25 @@ const FILA_VACIA: FilaImportada = {
   unidadMinPedido: '1',
 };
 
+/** Normaliza para comparar nombres sin distinguir mayúsculas, acentos ni espacios extra. */
+function normalizar(texto: string): string {
+  return texto
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
 type Props = {
   open: boolean;
   onClose: () => void;
   proveedores: Proveedor[];
+  articulos: ArticuloConPrecios[];
   onImported: () => void;
 };
 
-export function ImportarArticulosDialog({ open, onClose, proveedores, onImported }: Props) {
+export function ImportarArticulosDialog({ open, onClose, proveedores, articulos, onImported }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [proveedorId, setProveedorId] = useState('');
   const [extrayendo, setExtrayendo] = useState(false);
@@ -77,14 +94,33 @@ export function ImportarArticulosDialog({ open, onClose, proveedores, onImported
 
       const items = Array.isArray(extraerData.items) ? extraerData.items : [];
       setFilas(
-        items.map((it: { nombre: string; categoria: string; formato: string; formatoVenta: string; precioSinIva: number; unidadMinPedido: number }) => ({
-          nombre: it.nombre,
-          categoria: it.categoria,
-          formato: it.formato,
-          formatoVenta: it.formatoVenta,
-          precioSinIva: String(it.precioSinIva ?? ''),
-          unidadMinPedido: String(it.unidadMinPedido ?? 1),
-        }))
+        items.map((it: { nombre: string; categoria: string; formato: string; formatoVenta: string; precioSinIva: number; unidadMinPedido: number }) => {
+          // Auto-vincula si el nombre coincide (ignorando mayúsculas/acentos/espacios) con
+          // un artículo ya existente — así dos proveedores con textos de imagen distintos
+          // ("Cruzcampo 1/3" vs "Cruzcampo botellín 1/3") se pueden seguir unificando a mano
+          // desde el desplegable si esta coincidencia automática no acierta.
+          const coincidencia = articulos.find((a) => normalizar(a.nombre) === normalizar(it.nombre));
+          if (coincidencia) {
+            return {
+              articuloId: coincidencia.id,
+              nombre: coincidencia.nombre,
+              categoria: coincidencia.categoria,
+              formato: coincidencia.formato,
+              formatoVenta: it.formatoVenta,
+              precioSinIva: String(it.precioSinIva ?? ''),
+              unidadMinPedido: String(it.unidadMinPedido ?? 1),
+            };
+          }
+          return {
+            articuloId: null,
+            nombre: it.nombre,
+            categoria: it.categoria,
+            formato: it.formato,
+            formatoVenta: it.formatoVenta,
+            precioSinIva: String(it.precioSinIva ?? ''),
+            unidadMinPedido: String(it.unidadMinPedido ?? 1),
+          };
+        })
       );
       setAnalizado(true);
       if (items.length === 0) {
@@ -102,6 +138,15 @@ export function ImportarArticulosDialog({ open, onClose, proveedores, onImported
   const updateFila = (idx: number, patch: Partial<FilaImportada>) => {
     setFilas((fs) => fs.map((f, i) => (i === idx ? { ...f, ...patch } : f)));
   };
+  const vincularFila = (idx: number, articuloId: string) => {
+    if (articuloId === CREAR_NUEVO) {
+      updateFila(idx, { articuloId: null });
+      return;
+    }
+    const articulo = articulos.find((a) => a.id === articuloId);
+    if (!articulo) return;
+    updateFila(idx, { articuloId: articulo.id, nombre: articulo.nombre, categoria: articulo.categoria, formato: articulo.formato });
+  };
   const removeFila = (idx: number) => setFilas((fs) => fs.filter((_, i) => i !== idx));
   const addFila = () => setFilas((fs) => [...fs, { ...FILA_VACIA }]);
 
@@ -116,6 +161,7 @@ export function ImportarArticulosDialog({ open, onClose, proveedores, onImported
         body: JSON.stringify({
           proveedorId,
           items: validas.map((f) => ({
+            articuloId: f.articuloId ?? undefined,
             nombre: f.nombre.trim(),
             categoria: f.categoria,
             formato: f.formato.trim(),
@@ -187,31 +233,74 @@ export function ImportarArticulosDialog({ open, onClose, proveedores, onImported
                   <Plus className="h-3.5 w-3.5" /> Añadir fila
                 </Button>
               </div>
-              <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
-                {filas.map((f, idx) => (
-                  <div key={idx} className="grid grid-cols-[1fr_auto] gap-2 rounded-md bg-muted/40 p-2">
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      <Input placeholder="Nombre" value={f.nombre} onChange={(e) => updateFila(idx, { nombre: e.target.value })} className="h-8 col-span-2 sm:col-span-1" />
-                      <Select value={f.categoria} onValueChange={(v) => updateFila(idx, { categoria: v })}>
-                        <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {CATEGORIAS_ARTICULO.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      <Input placeholder="Formato" value={f.formato} onChange={(e) => updateFila(idx, { formato: e.target.value })} className="h-8" />
-                      <Input placeholder="Formato de venta" value={f.formatoVenta} onChange={(e) => updateFila(idx, { formatoVenta: e.target.value })} className="h-8" />
-                      <Input type="number" step="0.01" placeholder="Precio s/IVA" value={f.precioSinIva} onChange={(e) => updateFila(idx, { precioSinIva: e.target.value })} className="h-8" />
-                      <Input type="number" min={1} placeholder="Ud. mín. pedido" value={f.unidadMinPedido} onChange={(e) => updateFila(idx, { unidadMinPedido: e.target.value })} className="h-8" />
+              <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+                {filas.map((f, idx) => {
+                  const vinculada = f.articuloId !== null;
+                  return (
+                    <div key={idx} className="space-y-2 rounded-md bg-muted/40 p-3">
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1 space-y-1">
+                          <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Link2 className="h-3 w-3" /> Vincular a artículo existente (para unificarlo con otros proveedores)
+                          </Label>
+                          <Select value={f.articuloId ?? CREAR_NUEVO} onValueChange={(v) => vincularFila(idx, v)}>
+                            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={CREAR_NUEVO}>— Crear artículo nuevo —</SelectItem>
+                              {articulos.map((a) => (
+                                <SelectItem key={a.id} value={a.id}>{a.nombre} · {a.categoria}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Button type="button" variant="ghost" size="icon-sm" className="mt-5" onClick={() => removeFila(idx)}>
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        <div className="col-span-2 sm:col-span-1 space-y-1">
+                          <Label className="text-xs text-muted-foreground">Nombre</Label>
+                          <Input disabled={vinculada} value={f.nombre} onChange={(e) => updateFila(idx, { nombre: e.target.value })} className="h-8" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Categoría</Label>
+                          <Select value={f.categoria} onValueChange={(v) => updateFila(idx, { categoria: v })} disabled={vinculada}>
+                            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {CATEGORIAS_ARTICULO.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Formato del producto</Label>
+                          <Input disabled={vinculada} placeholder="Lata 33cl" value={f.formato} onChange={(e) => updateFila(idx, { formato: e.target.value })} className="h-8" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Formato de venta del proveedor</Label>
+                          <Input placeholder="Caja 24 uds" value={f.formatoVenta} onChange={(e) => updateFila(idx, { formatoVenta: e.target.value })} className="h-8" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Precio s/IVA (€)</Label>
+                          <Input type="number" step="0.01" value={f.precioSinIva} onChange={(e) => updateFila(idx, { precioSinIva: e.target.value })} className="h-8" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Unidad mínima de pedido</Label>
+                          <Input type="number" min={1} value={f.unidadMinPedido} onChange={(e) => updateFila(idx, { unidadMinPedido: e.target.value })} className="h-8" />
+                        </div>
+                      </div>
+                      {vinculada && (
+                        <p className="text-xs text-muted-foreground">
+                          Nombre, categoría y formato vienen del artículo ya existente y no se pueden editar aquí — solo se añade/actualiza el precio de este proveedor.
+                        </p>
+                      )}
                     </div>
-                    <Button type="button" variant="ghost" size="icon-sm" onClick={() => removeFila(idx)}>
-                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                    </Button>
-                  </div>
-                ))}
+                  );
+                })}
                 {filas.length === 0 && <p className="text-xs text-muted-foreground">Sin artículos todavía — añade una fila a mano.</p>}
               </div>
               <p className="text-xs text-muted-foreground">
-                Un artículo con el mismo nombre que uno ya existente se actualizará con el precio de este proveedor; si no existe, se creará nuevo.
+                Las filas marcadas con un artículo ya existente detectado automáticamente se han vinculado por nombre — revisa el resto y vincúlalas a mano si un proveedor distinto usa un nombre diferente para el mismo producto.
               </p>
               <Button onClick={handleImportar} disabled={importando} className="w-full gap-2">
                 {importando ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

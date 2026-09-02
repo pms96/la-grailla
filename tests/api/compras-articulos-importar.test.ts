@@ -77,6 +77,65 @@ describe('POST /api/admin/compras/articulos/importar', () => {
     }
   });
 
+  it('unifica con un artículo existente vía articuloId aunque el nombre del listado sea distinto', async () => {
+    // Simula el caso real: dos proveedores con el mismo producto pero cuyo
+    // nombre en la imagen no coincide letra a letra — el admin lo vincula a
+    // mano en vez de depender del match por nombre.
+    const proveedorA = await prisma.proveedor.create({ data: { nombre: 'Proveedor Unificar A' } });
+    const proveedorB = await prisma.proveedor.create({ data: { nombre: 'Proveedor Unificar B' } });
+    const articulo = await prisma.articulo.create({ data: { nombre: 'Cruzcampo 1/3', categoria: 'Cervezas', formato: 'Botella 1/3' } });
+
+    try {
+      const res = await importar(
+        new Request('http://localhost', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            proveedorId: proveedorB.id,
+            items: [
+              { articuloId: articulo.id, nombre: 'Cruzcampo botellín 1/3 pack', categoria: 'Cervezas', formato: 'Botella 1/3', precioSinIva: 0.6, formatoVenta: 'Caja 24', unidadMinPedido: 24 },
+            ],
+          }),
+        })
+      );
+      const data = await res.json();
+      expect(res.status).toBe(200);
+      expect(data.creados).toBe(0);
+      expect(data.actualizados).toBe(1);
+      expect(data.articulos[0].id).toBe(articulo.id);
+      // El nombre/categoría/formato del artículo compartido no se tocan aunque
+      // el item enviara un texto distinto — solo se añade el precio del proveedor.
+      expect(data.articulos[0].nombre).toBe('Cruzcampo 1/3');
+
+      const precios = await prisma.precioArticulo.findMany({ where: { articuloId: articulo.id } });
+      expect(precios).toHaveLength(1);
+      expect(precios[0].proveedorId).toBe(proveedorB.id);
+      expect(precios[0].precioSinIva).toBe(0.6);
+    } finally {
+      await limpiar(proveedorA.id, []);
+      await limpiar(proveedorB.id, [articulo.id]);
+    }
+  });
+
+  it('rechaza un articuloId que no existe', async () => {
+    const proveedor = await prisma.proveedor.create({ data: { nombre: 'Proveedor Importar Id Inexistente' } });
+    try {
+      const res = await importar(
+        new Request('http://localhost', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            proveedorId: proveedor.id,
+            items: [{ articuloId: 'no-existe', nombre: 'X', categoria: 'Otros', formato: 'Unidad', precioSinIva: 1, formatoVenta: 'Unidad' }],
+          }),
+        })
+      );
+      expect(res.status).toBe(400);
+    } finally {
+      await limpiar(proveedor.id, []);
+    }
+  });
+
   it('rechaza items vacíos y proveedor inexistente', async () => {
     const resVacio = await importar(
       new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proveedorId: 'irrelevant', items: [] }) })

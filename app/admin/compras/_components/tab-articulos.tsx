@@ -304,6 +304,7 @@ export function TabArticulos() {
         open={importDialogOpen}
         onClose={() => setImportDialogOpen(false)}
         proveedores={proveedores}
+        articulos={articulos}
         onImported={fetchAll}
       />
     </div>
