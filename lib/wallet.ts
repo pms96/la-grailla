@@ -218,13 +218,23 @@ export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | nu
       }
     );
 
+    const eventDate = new Date(ticket.date);
+    const weekday = eventDate.toLocaleDateString('es-ES', { weekday: 'long', timeZone: 'Europe/Madrid' }).toUpperCase();
+
     pass.type = 'eventTicket';
+    // Etiqueta pequeña junto al logo (p. ej. "VIERNES") — mismo hueco que el
+    // "eyebrow" de un ticket físico, con dato real derivado de la fecha del
+    // evento en vez de una franja horaria inventada.
+    pass.headerFields.push({ key: 'weekday', label: '', value: weekday });
     pass.primaryFields.push({ key: 'event', label: 'Evento', value: ticket.eventName });
     pass.secondaryFields.push({ key: 'holder', label: 'Titular', value: ticket.holderName });
     pass.secondaryFields.push({
       key: 'date',
       label: 'Fecha',
-      value: new Date(ticket.date).toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid' }),
+      value:
+        eventDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', timeZone: 'Europe/Madrid' }) +
+        ' · ' +
+        eventDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' }),
     });
     pass.auxiliaryFields.push({ key: 'venue', label: 'Lugar', value: ticket.venue + ' - ' + ticket.city });
     pass.auxiliaryFields.push({ key: 'ticketType', label: 'Tipo', value: ticket.ticketTypeName });
