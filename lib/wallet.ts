@@ -130,14 +130,16 @@ async function fetchLogoBuffer(): Promise<Buffer> {
   return Buffer.from(await res.arrayBuffer());
 }
 
-async function fetchImageBuffer(url: string): Promise<Buffer | null> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    return Buffer.from(await res.arrayBuffer());
-  } catch {
-    return null;
-  }
+// Banda decorativa estática de marca (glow morado/lima sobre azul marino
+// profundo, mismo lenguaje que .hero-gradient en la web pública) — rellena
+// el hueco que el pase deja vacío entre los campos y el código de barras
+// cuando no hay imagen "strip". Se usa la misma para todas las entradas: la
+// foto real del evento (retrato, pensada para un cartel) recortaría fatal
+// en un formato tan ancho, así que de momento no varía por evento.
+async function fetchStripBuffer(): Promise<Buffer> {
+  const appUrl = process.env.NEXTAUTH_URL ?? '';
+  const res = await fetch(appUrl + '/brand/wallet-strip.png');
+  return Buffer.from(await res.arrayBuffer());
 }
 
 // passkit-generator firma el .pkpass con node-forge y espera el certificado
@@ -182,9 +184,7 @@ export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | nu
     const { PKPass } = await import('passkit-generator');
     const { certPem, keyPem } = await extractPemFromP12(cfg.apple_wallet_cert_p12_base64, cfg.apple_wallet_cert_password);
     const iconBuffer = await fetchLogoBuffer();
-    // Apple recorta el thumbnail a su propio layout (esquina, no circular) —
-    // es lo más parecido que permite PassKit al avatar con foto del diseño.
-    const thumbnailBuffer = ticket.eventImageUrl ? await fetchImageBuffer(ticket.eventImageUrl) : null;
+    const stripBuffer = await fetchStripBuffer();
 
     const passJson = {
       formatVersion: 1,
@@ -193,9 +193,12 @@ export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | nu
       organizationName: 'La Grailla',
       description: 'Entrada ' + ticket.eventName,
       serialNumber: ticket.ticketId,
-      foregroundColor: 'rgb(228,230,242)',
-      backgroundColor: 'rgb(31,26,34)',
-      labelColor: 'rgb(207,166,168)',
+      // Azul Marino Profundo + Verde Lima como labelColor: la misma pareja de
+      // marca morado/lima que el resto del producto, en vez de los tonos
+      // genéricos anteriores que no remitían a La Grailla.
+      foregroundColor: 'rgb(255,255,255)',
+      backgroundColor: 'rgb(11,11,20)',
+      labelColor: 'rgb(197,230,58)',
       eventTicket: {},
     };
 
@@ -205,7 +208,8 @@ export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | nu
         'icon.png': iconBuffer,
         'icon@2x.png': iconBuffer,
         'logo.png': iconBuffer,
-        ...(thumbnailBuffer ? { 'thumbnail.png': thumbnailBuffer, 'thumbnail@2x.png': thumbnailBuffer } : {}),
+        'strip.png': stripBuffer,
+        'strip@2x.png': stripBuffer,
       },
       {
         wwdr: Buffer.from(APPLE_WWDR_CERT_PEM),
@@ -223,6 +227,7 @@ export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | nu
       value: new Date(ticket.date).toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid' }),
     });
     pass.auxiliaryFields.push({ key: 'venue', label: 'Lugar', value: ticket.venue + ' - ' + ticket.city });
+    pass.auxiliaryFields.push({ key: 'ticketType', label: 'Tipo', value: ticket.ticketTypeName });
     pass.setBarcodes({ message: ticket.qrCode, format: 'PKBarcodeFormatQR', messageEncoding: 'iso-8859-1' });
 
     return pass.getAsBuffer();
