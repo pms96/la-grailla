@@ -119,25 +119,55 @@ export async function POST(request: Request) {
       });
     }
 
-    // Valid ticket — mark as used
-    await prisma.$transaction([
-      prisma.ticket.update({
-        where: { id: ticket.id },
+    // Valid ticket — mark as used. El `ticket` de arriba se leyó fuera de esta
+    // transacción, así que dos escaneos casi simultáneos del mismo QR pueden
+    // llegar los dos hasta aquí viendo status: 'VALID'. Por eso el update va
+    // condicionado al estado (WHERE status = VALID, atómico a nivel de fila)
+    // en vez de filtrar solo por id — si el otro escaneo ya ganó la carrera,
+    // `count` sale 0 y este se trata como DUPLICATE en vez de admitir una
+    // segunda entrada y contarla dos veces en el aforo.
+    const outcome = await prisma.$transaction(async (tx) => {
+      const updated = await tx.ticket.updateMany({
+        where: { id: ticket.id, status: 'VALID' },
         data: { status: 'USED', entryTime: new Date() },
-      }),
-      prisma.event.update({
+      });
+
+      if (updated.count === 0) {
+        await tx.scanLog.create({
+          data: {
+            ticketId: ticket.id,
+            eventId: ticket.eventId,
+            scannerId: session.user?.id,
+            result: 'DUPLICATE',
+          },
+        });
+        return 'DUPLICATE' as const;
+      }
+
+      await tx.event.update({
         where: { id: ticket.eventId },
         data: { currentCount: { increment: 1 } },
-      }),
-      prisma.scanLog.create({
+      });
+      await tx.scanLog.create({
         data: {
           ticketId: ticket.id,
           eventId: ticket.eventId,
           scannerId: session.user?.id,
           result: 'VALID',
         },
-      }),
-    ]);
+      });
+      return 'VALID' as const;
+    });
+
+    if (outcome === 'DUPLICATE') {
+      const freshTicket = await prisma.ticket.findUnique({ where: { id: ticket.id } });
+      return NextResponse.json({
+        result: 'DUPLICATE',
+        message: `YA ENTRÓ — Hora de entrada: ${freshTicket?.entryTime ? new Date(freshTicket.entryTime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : 'N/A'}`,
+        entryTime: freshTicket?.entryTime,
+        color: 'red',
+      });
+    }
 
     void checkCapacityAlerts(ticket.eventId);
 
