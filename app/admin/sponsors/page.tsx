@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { SponsorRequest, SponsorRequestStatus } from '@prisma/client';
+import type { SponsorRequest, SponsorRequestStatus, Temporada } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Loader2, Handshake } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
+import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 
 const statusLabels: Record<string, string> = {
   PENDING: 'Pendiente', CONTACTED: 'Contactado', ACCEPTED: 'Aceptado', REJECTED: 'Rechazado',
@@ -18,6 +19,7 @@ const statusLabels: Record<string, string> = {
 export default function SponsorsAdminPage() {
   const [sponsors, setSponsors] = useState<SponsorRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [temporadas, setTemporadas] = useState<Temporada[]>([]);
 
   const fetchSponsors = () => {
     fetch('/api/admin/sponsors')
@@ -29,7 +31,14 @@ export default function SponsorsAdminPage() {
 
   useEffect(() => { fetchSponsors(); }, []);
 
-  const updateSponsor = async (id: string, data: Partial<Pick<SponsorRequest, 'status' | 'adminNotes'>>, opts?: { silent?: boolean }) => {
+  useEffect(() => {
+    fetch('/api/admin/compras/temporadas')
+      .then((r) => r.json())
+      .then((d) => setTemporadas(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, []);
+
+  const updateSponsor = async (id: string, data: Partial<Pick<SponsorRequest, 'status' | 'adminNotes' | 'temporadaId'>>, opts?: { silent?: boolean }) => {
     try {
       await fetch(`/api/admin/sponsors/${id}`, {
         method: 'PUT',
@@ -84,6 +93,13 @@ export default function SponsorsAdminPage() {
                       {Object.entries(statusLabels).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
                     </SelectContent>
                   </Select>
+                  <TemporadaSelector
+                    temporadas={temporadas}
+                    temporadaId={s?.temporadaId ?? null}
+                    onChange={(id) => updateSponsor(s?.id, { temporadaId: id })}
+                    onTemporadaCreada={(t) => setTemporadas((prev) => [t, ...prev])}
+                    allowNone
+                  />
                 </div>
                 <div>
                   <label className="text-xs text-muted-foreground mb-1 block">Notas internas</label>

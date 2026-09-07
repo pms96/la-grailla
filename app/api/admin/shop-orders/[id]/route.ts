@@ -12,6 +12,7 @@ const updateShopOrderSchema = z.object({
   status: z.enum(['PENDING', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED']).optional(),
   trackingNumber: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  temporadaId: z.string().optional().nullable(),
 });
 
 export async function PUT(
@@ -44,6 +45,7 @@ export async function PUT(
         status: body?.status,
         trackingNumber: body?.trackingNumber,
         notes: body?.notes,
+        temporadaId: body?.temporadaId === undefined ? undefined : body.temporadaId || null,
       },
     });
     return NextResponse.json(order);

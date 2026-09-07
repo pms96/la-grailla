@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { Prisma, ShopOrderStatus } from '@prisma/client';
+import type { Prisma, ShopOrderStatus, Temporada } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Loader2, Package, Truck, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
+import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 
 const statusLabels: Record<string, string> = {
   PENDING: 'Pendiente', PAID: 'Pagado', PROCESSING: 'Procesando',
@@ -23,6 +24,14 @@ export default function PedidosPage() {
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<string>('all');
+  const [temporadas, setTemporadas] = useState<Temporada[]>([]);
+
+  useEffect(() => {
+    fetch('/api/admin/compras/temporadas')
+      .then((r) => r.json())
+      .then((d) => setTemporadas(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, []);
 
   const fetchOrders = useCallback(() => {
     const params = new URLSearchParams();
@@ -40,7 +49,7 @@ export default function PedidosPage() {
     return () => clearTimeout(t);
   }, [fetchOrders]);
 
-  const updateOrder = async (id: string, data: Partial<Pick<ShopOrderWithItems, 'status' | 'trackingNumber'>>) => {
+  const updateOrder = async (id: string, data: Partial<Pick<ShopOrderWithItems, 'status' | 'trackingNumber' | 'temporadaId'>>) => {
     if (
       (data.status === 'CANCELLED' || data.status === 'REFUNDED') &&
       !confirm(`¿Marcar este pedido como ${statusLabels[data.status]?.toLowerCase()}?`)
@@ -130,6 +139,13 @@ export default function PedidosPage() {
                         updateOrder(order?.id, { trackingNumber: e?.target?.value ?? '' });
                       }
                     }}
+                  />
+                  <TemporadaSelector
+                    temporadas={temporadas}
+                    temporadaId={order?.temporadaId ?? null}
+                    onChange={(id) => updateOrder(order?.id, { temporadaId: id })}
+                    onTemporadaCreada={(t) => setTemporadas((prev) => [t, ...prev])}
+                    allowNone
                   />
                 </div>
               </CardContent>

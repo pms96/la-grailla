@@ -12,6 +12,7 @@ import { ensureSponsorPortalInvite } from '@/lib/sponsor-portal';
 const updateSponsorSchema = z.object({
   status: z.enum(['PENDING', 'CONTACTED', 'ACCEPTED', 'REJECTED']).optional(),
   adminNotes: z.string().optional().nullable(),
+  temporadaId: z.string().optional().nullable(),
 });
 
 export async function PUT(
@@ -26,7 +27,11 @@ export async function PUT(
     const body = updateSponsorSchema.parse(await request.json());
     const sponsor = await prisma.sponsorRequest.update({
       where: { id: params?.id },
-      data: { status: body?.status, adminNotes: body?.adminNotes },
+      data: {
+        status: body?.status,
+        adminNotes: body?.adminNotes,
+        temporadaId: body?.temporadaId === undefined ? undefined : body.temporadaId || null,
+      },
     });
 
     if (body?.status === 'ACCEPTED') {

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
-import type { Product, ProductVariant } from '@prisma/client';
+import type { Product, ProductVariant, Temporada } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
 import { expandVariantKeys } from '@/lib/shop-cart';
+import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 
 type ProductWithVariants = Product & { variants?: ProductVariant[] };
 
@@ -30,6 +31,7 @@ type ProductFormState = {
   colors: string;
   isActive: 'true' | 'false';
   stockByKey: Record<string, number>;
+  temporadaId: string | null;
 };
 
 const EMPTY: ProductFormState = {
@@ -43,6 +45,7 @@ const EMPTY: ProductFormState = {
   colors: '',
   isActive: 'true',
   stockByKey: {},
+  temporadaId: null,
 };
 
 function variantKey(size: string, color: string) {
@@ -57,6 +60,7 @@ export default function ProductosPage() {
   const [form, setForm] = useState<ProductFormState>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [stockTouched, setStockTouched] = useState(false);
+  const [temporadas, setTemporadas] = useState<Temporada[]>([]);
 
   const fetchProducts = useCallback(() => {
     fetch('/api/admin/products')
@@ -69,6 +73,13 @@ export default function ProductosPage() {
   useEffect(() => {
     fetchProducts();
   }, [fetchProducts]);
+
+  useEffect(() => {
+    fetch('/api/admin/compras/temporadas')
+      .then((r) => r.json())
+      .then((d) => setTemporadas(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, []);
 
   const updateField = <K extends keyof ProductFormState>(key: K, value: ProductFormState[K]) =>
     setForm((prev) => ({ ...(prev ?? EMPTY), [key]: value }));
@@ -105,6 +116,7 @@ export default function ProductosPage() {
       colors: p?.colors ?? '',
       isActive: p?.isActive === false ? 'false' : 'true',
       stockByKey,
+      temporadaId: p?.temporadaId ?? null,
     });
     setStockTouched(false);
     setDialogOpen(true);
@@ -142,6 +154,7 @@ export default function ProductosPage() {
         sizes: form.sizes ?? '',
         colors: form.colors ?? '',
         isActive: form.isActive === 'true',
+        temporadaId: form.temporadaId,
         ...(shouldSyncVariants ? { variants } : {}),
       };
       const url = editing ? '/api/admin/products/' + editing.id : '/api/admin/products';
@@ -426,6 +439,22 @@ export default function ProductosPage() {
                   <SelectItem value="false">Oculto</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div>
+              <Label>Temporada de compras (opcional)</Label>
+              <div className="mt-1">
+                <TemporadaSelector
+                  temporadas={temporadas}
+                  temporadaId={form?.temporadaId ?? null}
+                  onChange={(id) => updateField('temporadaId', id)}
+                  onTemporadaCreada={(t) => setTemporadas((prev) => [t, ...prev])}
+                  allowNone
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Vincula este producto a la temporada de Compras/Gastos de la caseta, para poder sacar informes de tienda por edición.
+              </p>
             </div>
             <Button onClick={handleSave} disabled={saving} className="w-full gap-2">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

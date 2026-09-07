@@ -25,6 +25,7 @@ const createProductSchema = z.object({
   colors: z.string().optional().nullable(),
   isActive: z.boolean().optional(),
   variants: z.array(variantStockSchema).optional(),
+  temporadaId: z.string().optional().nullable(),
 });
 
 export async function GET() {
@@ -64,6 +65,7 @@ export async function POST(request: Request) {
           sizes: body?.sizes || null,
           colors: body?.colors || null,
           isActive: body?.isActive ?? true,
+          temporadaId: body?.temporadaId || null,
         },
       });
       await syncProductVariants(tx, created.id, created.sizes, created.colors, body.variants);

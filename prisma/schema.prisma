@@ -302,10 +302,18 @@ model Product {
   sizes       String?
   colors      String?
   isActive    Boolean          @default(true)
+  // Vínculo opcional a la temporada de Compras/Gastos a la que pertenece este
+  // producto, mismo patrón que Event.temporadaId — para poder sacar informes
+  // de tienda por edición. Null = sin asignar; se enlaza manualmente desde la
+  // UI, sin backfill automático.
+  temporadaId String?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
+  temporada   Temporada?       @relation(fields: [temporadaId], references: [id])
   orderItems  ShopOrderItem[]
   variants    ProductVariant[]
+
+  @@index([temporadaId])
 }
 
 model ProductVariant {
@@ -335,11 +343,17 @@ model ShopOrder {
   trackingNumber  String?
   notes           String?
   idempotencyKey  String?         @unique
+  // Vínculo opcional a la temporada de Compras/Gastos, mismo patrón que
+  // Event.temporadaId — para poder sacar informes de tienda por edición.
+  // Null = sin asignar; se enlaza manualmente desde la UI, sin backfill.
+  temporadaId     String?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
+  temporada       Temporada?      @relation(fields: [temporadaId], references: [id])
   items           ShopOrderItem[]
 
   @@index([buyerEmail])
+  @@index([temporadaId])
 }
 
 model ShopOrderItem {
@@ -368,9 +382,16 @@ model SponsorRequest {
   message     String?              @db.Text
   status      SponsorRequestStatus @default(PENDING)
   adminNotes  String?              @db.Text
+  // Vínculo opcional a la temporada de Compras/Gastos, mismo patrón que
+  // Event.temporadaId — para poder sacar informes de patrocinios por edición.
+  // Null = sin asignar; se enlaza manualmente desde la UI, sin backfill.
+  temporadaId String?
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
+  temporada   Temporada?           @relation(fields: [temporadaId], references: [id])
   sponsor     Sponsor?
+
+  @@index([temporadaId])
 }
 
 enum SponsorPortalStatus {
@@ -569,11 +590,14 @@ model Temporada {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  consumos ConsumoHistorico[]
-  planes   PlanCompra[]
-  pedidos  Pedido[]
-  gastos   Gasto[]
-  eventos  Event[]
+  consumos        ConsumoHistorico[]
+  planes          PlanCompra[]
+  pedidos         Pedido[]
+  gastos          Gasto[]
+  eventos         Event[]
+  productos       Product[]
+  shopOrders      ShopOrder[]
+  sponsorRequests SponsorRequest[]
 
   @@index([anio])
 }

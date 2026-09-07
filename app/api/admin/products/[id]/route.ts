@@ -26,6 +26,7 @@ const updateProductSchema = z.object({
   colors: z.string().optional().nullable(),
   isActive: z.boolean().optional(),
   variants: z.array(variantStockSchema).optional(),
+  temporadaId: z.string().optional().nullable(),
 });
 
 async function requireAdmin() {
@@ -48,6 +49,9 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       if (body?.sizes !== undefined) data.sizes = body.sizes || null;
       if (body?.colors !== undefined) data.colors = body.colors || null;
       if (body?.isActive !== undefined) data.isActive = Boolean(body.isActive);
+      if (body?.temporadaId !== undefined) {
+        data.temporada = body.temporadaId ? { connect: { id: body.temporadaId } } : { disconnect: true };
+      }
 
       const updated = await tx.product.update({ where: { id: params?.id }, data });
       // Solo se sincronizan variantes si el cliente manda explícitamente `variants`.
