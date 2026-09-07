@@ -272,6 +272,7 @@ model Ticket {
   @@index([qrCode])
   @@index([eventId])
   @@index([orderId])
+  @@index([ticketTypeId])
 }
 
 model ScanLog {
