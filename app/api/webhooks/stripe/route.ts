@@ -42,16 +42,14 @@ export async function POST(request: Request) {
 
     // Stripe reintenta la entrega si no respondemos 2xx a tiempo (timeout,
     // deploy en curso, error transitorio) — el mismo evento puede llegar más
-    // de una vez. La constraint única de "id" hace que el segundo intento
-    // choque con P2002 y salga por aquí sin volver a procesar el pedido.
+    // de una vez. Comprobación rápida aquí para no reprocesar de más en el
+    // caso común (reintento de un evento que YA se procesó con éxito); el
+    // registro de "procesado" se hace más abajo, después de procesar de
+    // verdad (ver comentario junto al insert) — PAY-05.
     if (event.id) {
-      try {
-        await prisma.processedWebhookEvent.create({ data: { id: event.id } });
-      } catch (err) {
-        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-          return NextResponse.json({ received: true, duplicate: true });
-        }
-        throw err;
+      const alreadyProcessed = await prisma.processedWebhookEvent.findUnique({ where: { id: event.id } });
+      if (alreadyProcessed) {
+        return NextResponse.json({ received: true, duplicate: true });
       }
     }
 
@@ -78,6 +76,30 @@ export async function POST(request: Request) {
       }
       default:
         break;
+    }
+
+    // PAY-05: el insert va DESPUÉS de procesar con éxito, no antes. Si
+    // resolvePaidCheckout/resolveExpiredCheckout lanzara una excepción (fallo
+    // transitorio de BD, bug), la versión anterior ya había marcado el evento
+    // como "procesado" antes de intentar procesarlo — el reintento automático
+    // de Stripe (en minutos, no en los ~5 min del cron de reconciliación)
+    // chocaba con la constraint única y salía como "duplicate" sin volver a
+    // intentar el pedido, dejándolo PENDING hasta el siguiente paso del cron.
+    // Con el insert al final, un reintento tras un fallo vuelve a ejecutar el
+    // procesamiento real — completeOrder/completeShopOrder ya son
+    // idempotentes (updateMany condicionado a PENDING), así que repetir el
+    // trabajo en el caso normal es seguro.
+    if (event.id) {
+      try {
+        await prisma.processedWebhookEvent.create({ data: { id: event.id } });
+      } catch (err) {
+        // P2002: dos entregas casi simultáneas del mismo evento pasaron
+        // ambas el check de arriba antes de que ninguna insertara — ya se ha
+        // procesado dos veces de forma idempotente, no es un error real.
+        if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) {
+          throw err;
+        }
+      }
     }
 
     return NextResponse.json({ received: true });
