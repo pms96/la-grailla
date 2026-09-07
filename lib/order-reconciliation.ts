@@ -137,6 +137,24 @@ export async function invalidateOrder(
     return { success: false, error: 'Hay entradas ya usadas; no se puede anular' };
   }
 
+  // "Cancelar" (a diferencia de "Reembolsar") nunca ha llamado a la pasarela
+  // de pago — libera aforo y anula las entradas, pero el comprador se queda
+  // sin su dinero si el pedido ya estaba cobrado. Un pedido COMPLETED pagado
+  // de verdad con tarjeta (no mock) solo puede anularse vía REFUNDED, que sí
+  // intenta el reembolso antes de tocar nada.
+  if (
+    mode === 'CANCELLED' &&
+    order.status === 'COMPLETED' &&
+    order.paymentMethod === 'CARD' &&
+    order.paymentProvider &&
+    order.paymentProvider !== 'mock'
+  ) {
+    return {
+      success: false,
+      error: 'Este pedido ya está pagado con tarjeta — usa "Reembolsar" en vez de "Cancelar" para devolver el dinero al comprador.',
+    };
+  }
+
   if (mode === 'REFUNDED') {
     if (order.status !== 'COMPLETED') {
       return { success: false, error: 'Solo se pueden reembolsar pedidos completados' };
