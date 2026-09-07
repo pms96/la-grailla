@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { Product, ProductVariant } from '@prisma/client';
+import type { WithNumberFields } from '@/lib/prisma';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -28,7 +29,7 @@ import {
   writeCart,
 } from '@/lib/shop-cart';
 
-type ShopProduct = Product & {
+type ShopProduct = WithNumberFields<Product, 'price'> & {
   variants?: Pick<ProductVariant, 'id' | 'size' | 'color' | 'stock'>[];
 };
 

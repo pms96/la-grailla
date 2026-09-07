@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Gasto, Proveedor } from '@prisma/client';
+import type { WithNumberFields } from '@/lib/prisma';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -39,7 +40,7 @@ const emptyForm = (): FormState => ({
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  editing: Gasto | null;
+  editing: WithNumberFields<Gasto, 'importeSinIva' | 'ivaPercent'> | null;
   temporadaId: string | null;
   proveedores: Proveedor[];
   onSaved: () => void;

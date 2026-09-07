@@ -201,7 +201,7 @@ model TicketType {
   eventId     String
   name        String
   description String?
-  price       Float
+  price       Decimal  @db.Decimal(10, 2)
   phase       Int      @default(1)
   phaseName   String?  @default("Venta General")
   maxQuantity Int      @default(100)
@@ -222,8 +222,8 @@ model Order {
   buyerName       String
   buyerLastName   String
   buyerEmail      String
-  totalAmount     Float
-  commission      Float         @default(0)
+  totalAmount     Decimal       @db.Decimal(10, 2)
+  commission      Decimal       @default(0) @db.Decimal(10, 2)
   paymentMethod   PaymentMethod @default(CARD)
   paymentProvider String?
   paymentId       String?
@@ -295,7 +295,7 @@ model Product {
   name        String
   slug        String           @unique
   description String?          @db.Text
-  price       Float
+  price       Decimal          @db.Decimal(10, 2)
   imageUrl    String?
   images      String[]         @default([])
   category    String?
@@ -336,7 +336,7 @@ model ShopOrder {
   shippingCity    String
   shippingZip     String
   shippingPhone   String?
-  totalAmount     Float
+  totalAmount     Decimal         @db.Decimal(10, 2)
   paymentProvider String?
   paymentId       String?
   status          ShopOrderStatus @default(PENDING)
@@ -361,7 +361,7 @@ model ShopOrderItem {
   shopOrderId String
   productId   String
   quantity    Int       @default(1)
-  unitPrice   Float
+  unitPrice   Decimal   @db.Decimal(10, 2)
   size        String?
   color       String?
   shopOrder   ShopOrder @relation(fields: [shopOrderId], references: [id], onDelete: Cascade)
@@ -625,7 +625,7 @@ model Articulo {
   categoria       String
   formato         String
   unidadesPorCaja Int      @default(1)
-  ivaPercent      Float    @default(21)
+  ivaPercent      Decimal  @default(21) @db.Decimal(10, 2)
   activo          Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -642,8 +642,8 @@ model PrecioArticulo {
   id               String   @id @default(cuid())
   articuloId       String
   proveedorId      String
-  precioSinIva     Float
-  descuentoPercent Float    @default(0)
+  precioSinIva     Decimal  @db.Decimal(10, 2)
+  descuentoPercent Decimal  @default(0) @db.Decimal(10, 2)
   formatoVenta     String
   unidadMinPedido  Int      @default(1)
   notas            String?
@@ -723,9 +723,9 @@ model LineaPedido {
   pedidoId         String
   articuloId       String
   cantidad         Float
-  precioSinIva     Float
-  descuentoPercent Float  @default(0)
-  ivaPercent       Float
+  precioSinIva     Decimal @db.Decimal(10, 2)
+  descuentoPercent Decimal @default(0) @db.Decimal(10, 2)
+  ivaPercent       Decimal @db.Decimal(10, 2)
 
   pedido   Pedido   @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
   articulo Articulo @relation(fields: [articuloId], references: [id])
@@ -743,8 +743,8 @@ model Gasto {
   concepto      String
   proveedorId   String?
   pedidoId      String?  @unique
-  importeSinIva Float
-  ivaPercent    Float    @default(21)
+  importeSinIva Decimal  @db.Decimal(10, 2)
+  ivaPercent    Decimal  @default(21) @db.Decimal(10, 2)
   fecha         DateTime @default(now())
   numDocumento  String?
   tipoDocumento String   @default("Factura")

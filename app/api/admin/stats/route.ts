@@ -82,8 +82,13 @@ export async function GET(request: Request) {
       soldCount: soldByEvent.find((s) => s.eventId === ev.id)?._count?._all ?? 0,
     }));
 
-    const totalRevenue = revenueAgg?._sum?.totalAmount ?? 0;
-    const netRevenue = totalRevenue - (revenueAgg?._sum?.commission ?? 0);
+    // DATA-01: los resultados de aggregate() (_sum/_avg/...) no son
+    // instancias de modelo — no pasan por la extensión de lib/prisma.ts que
+    // convierte Decimal a number en el resto de la app, así que hay que
+    // convertir aquí explícitamente antes de usarlos en la respuesta JSON
+    // (Decimal.toJSON() serializa como string, no como number).
+    const totalRevenue = Number(revenueAgg?._sum?.totalAmount ?? 0);
+    const netRevenue = totalRevenue - Number(revenueAgg?._sum?.commission ?? 0);
 
     const dayBuckets = new Map<string, { date: string; revenue: number; count: number }>();
     (ordersForChart ?? []).forEach((o) => {
@@ -108,7 +113,7 @@ export async function GET(request: Request) {
       netRevenue,
       recentOrders: recentOrders ?? [],
       events: eventsWithSold,
-      byChannel: (byChannel ?? []).map((c) => ({ channel: c.channel, count: c._count?._all ?? 0, revenue: c._sum?.totalAmount ?? 0 })),
+      byChannel: (byChannel ?? []).map((c) => ({ channel: c.channel, count: c._count?._all ?? 0, revenue: Number(c._sum?.totalAmount ?? 0) })),
       ticketTypeProgress: ticketTypeProgress ?? [],
       waitingRoomFunnel,
       salesByDay,

@@ -1,4 +1,3 @@
-import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { generateQRDataUrl } from '@/lib/qr';
 import { sendMail } from '@/lib/mailer';
@@ -6,14 +5,18 @@ import { orderAccessQuery } from '@/lib/access-token';
 import { buildTicketsPdf } from '@/lib/ticket-pdf';
 import { escapeHtml as esc } from '@/lib/html-escape';
 
-type OrderWithTickets = Prisma.OrderGetPayload<{
-  include: { event: true; tickets: { include: { ticketType: true } } };
-}>;
+// DATA-01: derivado del propio `prisma` (extendido — totalAmount/commission
+// son number, no Decimal), no de `Prisma.OrderGetPayload<...>` (que describe
+// el cliente SIN extender y no coincidiría con la forma real devuelta abajo).
+const orderWithTicketsInclude = { event: true, tickets: { include: { ticketType: true } } } as const;
+type OrderWithTickets = NonNullable<
+  Awaited<ReturnType<typeof prisma.order.findUnique<{ where: { id: string }; include: typeof orderWithTicketsInclude }>>>
+>;
 
 export async function buildTicketsHtml(orderId: string): Promise<{ html: string; order: OrderWithTickets } | null> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    include: { event: true, tickets: { include: { ticketType: true } } },
+    include: orderWithTicketsInclude,
   });
   if (!order) return null;
 

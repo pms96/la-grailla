@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
-import { buildArticulosExcel } from '@/lib/compras/articulos-excel';
+import { buildArticulosExcel, type ArticuloConPrecios } from '@/lib/compras/articulos-excel';
 import { buildArticulosPdf } from '@/lib/compras/articulos-pdf';
-import type { Articulo, PrecioArticulo, Proveedor } from '@prisma/client';
+import type { Proveedor } from '@prisma/client';
 
 const proveedorRamirez: Proveedor = {
   id: 'prov-ramirez',
@@ -18,7 +18,7 @@ const proveedorRamirez: Proveedor = {
 
 const proveedorJavi: Proveedor = { ...proveedorRamirez, id: 'prov-javi', nombre: 'Javi' };
 
-const articulos: (Articulo & { precios: (PrecioArticulo & { proveedor: Proveedor })[] })[] = [
+const articulos: ArticuloConPrecios[] = [
   {
     id: 'art-1',
     nombre: 'Cruzcampo 1/3',

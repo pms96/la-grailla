@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Pedido, Proveedor, LineaPedido, Articulo, Temporada } from '@prisma/client';
+import type { WithNumberFields } from '@/lib/prisma';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,7 +14,9 @@ import { precioFinalUnidad, precioTrasDescuento } from '@/lib/compras/calculador
 type PedidoConDetalle = Pedido & {
   proveedor: Proveedor;
   temporada: Temporada;
-  lineas: (LineaPedido & { articulo: Articulo })[];
+  lineas: (WithNumberFields<LineaPedido, 'precioSinIva' | 'descuentoPercent' | 'ivaPercent'> & {
+    articulo: WithNumberFields<Articulo, 'ivaPercent'>;
+  })[];
 };
 
 type Props = {

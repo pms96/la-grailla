@@ -1,6 +1,5 @@
 import Link from 'next/link';
-import type { Prisma } from '@prisma/client';
-import { prisma } from '@/lib/prisma';
+import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
 import { EVENT_GRACE_PERIOD_MS } from '@/lib/active-event';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -17,8 +16,6 @@ export const metadata = {
   description:
     'Todas las noches, todas las fiestas de La Grailla. Descubre los próximos eventos y compra tus entradas online.',
 };
-
-type EventWithTicketTypes = Prisma.EventGetPayload<{ include: { ticketTypes: true } }>;
 
 export default async function EventosPage() {
   let events: EventWithTicketTypes[] = [];

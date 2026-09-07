@@ -1,8 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont } from 'pdf-lib';
-import type { Articulo, PrecioArticulo, Proveedor } from '@prisma/client';
 import { precioFinalUnidad } from '@/lib/compras/calculadora';
-
-type ArticuloConPrecios = Articulo & { precios: (PrecioArticulo & { proveedor: Proveedor })[] };
+import type { ArticuloConPrecios } from '@/lib/compras/articulos-excel';
 
 const PAGE_SIZE: [number, number] = [841.89, 595.28]; // A4 apaisado
 const MARGIN = 36;

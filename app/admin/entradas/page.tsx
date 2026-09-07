@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Event, TicketType } from '@prisma/client';
+import type { WithNumberFields } from '@/lib/prisma';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,7 +15,7 @@ import { Plus, Pencil, Trash2, Loader2, Ticket } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 
-type EventWithTicketTypes = Event & { ticketTypes: TicketType[] };
+type EventWithTicketTypes = Event & { ticketTypes: WithNumberFields<TicketType, 'price'>[] };
 
 type TicketTypeFormState = {
   name: string;
@@ -32,7 +33,7 @@ export default function EntradasPage() {
   const [selectedEvent, setSelectedEvent] = useState('');
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<TicketType | null>(null);
+  const [editing, setEditing] = useState<WithNumberFields<TicketType, 'price'> | null>(null);
   const [form, setForm] = useState<Partial<TicketTypeFormState>>({});
   const [saving, setSaving] = useState(false);
 
@@ -58,7 +59,7 @@ export default function EntradasPage() {
     setDialogOpen(true);
   };
 
-  const openEdit = (tt: TicketType) => {
+  const openEdit = (tt: WithNumberFields<TicketType, 'price'>) => {
     setEditing(tt);
     setForm({ name: tt?.name ?? '', description: tt?.description ?? '', price: tt?.price ?? 0, phase: tt?.phase ?? 1, phaseName: tt?.phaseName ?? '', maxQuantity: tt?.maxQuantity ?? 100, sortOrder: tt?.sortOrder ?? 0, isActive: tt?.isActive ?? true });
     setDialogOpen(true);

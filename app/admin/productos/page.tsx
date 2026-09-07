@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import type { Product, ProductVariant, Temporada } from '@prisma/client';
+import type { WithNumberFields } from '@/lib/prisma';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,7 +19,7 @@ import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
 import { expandVariantKeys } from '@/lib/shop-cart';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 
-type ProductWithVariants = Product & { variants?: ProductVariant[] };
+type ProductWithVariants = WithNumberFields<Product, 'price'> & { variants?: ProductVariant[] };
 
 type ProductFormState = {
   name: string;

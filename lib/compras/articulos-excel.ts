@@ -1,8 +1,17 @@
 import ExcelJS from 'exceljs';
-import type { Articulo, PrecioArticulo, Proveedor } from '@prisma/client';
+import type { prisma } from '@/lib/prisma';
 import { precioFinalUnidad } from '@/lib/compras/calculadora';
 
-type ArticuloConPrecios = Articulo & { precios: (PrecioArticulo & { proveedor: Proveedor })[] };
+// DATA-01: derivado del cliente extendido (ivaPercent/precioSinIva/
+// descuentoPercent son number, no Decimal) — ver la misma nota en
+// lib/tickets.ts.
+export type ArticuloConPrecios = NonNullable<
+  Awaited<
+    ReturnType<
+      typeof prisma.articulo.findFirst<{ include: { precios: { include: { proveedor: true } } } }>
+    >
+  >
+>;
 
 const MORADO = 'FF3D2FD5';
 

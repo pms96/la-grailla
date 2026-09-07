@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { Temporada, Gasto, Proveedor } from '@prisma/client';
+import type { WithNumberFields } from '@/lib/prisma';
 import { PageHeader } from '@/components/layouts/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,7 +19,7 @@ import { GastoPieChart } from '@/app/admin/gastos/_components/gasto-pie-chart';
 import { ComparativoBarChart } from '@/app/admin/gastos/_components/comparativo-bar-chart';
 import { CATEGORIAS_GASTO } from '@/lib/compras/constantes';
 
-type GastoConRelaciones = Gasto & { proveedor: Proveedor | null; createdBy: { id: string; name: string | null; email: string } | null };
+type GastoConRelaciones = WithNumberFields<Gasto, 'importeSinIva' | 'ivaPercent'> & { proveedor: Proveedor | null; createdBy: { id: string; name: string | null; email: string } | null };
 
 type Resumen = {
   gastoTotal: number;
@@ -43,7 +44,7 @@ export default function GastosPage() {
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>('__all__');
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<Gasto | null>(null);
+  const [editing, setEditing] = useState<WithNumberFields<Gasto, 'importeSinIva' | 'ivaPercent'> | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<GastoConRelaciones | null>(null);
 
   const fetchTemporadas = useCallback((preferId?: string, incluirArchivadasParam?: boolean) => {
@@ -91,7 +92,7 @@ export default function GastosPage() {
   const temporada = temporadas.find((t) => t.id === temporadaId) ?? null;
 
   const openCreate = () => { setEditing(null); setDialogOpen(true); };
-  const openEdit = (g: Gasto) => { setEditing(g); setDialogOpen(true); };
+  const openEdit = (g: WithNumberFields<Gasto, 'importeSinIva' | 'ivaPercent'>) => { setEditing(g); setDialogOpen(true); };
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;

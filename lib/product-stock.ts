@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import type { PrismaTransactionClient } from '@/lib/prisma';
 import { expandVariantKeys } from '@/lib/shop-cart';
 
 export type VariantKey = { size: string; color: string };
@@ -17,7 +17,7 @@ export type StockInput = { size?: string | null; color?: string | null; stock?: 
  * (o el valor de `stockByKey` si se pasa).
  */
 export async function syncProductVariants(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTransactionClient,
   productId: string,
   sizesCsv: string | null | undefined,
   colorsCsv: string | null | undefined,
@@ -76,7 +76,7 @@ export type ReserveItem = {
  * Devuelve mensaje de error en español o null si OK.
  */
 export async function reserveShopStock(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTransactionClient,
   items: ReserveItem[]
 ): Promise<string | null> {
   for (const item of items) {
@@ -111,7 +111,7 @@ export async function reserveShopStock(
 }
 
 export async function releaseShopStock(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTransactionClient,
   items: ReserveItem[]
 ): Promise<void> {
   for (const item of items) {

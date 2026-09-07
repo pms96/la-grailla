@@ -67,7 +67,9 @@ export async function POST(request: Request) {
       }
     }
 
-    type ShopOrderWithItems = Prisma.ShopOrderGetPayload<{ include: { items: true } }>;
+    // DATA-01: derivado del cliente extendido (totalAmount/unitPrice son
+    // number), no de Prisma.ShopOrderGetPayload (Decimal, no coincidiría).
+    type ShopOrderWithItems = NonNullable<Awaited<ReturnType<typeof prisma.shopOrder.findFirst<{ include: { items: true } }>>>>;
     let shopOrder: ShopOrderWithItems | undefined;
     try {
       shopOrder = await prisma.$transaction(async (tx) => {

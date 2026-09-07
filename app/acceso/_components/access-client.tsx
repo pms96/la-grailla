@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Event, TicketType } from '@prisma/client';
+import type { WithNumberFields } from '@/lib/prisma';
 import { useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -34,7 +35,7 @@ type ScanResult = {
   eventDate?: string;
 };
 
-export type EventWithTicketTypes = Event & { ticketTypes: TicketType[] };
+export type EventWithTicketTypes = Event & { ticketTypes: WithNumberFields<TicketType, 'price'>[] };
 
 export default function AccessClient() {
   const { data: session } = useSession() || {};

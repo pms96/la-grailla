@@ -1,12 +1,21 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
-import type { Prisma } from '@prisma/client';
+import type { prisma } from '@/lib/prisma';
 import { readFile } from 'fs/promises';
 import path from 'path';
 import { generateQRDataUrl } from '@/lib/qr';
 
-type OrderForPdf = Prisma.OrderGetPayload<{
-  include: { event: true; tickets: { include: { ticketType: true } } };
-}>;
+// DATA-01: derivado del propio cliente extendido (totalAmount/commission son
+// number, no Decimal) — ver la misma nota en lib/tickets.ts.
+type OrderForPdf = NonNullable<
+  Awaited<
+    ReturnType<
+      typeof prisma.order.findUnique<{
+        where: { id: string };
+        include: { event: true; tickets: { include: { ticketType: true } } };
+      }>
+    >
+  >
+>;
 
 function dataUrlToBytes(dataUrl: string): Uint8Array {
   const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;

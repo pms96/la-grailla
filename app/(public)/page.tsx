@@ -1,6 +1,5 @@
 import Link from 'next/link';
-import type { Prisma } from '@prisma/client';
-import { prisma } from '@/lib/prisma';
+import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
 import { getConfigs } from '@/lib/config';
 import { EVENT_GRACE_PERIOD_MS } from '@/lib/active-event';
 import { Button } from '@/components/ui/button';
@@ -13,8 +12,6 @@ import { ReloadButton } from '@/components/reload-button';
 import Image from 'next/image';
 
 export const revalidate = 60;
-
-type EventWithTicketTypes = Prisma.EventGetPayload<{ include: { ticketTypes: true } }>;
 
 export default async function HomePage() {
   let events: EventWithTicketTypes[] = [];

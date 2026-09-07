@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import type { TicketType } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,7 +32,7 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
   const idempotencyKeyRef = useRef(crypto.randomUUID());
 
   const event = useMemo(() => (events ?? []).find((e) => e?.id === selectedEvent), [events, selectedEvent]);
-  const ticketTypes: TicketType[] = event?.ticketTypes ?? [];
+  const ticketTypes = event?.ticketTypes ?? [];
 
   let totalTickets = 0;
   let total = 0;

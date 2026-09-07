@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { Articulo, PrecioArticulo, Proveedor } from '@prisma/client';
+import type { WithNumberFields } from '@/lib/prisma';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +17,9 @@ import { precioFinalUnidad } from '@/lib/compras/calculadora';
 import { downloadArticulosExport } from '@/lib/compras/articulos-export';
 import { ImportarArticulosDialog } from '@/app/admin/compras/_components/importar-articulos-dialog';
 
-type ArticuloConPrecios = Articulo & { precios: (PrecioArticulo & { proveedor: Proveedor })[] };
+type ArticuloConPrecios = WithNumberFields<Articulo, 'ivaPercent'> & {
+  precios: (WithNumberFields<PrecioArticulo, 'precioSinIva' | 'descuentoPercent'> & { proveedor: Proveedor })[];
+};
 
 type PrecioForm = { proveedorId: string; precioSinIva: string; descuentoPercent: string; formatoVenta: string; unidadMinPedido: string };
 

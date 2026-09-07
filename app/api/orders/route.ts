@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
-import type { Order, TicketStatus } from '@prisma/client';
+import type { TicketStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { generateQRCode } from '@/lib/qr';
 import { getConfig } from '@/lib/config';
@@ -15,6 +15,11 @@ import { handleApiError } from '@/lib/api-error';
 import { orderAccessQuery, signOrderAccess } from '@/lib/access-token';
 import { hasEventEnded } from '@/lib/active-event';
 import { calculateCommission } from '@/lib/pricing';
+
+// DATA-01: derivado del cliente extendido (totalAmount/commission son
+// number), no de `Order` importado de '@prisma/client' (que describiría
+// Decimal y no coincidiría con lo que realmente devuelve tx.order.create).
+type CreatedOrder = Awaited<ReturnType<typeof prisma.order.create>>;
 
 // Error de negocio esperado (sin stock, aforo lleno...) lanzado DENTRO de la
 // transacción para abortarla — se distingue de un error inesperado al
@@ -147,7 +152,7 @@ export async function POST(request: Request) {
     // Create order + tickets (PENDING hasta que se confirme el pago; VALID solo
     // si no hay pasarela real configurada, para no romper el flujo en local/dev).
     const order = await prisma
-      .$transaction(async (tx: Prisma.TransactionClient) => {
+      .$transaction(async (tx) => {
         // Serializa la reserva de stock/aforo POR EVENTO: mientras esta
         // transacción no termine (commit o rollback), cualquier otra petición
         // para el MISMO evento se queda esperando aquí antes de leer stock —
@@ -203,7 +208,7 @@ export async function POST(request: Request) {
           throw new OrderRejectedError('Aforo completo');
         }
 
-        let newOrder: Order;
+        let newOrder: CreatedOrder;
         try {
           newOrder = await tx.order.create({
             data: {

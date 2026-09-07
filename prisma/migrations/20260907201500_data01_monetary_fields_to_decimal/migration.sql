@@ -1,0 +1,32 @@
+-- AlterTable
+ALTER TABLE "Articulo" ALTER COLUMN "ivaPercent" SET DATA TYPE DECIMAL(10,2);
+
+-- AlterTable
+ALTER TABLE "Gasto" ALTER COLUMN "importeSinIva" SET DATA TYPE DECIMAL(10,2),
+ALTER COLUMN "ivaPercent" SET DATA TYPE DECIMAL(10,2);
+
+-- AlterTable
+ALTER TABLE "LineaPedido" ALTER COLUMN "precioSinIva" SET DATA TYPE DECIMAL(10,2),
+ALTER COLUMN "ivaPercent" SET DATA TYPE DECIMAL(10,2),
+ALTER COLUMN "descuentoPercent" SET DATA TYPE DECIMAL(10,2);
+
+-- AlterTable
+ALTER TABLE "Order" ALTER COLUMN "totalAmount" SET DATA TYPE DECIMAL(10,2),
+ALTER COLUMN "commission" SET DATA TYPE DECIMAL(10,2);
+
+-- AlterTable
+ALTER TABLE "PrecioArticulo" ALTER COLUMN "precioSinIva" SET DATA TYPE DECIMAL(10,2),
+ALTER COLUMN "descuentoPercent" SET DATA TYPE DECIMAL(10,2);
+
+-- AlterTable
+ALTER TABLE "Product" ALTER COLUMN "price" SET DATA TYPE DECIMAL(10,2);
+
+-- AlterTable
+ALTER TABLE "ShopOrder" ALTER COLUMN "totalAmount" SET DATA TYPE DECIMAL(10,2);
+
+-- AlterTable
+ALTER TABLE "ShopOrderItem" ALTER COLUMN "unitPrice" SET DATA TYPE DECIMAL(10,2);
+
+-- AlterTable
+ALTER TABLE "TicketType" ALTER COLUMN "price" SET DATA TYPE DECIMAL(10,2);
+

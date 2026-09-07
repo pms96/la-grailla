@@ -2,7 +2,6 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
@@ -83,7 +82,7 @@ export async function POST(request: Request) {
 
     const method = paymentMethod === 'card' ? 'CARD' : paymentMethod === 'free' ? 'FREE' : 'CASH';
 
-    const order = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const order = await prisma.$transaction(async (tx) => {
       // Mismo criterio que app/api/orders/route.ts: serializa por evento
       // para que dos ventas de taquilla (o una venta y una compra online)
       // simultáneas no puedan leer stock/aforo obsoleto y sobrevender.

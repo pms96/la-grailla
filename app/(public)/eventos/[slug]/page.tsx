@@ -1,7 +1,6 @@
-import { prisma } from '@/lib/prisma';
+import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import { hasEventEnded } from '@/lib/active-event';
-import type { Prisma } from '@prisma/client';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -13,8 +12,6 @@ import { MobileBuyBar } from './_components/mobile-buy-bar';
 import { ReloadButton } from '@/components/reload-button';
 
 export const revalidate = 60;
-
-type EventWithTicketTypes = Prisma.EventGetPayload<{ include: { ticketTypes: true } }>;
 
 export async function generateMetadata({ params }: { params: { slug: string } }) {
   const event = await prisma.event.findUnique({ where: { slug: params?.slug } });

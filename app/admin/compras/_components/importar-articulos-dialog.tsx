@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import type { Articulo, PrecioArticulo, Proveedor } from '@prisma/client';
+import type { WithNumberFields } from '@/lib/prisma';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,7 +12,9 @@ import { Loader2, ImageUp, Plus, Trash2, Sparkles, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { CATEGORIAS_ARTICULO } from '@/lib/compras/constantes';
 
-type ArticuloConPrecios = Articulo & { precios: (PrecioArticulo & { proveedor: Proveedor })[] };
+type ArticuloConPrecios = WithNumberFields<Articulo, 'ivaPercent'> & {
+  precios: (WithNumberFields<PrecioArticulo, 'precioSinIva' | 'descuentoPercent'> & { proveedor: Proveedor })[];
+};
 
 const CREAR_NUEVO = '__nuevo__';
 

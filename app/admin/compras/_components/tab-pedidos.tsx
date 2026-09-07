@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { Temporada, Pedido, Proveedor, LineaPedido, Articulo, Gasto } from '@prisma/client';
+import type { WithNumberFields } from '@/lib/prisma';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,8 +16,10 @@ import { downloadPedidosExport } from '@/lib/compras/pedidos-export';
 type PedidoConDetalle = Pedido & {
   proveedor: Proveedor;
   temporada: Temporada;
-  lineas: (LineaPedido & { articulo: Articulo })[];
-  gasto: Gasto | null;
+  lineas: (WithNumberFields<LineaPedido, 'precioSinIva' | 'descuentoPercent' | 'ivaPercent'> & {
+    articulo: WithNumberFields<Articulo, 'ivaPercent'>;
+  })[];
+  gasto: WithNumberFields<Gasto, 'importeSinIva' | 'ivaPercent'> | null;
 };
 
 // Colores semánticos por estado: ámbar = pendiente de enviar, azul = a la espera del proveedor,

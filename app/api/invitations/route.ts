@@ -71,7 +71,7 @@ export async function POST(request: Request) {
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return NextResponse.json({ error: 'Evento no encontrado' }, { status: 404 });
 
-    const created = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const created = await prisma.$transaction(async (tx) => {
       // Mismo criterio que app/api/orders/route.ts y taquilla/sale: serializa
       // por evento para que dos invitaciones (o una invitación y una compra)
       // simultáneas no lean el aforo antes de que la otra lo actualice y
@@ -158,7 +158,7 @@ export async function DELETE(request: Request) {
     const invitation = await prisma.invitation.findUnique({ where: { id } });
     if (!invitation) return NextResponse.json({ error: 'No encontrada' }, { status: 404 });
 
-    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await prisma.$transaction(async (tx) => {
       if (invitation.orderId) {
         // Si alguna entrada ya había sido escaneada (USED), al anularla hay que
         // descontarla del aforo físico (currentCount), o quedaría gente "dentro"

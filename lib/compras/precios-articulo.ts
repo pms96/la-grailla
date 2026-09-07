@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import type { PrismaTransactionClient } from '@/lib/prisma';
 
 export type PrecioInput = {
   proveedorId: string;
@@ -15,7 +15,7 @@ export type PrecioInput = {
  * upsert por la clave única (articuloId, proveedorId).
  */
 export async function syncPreciosArticulo(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTransactionClient,
   articuloId: string,
   precios: PrecioInput[] | undefined
 ): Promise<void> {
