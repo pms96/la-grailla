@@ -107,12 +107,9 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
     }
   };
 
-  // Genera el PDF en formato rollo (110mm, Phomemo M832) y lo manda al
-  // selector nativo de "Compartir" del móvil/tablet — la M832 no aparece
-  // como impresora del sistema por Bluetooth, así que el vendedor elige la
-  // app Phomemo desde ahí para imprimir. Sin Web Share API con ficheros
-  // (navegador antiguo), se abre el PDF en una pestaña nueva como fallback,
-  // igual que ya hacía el enlace de "ver entradas" en A4.
+  // Genera el PDF de entrada 105 × 70 mm apaisada (estilo lima) y lo manda
+  // al selector nativo de "Compartir" del móvil/tablet. Sin Web Share API
+  // con ficheros (navegador antiguo), se abre el PDF en una pestaña nueva.
   const handlePrint = async () => {
     if (!lastSale) return;
     setPrinting(true);

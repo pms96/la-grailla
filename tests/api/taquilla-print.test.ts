@@ -51,11 +51,7 @@ describe('GET /api/taquilla/print/[orderId]', () => {
     await cleanupTestEvent(event.id);
   });
 
-  // AUDIT (nueva funcionalidad): imprimir entradas de taquilla en el rollo
-  // de la Phomemo M832 — el PDF generado debe tener una página por entrada
-  // del pedido para que "más de una entrada" quede resuelto en un solo
-  // fichero compartido.
-  it('devuelve un PDF con una página por entrada del pedido', async () => {
+  it('devuelve un PDF apaisado 105x70mm con una página por entrada del pedido', async () => {
     sessionRole = 'TAQUILLA';
     const res = await printTickets(new Request('http://localhost'), { params: { orderId } });
     expect(res.status).toBe(200);
@@ -64,6 +60,10 @@ describe('GET /api/taquilla/print/[orderId]', () => {
     const buffer = Buffer.from(await res.arrayBuffer());
     const pdf = await PDFDocument.load(buffer);
     expect(pdf.getPageCount()).toBe(3);
+    const { width, height } = pdf.getPage(0).getSize();
+    expect(width).toBeCloseTo(105 * (72 / 25.4), 1);
+    expect(height).toBeCloseTo(70 * (72 / 25.4), 1);
+    expect(width).toBeGreaterThan(height);
   });
 
   it('permite también al rol ADMIN', async () => {
