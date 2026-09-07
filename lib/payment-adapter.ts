@@ -45,7 +45,12 @@ export interface PaymentProvider {
     metadata?: Record<string, string>;
   }): Promise<PaymentSession>;
   verifyPayment(paymentId: string): Promise<PaymentResult>;
-  refund(paymentId: string, amount?: number): Promise<RefundResult>;
+  // idempotencyKey (opcional): identifica de forma estable un mismo intento
+  // de reembolso (p.ej. `refund_${orderId}`) para que un timeout/reintento de
+  // red hacia la pasarela no acabe creando un segundo reembolso real —
+  // Stripe soporta esto de forma nativa; los adaptadores que no lo soporten
+  // simplemente lo ignoran.
+  refund(paymentId: string, amount?: number, idempotencyKey?: string): Promise<RefundResult>;
 }
 
 /* Stripe adapter stub */
@@ -85,22 +90,29 @@ export class StripeAdapter implements PaymentProvider {
     // Dynamic import so Stripe is only loaded when used
     const Stripe = (await import('stripe')).default;
     const stripe = new Stripe(this.secretKey, { apiVersion: '2024-04-10' as Stripe.LatestApiVersion });
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [{
-        price_data: {
-          currency: params.currency,
-          product_data: { name: params.description },
-          unit_amount: Math.round(params.amount * 100),
-        },
-        quantity: 1,
-      }],
-      mode: 'payment',
-      success_url: params.successUrl,
-      cancel_url: params.cancelUrl,
-      customer_email: params.customerEmail,
-      metadata: { orderId: params.orderId, ...(params.metadata ?? {}) },
-    });
+    const session = await stripe.checkout.sessions.create(
+      {
+        payment_method_types: ['card'],
+        line_items: [{
+          price_data: {
+            currency: params.currency,
+            product_data: { name: params.description },
+            unit_amount: Math.round(params.amount * 100),
+          },
+          quantity: 1,
+        }],
+        mode: 'payment',
+        success_url: params.successUrl,
+        cancel_url: params.cancelUrl,
+        customer_email: params.customerEmail,
+        metadata: { orderId: params.orderId, ...(params.metadata ?? {}) },
+      },
+      // Un timeout de red hacia Stripe (la sesión se crea en su lado pero la
+      // respuesta no llega) no debe traducirse en una segunda sesión de
+      // checkout — con la misma clave, Stripe devuelve la ya creada en vez
+      // de facturar/crear un recurso duplicado.
+      { idempotencyKey: `checkout_${params.orderId}` }
+    );
     return {
       sessionId: session.id,
       checkoutUrl: session.url ?? '',
@@ -123,16 +135,19 @@ export class StripeAdapter implements PaymentProvider {
     }
   }
 
-  async refund(paymentId: string, amount?: number): Promise<RefundResult> {
+  async refund(paymentId: string, amount?: number, idempotencyKey?: string): Promise<RefundResult> {
     const Stripe = (await import('stripe')).default;
     const stripe = new Stripe(this.secretKey, { apiVersion: '2024-04-10' as Stripe.LatestApiVersion });
     try {
       const session = await stripe.checkout.sessions.retrieve(paymentId);
       const piId = session.payment_intent as string;
-      const refund = await stripe.refunds.create({
-        payment_intent: piId,
-        ...(amount ? { amount: Math.round(amount * 100) } : {}),
-      });
+      const refund = await stripe.refunds.create(
+        {
+          payment_intent: piId,
+          ...(amount ? { amount: Math.round(amount * 100) } : {}),
+        },
+        idempotencyKey ? { idempotencyKey } : undefined
+      );
       return { success: true, refundId: refund.id };
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -226,7 +241,9 @@ export class SumUpAdapter implements PaymentProvider {
     };
   }
 
-  async refund(paymentId: string): Promise<RefundResult> {
+  // SumUp no expone un header de idempotencia equivalente en este endpoint;
+  // el parámetro se acepta igualmente para cumplir la interfaz común.
+  async refund(paymentId: string, _amount?: number, _idempotencyKey?: string): Promise<RefundResult> {
     const response = await fetch(`https://api.sumup.com/v0.1/receipts/${paymentId}/refund`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${this.apiKey}` },

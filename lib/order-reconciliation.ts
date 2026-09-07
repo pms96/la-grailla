@@ -156,7 +156,7 @@ export async function invalidateOrder(
     if (order.paymentMethod === 'CARD' && order.paymentProvider && order.paymentId && order.paymentProvider !== 'mock') {
       try {
         const provider = await getPaymentProviderByName(order.paymentProvider);
-        const refund = await provider.refund(order.paymentId, order.totalAmount);
+        const refund = await provider.refund(order.paymentId, order.totalAmount, `refund_${order.id}`);
         if (!refund.success) {
           return { success: false, error: refund.error ?? 'El reembolso en la pasarela ha fallado' };
         }
@@ -328,7 +328,7 @@ export async function invalidateShopOrder(
     if (paidWithRealGateway && order.paymentProvider && order.paymentId) {
       try {
         const provider = await getPaymentProviderByName(order.paymentProvider);
-        const refund = await provider.refund(order.paymentId, order.totalAmount);
+        const refund = await provider.refund(order.paymentId, order.totalAmount, `refund_${order.id}`);
         if (!refund.success) {
           return { success: false, error: refund.error ?? 'El reembolso en la pasarela ha fallado' };
         }
