@@ -1,0 +1,68 @@
+name: CI
+
+# Gate obligatorio antes de mergear a main: tipos, lint y la suite de Vitest
+# (contra una Postgres real, igual que en local — el proyecto no usa mocks de
+# Prisma, así que un Postgres de mentira no vale). Hasta ahora los dos únicos
+# workflows del repo eran crons de producción (reconcile-payments,
+# cleanup-waiting-room); este es el primero que protege el propio código.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lagrailla
+          POSTGRES_PASSWORD: lagrailla
+          POSTGRES_DB: lagrailla
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lagrailla"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Postgres del servicio de arriba, sin pooler (no hace falta en CI).
+      DATABASE_URL: postgresql://lagrailla:lagrailla@localhost:5432/lagrailla
+      DIRECT_URL: postgresql://lagrailla:lagrailla@localhost:5432/lagrailla
+      # Secreto de un solo uso para esta ejecución — no protege nada real.
+      NEXTAUTH_SECRET: ci-test-secret-not-for-production-use-only
+      NEXTAUTH_URL: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Comprobar tipos
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Aplicar esquema de Prisma
+        run: npx prisma migrate deploy
+
+      - name: Tests (Vitest, en serie, contra Postgres real)
+        run: npm test
