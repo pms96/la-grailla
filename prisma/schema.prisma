@@ -354,6 +354,7 @@ model ShopOrderItem {
   product     Product   @relation(fields: [productId], references: [id])
 
   @@index([shopOrderId])
+  @@index([productId])
 }
 
 model SponsorRequest {
