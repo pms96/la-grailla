@@ -310,5 +310,19 @@ export async function getPaymentProviderByName(gateway: string): Promise<Payment
  * configuración nunca se detectaría hasta producción. */
 export async function getPaymentProvider(): Promise<PaymentProvider> {
   const activeGateway = await getConfig('payment_gateway');
-  return getPaymentProviderByName(activeGateway || 'mock');
+  const resolvedGateway = activeGateway || 'mock';
+
+  // En producción, "mock" completa pedidos como pagados sin cobrar nada real
+  // — es el comportamiento correcto para desarrollo/tests, pero si se llega
+  // a producción sin haber configurado Stripe/SumUp en /admin/configuracion
+  // (o si alguien lo cambia a "mock" por error), regalaría entradas/productos
+  // indefinidamente sin ningún aviso. Mejor romper el checkout con un error
+  // claro que dejar pasar ventas gratis silenciosamente.
+  if (resolvedGateway === 'mock' && process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'La pasarela de pago está en modo "mock" en producción — no se puede completar la venta. Configura Stripe o SumUp en /admin/configuracion.'
+    );
+  }
+
+  return getPaymentProviderByName(resolvedGateway);
 }
