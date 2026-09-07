@@ -15,6 +15,15 @@ import { cn } from '@/lib/utils';
 import { SPONSOR_GUIDED_QUESTIONS, CUSTOM_OPTION_LABEL, type GuidedQuestion } from '@/lib/sponsor-guided-questions';
 
 function GuidedQuestionField({ question, value, onChange }: { question: GuidedQuestion; value: string; onChange: (v: string) => void }) {
+  // El useState debe llamarse siempre, en el mismo orden, sin importar el
+  // tipo de pregunta — si se llamara solo dentro de la rama "no es texto"
+  // (como estaba antes, después del return anticipado de 'text'), React
+  // pierde la cuenta de los hooks en cuanto una misma posición de la lista
+  // alterna entre preguntas de tipo 'text' y 'select' entre renders.
+  const options = question.options ?? [];
+  const valueIsCustom = Boolean(value) && !options.includes(value);
+  const [forceCustom, setForceCustom] = useState(valueIsCustom);
+
   if (question.type === 'text') {
     return (
       <div>
@@ -25,9 +34,6 @@ function GuidedQuestionField({ question, value, onChange }: { question: GuidedQu
     );
   }
 
-  const options = question.options ?? [];
-  const valueIsCustom = Boolean(value) && !options.includes(value);
-  const [forceCustom, setForceCustom] = useState(valueIsCustom);
   const showCustom = forceCustom || valueIsCustom;
 
   return (
