@@ -69,7 +69,7 @@ function sampleOrder() {
         orderId: 'order-test',
         eventId: 'ev',
         ticketTypeId: null,
-        qrCode: 'LG-bc4e829b-test',
+        qrCode: 'LG-bc4e829b-4f21-8a7c-9d12-ee01aa22bb33',
         holderName: 'Ana García',
         status: 'VALID' as const,
         entryTime: null,

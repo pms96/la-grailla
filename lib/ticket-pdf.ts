@@ -214,39 +214,44 @@ function trackedWidth(text: string, font: PDFFont, size: number, tracking = 0.45
   return Math.max(0, width - tracking);
 }
 
-function drawField(
-  page: PDFPage,
-  label: string,
-  value: string,
-  opts: {
-    x: number;
-    y: number;
-    width: number;
-    labelFont: PDFFont;
-    valueFont: PDFFont;
-    align?: 'left' | 'right';
+function wrapCode(text: string, font: PDFFont, size: number, maxWidth: number, maxLines: number): string[] {
+  const safe = pdfSafe(text);
+  if (!safe) return [];
+  if (font.widthOfTextAtSize(safe, size) <= maxWidth) return [safe];
+  const lines: string[] = [];
+  let rest = safe;
+  while (rest.length > 0 && lines.length < maxLines) {
+    if (lines.length === maxLines - 1) {
+      lines.push(truncateToWidth(rest, font, size, maxWidth));
+      break;
+    }
+    let cut = rest.length;
+    while (cut > 1 && font.widthOfTextAtSize(rest.slice(0, cut), size) > maxWidth) {
+      cut--;
+    }
+    const hyphen = rest.lastIndexOf('-', cut - 1);
+    if (hyphen >= 4) cut = hyphen + 1;
+    if (cut < 1) cut = 1;
+    lines.push(rest.slice(0, cut));
+    rest = rest.slice(cut);
   }
+  return lines;
+}
+
+function drawCenteredText(
+  page: PDFPage,
+  text: string,
+  opts: { centerX: number; y: number; size: number; font: PDFFont; color: ReturnType<typeof rgb>; opacity?: number }
 ) {
-  const labelSize = 6;
-  const valueSize = 8;
-  const labelWidth = opts.labelFont.widthOfTextAtSize(label, labelSize);
-  const valueText = truncateToWidth(value, opts.valueFont, valueSize, opts.width);
-  const valueWidth = opts.valueFont.widthOfTextAtSize(valueText, valueSize);
-  const right = opts.align === 'right';
-  page.drawText(label, {
-    x: right ? opts.x + opts.width - labelWidth : opts.x,
-    y: opts.y + valueSize + 3,
-    size: labelSize,
-    font: opts.labelFont,
-    color: INK,
-    opacity: 0.55,
-  });
-  page.drawText(valueText, {
-    x: right ? opts.x + opts.width - valueWidth : opts.x,
+  const safe = pdfSafe(text);
+  const width = opts.font.widthOfTextAtSize(safe, opts.size);
+  page.drawText(safe, {
+    x: opts.centerX - width / 2,
     y: opts.y,
-    size: valueSize,
-    font: opts.valueFont,
-    color: INK,
+    size: opts.size,
+    font: opts.font,
+    color: opts.color,
+    opacity: opts.opacity,
   });
 }
 
@@ -268,10 +273,38 @@ function drawDecorativeBarcode(page: PDFPage, x: number, y: number, width: numbe
   }
 }
 
+function drawLabeledValue(
+  page: PDFPage,
+  label: string,
+  valueLines: string[],
+  opts: { x: number; y: number; labelFont: PDFFont; valueFont: PDFFont; valueSize?: number }
+): number {
+  const valueSize = opts.valueSize ?? 8.5;
+  page.drawText(label, {
+    x: opts.x,
+    y: opts.y,
+    size: 5.5,
+    font: opts.labelFont,
+    color: INK,
+    opacity: 0.55,
+  });
+  let y = opts.y - 10;
+  for (const line of valueLines) {
+    page.drawText(line, {
+      x: opts.x,
+      y,
+      size: valueSize,
+      font: opts.valueFont,
+      color: INK,
+    });
+    y -= valueSize + 2;
+  }
+  return y;
+}
+
 /**
  * Entrada de taquilla a tamaño de papel 105 × 70 mm, apaisada.
- * Reproduce el estilo de la entrada digital (lima, QR en recuadro blanco,
- * muescas y talón) sin botones de wallet. Una página por entrada.
+ * Cuerpo: escaneo (QR + código completo). Talón: titular y tipo, sin repetir el código.
  */
 export async function buildTicketsPdfForRoll(order: OrderForPdf): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
@@ -286,15 +319,15 @@ export async function buildTicketsPdfForRoll(order: OrderForPdf): Promise<Uint8A
 
   const width = TAQUILLA_TICKET_WIDTH_PT;
   const height = TAQUILLA_TICKET_HEIGHT_PT;
-  const stubWidth = 90;
+  const stubWidth = 80;
   const stubX = width - stubWidth;
-  const notch = 8;
-  const pad = 10;
+  const notch = 7;
+  const pad = 11;
+  const gap = 8;
 
   for (const ticket of order.tickets ?? []) {
     const page = pdf.addPage([width, height]);
     page.drawRectangle({ x: 0, y: 0, width, height, color: LIMA });
-    // drawSvgPath usa coordenadas SVG (Y hacia abajo), ancladas arriba de la página.
     page.drawSvgPath(
       `M ${stubX - notch} 0 L ${stubX} ${notch} L ${stubX + notch} 0 Z`,
       { color: WHITE, y: height }
@@ -305,36 +338,37 @@ export async function buildTicketsPdfForRoll(order: OrderForPdf): Promise<Uint8A
     );
 
     page.drawLine({
-      start: { x: stubX, y: notch + 4 },
-      end: { x: stubX, y: height - notch - 4 },
-      thickness: 0.7,
+      start: { x: stubX, y: notch + 5 },
+      end: { x: stubX, y: height - notch - 5 },
+      thickness: 0.65,
       color: INK,
-      opacity: 0.25,
-      dashArray: [2.8, 2.2],
+      opacity: 0.22,
+      dashArray: [2.4, 2],
     });
 
     const bodyLeft = pad;
-    const bodyRight = stubX - 8;
+    const bodyRight = stubX - 7;
     const bodyWidth = bodyRight - bodyLeft;
     let y = height - pad;
 
-    const logoHeight = 9;
+    const logoHeight = 22;
     const logoWidth = logoHeight / logoAspect;
     page.drawImage(logoImage, {
       x: bodyLeft,
       y: y - logoHeight,
       width: logoWidth,
       height: logoHeight,
-      opacity: 0.8,
     });
 
     const city = pdfSafe((order.event?.city ?? '').toUpperCase());
     if (city) {
       const citySize = 6.5;
-      const cityW = trackedWidth(city, fontMono, citySize, 0.55);
-      drawTrackedText(page, city, {
+      const cityMax = Math.max(24, bodyWidth - logoWidth - 10);
+      const cityText = truncateToWidth(city, fontMono, citySize, cityMax);
+      const cityW = trackedWidth(cityText, fontMono, citySize, 0.55);
+      drawTrackedText(page, cityText, {
         x: bodyRight - cityW,
-        y: y - logoHeight + 1,
+        y: y - logoHeight / 2 - citySize / 3,
         size: citySize,
         font: fontMono,
         color: INK,
@@ -342,26 +376,25 @@ export async function buildTicketsPdfForRoll(order: OrderForPdf): Promise<Uint8A
         opacity: 0.5,
       });
     }
-    y -= logoHeight + 7;
 
-    const titleSize = 11;
-    const titleLines = wrapText((order.event?.name ?? 'Evento').toUpperCase(), fontBold, titleSize, bodyWidth, 2);
-    const fieldsH = 22;
-    const footerH = titleLines.length * (titleSize + 2) + 6 + fieldsH;
-    const qrBoxSize = Math.min(bodyWidth - 8, Math.max(48, y - pad - footerH));
-    const qrPad = 5.5;
+    const contentTop = y - logoHeight - 7;
+    const qrCodeValue = (ticket.qrCode ?? '').toUpperCase();
+    const codeSize = 6;
+    const textMin = 70;
+    const qrBoxSize = Math.min(contentTop - pad - 16, bodyWidth - gap - textMin);
+    const qrPad = 4.5;
     const qrSize = qrBoxSize - qrPad * 2;
-    const qrBoxX = bodyLeft + (bodyWidth - qrBoxSize) / 2;
-    const qrBoxY = y - qrBoxSize;
+    const qrBoxX = bodyLeft;
+    const qrBoxY = contentTop - qrBoxSize;
 
-    const qrShadowSvgY = height - (qrBoxY - 0.8) - qrBoxSize;
+    const qrShadowSvgY = height - (qrBoxY - 0.7) - qrBoxSize;
     const qrBoxSvgY = height - qrBoxY - qrBoxSize;
-    page.drawSvgPath(roundedRectPath(qrBoxX + 0.8, qrShadowSvgY, qrBoxSize, qrBoxSize, 4), {
+    page.drawSvgPath(roundedRectPath(qrBoxX + 0.7, qrShadowSvgY, qrBoxSize, qrBoxSize, 3.5), {
       color: rgb(0, 0, 0),
       opacity: 0.12,
       y: height,
     });
-    page.drawSvgPath(roundedRectPath(qrBoxX, qrBoxSvgY, qrBoxSize, qrBoxSize, 4), {
+    page.drawSvgPath(roundedRectPath(qrBoxX, qrBoxSvgY, qrBoxSize, qrBoxSize, 3.5), {
       color: WHITE,
       y: height,
     });
@@ -374,66 +407,86 @@ export async function buildTicketsPdfForRoll(order: OrderForPdf): Promise<Uint8A
       width: qrSize,
       height: qrSize,
     });
-    y = qrBoxY - 8;
 
+    const textX = qrBoxX + qrBoxSize + gap;
+    const textW = bodyRight - textX;
+    const titleSize = 10.5;
+    const titleLines = wrapText((order.event?.name ?? 'Evento').toUpperCase(), fontBold, titleSize, textW, 3);
+    let textY = contentTop - 2;
     for (const line of titleLines) {
       page.drawText(line, {
-        x: bodyLeft,
-        y: y - titleSize,
+        x: textX,
+        y: textY - titleSize,
         size: titleSize,
         font: fontBold,
         color: INK,
       });
-      y -= titleSize + 2;
+      textY -= titleSize + 2;
     }
-    y -= 6;
+    textY -= 8;
 
-    const colWidth = (bodyWidth - 8) / 2;
-    drawField(page, 'FECHA', eventDateShort, {
-      x: bodyLeft,
-      y: y - 8,
-      width: colWidth,
+    textY = drawLabeledValue(page, 'FECHA', [eventDateShort], {
+      x: textX,
+      y: textY,
       labelFont: fontBold,
       valueFont: fontMonoBold,
+      valueSize: 9,
     });
-    drawField(page, 'TIPO', (ticket.ticketType?.name ?? 'General').toUpperCase(), {
-      x: bodyLeft + colWidth + 8,
-      y: y - 8,
-      width: colWidth,
+    textY -= 6;
+    drawLabeledValue(page, 'TIPO', wrapText((ticket.ticketType?.name ?? 'General').toUpperCase(), fontMonoBold, 9, textW, 2), {
+      x: textX,
+      y: textY,
       labelFont: fontBold,
       valueFont: fontMonoBold,
+      valueSize: 9,
     });
+
+    const codeLines = wrapCode(qrCodeValue, fontMonoBold, codeSize, bodyWidth, 2);
+    let codeY = qrBoxY - 5;
+    for (const line of codeLines) {
+      codeY -= codeSize;
+      drawCenteredText(page, line, {
+        centerX: bodyLeft + bodyWidth / 2,
+        y: codeY,
+        size: codeSize,
+        font: fontMonoBold,
+        color: INK,
+        opacity: 0.7,
+      });
+      codeY -= 1.5;
+    }
 
     const stubLeft = stubX + 8;
-    const stubRight = width - pad;
-    const stubInnerWidth = stubRight - stubLeft;
-    let stubY = height - pad - 8;
+    const stubInnerWidth = width - pad - stubLeft;
+    const barcodeH = 10;
+    let stubY = height - pad - 2;
 
-    page.drawText('TITULAR', {
-      x: stubLeft,
-      y: stubY,
-      size: 6,
-      font: fontBold,
-      color: INK,
-      opacity: 0.55,
-    });
-    stubY -= 11;
-    const holderLines = wrapText((ticket.holderName ?? '').toUpperCase(), fontBold, 8, stubInnerWidth, 2);
-    for (const line of holderLines) {
-      page.drawText(line, { x: stubLeft, y: stubY, size: 8, font: fontBold, color: INK });
-      stubY -= 10;
-    }
-    stubY -= 10;
+    stubY = drawLabeledValue(
+      page,
+      'TITULAR',
+      wrapText((ticket.holderName ?? '').toUpperCase(), fontBold, 9, stubInnerWidth, 3),
+      {
+        x: stubLeft,
+        y: stubY,
+        labelFont: fontBold,
+        valueFont: fontBold,
+        valueSize: 9,
+      }
+    );
 
-    drawField(page, 'REF', (ticket.qrCode ?? '').slice(0, 12).toUpperCase(), {
+    const titularBottom = stubY;
+    const barcodeTop = pad + barcodeH + 14;
+    const fechaBlockH = 22;
+    const fechaY = (titularBottom + barcodeTop) / 2 + fechaBlockH / 2;
+    drawLabeledValue(page, 'FECHA', [eventDateShort], {
       x: stubLeft,
-      y: stubY - 18,
-      width: stubInnerWidth,
+      y: fechaY,
       labelFont: fontBold,
       valueFont: fontMonoBold,
+      valueSize: 12,
     });
 
-    drawDecorativeBarcode(page, stubLeft, pad, stubInnerWidth, 11);
+    drawDecorativeBarcode(page, stubLeft, pad, stubInnerWidth, barcodeH);
   }
 
   return pdf.save();
