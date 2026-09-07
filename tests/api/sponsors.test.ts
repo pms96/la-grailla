@@ -19,9 +19,17 @@ function sponsorRequest(body: unknown, ip: string) {
   });
 }
 
+const TEST_IP = '203.0.113.30';
+
 describe('POST /api/sponsors', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     sendMailMock.mockClear();
+    // POST /api/sponsors está limitado a 5 peticiones/hora por IP (real,
+    // respaldado en Postgres — no es un limitador en memoria que se resetee
+    // solo entre ejecuciones). Sin este borrado, más de 5 ejecuciones
+    // seguidas de la suite dentro de la misma hora agotan el cupo de esta
+    // IP fija y el test empieza a fallar con 429 en vez de 200.
+    await prisma.rateLimitBucket.deleteMany({ where: { key: `sponsors:${TEST_IP}` } });
   });
 
   // AUDIT: companyName/contactName/sponsorType/phone/message se interpolaban
@@ -37,7 +45,7 @@ describe('POST /api/sponsors', () => {
           sponsorType: 'Stand',
           message: '<script>alert("xss")</script>Hola',
         },
-        '203.0.113.30'
+        TEST_IP
       )
     );
     expect(res.status).toBe(200);
