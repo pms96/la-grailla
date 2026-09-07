@@ -48,14 +48,18 @@ export default function PedidosPage() {
       return;
     }
     try {
-      await fetch(`/api/admin/shop-orders/${id}`, {
+      const res = await fetch(`/api/admin/shop-orders/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? 'Error');
       toast.success('Actualizado');
       fetchOrders();
-    } catch { toast.error('Error'); }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error');
+    }
   };
 
   return (

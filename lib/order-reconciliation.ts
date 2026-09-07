@@ -1,4 +1,4 @@
-import type { OrderStatus, TicketStatus } from '@prisma/client';
+import type { OrderStatus, ShopOrderStatus, TicketStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { sendTicketsEmail } from '@/lib/tickets';
@@ -283,6 +283,80 @@ export async function releaseExpiredShopOrder(orderId: string): Promise<void> {
       }))
     );
   });
+}
+
+export type InvalidateShopOrderResult =
+  | { success: true; status: ShopOrderStatus }
+  | { success: false; error: string };
+
+const PAID_SHOP_ORDER_STATUSES: ShopOrderStatus[] = ['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED'];
+
+/**
+ * Cancela o reembolsa un pedido de tienda desde el admin — equivalente de
+ * invalidateOrder() para ShopOrder, que hasta ahora no tenía ninguna lógica
+ * de negocio: el PUT del admin era un simple cambio de `status` que ni
+ * devolvía el dinero cobrado ni liberaba el stock reservado en ProductVariant.
+ * - Libera el stock reservado de las variantes (reservado ya desde la
+ *   creación del pedido, esté PENDING o pagado — ver reserveShopStock).
+ * - En REFUNDED con pago real (no mock), intenta reembolso en la pasarela primero.
+ * - "Cancelar" un pedido ya pagado con un proveedor real se rechaza (igual que
+ *   invalidateOrder): hay que usar "Reembolsar", la única acción que sí
+ *   devuelve el dinero.
+ * - No actúa si el pedido ya está CANCELLED/REFUNDED.
+ */
+export async function invalidateShopOrder(
+  shopOrderId: string,
+  mode: 'CANCELLED' | 'REFUNDED'
+): Promise<InvalidateShopOrderResult> {
+  const order = await prisma.shopOrder.findUnique({
+    where: { id: shopOrderId },
+    include: { items: true },
+  });
+  if (!order) return { success: false, error: 'Pedido no encontrado' };
+  if (order.status === 'CANCELLED' || order.status === 'REFUNDED') {
+    return { success: false, error: 'Este pedido ya está anulado' };
+  }
+
+  const isPaid = PAID_SHOP_ORDER_STATUSES.includes(order.status);
+  const paidWithRealGateway = Boolean(order.paymentProvider && order.paymentProvider !== 'mock' && order.paymentId);
+
+  if (mode === 'CANCELLED' && isPaid && paidWithRealGateway) {
+    return {
+      success: false,
+      error: 'Este pedido ya está pagado — usa "Reembolsar" en vez de "Cancelar" para devolver el dinero al comprador.',
+    };
+  }
+
+  if (mode === 'REFUNDED') {
+    if (!isPaid) {
+      return { success: false, error: 'Solo se pueden reembolsar pedidos ya pagados' };
+    }
+    if (paidWithRealGateway && order.paymentProvider && order.paymentId) {
+      try {
+        const provider = await getPaymentProviderByName(order.paymentProvider);
+        const refund = await provider.refund(order.paymentId, order.totalAmount);
+        if (!refund.success) {
+          return { success: false, error: refund.error ?? 'El reembolso en la pasarela ha fallado' };
+        }
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Error al reembolsar en la pasarela',
+        };
+      }
+    }
+  }
+
+  const { releaseShopStock } = await import('@/lib/product-stock');
+  await prisma.$transaction(async (tx) => {
+    await tx.shopOrder.update({ where: { id: shopOrderId }, data: { status: mode, idempotencyKey: null } });
+    await releaseShopStock(
+      tx,
+      (order.items ?? []).map((i) => ({ productId: i.productId, quantity: i.quantity, size: i.size, color: i.color }))
+    );
+  });
+
+  return { success: true, status: mode };
 }
 
 /** Resuelve si el orderId del metadata de Stripe es pedido de entradas o de tienda. */
