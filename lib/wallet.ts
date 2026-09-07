@@ -1,5 +1,6 @@
-import { getConfigs } from '@/lib/config';
+import { getConfig, getConfigs, setConfig } from '@/lib/config';
 import { APPLE_WWDR_CERT_PEM } from '@/lib/apple-wwdr-cert';
+import { sendMail } from '@/lib/mailer';
 
 export type WalletAvailability = { google: boolean; apple: boolean };
 
@@ -150,7 +151,7 @@ async function fetchStripBuffer(): Promise<Buffer> {
 async function extractPemFromP12(
   p12Base64: string,
   passphrase: string | undefined
-): Promise<{ certPem: string; keyPem: string }> {
+): Promise<{ certPem: string; keyPem: string; notAfter: Date }> {
   const forgeModule = await import('node-forge');
   const forge = (forgeModule as unknown as { default?: typeof forgeModule }).default ?? forgeModule;
 
@@ -166,7 +167,53 @@ async function extractPemFromP12(
     throw new Error('El .p12 no contiene un certificado y una clave privada válidos (¿contraseña incorrecta?)');
   }
 
-  return { certPem: forge.pki.certificateToPem(cert), keyPem: forge.pki.privateKeyToPem(key) };
+  return { certPem: forge.pki.certificateToPem(cert), keyPem: forge.pki.privateKeyToPem(key), notAfter: cert.validity.notAfter };
+}
+
+const CERT_EXPIRY_ALERT_CONFIG_KEY = 'apple_wallet_cert_expiry_alerted_for';
+const CERT_EXPIRY_ALERT_WINDOW_DAYS = 30;
+
+// Un certificado caducado no da ningún error claro al firmar (passkit-generator
+// no valida la fecha) — el pase se genera "bien" pero Apple lo rechaza en el
+// dispositivo del comprador, el peor momento para descubrirlo. Se avisa con
+// margen (30 días) para poder renovarlo con calma antes del evento.
+// Idempotente por certificado, no por tiempo: se guarda el notAfter ya
+// alertado en AppConfig — mientras sea el mismo certificado no se repite el
+// email en cada pase generado; si se renueva (notAfter distinto), se alerta
+// de nuevo si hiciera falta.
+export async function alertAppleCertExpiringSoon(notAfter: Date, daysRemaining: number): Promise<void> {
+  const notAfterIso = notAfter.toISOString();
+  const alreadyAlertedFor = await getConfig(CERT_EXPIRY_ALERT_CONFIG_KEY);
+  if (alreadyAlertedFor === notAfterIso) return;
+
+  const expired = daysRemaining <= 0;
+  console.error(
+    expired
+      ? `[wallet] El certificado de Apple Wallet caducó el ${notAfterIso} — no se pueden generar pases nuevos.`
+      : `[wallet] El certificado de Apple Wallet caduca en ${daysRemaining} día(s) (${notAfterIso}) — requiere renovación.`
+  );
+  try {
+    const emailResult = await sendMail({
+      to: 'grupolagrailla@gmail.com',
+      subject: expired
+        ? '⚠️ El certificado de Apple Wallet ha caducado'
+        : `⚠️ El certificado de Apple Wallet caduca en ${daysRemaining} día(s)`,
+      html:
+        `<p>El certificado usado para firmar los pases de Apple Wallet ` +
+        (expired ? `caducó el` : `caduca el`) +
+        ` <strong>${notAfter.toLocaleDateString('es-ES')}</strong>` +
+        (expired ? '.' : ` (en ${daysRemaining} día(s)).`) +
+        `</p>` +
+        `<p>${expired ? 'Ya no se puede generar ningún pase nuevo de Apple Wallet.' : 'Pasada esa fecha, dejará de poder generarse ningún pase nuevo de Apple Wallet.'} Renueva el certificado desde el Apple Developer Portal y súbelo en /admin/configuracion.</p>`,
+    });
+    if (!emailResult.success) {
+      console.error('[alertAppleCertExpiringSoon] Email fallido:', emailResult.error);
+      return;
+    }
+    await setConfig(CERT_EXPIRY_ALERT_CONFIG_KEY, notAfterIso, 'Última caducidad de certificado Apple Wallet alertada', 'wallet');
+  } catch (error) {
+    console.error('[alertAppleCertExpiringSoon] Error enviando alerta:', error instanceof Error ? error.message : error);
+  }
 }
 
 export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | null> {
@@ -182,7 +229,16 @@ export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | nu
 
   try {
     const { PKPass } = await import('passkit-generator');
-    const { certPem, keyPem } = await extractPemFromP12(cfg.apple_wallet_cert_p12_base64, cfg.apple_wallet_cert_password);
+    const { certPem, keyPem, notAfter } = await extractPemFromP12(cfg.apple_wallet_cert_p12_base64, cfg.apple_wallet_cert_password);
+
+    const daysRemaining = Math.ceil((notAfter.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+    if (daysRemaining <= CERT_EXPIRY_ALERT_WINDOW_DAYS) {
+      // No bloquea la generación del pase (el certificado sigue siendo
+      // válido hasta notAfter) — solo avisa con margen. No se espera a que
+      // termine: un email lento no debe retrasar la descarga del pase.
+      void alertAppleCertExpiringSoon(notAfter, daysRemaining);
+    }
+
     const iconBuffer = await fetchLogoBuffer();
     const stripBuffer = await fetchStripBuffer();
 
