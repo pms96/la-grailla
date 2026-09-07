@@ -149,23 +149,40 @@ export async function invalidateOrder(
     };
   }
 
-  if (mode === 'REFUNDED') {
-    if (order.status !== 'COMPLETED') {
-      return { success: false, error: 'Solo se pueden reembolsar pedidos completados' };
-    }
-    if (order.paymentMethod === 'CARD' && order.paymentProvider && order.paymentId && order.paymentProvider !== 'mock') {
-      try {
-        const provider = await getPaymentProviderByName(order.paymentProvider);
-        const refund = await provider.refund(order.paymentId, order.totalAmount, `refund_${order.id}`);
-        if (!refund.success) {
-          return { success: false, error: refund.error ?? 'El reembolso en la pasarela ha fallado' };
-        }
-      } catch (err) {
-        return {
-          success: false,
-          error: err instanceof Error ? err.message : 'Error al reembolsar en la pasarela',
-        };
+  if (mode === 'REFUNDED' && order.status !== 'COMPLETED') {
+    return { success: false, error: 'Solo se pueden reembolsar pedidos completados' };
+  }
+
+  // TOCTOU: hasta aquí solo se ha LEÍDO el pedido — dos peticiones
+  // concurrentes (doble clic en "Reembolsar", dos admins a la vez) pasarían
+  // ambas los checks de arriba antes de que ninguna escriba nada, y las dos
+  // acabarían llamando a la pasarela y decrementando soldCount por
+  // duplicado. Se reclama la transición de estado con un updateMany
+  // condicionado al status exacto que se acaba de leer (compare-and-swap):
+  // si otra petición ya cambió el estado entre la lectura y este punto,
+  // count será 0 y se aborta sin tocar la pasarela ni el stock.
+  const claim = await prisma.order.updateMany({
+    where: { id: orderId, status: order.status },
+    data: { status: mode, idempotencyKey: null },
+  });
+  if (claim.count === 0) {
+    return { success: false, error: 'El pedido cambió de estado mientras se procesaba; vuelve a intentarlo' };
+  }
+
+  if (mode === 'REFUNDED' && order.paymentMethod === 'CARD' && order.paymentProvider && order.paymentId && order.paymentProvider !== 'mock') {
+    try {
+      const provider = await getPaymentProviderByName(order.paymentProvider);
+      const refund = await provider.refund(order.paymentId, order.totalAmount, `refund_${order.id}`);
+      if (!refund.success) {
+        await prisma.order.update({ where: { id: orderId }, data: { status: order.status } });
+        return { success: false, error: refund.error ?? 'El reembolso en la pasarela ha fallado' };
       }
+    } catch (err) {
+      await prisma.order.update({ where: { id: orderId }, data: { status: order.status } });
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Error al reembolsar en la pasarela',
+      };
     }
   }
 
@@ -180,10 +197,6 @@ export async function invalidateOrder(
   const ticketStatus: TicketStatus = mode === 'REFUNDED' ? 'REFUNDED' : 'CANCELLED';
 
   await prisma.$transaction([
-    prisma.order.update({
-      where: { id: orderId },
-      data: { status: mode, idempotencyKey: null },
-    }),
     prisma.ticket.updateMany({
       where: { orderId, status: { in: activeStatuses } },
       data: { status: ticketStatus },
@@ -321,34 +334,47 @@ export async function invalidateShopOrder(
     };
   }
 
-  if (mode === 'REFUNDED') {
-    if (!isPaid) {
-      return { success: false, error: 'Solo se pueden reembolsar pedidos ya pagados' };
-    }
-    if (paidWithRealGateway && order.paymentProvider && order.paymentId) {
-      try {
-        const provider = await getPaymentProviderByName(order.paymentProvider);
-        const refund = await provider.refund(order.paymentId, order.totalAmount, `refund_${order.id}`);
-        if (!refund.success) {
-          return { success: false, error: refund.error ?? 'El reembolso en la pasarela ha fallado' };
-        }
-      } catch (err) {
-        return {
-          success: false,
-          error: err instanceof Error ? err.message : 'Error al reembolsar en la pasarela',
-        };
+  if (mode === 'REFUNDED' && !isPaid) {
+    return { success: false, error: 'Solo se pueden reembolsar pedidos ya pagados' };
+  }
+
+  // Mismo TOCTOU que invalidateOrder: reclama la transición con un
+  // updateMany condicionado al status exacto leído (compare-and-swap) antes
+  // de tocar la pasarela o liberar stock, para que dos peticiones
+  // concurrentes sobre el mismo pedido no acaben reembolsando/liberando
+  // stock por duplicado.
+  const claim = await prisma.shopOrder.updateMany({
+    where: { id: shopOrderId, status: order.status },
+    data: { status: mode, idempotencyKey: null },
+  });
+  if (claim.count === 0) {
+    return { success: false, error: 'El pedido cambió de estado mientras se procesaba; vuelve a intentarlo' };
+  }
+
+  if (mode === 'REFUNDED' && paidWithRealGateway && order.paymentProvider && order.paymentId) {
+    try {
+      const provider = await getPaymentProviderByName(order.paymentProvider);
+      const refund = await provider.refund(order.paymentId, order.totalAmount, `refund_${order.id}`);
+      if (!refund.success) {
+        await prisma.shopOrder.update({ where: { id: shopOrderId }, data: { status: order.status } });
+        return { success: false, error: refund.error ?? 'El reembolso en la pasarela ha fallado' };
       }
+    } catch (err) {
+      await prisma.shopOrder.update({ where: { id: shopOrderId }, data: { status: order.status } });
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Error al reembolsar en la pasarela',
+      };
     }
   }
 
   const { releaseShopStock } = await import('@/lib/product-stock');
-  await prisma.$transaction(async (tx) => {
-    await tx.shopOrder.update({ where: { id: shopOrderId }, data: { status: mode, idempotencyKey: null } });
-    await releaseShopStock(
+  await prisma.$transaction((tx) =>
+    releaseShopStock(
       tx,
       (order.items ?? []).map((i) => ({ productId: i.productId, quantity: i.quantity, size: i.size, color: i.color }))
-    );
-  });
+    )
+  );
 
   return { success: true, status: mode };
 }
