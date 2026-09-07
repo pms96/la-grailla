@@ -28,6 +28,18 @@ export function isSensitiveConfigKey(key: string): boolean {
   return SENSITIVE_CONFIG_KEYS.includes(key);
 }
 
+// Comparar secretos con !== filtra su valor byte a byte por temporización
+// (cuanto más tarde en fallar la comparación, más caracteres iniciales
+// acertó el atacante) — timingSafeEqual exige longitud igual, así que se
+// compara primero para evitar que lanzar la excepción por longitud distinta
+// sea en sí misma una fuga de longitud del secreto.
+export function timingSafeEqualString(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ba, bb);
+}
+
 function deriveKey(): Buffer {
   const secret = process.env.NEXTAUTH_SECRET;
   if (!secret) {

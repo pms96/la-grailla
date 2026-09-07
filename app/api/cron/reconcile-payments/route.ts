@@ -10,6 +10,7 @@ import {
   releaseExpiredShopOrder,
 } from '@/lib/order-reconciliation';
 import { handleApiError } from '@/lib/api-error';
+import { timingSafeEqualString } from '@/lib/secrets';
 
 // Solo Stripe tiene webhook (app/api/webhooks/stripe) — SumUp no, así que un
 // pedido pagado con SumUp solo se confirma hoy si el comprador vuelve a
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
       console.error('[GET /api/cron/reconcile-payments] Falta CRON_SECRET en las variables de entorno');
       return NextResponse.json({ error: 'Cron no configurado' }, { status: 500 });
     }
-    if (request.headers.get('authorization') !== `Bearer ${cronSecret}`) {
+    if (!timingSafeEqualString(request.headers.get('authorization') ?? '', `Bearer ${cronSecret}`)) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
