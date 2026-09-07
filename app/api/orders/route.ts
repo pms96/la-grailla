@@ -29,8 +29,8 @@ class DuplicateOrderError extends Error {}
 
 const createOrderSchema = z.object({
   eventId: z.string().min(1),
-  buyerName: z.string().min(1),
-  buyerLastName: z.string().min(1),
+  buyerName: z.string().min(1).max(100),
+  buyerLastName: z.string().min(1).max(100),
   buyerEmail: z.string().email(),
   items: z
     .array(

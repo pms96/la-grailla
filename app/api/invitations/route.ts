@@ -17,7 +17,7 @@ class InvitationRejectedError extends Error {}
 const createInvitationSchema = z.object({
   eventId: z.string().min(1),
   listId: z.string().optional().nullable(),
-  guestName: z.string().min(1),
+  guestName: z.string().min(1).max(100),
   guestEmail: z.string().email().optional().nullable().or(z.literal('')),
   notes: z.string().optional().nullable(),
   sendEmail: z.boolean().optional(),

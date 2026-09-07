@@ -14,8 +14,8 @@ class TaquillaSaleRejectedError extends Error {}
 
 const taquillaSaleSchema = z.object({
   eventId: z.string().min(1),
-  buyerName: z.string().optional(),
-  buyerLastName: z.string().optional().nullable(),
+  buyerName: z.string().max(100).optional(),
+  buyerLastName: z.string().max(100).optional().nullable(),
   buyerEmail: z.string().email().optional().nullable().or(z.literal('')),
   items: z
     .array(

@@ -4,17 +4,11 @@ import { generateQRDataUrl } from '@/lib/qr';
 import { sendMail } from '@/lib/mailer';
 import { orderAccessQuery } from '@/lib/access-token';
 import { buildTicketsPdf } from '@/lib/ticket-pdf';
+import { escapeHtml as esc } from '@/lib/html-escape';
 
 type OrderWithTickets = Prisma.OrderGetPayload<{
   include: { event: true; tickets: { include: { ticketType: true } } };
 }>;
-
-function esc(value: unknown): string {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
 
 export async function buildTicketsHtml(orderId: string): Promise<{ html: string; order: OrderWithTickets } | null> {
   const order = await prisma.order.findUnique({
