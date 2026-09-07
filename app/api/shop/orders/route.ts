@@ -10,6 +10,7 @@ import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { handleApiError } from '@/lib/api-error';
 import { completeShopOrder } from '@/lib/order-reconciliation';
 import { reserveShopStock, releaseShopStock } from '@/lib/product-stock';
+import { shopOrderAccessQuery, signShopOrderAccess } from '@/lib/access-token';
 
 const createShopOrderSchema = z.object({
   buyerName: z.string().min(1),
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
           orderId: existing.id,
           checkoutUrl: null,
           provider: existing.paymentProvider ?? 'mock',
+          accessToken: signShopOrderAccess(existing.id),
         });
       }
     }
@@ -133,6 +135,7 @@ export async function POST(request: Request) {
             orderId: existing.id,
             checkoutUrl: null,
             provider: existing.paymentProvider ?? 'mock',
+            accessToken: signShopOrderAccess(existing.id),
           });
         }
       }
@@ -169,7 +172,7 @@ export async function POST(request: Request) {
           currency: 'EUR',
           description: 'Pedido tienda La Grailla',
           orderId: createdOrder.id,
-          successUrl: baseUrl + '/tienda/confirmacion/' + createdOrder.id,
+          successUrl: baseUrl + '/tienda/confirmacion/' + createdOrder.id + '?' + shopOrderAccessQuery(createdOrder.id),
           cancelUrl: baseUrl + '/tienda',
           customerEmail: buyerEmail,
           metadata: { orderType: 'shop' },
@@ -211,7 +214,13 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ success: true, orderId: createdOrder.id, checkoutUrl, provider });
+    return NextResponse.json({
+      success: true,
+      orderId: createdOrder.id,
+      checkoutUrl,
+      provider,
+      accessToken: signShopOrderAccess(createdOrder.id),
+    });
   } catch (error) {
     return handleApiError(error, 'POST /api/shop/orders');
   }

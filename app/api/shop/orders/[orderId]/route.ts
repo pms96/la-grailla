@@ -5,14 +5,20 @@ import { prisma } from '@/lib/prisma';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { completeShopOrder } from '@/lib/order-reconciliation';
 import { handleApiError } from '@/lib/api-error';
+import { allowShopOrderAccess, getTokenFromRequest } from '@/lib/access-token';
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: { orderId: string } }
 ) {
   try {
+    const orderId = params?.orderId;
+    if (!(await allowShopOrderAccess(orderId, getTokenFromRequest(request)))) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+
     let order = await prisma.shopOrder.findUnique({
-      where: { id: params?.orderId },
+      where: { id: orderId },
       include: { items: { include: { product: true } } },
     });
 

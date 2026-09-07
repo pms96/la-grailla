@@ -118,7 +118,8 @@ export default function ShopCheckoutClient() {
         window.location.href = data.checkoutUrl;
         return;
       }
-      router.push('/tienda/confirmacion/' + data.orderId);
+      const tokenQs = data?.accessToken ? `?t=${encodeURIComponent(data.accessToken)}` : '';
+      router.push('/tienda/confirmacion/' + data.orderId + tokenQs);
     } catch {
       setFormError('Sin conexión. Revisa la red e inténtalo otra vez — no se cobrará dos veces.');
     } finally {

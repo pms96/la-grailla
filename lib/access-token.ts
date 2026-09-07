@@ -40,6 +40,33 @@ export function verifyOrderAccess(orderId: string, token: string | null | undefi
   }
 }
 
+/** Token opaco para acceder a un pedido de tienda (JSON de confirmación). */
+export function signShopOrderAccess(shopOrderId: string): string {
+  return sign('shoporder', shopOrderId);
+}
+
+export function verifyShopOrderAccess(shopOrderId: string, token: string | null | undefined): boolean {
+  if (!token) return false;
+  try {
+    return safeEqual(signShopOrderAccess(shopOrderId), token);
+  } catch {
+    return false;
+  }
+}
+
+export function shopOrderAccessQuery(shopOrderId: string): string {
+  return `t=${encodeURIComponent(signShopOrderAccess(shopOrderId))}`;
+}
+
+/** Token de pedido de tienda válido o sesión staff. */
+export async function allowShopOrderAccess(
+  shopOrderId: string,
+  token: string | null | undefined
+): Promise<boolean> {
+  if (verifyShopOrderAccess(shopOrderId, token)) return true;
+  return isStaffSession();
+}
+
 /** Token para descargar wallet de una entrada concreta. */
 export function signTicketAccess(ticketId: string): string {
   return sign('ticket', ticketId);

@@ -27,14 +27,15 @@ type ShopOrderView = {
   }[];
 };
 
-export default function ShopConfirmationClient({ orderId }: { orderId: string }) {
+export default function ShopConfirmationClient({ orderId, accessToken }: { orderId: string; accessToken?: string }) {
   const [order, setOrder] = useState<ShopOrderView | null>(null);
   const [loading, setLoading] = useState(true);
   const [pollCount, setPollCount] = useState(0);
+  const tokenQs = accessToken ? `?t=${encodeURIComponent(accessToken)}` : '';
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/shop/orders/${orderId}`);
+      const res = await fetch(`/api/shop/orders/${orderId}${tokenQs}`);
       if (!res.ok) {
         setOrder(null);
         return;
@@ -46,7 +47,7 @@ export default function ShopConfirmationClient({ orderId }: { orderId: string })
     } finally {
       setLoading(false);
     }
-  }, [orderId]);
+  }, [orderId, tokenQs]);
 
   useEffect(() => {
     void load();

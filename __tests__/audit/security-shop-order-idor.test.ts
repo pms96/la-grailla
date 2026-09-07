@@ -8,9 +8,19 @@
 // Este test debe FALLAR mientras el bug esté presente (hoy: 200 + datos completos) y
 // PASAR una vez se exija autorización equivalente a la de /api/orders/[orderId]
 // (token firmado tipo signShopOrderAccess, o sesión ADMIN/TAQUILLA).
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
-import { GET as getShopOrder } from '@/app/api/shop/orders/[orderId]/route';
+
+// allowShopOrderAccess cae a isStaffSession() -> getServerSession(), que llama a
+// headers() de Next — solo funciona dentro de una request real. Al invocar el
+// route handler directamente desde el test hay que mockear next-auth (mismo
+// patrón que tests/api/access-capacity.test.ts) en vez de dejar que explote.
+vi.mock('next-auth', () => ({
+  getServerSession: vi.fn(async () => null),
+}));
+vi.mock('@/lib/auth', () => ({ authOptions: {} }));
+
+const { GET: getShopOrder } = await import('@/app/api/shop/orders/[orderId]/route');
 
 describe('AUDIT — GET /api/shop/orders/[orderId] requiere autorización', () => {
   let orderId: string;
