@@ -39,7 +39,13 @@ export function m04RasterHeader(widthBytes: number, heightLines: number): Uint8A
 export function buildM04SCommandSequence(
   raster: MonoRaster,
   opts: { density?: number; feed?: number } = {}
-): { preamble: Uint8Array[]; raster: Uint8Array; feed: Uint8Array[]; delays: { command: number; rasterChunk: number; afterRaster: number; afterFeed: number } } {
+): {
+  preamble: Uint8Array[];
+  rasterHeader: Uint8Array;
+  raster: Uint8Array;
+  feed: Uint8Array[];
+  delays: { command: number; rasterChunk: number; afterRaster: number; afterFeed: number };
+} {
   const density = opts.density ?? M04S_PRINT.density;
   const feed = opts.feed ?? M04S_PRINT.feed;
   const feedCount = Math.max(1, Math.round(feed / 16));
@@ -50,8 +56,10 @@ export function buildM04SCommandSequence(
       new Uint8Array([0x1f, 0x11, 0x37, m04HeatByte(density)]),
       new Uint8Array([0x1f, 0x11, 0x0b]),
       new Uint8Array([0x1f, 0x11, 0x35, 0x00]),
-      m04RasterHeader(raster.bytesPerRow, raster.height),
     ],
+    // Sin delay detrás: en phomymo (referencia probada en hardware real) la cabecera
+    // raster va pegada al primer chunk de datos, no como un comando más del preamble.
+    rasterHeader: m04RasterHeader(raster.bytesPerRow, raster.height),
     raster: raster.bits,
     feed: Array.from({ length: feedCount }, () => new Uint8Array([0x1b, 0x64, 0x02])),
     delays: {

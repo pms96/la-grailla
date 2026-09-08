@@ -10,13 +10,13 @@ export const PHOMEMO_BLE = {
     '0000ff00-0000-1000-8000-00805f9b34fb',
   ] as const,
   /**
-   * 20 bytes = MTU BLE por defecto (23) menos 3 de cabecera ATT, sin negociar MTU.
-   * Web Bluetooth no expone una API para pedir un MTU mayor, y Android trunca en
-   * silencio (sin error) las escrituras GATT que superan el MTU vigente, en vez de
-   * fragmentarlas como hace iOS — con bloques más grandes el ráster llega incompleto
-   * y sale como ruido en el papel. 20 es el tamaño seguro universal.
+   * phomymo (transcriptionstream/phomymo, protocolo M04 probado en hardware real,
+   * github.com/transcriptionstream/phomymo/issues/23) envía en bloques de 256.
+   * Se probó bajar a 20 (límite del MTU BLE por defecto sin negociar) pensando en
+   * un truncado silencioso en Android, pero no arregló la impresión corrupta —
+   * así que se mantiene el valor de la referencia, que sí está validado en M04S.
    */
-  RASTER_CHUNK_SIZE: 20,
+  RASTER_CHUNK_SIZE: 256,
   CHUNK_DELAY_MS: 20,
   COMMAND_DELAY_MS: 30,
   MAX_RETRIES: 1,

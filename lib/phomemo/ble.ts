@@ -93,6 +93,7 @@ export class PhomemoM04S {
       await this.send(cmd);
       await delay(job.delays.command);
     }
+    await this.send(job.rasterHeader);
 
     const rasterChunk = PHOMEMO_BLE.RASTER_CHUNK_SIZE;
     for (let i = 0; i < job.raster.length; i += rasterChunk) {
