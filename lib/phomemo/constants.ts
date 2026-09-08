@@ -55,6 +55,10 @@ export type PhomemoPrintDiagnostics = {
   retries: number;
   rasterChunks: number;
   notifySubscribed: boolean;
+  // false = este navegador solo tiene el writeValue() ambiguo, que en algunos
+  // Android hace en realidad "sin confirmación" aunque se le pida confirmar.
+  // Ver comentario en ble.ts junto a writeValueWithResponse.
+  explicitConfirmedWriteSupported: boolean;
   pages: number;
   totalPages: number;
   durationMs: number;

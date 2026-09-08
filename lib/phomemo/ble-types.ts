@@ -13,6 +13,9 @@ export type BluetoothRemoteGATTCharacteristic = {
   properties: { write: boolean; writeWithoutResponse: boolean };
   writeValue: (data: BufferSource) => Promise<void>;
   writeValueWithoutResponse: (data: BufferSource) => Promise<void>;
+  // API sin ambigüedad, más reciente que writeValue() — no está en todos los
+  // navegadores todavía, de ahí el opcional. Ver comentario en ble.ts.
+  writeValueWithResponse?: (data: BufferSource) => Promise<void>;
   startNotifications: () => Promise<BluetoothRemoteGATTCharacteristic>;
   getCharacteristic?: never;
 };

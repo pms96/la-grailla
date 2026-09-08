@@ -41,6 +41,7 @@ export class PhomemoM04S {
   private useWriteWithResponse = false;
   private disconnectHandlerBound: BluetoothDevice | null = null;
   private notifySubscribed = false;
+  private supportsExplicitConfirmedWrite = false;
   private diagnostics: PhomemoPrintDiagnostics | null = null;
   private diagnosticsStartedAt = 0;
   onDisconnected: (() => void) | null = null;
@@ -121,6 +122,7 @@ export class PhomemoM04S {
         retries: 0,
         rasterChunks: 0,
         notifySubscribed: this.notifySubscribed,
+        explicitConfirmedWriteSupported: this.supportsExplicitConfirmedWrite,
         pages: 0,
         totalPages: pageInfo.total,
         durationMs: 0,
@@ -144,17 +146,19 @@ export class PhomemoM04S {
       }
       track(await this.send(job.rasterHeader, writeMode));
 
-      // Con escritura confirmada, el propio await ya bloquea hasta que el GATT
-      // reconoce cada escritura — el delay fijo entre chunks solo aporta algo en el
-      // modo sin confirmación, donde no hay más backpressure real que ese hueco.
-      // Añadirlo también en modo confirmado es lo que hacía la impresión "muy pero
-      // que muy lenta" cuando el fallback automático se activaba.
+      // writeValue() es un método ambiguo del propio estándar Web Bluetooth: en
+      // algunos Android/Chrome resuelve como si fuera "sin confirmación" aunque se
+      // le pida confirmar, así que su await NO es backpressure real ahí — solo lo es
+      // cuando el navegador expone writeValueWithResponse() (API sin ambigüedad) y
+      // lo usamos de verdad. Sin esa garantía mantenemos el hueco fijo entre bloques
+      // para no adelantarnos a lo que el cabezal térmico puede imprimir físicamente.
       const usingConfirmedWrites = writeMode === 'with_response' || (writeMode === 'auto' && this.useWriteWithResponse);
+      const hasRealBackpressure = usingConfirmedWrites && this.supportsExplicitConfirmedWrite;
 
       for (let i = 0; i < job.raster.length; i += settings.rasterChunkSize) {
         track(await this.send(job.raster.subarray(i, i + settings.rasterChunkSize), writeMode));
         diag.rasterChunks++;
-        if (!usingConfirmedWrites) await delay(job.delays.rasterChunk);
+        if (!hasRealBackpressure) await delay(job.delays.rasterChunk);
       }
 
       await delay(job.delays.afterRaster);
@@ -210,6 +214,7 @@ export class PhomemoM04S {
         const service = await server.getPrimaryService(uuid);
         this.writeChar = await service.getCharacteristic(PHOMEMO_BLE.WRITE_CHAR_UUID);
         this.useWriteWithResponse = !this.writeChar.properties.writeWithoutResponse && this.writeChar.properties.write;
+        this.supportsExplicitConfirmedWrite = typeof this.writeChar.writeValueWithResponse === 'function';
         await this.subscribeToNotifications(service);
         return;
       } catch (err) {
@@ -240,6 +245,24 @@ export class PhomemoM04S {
     }
   }
 
+  /**
+   * writeValue() es el método histórico de Web Bluetooth y es AMBIGUO por spec: el
+   * navegador puede resolverlo como "sin confirmación" si la característica lo
+   * soporta, aunque la intención del código sea confirmar. writeValueWithResponse()
+   * es la API posterior que no deja lugar a dudas — la usamos siempre que exista.
+   * (Detectado con datos reales: en una tablet Android, "Siempre confirmado" hizo
+   * 260 escrituras en 1.4s — imposible si de verdad esperara el ACK del periférico
+   * en cada una — y salió con el mismo ruido que el modo sin confirmar.)
+   */
+  private async writeConfirmed(buffer: ArrayBuffer): Promise<void> {
+    const char = this.writeChar!;
+    if (this.supportsExplicitConfirmedWrite && char.writeValueWithResponse) {
+      await char.writeValueWithResponse(buffer);
+    } else {
+      await char.writeValue(buffer);
+    }
+  }
+
   private async send(
     data: Uint8Array,
     writeMode: PhomemoWriteMode = 'auto'
@@ -248,7 +271,7 @@ export class PhomemoM04S {
     const buffer = toWriteBuffer(data);
 
     if (writeMode === 'with_response') {
-      await this.writeChar.writeValue(buffer);
+      await this.writeConfirmed(buffer);
       return { usedWithResponse: true, retried: false };
     }
     if (writeMode === 'without_response') {
@@ -261,7 +284,7 @@ export class PhomemoM04S {
     // detecta la corrupción SILENCIOSA (una escritura sin confirmación que "resuelve"
     // sin llegar de verdad) — para eso hay que forzar 'with_response' manualmente.
     if (this.useWriteWithResponse) {
-      await this.writeChar.writeValue(buffer);
+      await this.writeConfirmed(buffer);
       return { usedWithResponse: true, retried: false };
     }
     try {
@@ -269,7 +292,7 @@ export class PhomemoM04S {
       return { usedWithResponse: false, retried: false };
     } catch {
       this.useWriteWithResponse = true;
-      await this.writeChar.writeValue(buffer);
+      await this.writeConfirmed(buffer);
       return { usedWithResponse: true, retried: true };
     }
   }

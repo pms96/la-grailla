@@ -278,6 +278,10 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
                     )}
                     <p>Suscrita a notificaciones de la impresora: {printer.lastDiagnostics.notifySubscribed ? 'sí' : 'no'}</p>
                     <p>
+                      Confirmación de escritura real del navegador:{' '}
+                      {printer.lastDiagnostics.explicitConfirmedWriteSupported ? 'sí' : 'no (solo API antigua ambigua)'}
+                    </p>
+                    <p>
                       Páginas: {printer.lastDiagnostics.pages}/{printer.lastDiagnostics.totalPages} ·{' '}
                       {printer.lastDiagnostics.rasterChunks} bloques de datos
                     </p>
