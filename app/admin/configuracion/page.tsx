@@ -264,6 +264,26 @@ export default function ConfiguracionPage() {
             </p>
 
             <div className="rounded-lg border border-border p-4 space-y-4">
+              <h4 className="font-semibold text-sm">Impresión Bluetooth</h4>
+              <div>
+                <Label>Impresión directa por Bluetooth en taquilla</Label>
+                <Select value={values?.phomemo_printer_enabled ?? 'true'} onValueChange={(v: string) => updateValue('phomemo_printer_enabled', v)}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true">Activada</SelectItem>
+                    <SelectItem value="false">Desactivada (siempre PDF)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Si la desactivas aquí, ninguna taquilla intentará conectar con la Phomemo — cada
+                  venta genera directamente el PDF para guardar o imprimir en otro sitio. Cada
+                  tablet puede además desactivarla solo para sí misma desde el propio panel de
+                  Taquilla, sin tocar esto.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border p-4 space-y-4">
               <h4 className="font-semibold text-sm">Modo de escritura Bluetooth</h4>
               <Select value={values?.phomemo_write_mode ?? 'auto'} onValueChange={(v: string) => updateValue('phomemo_write_mode', v)}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>

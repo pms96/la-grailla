@@ -47,6 +47,7 @@ const CONFIG_DEFAULTS: Record<string, string> = {
   // Impresora térmica Phomemo M04S (taquilla) — valores de fábrica probados en
   // hardware real (phomymo, transcriptionstream/phomymo, issue #23). Ver
   // lib/phomemo/constants.ts DEFAULT_PRINT_SETTINGS, que usa estos mismos valores.
+  phomemo_printer_enabled: 'true',
   phomemo_write_mode: 'auto',
   phomemo_raster_chunk_size: '256',
   phomemo_chunk_delay_ms: '20',

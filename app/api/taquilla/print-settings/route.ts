@@ -7,6 +7,7 @@ import { getConfigs } from '@/lib/config';
 import { handleApiError } from '@/lib/api-error';
 
 const KEYS = [
+  'phomemo_printer_enabled',
   'phomemo_write_mode',
   'phomemo_raster_chunk_size',
   'phomemo_chunk_delay_ms',
@@ -28,6 +29,7 @@ export async function GET() {
   try {
     const configs = await getConfigs([...KEYS]);
     return NextResponse.json({
+      printerEnabled: configs.phomemo_printer_enabled !== 'false',
       writeMode: configs.phomemo_write_mode,
       rasterChunkSize: Number(configs.phomemo_raster_chunk_size),
       chunkDelayMs: Number(configs.phomemo_chunk_delay_ms),

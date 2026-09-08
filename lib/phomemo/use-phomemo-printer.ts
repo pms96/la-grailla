@@ -14,12 +14,31 @@ export function usePhomemoPrinter() {
   const [bleAvailable, setBleAvailable] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
   const [lastDiagnostics, setLastDiagnostics] = useState<PhomemoPrintDiagnostics | null>(null);
+  // Interruptor global desde /admin/configuracion — se comprueba aparte del
+  // interruptor local de cada tablet (que vive en taquilla-panel.tsx), así un
+  // admin puede apagar la impresión Bluetooth en todas las taquillas a la vez
+  // sin tener que ir dispositivo por dispositivo. Por defecto activada: si el
+  // fetch falla, no queremos romper la impresión que ya funcionaba.
+  const [adminPrinterEnabled, setAdminPrinterEnabled] = useState(true);
 
   useEffect(() => {
     const available = isWebBluetoothAvailable();
     setBleAvailable(available);
     setIsIOS(isLikelyIOS());
     setStatus(available ? 'disconnected' : 'unsupported');
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/taquilla/print-settings')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && typeof d?.printerEnabled === 'boolean') setAdminPrinterEnabled(d.printerEnabled);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const bindDisconnect = useCallback(() => {
@@ -76,5 +95,5 @@ export function usePhomemoPrinter() {
     }
   }, [bindDisconnect]);
 
-  return { status, deviceName, connect, disconnect, printPdfBytes, bleAvailable, isIOS, lastDiagnostics };
+  return { status, deviceName, connect, disconnect, printPdfBytes, bleAvailable, isIOS, lastDiagnostics, adminPrinterEnabled };
 }

@@ -61,6 +61,10 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
       printer.disconnect();
     }
   };
+
+  // El admin puede apagarla para todas las taquillas desde /admin/configuracion;
+  // cada tablet puede además apagarla solo para sí misma con el switch de aquí.
+  const bleActive = printerEnabled && printer.adminPrinterEnabled;
   // Se manda al servidor para que un reintento de red tras un timeout (o un
   // doble tap en el datáfono) no cobre ni emita entradas dos veces — se
   // renueva solo tras una venta completada o si el usuario cambia de evento
@@ -175,7 +179,7 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
       if (!res.ok) { toast.error('No se pudo generar el tique'); return; }
       const blob = await res.blob();
 
-      if (printerEnabled && printer.bleAvailable) {
+      if (bleActive && printer.bleAvailable) {
         try {
           await printer.printPdfBytes(await blob.arrayBuffer(), (current, total) => {
             toast.loading(total > 1 ? `Imprimiendo ${current} de ${total}…` : 'Imprimiendo…', { id: 'phomemo-print' });
@@ -188,7 +192,7 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
           toast.error(e instanceof Error ? e.message : 'La impresora no respondió');
           toast.message('Se abre el PDF para imprimir o compartir.');
         }
-      } else if (printerEnabled && printer.isIOS) {
+      } else if (bleActive && printer.isIOS) {
         toast.message('En iPhone usa Bluefy para imprimir directo. Mientras, comparte el PDF.');
       }
       await sharePdfFallback(blob, lastSale.orderId);
@@ -210,7 +214,7 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 min-w-0">
-              {printerEnabled ? (
+              {bleActive ? (
                 <Bluetooth className="h-4 w-4 text-primary shrink-0" />
               ) : (
                 <BluetoothOff className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -218,16 +222,18 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
               <div className="min-w-0">
                 <p className="text-sm font-medium">Impresión directa por Bluetooth</p>
                 <p className="text-xs text-muted-foreground">
-                  {printerEnabled
-                    ? 'Activada: el botón Imprimir manda el tique directo a la Phomemo.'
-                    : 'Desactivada: cada venta genera el PDF para guardarlo o imprimirlo en otro sitio.'}
+                  {!printer.adminPrinterEnabled
+                    ? 'Desactivada desde Configuración: cada venta genera el PDF para guardarlo o imprimirlo en otro sitio.'
+                    : printerEnabled
+                      ? 'Activada: el botón Imprimir manda el tique directo a la Phomemo.'
+                      : 'Desactivada: cada venta genera el PDF para guardarlo o imprimirlo en otro sitio.'}
                 </p>
               </div>
             </div>
-            <Switch checked={printerEnabled} onCheckedChange={setPrinterEnabled} />
+            {printer.adminPrinterEnabled && <Switch checked={printerEnabled} onCheckedChange={setPrinterEnabled} />}
           </div>
 
-          {printerEnabled && (
+          {bleActive && (
             <div className="flex items-start justify-between gap-3 pt-3 border-t border-border">
               <div className="min-w-0">
                 <p className="text-sm font-medium">
