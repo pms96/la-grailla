@@ -15,6 +15,7 @@ const KEYS = [
   'phomemo_after_feed_delay_ms',
   'phomemo_density',
   'phomemo_feed',
+  'phomemo_confirm_every_chunks',
 ] as const;
 
 /** Solo los ajustes de impresión BLE (nada sensible) — taquilla los necesita para imprimir. */
@@ -35,6 +36,7 @@ export async function GET() {
       afterFeedDelayMs: Number(configs.phomemo_after_feed_delay_ms),
       density: Number(configs.phomemo_density),
       feed: Number(configs.phomemo_feed),
+      confirmEveryChunks: Number(configs.phomemo_confirm_every_chunks),
     });
   } catch (error) {
     return handleApiError(error, 'GET /api/taquilla/print-settings');

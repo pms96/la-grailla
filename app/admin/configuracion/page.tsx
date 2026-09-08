@@ -268,17 +268,19 @@ export default function ConfiguracionPage() {
               <Select value={values?.phomemo_write_mode ?? 'auto'} onValueChange={(v: string) => updateValue('phomemo_write_mode', v)}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="auto">Auto (rápido, cambia a confirmado si falla una escritura)</SelectItem>
-                  <SelectItem value="with_response">Siempre confirmado (fiable pero mucho más lento)</SelectItem>
+                  <SelectItem value="auto">Auto (rápido, con confirmaciones intercaladas)</SelectItem>
+                  <SelectItem value="with_response">Siempre confirmado (el más fiable, pero puede tardar tanto que la impresora corte el ticket a medias)</SelectItem>
                   <SelectItem value="without_response">Siempre sin confirmación (rápido, sin red de seguridad)</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Si un móvil o tablet imprime tickets con ruido o a medias, prueba &quot;Siempre confirmado&quot;
-                en ese dispositivo — es más lento pero cada byte se confirma, así que no se pierde nada
-                por el camino. &quot;Auto&quot; es más rápido pero solo se da cuenta de un fallo cuando la
-                escritura lanza un error explícito, no cuando Android la da por enviada sin haberla
-                completado de verdad.
+                &quot;Auto&quot; manda la mayoría del ticket rápido y sin confirmar, pero intercala una
+                confirmación real cada pocos bloques (ver &quot;Confirmar cada&quot; abajo) para comprobar que
+                la impresora sigue el ritmo sin perder nada por el camino — en la práctica es el más
+                fiable y el más rápido a la vez. &quot;Siempre confirmado&quot; solo hace falta si un
+                dispositivo concreto sigue dando problemas con Auto: confirma cada bloque uno a uno, lo
+                que en pruebas reales ha llegado a tardar más de un minuto y ha hecho que la propia
+                impresora corte el ticket antes de terminar.
               </p>
             </div>
 
@@ -297,7 +299,14 @@ export default function ConfiguracionPage() {
                   type="number"
                   value={values?.phomemo_chunk_delay_ms ?? '20'}
                   onChange={(v) => updateValue('phomemo_chunk_delay_ms', v)}
-                  description="Solo se aplica en modo sin confirmación — en modo confirmado la propia confirmación ya marca el ritmo."
+                  description="Solo se aplica a los bloques rápidos (sin confirmar) — los bloques de confirmación ya marcan el ritmo por sí solos."
+                />
+                <ConfigField
+                  label="Confirmar cada (bloques)"
+                  type="number"
+                  value={values?.phomemo_confirm_every_chunks ?? '8'}
+                  onChange={(v) => updateValue('phomemo_confirm_every_chunks', v)}
+                  description="Solo en modo Auto: cada cuántos bloques se manda uno confirmado de verdad. Súbelo para ir más rápido, bájalo si sigue saliendo con ruido. 0 desactiva las confirmaciones intercaladas."
                 />
                 <ConfigField
                   label="Pausa entre comandos (ms)"

@@ -23,12 +23,16 @@ export const M04S_PAPER = {
 } as const;
 
 /**
- * 'auto' deja que cada escritura elija por sí sola (rápido, pero en algunos Android
- * la escritura "sin confirmación" se pierde en silencio y el ráster llega corrupto).
- * 'with_response' fuerza confirmación en cada escritura: mucho más lento pero fiable
- * — es el modo al que cae 'auto' tras el primer fallo, así que fijarlo evita que la
- * primera impresión de una sesión salga incompleta o con ruido antes de que el
- * fallback reactivo se active. 'without_response' fuerza el modo rápido siempre.
+ * 'auto' manda la mayoría del ráster sin confirmar (rápido) pero intercala
+ * confirmaciones reales cada `confirmEveryChunks` bloques (ver
+ * PhomemoPrintSettings) — un punto intermedio entre 'with_response' (fiable pero
+ * demasiado lento: en pruebas reales, 260 escrituras confirmadas tardaron 25-60s y
+ * la impresora cortó el trabajo a mitad antes de terminar, probablemente por un
+ * timeout interno del propio firmware) y 'without_response' puro (rápido pero en
+ * Android puede perder bytes en silencio y salir con ruido). 'with_response' fuerza
+ * confirmación en cada escritura — el modo más fiable pero el más lento y el único
+ * que ha mostrado cortarse a mitad en dispositivos lentos. 'without_response' fuerza
+ * el modo rápido siempre, sin ninguna comprobación real.
  */
 export type PhomemoWriteMode = 'auto' | 'with_response' | 'without_response';
 
@@ -41,6 +45,13 @@ export type PhomemoPrintSettings = {
   afterFeedDelayMs: number;
   density: number;
   feed: number;
+  /**
+   * Solo aplica en modo 'auto' cuando el navegador soporta writeValueWithResponse()
+   * real: cada N bloques de ráster se manda confirmado en vez de rápido, para que la
+   * impresora demuestre que sigue el ritmo sin pagar el coste de confirmar los 250+
+   * bloques uno a uno. 0 desactiva los checkpoints (auto se comporta como antes).
+   */
+  confirmEveryChunks: number;
 };
 
 /**
@@ -79,6 +90,7 @@ export const DEFAULT_PRINT_SETTINGS: PhomemoPrintSettings = {
   afterFeedDelayMs: 500,
   density: 6,
   feed: 32,
+  confirmEveryChunks: 8,
 };
 
 export function isWebBluetoothAvailable(): boolean {

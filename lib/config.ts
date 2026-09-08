@@ -55,6 +55,7 @@ const CONFIG_DEFAULTS: Record<string, string> = {
   phomemo_after_feed_delay_ms: '500',
   phomemo_density: '6',
   phomemo_feed: '32',
+  phomemo_confirm_every_chunks: '8',
 };
 
 export async function getConfig(key: string): Promise<string> {

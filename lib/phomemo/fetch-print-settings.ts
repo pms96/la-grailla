@@ -11,6 +11,12 @@ function numberOr(value: unknown, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+// confirmEveryChunks admite 0 (= checkpoints desactivados en modo auto).
+function nonNegativeNumberOr(value: unknown, fallback: number): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
 /**
  * Trae los parámetros de impresión BLE desde /admin/configuracion (tab "Impresora").
  * Nunca lanza: si el fetch falla (sin red, taquilla offline, etc.) se sigue
@@ -30,6 +36,7 @@ export async function fetchPhomemoPrintSettings(): Promise<PhomemoPrintSettings>
       afterFeedDelayMs: numberOr(data?.afterFeedDelayMs, DEFAULT_PRINT_SETTINGS.afterFeedDelayMs),
       density: numberOr(data?.density, DEFAULT_PRINT_SETTINGS.density),
       feed: numberOr(data?.feed, DEFAULT_PRINT_SETTINGS.feed),
+      confirmEveryChunks: nonNegativeNumberOr(data?.confirmEveryChunks, DEFAULT_PRINT_SETTINGS.confirmEveryChunks),
     };
   } catch {
     return DEFAULT_PRINT_SETTINGS;

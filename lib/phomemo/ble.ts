@@ -155,10 +155,24 @@ export class PhomemoM04S {
       const usingConfirmedWrites = writeMode === 'with_response' || (writeMode === 'auto' && this.useWriteWithResponse);
       const hasRealBackpressure = usingConfirmedWrites && this.supportsExplicitConfirmedWrite;
 
+      // En 'auto' (sin estar ya forzado a confirmado), si el navegador tiene la API
+      // real intercalamos un checkpoint confirmado cada N bloques: la mayoría del
+      // ráster viaja rápido y sin confirmar, pero cada checkpoint demuestra que la
+      // impresora sigue el ritmo antes de seguir a toda velocidad — evita tanto el
+      // ruido por bytes perdidos como el corte a mitad por tardar demasiado en
+      // confirmar cada bloque uno a uno.
+      const checkpointEvery =
+        writeMode === 'auto' && !usingConfirmedWrites && this.supportsExplicitConfirmedWrite && settings.confirmEveryChunks > 0
+          ? Math.max(1, Math.round(settings.confirmEveryChunks))
+          : 0;
+
+      let chunkIndex = 0;
       for (let i = 0; i < job.raster.length; i += settings.rasterChunkSize) {
-        track(await this.send(job.raster.subarray(i, i + settings.rasterChunkSize), writeMode));
+        const isCheckpoint = checkpointEvery > 0 && (chunkIndex + 1) % checkpointEvery === 0;
+        track(await this.send(job.raster.subarray(i, i + settings.rasterChunkSize), writeMode, isCheckpoint));
         diag.rasterChunks++;
-        if (!hasRealBackpressure) await delay(job.delays.rasterChunk);
+        chunkIndex++;
+        if (!hasRealBackpressure && !isCheckpoint) await delay(job.delays.rasterChunk);
       }
 
       await delay(job.delays.afterRaster);
@@ -265,11 +279,16 @@ export class PhomemoM04S {
 
   private async send(
     data: Uint8Array,
-    writeMode: PhomemoWriteMode = 'auto'
+    writeMode: PhomemoWriteMode = 'auto',
+    forceConfirmed = false
   ): Promise<{ usedWithResponse: boolean; retried: boolean }> {
     if (!this.writeChar) throw new Error('Impresora desconectada');
     const buffer = toWriteBuffer(data);
 
+    if (forceConfirmed) {
+      await this.writeConfirmed(buffer);
+      return { usedWithResponse: true, retried: false };
+    }
     if (writeMode === 'with_response') {
       await this.writeConfirmed(buffer);
       return { usedWithResponse: true, retried: false };
