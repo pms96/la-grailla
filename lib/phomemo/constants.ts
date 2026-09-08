@@ -44,6 +44,24 @@ export type PhomemoPrintSettings = {
 };
 
 /**
+ * Estado real de la última impresión — para diagnosticar en el propio dispositivo
+ * (la tablet de taquilla no tiene devtools a mano) por qué salió con ruido o
+ * incompleta, sin tener que adivinar a distancia.
+ */
+export type PhomemoPrintDiagnostics = {
+  writeModeRequested: PhomemoWriteMode;
+  chunksWithResponse: number;
+  chunksWithoutResponse: number;
+  retries: number;
+  rasterChunks: number;
+  notifySubscribed: boolean;
+  pages: number;
+  totalPages: number;
+  durationMs: number;
+  error: string | null;
+};
+
+/**
  * Valores de fábrica — los mismos que ya estaban probados en hardware real (phomymo,
  * transcriptionstream/phomymo, issue #23) antes de hacerlos configurables desde
  * /admin/configuracion. Sirven de respaldo si /api/taquilla/print-settings falla.

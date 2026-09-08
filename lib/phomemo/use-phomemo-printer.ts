@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { getSharedPhomemoPrinter } from '@/lib/phomemo/ble';
-import { isLikelyIOS, isWebBluetoothAvailable } from '@/lib/phomemo/constants';
+import { isLikelyIOS, isWebBluetoothAvailable, type PhomemoPrintDiagnostics } from '@/lib/phomemo/constants';
 import { fetchPhomemoPrintSettings } from '@/lib/phomemo/fetch-print-settings';
 import { printTicketPdf } from '@/lib/phomemo/print-pdf';
 
@@ -13,6 +13,7 @@ export function usePhomemoPrinter() {
   const [deviceName, setDeviceName] = useState<string | null>(null);
   const [bleAvailable, setBleAvailable] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
+  const [lastDiagnostics, setLastDiagnostics] = useState<PhomemoPrintDiagnostics | null>(null);
 
   useEffect(() => {
     const available = isWebBluetoothAvailable();
@@ -68,8 +69,12 @@ export function usePhomemoPrinter() {
       }
     }
     const settings = await fetchPhomemoPrintSettings();
-    await printTicketPdf(printer, pdfBytes, settings, onPage);
+    try {
+      await printTicketPdf(printer, pdfBytes, settings, onPage);
+    } finally {
+      setLastDiagnostics(printer.lastPrintDiagnostics);
+    }
   }, [bindDisconnect]);
 
-  return { status, deviceName, connect, disconnect, printPdfBytes, bleAvailable, isIOS };
+  return { status, deviceName, connect, disconnect, printPdfBytes, bleAvailable, isIOS, lastDiagnostics };
 }

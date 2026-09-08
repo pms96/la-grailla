@@ -10,11 +10,18 @@ import { Switch } from '@/components/ui/switch';
 import { Minus, Plus, Loader2, Banknote, CreditCard, Gift, CheckCircle2, DoorOpen, Printer, Bluetooth, BluetoothOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePhomemoPrinter } from '@/lib/phomemo/use-phomemo-printer';
+import type { PhomemoWriteMode } from '@/lib/phomemo/constants';
 import type { EventWithTicketTypes } from './access-client';
 
 type Props = { events: EventWithTicketTypes[]; selectedEvent: string; onSold?: () => void };
 
 type LastSale = { orderId: string; totalAmount: number; tickets: number; duringEvent: boolean };
+
+const WRITE_MODE_LABELS: Record<PhomemoWriteMode, string> = {
+  auto: 'Auto',
+  with_response: 'Siempre confirmado',
+  without_response: 'Siempre sin confirmar',
+};
 
 export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
@@ -250,6 +257,34 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
                     Imprimir entrada{(lastSale?.tickets ?? 0) !== 1 ? 's' : ''}
                   </Button>
                 </div>
+              )}
+              {printer.lastDiagnostics && (
+                <details className="mt-2 text-xs text-muted-foreground">
+                  <summary className="cursor-pointer select-none">
+                    Detalles técnicos de la impresión
+                    {printer.lastDiagnostics.error && <span className="text-destructive"> · con errores</span>}
+                  </summary>
+                  <div className="mt-1.5 space-y-0.5 pl-3 border-l border-border">
+                    <p>Modo: {WRITE_MODE_LABELS[printer.lastDiagnostics.writeModeRequested]}</p>
+                    <p>
+                      Escrituras confirmadas: {printer.lastDiagnostics.chunksWithResponse} · sin confirmar:{' '}
+                      {printer.lastDiagnostics.chunksWithoutResponse}
+                    </p>
+                    {printer.lastDiagnostics.retries > 0 && (
+                      <p className="text-amber-600">
+                        Reintentos por fallo silencioso: {printer.lastDiagnostics.retries} (Auto pasó a modo confirmado a
+                        mitad de impresión)
+                      </p>
+                    )}
+                    <p>Suscrita a notificaciones de la impresora: {printer.lastDiagnostics.notifySubscribed ? 'sí' : 'no'}</p>
+                    <p>
+                      Páginas: {printer.lastDiagnostics.pages}/{printer.lastDiagnostics.totalPages} ·{' '}
+                      {printer.lastDiagnostics.rasterChunks} bloques de datos
+                    </p>
+                    <p>Duración: {(printer.lastDiagnostics.durationMs / 1000).toFixed(1)}s</p>
+                    {printer.lastDiagnostics.error && <p className="text-destructive">Error: {printer.lastDiagnostics.error}</p>}
+                  </div>
+                </details>
               )}
             </div>
           </CardContent>

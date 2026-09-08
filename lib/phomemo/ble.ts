@@ -1,4 +1,11 @@
-import { DEFAULT_PRINT_SETTINGS, PHOMEMO_BLE, isWebBluetoothAvailable, type PhomemoPrintSettings, type PhomemoWriteMode } from './constants';
+import {
+  DEFAULT_PRINT_SETTINGS,
+  PHOMEMO_BLE,
+  isWebBluetoothAvailable,
+  type PhomemoPrintDiagnostics,
+  type PhomemoPrintSettings,
+  type PhomemoWriteMode,
+} from './constants';
 import type {
   BluetoothDevice,
   BluetoothNavigator,
@@ -33,7 +40,15 @@ export class PhomemoM04S {
   private writeChar: BluetoothRemoteGATTCharacteristic | null = null;
   private useWriteWithResponse = false;
   private disconnectHandlerBound: BluetoothDevice | null = null;
+  private notifySubscribed = false;
+  private diagnostics: PhomemoPrintDiagnostics | null = null;
+  private diagnosticsStartedAt = 0;
   onDisconnected: (() => void) | null = null;
+
+  /** Estado de la última impresión (o la que está en curso) — ver PhomemoPrintDiagnostics. */
+  get lastPrintDiagnostics(): PhomemoPrintDiagnostics | null {
+    return this.diagnostics;
+  }
 
   static isAvailable(): boolean {
     return isWebBluetoothAvailable();
@@ -90,35 +105,72 @@ export class PhomemoM04S {
     this.writeChar = null;
   }
 
-  async printRaster(raster: MonoRaster, settings: PhomemoPrintSettings = DEFAULT_PRINT_SETTINGS): Promise<void> {
+  async printRaster(
+    raster: MonoRaster,
+    settings: PhomemoPrintSettings = DEFAULT_PRINT_SETTINGS,
+    pageInfo: { current: number; total: number } = { current: 1, total: 1 }
+  ): Promise<void> {
     if (!this.connected) await this.connect();
-    const job = buildM04SCommandSequence(raster, settings);
-    const writeMode = settings.writeMode;
 
-    for (const cmd of job.preamble) {
-      await this.send(cmd, writeMode);
-      await delay(job.delays.command);
+    if (pageInfo.current === 1) {
+      this.diagnosticsStartedAt = Date.now();
+      this.diagnostics = {
+        writeModeRequested: settings.writeMode,
+        chunksWithResponse: 0,
+        chunksWithoutResponse: 0,
+        retries: 0,
+        rasterChunks: 0,
+        notifySubscribed: this.notifySubscribed,
+        pages: 0,
+        totalPages: pageInfo.total,
+        durationMs: 0,
+        error: null,
+      };
     }
-    await this.send(job.rasterHeader, writeMode);
+    const diag = this.diagnostics!;
+    const track = (r: { usedWithResponse: boolean; retried: boolean }) => {
+      if (r.usedWithResponse) diag.chunksWithResponse++;
+      else diag.chunksWithoutResponse++;
+      if (r.retried) diag.retries++;
+    };
 
-    // Con escritura confirmada, el propio await ya bloquea hasta que el GATT
-    // reconoce cada escritura — el delay fijo entre chunks solo aporta algo en el
-    // modo sin confirmación, donde no hay más backpressure real que ese hueco.
-    // Añadirlo también en modo confirmado es lo que hacía la impresión "muy pero
-    // que muy lenta" cuando el fallback automático se activaba.
-    const usingConfirmedWrites = writeMode === 'with_response' || (writeMode === 'auto' && this.useWriteWithResponse);
+    try {
+      const job = buildM04SCommandSequence(raster, settings);
+      const writeMode = settings.writeMode;
 
-    for (let i = 0; i < job.raster.length; i += settings.rasterChunkSize) {
-      await this.send(job.raster.subarray(i, i + settings.rasterChunkSize), writeMode);
-      if (!usingConfirmedWrites) await delay(job.delays.rasterChunk);
+      for (const cmd of job.preamble) {
+        track(await this.send(cmd, writeMode));
+        await delay(job.delays.command);
+      }
+      track(await this.send(job.rasterHeader, writeMode));
+
+      // Con escritura confirmada, el propio await ya bloquea hasta que el GATT
+      // reconoce cada escritura — el delay fijo entre chunks solo aporta algo en el
+      // modo sin confirmación, donde no hay más backpressure real que ese hueco.
+      // Añadirlo también en modo confirmado es lo que hacía la impresión "muy pero
+      // que muy lenta" cuando el fallback automático se activaba.
+      const usingConfirmedWrites = writeMode === 'with_response' || (writeMode === 'auto' && this.useWriteWithResponse);
+
+      for (let i = 0; i < job.raster.length; i += settings.rasterChunkSize) {
+        track(await this.send(job.raster.subarray(i, i + settings.rasterChunkSize), writeMode));
+        diag.rasterChunks++;
+        if (!usingConfirmedWrites) await delay(job.delays.rasterChunk);
+      }
+
+      await delay(job.delays.afterRaster);
+      for (const feed of job.feed) {
+        track(await this.send(feed, writeMode));
+        await delay(job.delays.command);
+      }
+      await delay(job.delays.afterFeed);
+
+      diag.pages = pageInfo.current;
+    } catch (err) {
+      diag.error = err instanceof Error ? err.message : String(err);
+      throw err;
+    } finally {
+      diag.durationMs = Date.now() - this.diagnosticsStartedAt;
     }
-
-    await delay(job.delays.afterRaster);
-    for (const feed of job.feed) {
-      await this.send(feed, writeMode);
-      await delay(job.delays.command);
-    }
-    await delay(job.delays.afterFeed);
   }
 
   private bindDisconnect(device: BluetoothDevice): void {
@@ -178,25 +230,30 @@ export class PhomemoM04S {
    * Best-effort: si el característica no existe, seguimos igualmente.
    */
   private async subscribeToNotifications(service: BluetoothRemoteGATTService): Promise<void> {
+    this.notifySubscribed = false;
     try {
       const notifyChar = await service.getCharacteristic(PHOMEMO_BLE.NOTIFY_CHAR_UUID);
       await notifyChar.startNotifications();
+      this.notifySubscribed = true;
     } catch {
       /* No todos los clones exponen 0xff03 — no es fatal */
     }
   }
 
-  private async send(data: Uint8Array, writeMode: PhomemoWriteMode = 'auto'): Promise<void> {
+  private async send(
+    data: Uint8Array,
+    writeMode: PhomemoWriteMode = 'auto'
+  ): Promise<{ usedWithResponse: boolean; retried: boolean }> {
     if (!this.writeChar) throw new Error('Impresora desconectada');
     const buffer = toWriteBuffer(data);
 
     if (writeMode === 'with_response') {
       await this.writeChar.writeValue(buffer);
-      return;
+      return { usedWithResponse: true, retried: false };
     }
     if (writeMode === 'without_response') {
       await this.writeChar.writeValueWithoutResponse(buffer);
-      return;
+      return { usedWithResponse: false, retried: false };
     }
 
     // 'auto': igual que antes — empieza sin confirmación y, si una escritura falla,
@@ -205,13 +262,15 @@ export class PhomemoM04S {
     // sin llegar de verdad) — para eso hay que forzar 'with_response' manualmente.
     if (this.useWriteWithResponse) {
       await this.writeChar.writeValue(buffer);
-      return;
+      return { usedWithResponse: true, retried: false };
     }
     try {
       await this.writeChar.writeValueWithoutResponse(buffer);
+      return { usedWithResponse: false, retried: false };
     } catch {
       this.useWriteWithResponse = true;
       await this.writeChar.writeValue(buffer);
+      return { usedWithResponse: true, retried: true };
     }
   }
 }

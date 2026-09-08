@@ -41,6 +41,6 @@ export async function printTicketPdf(
     const page = await pdf.getPage(i);
     const canvas = await renderPageToCanvas(page, widthPx);
     const raster = canvasToMonoRaster(canvas, M04S_PAPER.widthBytes);
-    await printer.printRaster(raster, settings);
+    await printer.printRaster(raster, settings, { current: i, total: pdf.numPages });
   }
 }
