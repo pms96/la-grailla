@@ -210,84 +210,84 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardContent className="p-4 space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              {bleActive ? (
-                <Bluetooth className="h-4 w-4 text-primary shrink-0" />
-              ) : (
-                <BluetoothOff className="h-4 w-4 text-muted-foreground shrink-0" />
-              )}
-              <div className="min-w-0">
-                <p className="text-sm font-medium">Impresión directa por Bluetooth</p>
-                <p className="text-xs text-muted-foreground">
-                  {!printer.adminPrinterEnabled
-                    ? 'Desactivada desde Configuración: cada venta genera el PDF para guardarlo o imprimirlo en otro sitio.'
-                    : printerEnabled
+      {printer.adminPrinterEnabled && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                {bleActive ? (
+                  <Bluetooth className="h-4 w-4 text-primary shrink-0" />
+                ) : (
+                  <BluetoothOff className="h-4 w-4 text-muted-foreground shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Impresión directa por Bluetooth</p>
+                  <p className="text-xs text-muted-foreground">
+                    {printerEnabled
                       ? 'Activada: el botón Imprimir manda el tique directo a la Phomemo.'
                       : 'Desactivada: cada venta genera el PDF para guardarlo o imprimirlo en otro sitio.'}
-                </p>
+                  </p>
+                </div>
               </div>
+              <Switch checked={printerEnabled} onCheckedChange={setPrinterEnabled} />
             </div>
-            {printer.adminPrinterEnabled && <Switch checked={printerEnabled} onCheckedChange={setPrinterEnabled} />}
-          </div>
 
-          {bleActive && (
-            <div className="flex items-start justify-between gap-3 pt-3 border-t border-border">
-              <div className="min-w-0">
-                <p className="text-sm font-medium">
-                  {printer.status === 'connected'
-                    ? `Phomemo ${printer.deviceName ?? 'M04S'}`
-                    : printer.status === 'connecting'
-                      ? 'Conectando impresora…'
-                      : 'Impresora Phomemo M04S'}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {printer.status === 'connected'
-                    ? 'Lista. Papel 110 mm.'
-                    : printer.status === 'unsupported' && printer.isIOS
-                      ? (
-                        <>
-                          Safari, Chrome y Brave en iPhone no pueden usar Bluetooth. Abre esta misma página en{' '}
-                          <a
-                            href="https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-primary underline underline-offset-2"
-                          >
-                            Bluefy
-                          </a>
-                          .
-                        </>
-                      )
-                      : printer.status === 'unsupported'
-                        ? 'Este navegador no admite Web Bluetooth. En Android usa Chrome; en iPhone, Bluefy.'
-                        : 'Conéctala al empezar el turno. Papel 110 mm (entrada 105 × 70).'}
-                </p>
+            {bleActive && (
+              <div className="flex items-start justify-between gap-3 pt-3 border-t border-border">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">
+                    {printer.status === 'connected'
+                      ? `Phomemo ${printer.deviceName ?? 'M04S'}`
+                      : printer.status === 'connecting'
+                        ? 'Conectando impresora…'
+                        : 'Impresora Phomemo M04S'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {printer.status === 'connected'
+                      ? 'Lista. Papel 110 mm.'
+                      : printer.status === 'unsupported' && printer.isIOS
+                        ? (
+                          <>
+                            Safari, Chrome y Brave en iPhone no pueden usar Bluetooth. Abre esta misma página en{' '}
+                            <a
+                              href="https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055"
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-primary underline underline-offset-2"
+                            >
+                              Bluefy
+                            </a>
+                            .
+                          </>
+                        )
+                        : printer.status === 'unsupported'
+                          ? 'Este navegador no admite Web Bluetooth. En Android usa Chrome; en iPhone, Bluefy.'
+                          : 'Conéctala al empezar el turno. Papel 110 mm (entrada 105 × 70).'}
+                  </p>
+                </div>
+                {printer.bleAvailable && (
+                  <Button
+                    type="button"
+                    variant={printer.status === 'connected' ? 'outline' : 'default'}
+                    size="sm"
+                    className="shrink-0"
+                    onClick={handleConnectPrinter}
+                    disabled={printer.status === 'connecting'}
+                  >
+                    {printer.status === 'connecting' ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : printer.status === 'connected' ? (
+                      'Desconectar'
+                    ) : (
+                      'Conectar'
+                    )}
+                  </Button>
+                )}
               </div>
-              {printer.bleAvailable && (
-                <Button
-                  type="button"
-                  variant={printer.status === 'connected' ? 'outline' : 'default'}
-                  size="sm"
-                  className="shrink-0"
-                  onClick={handleConnectPrinter}
-                  disabled={printer.status === 'connecting'}
-                >
-                  {printer.status === 'connecting' ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : printer.status === 'connected' ? (
-                    'Desconectar'
-                  ) : (
-                    'Conectar'
-                  )}
-                </Button>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {lastSale && (
         <Card className="border-green-500/40 bg-green-500/5">
