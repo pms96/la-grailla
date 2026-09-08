@@ -1,3 +1,4 @@
+import type { PDFPageProxy } from 'pdfjs-dist';
 import { M04S_PAPER } from './constants';
 import type { PhomemoM04S } from './ble';
 import { canvasToMonoRaster } from './raster';
@@ -8,18 +9,7 @@ async function loadPdfJs() {
   return pdfjs;
 }
 
-async function renderPageToCanvas(
-  page: {
-    getViewport: (opts: { scale: number }) => { width: number; height: number };
-    render: (opts: {
-      canvasContext: CanvasRenderingContext2D;
-      canvas: HTMLCanvasElement;
-      viewport: { width: number; height: number };
-      intent?: string;
-    }) => { promise: Promise<void> };
-  },
-  targetWidthPx: number
-): Promise<HTMLCanvasElement> {
+async function renderPageToCanvas(page: PDFPageProxy, targetWidthPx: number): Promise<HTMLCanvasElement> {
   const base = page.getViewport({ scale: 1 });
   const scale = targetWidthPx / base.width;
   const viewport = page.getViewport({ scale });
@@ -30,7 +20,7 @@ async function renderPageToCanvas(
   if (!ctx) throw new Error('No se pudo preparar la entrada para imprimir');
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  await page.render({ canvasContext: ctx, canvas, viewport, intent: 'print' }).promise;
+  await page.render({ canvasContext: ctx, viewport, intent: 'print' }).promise;
   return canvas;
 }
 
