@@ -1,5 +1,5 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
-import { M04S_PAPER } from './constants';
+import { DEFAULT_PRINT_SETTINGS, M04S_PAPER, type PhomemoPrintSettings } from './constants';
 import type { PhomemoM04S } from './ble';
 import { canvasToMonoRaster } from './raster';
 
@@ -28,6 +28,7 @@ async function renderPageToCanvas(page: PDFPageProxy, targetWidthPx: number): Pr
 export async function printTicketPdf(
   printer: PhomemoM04S,
   pdfBytes: ArrayBuffer,
+  settings: PhomemoPrintSettings = DEFAULT_PRINT_SETTINGS,
   onPage?: (current: number, total: number) => void
 ): Promise<void> {
   const pdfjs = await loadPdfJs();
@@ -40,6 +41,6 @@ export async function printTicketPdf(
     const page = await pdf.getPage(i);
     const canvas = await renderPageToCanvas(page, widthPx);
     const raster = canvasToMonoRaster(canvas, M04S_PAPER.widthBytes);
-    await printer.printRaster(raster);
+    await printer.printRaster(raster, settings);
   }
 }

@@ -44,6 +44,17 @@ const CONFIG_DEFAULTS: Record<string, string> = {
   home_sponsors_cta_subtitle: 'Llega a miles de asistentes. Tu marca en la mejor feria de la costa.',
   footer_tagline: 'Caseta de feria · Eventos · Good Vibes 💜',
   footer_copyright: '© 2025 Grupo La Grailla. Hecho con 🔥 en Málaga.',
+  // Impresora térmica Phomemo M04S (taquilla) — valores de fábrica probados en
+  // hardware real (phomymo, transcriptionstream/phomymo, issue #23). Ver
+  // lib/phomemo/constants.ts DEFAULT_PRINT_SETTINGS, que usa estos mismos valores.
+  phomemo_write_mode: 'auto',
+  phomemo_raster_chunk_size: '256',
+  phomemo_chunk_delay_ms: '20',
+  phomemo_command_delay_ms: '30',
+  phomemo_after_raster_delay_ms: '300',
+  phomemo_after_feed_delay_ms: '500',
+  phomemo_density: '6',
+  phomemo_feed: '32',
 };
 
 export async function getConfig(key: string): Promise<string> {

@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { Loader2, Save, CreditCard, Mail, Globe, FileText, Send, Wallet, ShieldAlert, Zap, Sparkles, Clapperboard } from 'lucide-react';
+import { Loader2, Save, CreditCard, Mail, Globe, FileText, Send, Wallet, ShieldAlert, Zap, Sparkles, Clapperboard, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -100,6 +100,7 @@ export default function ConfiguracionPage() {
           <TabsTrigger value="social" className="gap-2"><Globe className="h-3.5 w-3.5" /> Redes sociales</TabsTrigger>
           <TabsTrigger value="smtp" className="gap-2"><Send className="h-3.5 w-3.5" /> Email</TabsTrigger>
           <TabsTrigger value="wallet" className="gap-2"><Wallet className="h-3.5 w-3.5" /> Wallets</TabsTrigger>
+          <TabsTrigger value="printer" className="gap-2"><Printer className="h-3.5 w-3.5" /> Impresora</TabsTrigger>
           <TabsTrigger value="abacus" className="gap-2"><Clapperboard className="h-3.5 w-3.5" /> Vídeo IA</TabsTrigger>
           <TabsTrigger value="security" className="gap-2"><ShieldAlert className="h-3.5 w-3.5" /> Seguridad</TabsTrigger>
           <TabsTrigger value="legal" className="gap-2"><FileText className="h-3.5 w-3.5" /> Legal</TabsTrigger>
@@ -250,6 +251,94 @@ export default function ConfiguracionPage() {
                 <ConfigField label="Contraseña del certificado" type="password" value={values?.apple_wallet_cert_password ?? ''} onChange={(v) => updateValue('apple_wallet_cert_password', v)} />
               </div>
               <ConfigField label="Certificado .p12 (en base64)" type="textarea" rows={4} value={values?.apple_wallet_cert_p12_base64 ?? ''} onChange={(v) => updateValue('apple_wallet_cert_p12_base64', v)} />
+            </div>
+          </CardContent></Card>
+        </TabsContent>
+
+        <TabsContent value="printer">
+          <Card><CardContent className="p-6 space-y-6">
+            <p className="text-sm text-muted-foreground">
+              Ajustes del ticket térmico Bluetooth (Phomemo M04S) que usa taquilla. La impresión pasa
+              directamente del navegador a la impresora — si en un dispositivo concreto sale con ruido,
+              lenta o incompleta, prueba a ajustar estos valores sin necesidad de tocar código.
+            </p>
+
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <h4 className="font-semibold text-sm">Modo de escritura Bluetooth</h4>
+              <Select value={values?.phomemo_write_mode ?? 'auto'} onValueChange={(v: string) => updateValue('phomemo_write_mode', v)}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto (rápido, cambia a confirmado si falla una escritura)</SelectItem>
+                  <SelectItem value="with_response">Siempre confirmado (fiable pero mucho más lento)</SelectItem>
+                  <SelectItem value="without_response">Siempre sin confirmación (rápido, sin red de seguridad)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Si un móvil o tablet imprime tickets con ruido o a medias, prueba &quot;Siempre confirmado&quot;
+                en ese dispositivo — es más lento pero cada byte se confirma, así que no se pierde nada
+                por el camino. &quot;Auto&quot; es más rápido pero solo se da cuenta de un fallo cuando la
+                escritura lanza un error explícito, no cuando Android la da por enviada sin haberla
+                completado de verdad.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <h4 className="font-semibold text-sm">Velocidad de envío</h4>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ConfigField
+                  label="Tamaño de bloque (bytes)"
+                  type="number"
+                  value={values?.phomemo_raster_chunk_size ?? '256'}
+                  onChange={(v) => updateValue('phomemo_raster_chunk_size', v)}
+                  description="En cuántos bytes se trocea la imagen del ticket antes de mandarla. 256 es el valor probado en hardware real."
+                />
+                <ConfigField
+                  label="Pausa entre bloques (ms)"
+                  type="number"
+                  value={values?.phomemo_chunk_delay_ms ?? '20'}
+                  onChange={(v) => updateValue('phomemo_chunk_delay_ms', v)}
+                  description="Solo se aplica en modo sin confirmación — en modo confirmado la propia confirmación ya marca el ritmo."
+                />
+                <ConfigField
+                  label="Pausa entre comandos (ms)"
+                  type="number"
+                  value={values?.phomemo_command_delay_ms ?? '30'}
+                  onChange={(v) => updateValue('phomemo_command_delay_ms', v)}
+                  description="Antes de mandar cada comando de configuración (densidad, calor…) a la impresora."
+                />
+                <ConfigField
+                  label="Pausa tras la imagen (ms)"
+                  type="number"
+                  value={values?.phomemo_after_raster_delay_ms ?? '300'}
+                  onChange={(v) => updateValue('phomemo_after_raster_delay_ms', v)}
+                />
+                <ConfigField
+                  label="Pausa tras el avance de papel (ms)"
+                  type="number"
+                  value={values?.phomemo_after_feed_delay_ms ?? '500'}
+                  onChange={(v) => updateValue('phomemo_after_feed_delay_ms', v)}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <h4 className="font-semibold text-sm">Impresión</h4>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ConfigField
+                  label="Densidad de tinta (1-8)"
+                  type="number"
+                  value={values?.phomemo_density ?? '6'}
+                  onChange={(v) => updateValue('phomemo_density', v)}
+                  description="Más alto = más oscuro. Súbelo si el ticket sale muy claro, bájalo si sale manchado."
+                />
+                <ConfigField
+                  label="Avance de papel al terminar"
+                  type="number"
+                  value={values?.phomemo_feed ?? '32'}
+                  onChange={(v) => updateValue('phomemo_feed', v)}
+                  description="32 ≈ 2-3 mm de margen tras cortar el ticket."
+                />
+              </div>
             </div>
           </CardContent></Card>
         </TabsContent>

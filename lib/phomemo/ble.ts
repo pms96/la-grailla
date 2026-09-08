@@ -1,4 +1,4 @@
-import { PHOMEMO_BLE, isWebBluetoothAvailable } from './constants';
+import { DEFAULT_PRINT_SETTINGS, PHOMEMO_BLE, isWebBluetoothAvailable, type PhomemoPrintSettings, type PhomemoWriteMode } from './constants';
 import type {
   BluetoothDevice,
   BluetoothNavigator,
@@ -90,25 +90,32 @@ export class PhomemoM04S {
     this.writeChar = null;
   }
 
-  async printRaster(raster: MonoRaster): Promise<void> {
+  async printRaster(raster: MonoRaster, settings: PhomemoPrintSettings = DEFAULT_PRINT_SETTINGS): Promise<void> {
     if (!this.connected) await this.connect();
-    const job = buildM04SCommandSequence(raster);
+    const job = buildM04SCommandSequence(raster, settings);
+    const writeMode = settings.writeMode;
 
     for (const cmd of job.preamble) {
-      await this.send(cmd);
+      await this.send(cmd, writeMode);
       await delay(job.delays.command);
     }
-    await this.send(job.rasterHeader);
+    await this.send(job.rasterHeader, writeMode);
 
-    const rasterChunk = PHOMEMO_BLE.RASTER_CHUNK_SIZE;
-    for (let i = 0; i < job.raster.length; i += rasterChunk) {
-      await this.send(job.raster.subarray(i, i + rasterChunk));
-      await delay(job.delays.rasterChunk);
+    // Con escritura confirmada, el propio await ya bloquea hasta que el GATT
+    // reconoce cada escritura — el delay fijo entre chunks solo aporta algo en el
+    // modo sin confirmación, donde no hay más backpressure real que ese hueco.
+    // Añadirlo también en modo confirmado es lo que hacía la impresión "muy pero
+    // que muy lenta" cuando el fallback automático se activaba.
+    const usingConfirmedWrites = writeMode === 'with_response' || (writeMode === 'auto' && this.useWriteWithResponse);
+
+    for (let i = 0; i < job.raster.length; i += settings.rasterChunkSize) {
+      await this.send(job.raster.subarray(i, i + settings.rasterChunkSize), writeMode);
+      if (!usingConfirmedWrites) await delay(job.delays.rasterChunk);
     }
 
     await delay(job.delays.afterRaster);
     for (const feed of job.feed) {
-      await this.send(feed);
+      await this.send(feed, writeMode);
       await delay(job.delays.command);
     }
     await delay(job.delays.afterFeed);
@@ -179,9 +186,23 @@ export class PhomemoM04S {
     }
   }
 
-  private async send(data: Uint8Array): Promise<void> {
+  private async send(data: Uint8Array, writeMode: PhomemoWriteMode = 'auto'): Promise<void> {
     if (!this.writeChar) throw new Error('Impresora desconectada');
     const buffer = toWriteBuffer(data);
+
+    if (writeMode === 'with_response') {
+      await this.writeChar.writeValue(buffer);
+      return;
+    }
+    if (writeMode === 'without_response') {
+      await this.writeChar.writeValueWithoutResponse(buffer);
+      return;
+    }
+
+    // 'auto': igual que antes — empieza sin confirmación y, si una escritura falla,
+    // se queda para siempre en modo confirmado para el resto de la conexión. No
+    // detecta la corrupción SILENCIOSA (una escritura sin confirmación que "resuelve"
+    // sin llegar de verdad) — para eso hay que forzar 'with_response' manualmente.
     if (this.useWriteWithResponse) {
       await this.writeChar.writeValue(buffer);
       return;

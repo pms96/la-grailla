@@ -65,8 +65,8 @@ describe('raster térmico', () => {
 });
 
 describe('BLE M04S', () => {
-  it('el bitmap se trocea en 256 bytes como phomymo', async () => {
-    const { PHOMEMO_BLE } = await import('@/lib/phomemo/constants');
-    expect(PHOMEMO_BLE.RASTER_CHUNK_SIZE).toBe(256);
+  it('el bitmap se trocea en 256 bytes como phomymo por defecto', async () => {
+    const { DEFAULT_PRINT_SETTINGS } = await import('@/lib/phomemo/constants');
+    expect(DEFAULT_PRINT_SETTINGS.rasterChunkSize).toBe(256);
   });
 });

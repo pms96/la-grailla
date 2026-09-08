@@ -9,16 +9,6 @@ export const PHOMEMO_BLE = {
     0xffe0,
     '0000ff00-0000-1000-8000-00805f9b34fb',
   ] as const,
-  /**
-   * phomymo (transcriptionstream/phomymo, protocolo M04 probado en hardware real,
-   * github.com/transcriptionstream/phomymo/issues/23) envía en bloques de 256.
-   * Se probó bajar a 20 (límite del MTU BLE por defecto sin negociar) pensando en
-   * un truncado silencioso en Android, pero no arregló la impresión corrupta —
-   * así que se mantiene el valor de la referencia, que sí está validado en M04S.
-   */
-  RASTER_CHUNK_SIZE: 256,
-  CHUNK_DELAY_MS: 20,
-  COMMAND_DELAY_MS: 30,
   MAX_RETRIES: 1,
   INITIAL_RETRY_DELAY_MS: 300,
 } as const;
@@ -32,10 +22,42 @@ export const M04S_PAPER = {
   ticketHeightMm: 70,
 } as const;
 
-export const M04S_PRINT = {
+/**
+ * 'auto' deja que cada escritura elija por sí sola (rápido, pero en algunos Android
+ * la escritura "sin confirmación" se pierde en silencio y el ráster llega corrupto).
+ * 'with_response' fuerza confirmación en cada escritura: mucho más lento pero fiable
+ * — es el modo al que cae 'auto' tras el primer fallo, así que fijarlo evita que la
+ * primera impresión de una sesión salga incompleta o con ruido antes de que el
+ * fallback reactivo se active. 'without_response' fuerza el modo rápido siempre.
+ */
+export type PhomemoWriteMode = 'auto' | 'with_response' | 'without_response';
+
+export type PhomemoPrintSettings = {
+  writeMode: PhomemoWriteMode;
+  rasterChunkSize: number;
+  chunkDelayMs: number;
+  commandDelayMs: number;
+  afterRasterDelayMs: number;
+  afterFeedDelayMs: number;
+  density: number;
+  feed: number;
+};
+
+/**
+ * Valores de fábrica — los mismos que ya estaban probados en hardware real (phomymo,
+ * transcriptionstream/phomymo, issue #23) antes de hacerlos configurables desde
+ * /admin/configuracion. Sirven de respaldo si /api/taquilla/print-settings falla.
+ */
+export const DEFAULT_PRINT_SETTINGS: PhomemoPrintSettings = {
+  writeMode: 'auto',
+  rasterChunkSize: 256,
+  chunkDelayMs: 20,
+  commandDelayMs: 30,
+  afterRasterDelayMs: 300,
+  afterFeedDelayMs: 500,
   density: 6,
   feed: 32,
-} as const;
+};
 
 export function isWebBluetoothAvailable(): boolean {
   return typeof navigator !== 'undefined' && 'bluetooth' in navigator;

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getSharedPhomemoPrinter } from '@/lib/phomemo/ble';
 import { isLikelyIOS, isWebBluetoothAvailable } from '@/lib/phomemo/constants';
+import { fetchPhomemoPrintSettings } from '@/lib/phomemo/fetch-print-settings';
 import { printTicketPdf } from '@/lib/phomemo/print-pdf';
 
 export type PrinterStatus = 'checking' | 'unsupported' | 'disconnected' | 'connecting' | 'connected';
@@ -66,7 +67,8 @@ export function usePhomemoPrinter() {
         throw err;
       }
     }
-    await printTicketPdf(printer, pdfBytes, onPage);
+    const settings = await fetchPhomemoPrintSettings();
+    await printTicketPdf(printer, pdfBytes, settings, onPage);
   }, [bindDisconnect]);
 
   return { status, deviceName, connect, disconnect, printPdfBytes, bleAvailable, isIOS };

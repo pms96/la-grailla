@@ -1,4 +1,4 @@
-import { M04S_PRINT, PHOMEMO_BLE } from './constants';
+import { DEFAULT_PRINT_SETTINGS, type PhomemoPrintSettings } from './constants';
 import type { MonoRaster } from './raster';
 
 /**
@@ -38,7 +38,7 @@ export function m04RasterHeader(widthBytes: number, heightLines: number): Uint8A
 
 export function buildM04SCommandSequence(
   raster: MonoRaster,
-  opts: { density?: number; feed?: number } = {}
+  settings: PhomemoPrintSettings = DEFAULT_PRINT_SETTINGS
 ): {
   preamble: Uint8Array[];
   rasterHeader: Uint8Array;
@@ -46,14 +46,12 @@ export function buildM04SCommandSequence(
   feed: Uint8Array[];
   delays: { command: number; rasterChunk: number; afterRaster: number; afterFeed: number };
 } {
-  const density = opts.density ?? M04S_PRINT.density;
-  const feed = opts.feed ?? M04S_PRINT.feed;
-  const feedCount = Math.max(1, Math.round(feed / 16));
+  const feedCount = Math.max(1, Math.round(settings.feed / 16));
 
   return {
     preamble: [
-      new Uint8Array([0x1f, 0x11, 0x02, m04DensityByte(density)]),
-      new Uint8Array([0x1f, 0x11, 0x37, m04HeatByte(density)]),
+      new Uint8Array([0x1f, 0x11, 0x02, m04DensityByte(settings.density)]),
+      new Uint8Array([0x1f, 0x11, 0x37, m04HeatByte(settings.density)]),
       new Uint8Array([0x1f, 0x11, 0x0b]),
       new Uint8Array([0x1f, 0x11, 0x35, 0x00]),
     ],
@@ -63,10 +61,10 @@ export function buildM04SCommandSequence(
     raster: raster.bits,
     feed: Array.from({ length: feedCount }, () => new Uint8Array([0x1b, 0x64, 0x02])),
     delays: {
-      command: PHOMEMO_BLE.COMMAND_DELAY_MS,
-      rasterChunk: PHOMEMO_BLE.CHUNK_DELAY_MS,
-      afterRaster: 300,
-      afterFeed: 500,
+      command: settings.commandDelayMs,
+      rasterChunk: settings.chunkDelayMs,
+      afterRaster: settings.afterRasterDelayMs,
+      afterFeed: settings.afterFeedDelayMs,
     },
   };
 }
