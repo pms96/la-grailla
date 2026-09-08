@@ -1,5 +1,10 @@
 import { PHOMEMO_BLE, isWebBluetoothAvailable } from './constants';
-import type { BluetoothDevice, BluetoothNavigator, BluetoothRemoteGATTCharacteristic } from './ble-types';
+import type {
+  BluetoothDevice,
+  BluetoothNavigator,
+  BluetoothRemoteGATTCharacteristic,
+  BluetoothRemoteGATTService,
+} from './ble-types';
 import { buildM04SCommandSequence } from './m04s-protocol';
 import type { MonoRaster } from './raster';
 
@@ -146,6 +151,7 @@ export class PhomemoM04S {
         const service = await server.getPrimaryService(uuid);
         this.writeChar = await service.getCharacteristic(PHOMEMO_BLE.WRITE_CHAR_UUID);
         this.useWriteWithResponse = !this.writeChar.properties.writeWithoutResponse && this.writeChar.properties.write;
+        await this.subscribeToNotifications(service);
         return;
       } catch (err) {
         lastError = err;
@@ -154,6 +160,23 @@ export class PhomemoM04S {
     throw new Error(
       lastError instanceof Error ? lastError.message : 'La impresora no expone el servicio Bluetooth de Phomemo'
     );
+  }
+
+  /**
+   * phomymo (referencia probada en hardware M04S real) siempre se suscribe a la
+   * característica de notificación (0xff03) tras conectar, aunque no le lea ningún
+   * dato durante la impresión. Varios clones de impresora térmica BLE solo entran en
+   * modo "streaming" fiable cuando el central tiene un CCCD activo — sin la
+   * suscripción, las escrituras se aceptan pero el ráster puede llegar corrupto.
+   * Best-effort: si el característica no existe, seguimos igualmente.
+   */
+  private async subscribeToNotifications(service: BluetoothRemoteGATTService): Promise<void> {
+    try {
+      const notifyChar = await service.getCharacteristic(PHOMEMO_BLE.NOTIFY_CHAR_UUID);
+      await notifyChar.startNotifications();
+    } catch {
+      /* No todos los clones exponen 0xff03 — no es fatal */
+    }
   }
 
   private async send(data: Uint8Array): Promise<void> {

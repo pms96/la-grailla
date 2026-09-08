@@ -13,6 +13,7 @@ export type BluetoothRemoteGATTCharacteristic = {
   properties: { write: boolean; writeWithoutResponse: boolean };
   writeValue: (data: BufferSource) => Promise<void>;
   writeValueWithoutResponse: (data: BufferSource) => Promise<void>;
+  startNotifications: () => Promise<BluetoothRemoteGATTCharacteristic>;
   getCharacteristic?: never;
 };
 
