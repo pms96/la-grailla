@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +23,11 @@ const WRITE_MODE_LABELS: Record<PhomemoWriteMode, string> = {
   without_response: 'Siempre sin confirmar',
 };
 
+// Por dispositivo (localStorage), no por cuenta: cada tablet de taquilla puede
+// tener su propia Phomemo enchufada o no, así que no tiene sentido que sea un
+// ajuste global de /admin/configuracion.
+const PRINTER_ENABLED_KEY = 'phomemo-printer-enabled';
+
 export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [buyerName, setBuyerName] = useState('');
@@ -33,7 +38,29 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
   const [submitting, setSubmitting] = useState(false);
   const [lastSale, setLastSale] = useState<LastSale | null>(null);
   const [printing, setPrinting] = useState(false);
+  const [printerEnabled, setPrinterEnabledState] = useState(true);
   const printer = usePhomemoPrinter();
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(PRINTER_ENABLED_KEY);
+      if (raw !== null) setPrinterEnabledState(raw === 'true');
+    } catch {
+      // Privado / cuota — se queda con el valor por defecto (activada).
+    }
+  }, []);
+
+  const setPrinterEnabled = (value: boolean) => {
+    setPrinterEnabledState(value);
+    try {
+      window.localStorage.setItem(PRINTER_ENABLED_KEY, String(value));
+    } catch {
+      // Privado / cuota — el toggle sigue funcionando solo en esta sesión.
+    }
+    if (!value && printer.status === 'connected') {
+      printer.disconnect();
+    }
+  };
   // Se manda al servidor para que un reintento de red tras un timeout (o un
   // doble tap en el datáfono) no cobre ni emita entradas dos veces — se
   // renueva solo tras una venta completada o si el usuario cambia de evento
@@ -148,7 +175,7 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
       if (!res.ok) { toast.error('No se pudo generar el tique'); return; }
       const blob = await res.blob();
 
-      if (printer.bleAvailable) {
+      if (printerEnabled && printer.bleAvailable) {
         try {
           await printer.printPdfBytes(await blob.arrayBuffer(), (current, total) => {
             toast.loading(total > 1 ? `Imprimiendo ${current} de ${total}…` : 'Imprimiendo…', { id: 'phomemo-print' });
@@ -161,7 +188,7 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
           toast.error(e instanceof Error ? e.message : 'La impresora no respondió');
           toast.message('Se abre el PDF para imprimir o compartir.');
         }
-      } else if (printer.isIOS) {
+      } else if (printerEnabled && printer.isIOS) {
         toast.message('En iPhone usa Bluefy para imprimir directo. Mientras, comparte el PDF.');
       }
       await sharePdfFallback(blob, lastSale.orderId);
@@ -180,62 +207,78 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
   return (
     <div className="space-y-4">
       <Card>
-        <CardContent className="p-4 flex items-start justify-between gap-3">
-          <div className="flex items-start gap-2.5 min-w-0">
-            {printer.status === 'connected' ? (
-              <Bluetooth className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-            ) : (
-              <BluetoothOff className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-            )}
-            <div className="min-w-0">
-              <p className="text-sm font-medium">
-                {printer.status === 'connected'
-                  ? `Phomemo ${printer.deviceName ?? 'M04S'}`
-                  : printer.status === 'connecting'
-                    ? 'Conectando impresora…'
-                    : 'Impresora Phomemo M04S'}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {printer.status === 'connected'
-                  ? 'Lista. El botón Imprimir manda el tique directo, sin la app de Phomemo. Papel 110 mm.'
-                  : printer.status === 'unsupported' && printer.isIOS
-                    ? (
-                      <>
-                        Safari, Chrome y Brave en iPhone no pueden usar Bluetooth. Abre esta misma página en{' '}
-                        <a
-                          href="https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055"
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-primary underline underline-offset-2"
-                        >
-                          Bluefy
-                        </a>
-                        .
-                      </>
-                    )
-                    : printer.status === 'unsupported'
-                      ? 'Este navegador no admite Web Bluetooth. En Android usa Chrome; en iPhone, Bluefy.'
-                      : 'Conéctala al empezar el turno. Papel 110 mm (entrada 105 × 70).'}
-              </p>
-            </div>
-          </div>
-          {printer.bleAvailable && (
-            <Button
-              type="button"
-              variant={printer.status === 'connected' ? 'outline' : 'default'}
-              size="sm"
-              className="shrink-0"
-              onClick={handleConnectPrinter}
-              disabled={printer.status === 'connecting'}
-            >
-              {printer.status === 'connecting' ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : printer.status === 'connected' ? (
-                'Desconectar'
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              {printerEnabled ? (
+                <Bluetooth className="h-4 w-4 text-primary shrink-0" />
               ) : (
-                'Conectar'
+                <BluetoothOff className="h-4 w-4 text-muted-foreground shrink-0" />
               )}
-            </Button>
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Impresión directa por Bluetooth</p>
+                <p className="text-xs text-muted-foreground">
+                  {printerEnabled
+                    ? 'Activada: el botón Imprimir manda el tique directo a la Phomemo.'
+                    : 'Desactivada: cada venta genera el PDF para guardarlo o imprimirlo en otro sitio.'}
+                </p>
+              </div>
+            </div>
+            <Switch checked={printerEnabled} onCheckedChange={setPrinterEnabled} />
+          </div>
+
+          {printerEnabled && (
+            <div className="flex items-start justify-between gap-3 pt-3 border-t border-border">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">
+                  {printer.status === 'connected'
+                    ? `Phomemo ${printer.deviceName ?? 'M04S'}`
+                    : printer.status === 'connecting'
+                      ? 'Conectando impresora…'
+                      : 'Impresora Phomemo M04S'}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {printer.status === 'connected'
+                    ? 'Lista. Papel 110 mm.'
+                    : printer.status === 'unsupported' && printer.isIOS
+                      ? (
+                        <>
+                          Safari, Chrome y Brave en iPhone no pueden usar Bluetooth. Abre esta misma página en{' '}
+                          <a
+                            href="https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-primary underline underline-offset-2"
+                          >
+                            Bluefy
+                          </a>
+                          .
+                        </>
+                      )
+                      : printer.status === 'unsupported'
+                        ? 'Este navegador no admite Web Bluetooth. En Android usa Chrome; en iPhone, Bluefy.'
+                        : 'Conéctala al empezar el turno. Papel 110 mm (entrada 105 × 70).'}
+                </p>
+              </div>
+              {printer.bleAvailable && (
+                <Button
+                  type="button"
+                  variant={printer.status === 'connected' ? 'outline' : 'default'}
+                  size="sm"
+                  className="shrink-0"
+                  onClick={handleConnectPrinter}
+                  disabled={printer.status === 'connecting'}
+                >
+                  {printer.status === 'connecting' ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : printer.status === 'connected' ? (
+                    'Desconectar'
+                  ) : (
+                    'Conectar'
+                  )}
+                </Button>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
