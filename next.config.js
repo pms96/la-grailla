@@ -1,3 +1,15 @@
+const fs = require('fs');
+const path = require('path');
+
+try {
+  fs.copyFileSync(
+    path.join(__dirname, 'node_modules/pdfjs-dist/build/pdf.worker.min.mjs'),
+    path.join(__dirname, 'public/pdf.worker.min.mjs')
+  );
+} catch (err) {
+  console.warn('No se pudo copiar pdf.worker.min.mjs:', err instanceof Error ? err.message : err);
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   distDir: process.env.NEXT_DIST_DIR || '.next',
@@ -30,6 +42,7 @@ const nextConfig = {
     const csp = [
       `default-src 'self'`,
       `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
+      `worker-src 'self' blob:`,
       `style-src 'self' 'unsafe-inline'`,
       `img-src 'self' data: blob: https://*.public.blob.vercel-storage.com`,
       `font-src 'self' data:`,
@@ -49,7 +62,7 @@ const nextConfig = {
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=()' },
+          { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=(), bluetooth=(self)' },
           { key: 'Content-Security-Policy', value: csp },
         ],
       },
@@ -60,6 +73,7 @@ const nextConfig = {
       config.output.filename = 'static/chunks/[name]-[contenthash:8].js';
       config.output.chunkFilename = 'static/chunks/[contenthash:16].js';
     }
+    config.resolve.alias.canvas = false;
     return config;
   },
 };

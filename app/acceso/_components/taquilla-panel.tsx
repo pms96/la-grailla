@@ -7,8 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Minus, Plus, Loader2, Banknote, CreditCard, Gift, CheckCircle2, DoorOpen, Printer } from 'lucide-react';
+import { Minus, Plus, Loader2, Banknote, CreditCard, Gift, CheckCircle2, DoorOpen, Printer, Bluetooth, BluetoothOff } from 'lucide-react';
 import { toast } from 'sonner';
+import { usePhomemoPrinter } from '@/lib/phomemo/use-phomemo-printer';
 import type { EventWithTicketTypes } from './access-client';
 
 type Props = { events: EventWithTicketTypes[]; selectedEvent: string; onSold?: () => void };
@@ -25,6 +26,7 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
   const [submitting, setSubmitting] = useState(false);
   const [lastSale, setLastSale] = useState<LastSale | null>(null);
   const [printing, setPrinting] = useState(false);
+  const printer = usePhomemoPrinter();
   // Se manda al servidor para que un reintento de red tras un timeout (o un
   // doble tap en el datáfono) no cobre ni emita entradas dos veces — se
   // renueva solo tras una venta completada o si el usuario cambia de evento
@@ -106,30 +108,59 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
     }
   };
 
-  // Genera el PDF de entrada 105 × 70 mm apaisada (estilo lima) y lo manda
-  // al selector nativo de "Compartir" del móvil/tablet. Sin Web Share API
-  // con ficheros (navegador antiguo), se abre el PDF en una pestaña nueva.
+  const sharePdfFallback = async (pdfBlob: Blob, orderId: string) => {
+    const file = new File([pdfBlob], `entradas-${orderId.slice(0, 8)}.pdf`, { type: 'application/pdf' });
+    const canShareFiles = typeof navigator !== 'undefined' && typeof navigator.canShare === 'function';
+    if (canShareFiles && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: 'Entradas' });
+      return;
+    }
+    window.open('/api/taquilla/print/' + orderId, '_blank', 'noreferrer');
+  };
+
+  const handleConnectPrinter = async () => {
+    if (printer.status === 'connected') {
+      printer.disconnect();
+      toast.message('Impresora desconectada');
+      return;
+    }
+    try {
+      const name = await printer.connect();
+      toast.success('Conectada: ' + name);
+    } catch (e) {
+      if (e instanceof Error && e.message === 'cancelled') return;
+      toast.error(e instanceof Error ? e.message : 'No se pudo conectar la impresora');
+    }
+  };
+
   const handlePrint = async () => {
     if (!lastSale) return;
     setPrinting(true);
     try {
-      const url = '/api/taquilla/print/' + lastSale.orderId;
-      const canShareFiles = typeof navigator !== 'undefined' && typeof navigator.canShare === 'function';
-      if (canShareFiles) {
-        const res = await fetch(url);
-        if (!res.ok) { toast.error('No se pudo generar el tique'); return; }
-        const blob = await res.blob();
-        const file = new File([blob], `entradas-${lastSale.orderId.slice(0, 8)}.pdf`, { type: 'application/pdf' });
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({ files: [file], title: 'Entradas' });
+      const res = await fetch('/api/taquilla/print/' + lastSale.orderId);
+      if (!res.ok) { toast.error('No se pudo generar el tique'); return; }
+      const blob = await res.blob();
+
+      if (printer.bleAvailable) {
+        try {
+          await printer.printPdfBytes(await blob.arrayBuffer(), (current, total) => {
+            toast.loading(total > 1 ? `Imprimiendo ${current} de ${total}…` : 'Imprimiendo…', { id: 'phomemo-print' });
+          });
+          toast.success(lastSale.tickets === 1 ? 'Entrada impresa' : `${lastSale.tickets} entradas impresas`, { id: 'phomemo-print' });
           return;
+        } catch (e) {
+          toast.dismiss('phomemo-print');
+          if (e instanceof Error && (e.message === 'cancelled' || e.name === 'AbortError')) return;
+          toast.error(e instanceof Error ? e.message : 'La impresora no respondió');
+          toast.message('Se abre el PDF para imprimir o compartir.');
         }
+      } else if (printer.isIOS) {
+        toast.message('En iPhone usa Bluefy para imprimir directo. Mientras, comparte el PDF.');
       }
-      window.open(url, '_blank', 'noreferrer');
+      await sharePdfFallback(blob, lastSale.orderId);
     } catch (e) {
-      // AbortError: el vendedor cerró el selector de compartir sin elegir nada — no es un error real.
-      if (e instanceof Error && e.name === 'AbortError') return;
-      toast.error('No se pudo compartir el tique');
+      if (e instanceof Error && (e.message === 'cancelled' || e.name === 'AbortError')) return;
+      toast.error(e instanceof Error ? e.message : 'No se pudo imprimir');
     } finally {
       setPrinting(false);
     }
@@ -141,6 +172,67 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
 
   return (
     <div className="space-y-4">
+      <Card>
+        <CardContent className="p-4 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2.5 min-w-0">
+            {printer.status === 'connected' ? (
+              <Bluetooth className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+            ) : (
+              <BluetoothOff className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+            )}
+            <div className="min-w-0">
+              <p className="text-sm font-medium">
+                {printer.status === 'connected'
+                  ? `Phomemo ${printer.deviceName ?? 'M04S'}`
+                  : printer.status === 'connecting'
+                    ? 'Conectando impresora…'
+                    : 'Impresora Phomemo M04S'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {printer.status === 'connected'
+                  ? 'Lista. El botón Imprimir manda el tique directo, sin la app de Phomemo. Papel 110 mm.'
+                  : printer.status === 'unsupported' && printer.isIOS
+                    ? (
+                      <>
+                        Safari, Chrome y Brave en iPhone no pueden usar Bluetooth. Abre esta misma página en{' '}
+                        <a
+                          href="https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-primary underline underline-offset-2"
+                        >
+                          Bluefy
+                        </a>
+                        .
+                      </>
+                    )
+                    : printer.status === 'unsupported'
+                      ? 'Este navegador no admite Web Bluetooth. En Android usa Chrome; en iPhone, Bluefy.'
+                      : 'Conéctala al empezar el turno. Papel 110 mm (entrada 105 × 70).'}
+              </p>
+            </div>
+          </div>
+          {printer.bleAvailable && (
+            <Button
+              type="button"
+              variant={printer.status === 'connected' ? 'outline' : 'default'}
+              size="sm"
+              className="shrink-0"
+              onClick={handleConnectPrinter}
+              disabled={printer.status === 'connecting'}
+            >
+              {printer.status === 'connecting' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : printer.status === 'connected' ? (
+                'Desconectar'
+              ) : (
+                'Conectar'
+              )}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+
       {lastSale && (
         <Card className="border-green-500/40 bg-green-500/5">
           <CardContent className="p-4 flex items-start gap-3">

@@ -25,6 +25,9 @@ npm-debug.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# pdf.js worker (se copia desde node_modules al arrancar Next)
+/public/pdf.worker.min.mjs
+
 # vercel
 .vercel
 
