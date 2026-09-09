@@ -3,6 +3,7 @@ import { generateQRDataUrl } from '@/lib/qr';
 import { sendMail } from '@/lib/mailer';
 import { orderAccessQuery } from '@/lib/access-token';
 import { buildTicketsPdf } from '@/lib/ticket-pdf';
+import { buildMinorAuthorizationPdf } from '@/lib/minor-authorization-pdf';
 import { escapeHtml as esc } from '@/lib/html-escape';
 
 // DATA-01: derivado del propio `prisma` (extendido — totalAmount/commission
@@ -64,7 +65,7 @@ export async function buildTicketsHtml(orderId: string): Promise<{ html: string;
   return { html, order };
 }
 
-function buildEmailHtml(order: OrderWithTickets, printUrl: string, logoUrl: string): string {
+function buildEmailHtml(order: OrderWithTickets, printUrl: string, logoUrl: string, minorAuthUrl?: string): string {
   const eventDate = order.event?.date
     ? new Date(order.event.date).toLocaleDateString('es-ES', {
         weekday: 'long',
@@ -81,6 +82,14 @@ function buildEmailHtml(order: OrderWithTickets, printUrl: string, logoUrl: stri
     printUrl +
     '" style="background:#a855f7;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;">Ver e imprimir mis entradas</a></p>';
 
+  const minorAuthNotice =
+    order.event?.minorAuthorizationEnabled && minorAuthUrl
+      ? '<div style="background:#fff8e6;border-radius:8px;padding:14px;margin:18px 0;border:1px solid #f0d98c;">' +
+        '<p style="margin:0;font-size:13px;color:#7a5c00;"><strong>Asistentes de 16 y 17 anos:</strong> deben presentar en taquilla la autorizacion firmada por su padre/madre/tutor. Va adjunta en PDF.</p>' +
+        '<p style="margin:6px 0 0;"><a href="' + minorAuthUrl + '" style="color:#a855f7;">Descargar autorizacion de menores (PDF)</a></p>' +
+        '</div>'
+      : '';
+
   return (
     '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;">' +
     '<img src="' + logoUrl + '" alt="La Grailla" height="32" style="height:32px;width:auto;margin:0 0 4px;" />' +
@@ -95,6 +104,7 @@ function buildEmailHtml(order: OrderWithTickets, printUrl: string, logoUrl: stri
     '<p style="margin:4px 0;"><strong>Total:</strong> ' + Number(order.totalAmount ?? 0).toFixed(2) + ' EUR</p>' +
     '<p style="margin:4px 0;"><strong>Referencia:</strong> ' + esc(order.id?.slice(0, 8)?.toUpperCase()) + '</p>' +
     '</div>' +
+    minorAuthNotice +
     cta +
     '<p style="font-size:12px;color:#999;">Adjuntamos un PDF con tus entradas. Tambien puedes abrir el enlace de arriba para verlas e imprimirlas. No compartas tus codigos con nadie.</p>' +
     '</div>'
@@ -141,6 +151,7 @@ export async function sendTicketsEmail(
   const appUrl = baseUrl ?? process.env.NEXTAUTH_URL ?? '';
   const printUrl = appUrl + '/api/tickets/' + order.id + '/pdf-html?' + orderAccessQuery(order.id);
   const logoUrl = appUrl + '/brand/logo-black.png';
+  const minorAuthUrl = order.event?.slug ? appUrl + '/api/events/' + order.event.slug + '/minor-authorization' : undefined;
 
   let pdfBytes: Uint8Array | null = null;
   try {
@@ -152,19 +163,38 @@ export async function sendTicketsEmail(
     );
   }
 
-  const result = await sendMail({
-    to: order.buyerEmail,
-    subject: 'Tus entradas para ' + (order.event?.name ?? 'La Grailla'),
-    html: buildEmailHtml(order, printUrl, logoUrl),
-    attachments: pdfBytes
+  let minorAuthPdfBytes: Uint8Array | null = null;
+  if (order.event?.minorAuthorizationEnabled) {
+    try {
+      minorAuthPdfBytes = await buildMinorAuthorizationPdf(order.event);
+    } catch (error) {
+      console.error(
+        `[sendTicketsEmail] PDF autorizacion fallido para ${orderId}:`,
+        error instanceof Error ? error.message : error
+      );
+    }
+  }
+
+  const attachments = [
+    ...(pdfBytes
+      ? [{ filename: `entradas-${order.id.slice(0, 8)}.pdf`, content: Buffer.from(pdfBytes), contentType: 'application/pdf' }]
+      : []),
+    ...(minorAuthPdfBytes
       ? [
           {
-            filename: `entradas-${order.id.slice(0, 8)}.pdf`,
-            content: Buffer.from(pdfBytes),
+            filename: `autorizacion-menores-${order.event?.slug ?? 'evento'}.pdf`,
+            content: Buffer.from(minorAuthPdfBytes),
             contentType: 'application/pdf',
           },
         ]
-      : undefined,
+      : []),
+  ];
+
+  const result = await sendMail({
+    to: order.buyerEmail,
+    subject: 'Tus entradas para ' + (order.event?.name ?? 'La Grailla'),
+    html: buildEmailHtml(order, printUrl, logoUrl, minorAuthUrl),
+    attachments: attachments.length ? attachments : undefined,
   });
 
   await prisma.order.update({

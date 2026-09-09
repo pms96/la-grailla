@@ -19,6 +19,7 @@ import {
   MapPin,
   ShieldCheck,
   Lock,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { FadeIn, PressScale } from '@/components/ui/animate';
@@ -44,6 +45,7 @@ export interface EventData {
   city?: string | null;
   minAge?: number | null;
   conditions?: string | null;
+  minorAuthorizationEnabled?: boolean;
   ticketTypes: TicketType[];
   // Mismo porcentaje que app/api/orders/route.ts añadirá al cobrar — se
   // muestra ANTES de pagar para que el total no sea una sorpresa en la
@@ -228,6 +230,25 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
               </a>
               . Las entradas llegan por email con QR.
             </p>
+          )}
+          {event?.minorAuthorizationEnabled && (
+            <div className="mt-3 rounded-lg border border-warm-yellow/30 bg-warm-yellow/5 p-3 text-sm flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-warm-yellow mt-0.5 shrink-0" />
+              <div>
+                <p className="text-foreground/90">
+                  <strong>Asistentes de 16 y 17 años:</strong> deben presentar en taquilla la autorización firmada
+                  por su padre/madre/tutor.
+                </p>
+                <a
+                  href={`/api/events/${event.slug}/minor-authorization`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-block text-primary underline-offset-2 hover:underline"
+                >
+                  Descargar autorización de menores (PDF)
+                </a>
+              </div>
+            </div>
           )}
         </div>
 

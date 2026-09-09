@@ -18,6 +18,7 @@ import {
   Clock,
   ArrowLeft,
   SearchX,
+  AlertTriangle,
 } from 'lucide-react';
 import { FadeIn } from '@/components/ui/animate';
 import { EventTicket, TICKET_BARCODE_BG } from '@/components/event-ticket';
@@ -237,6 +238,28 @@ export default function ConfirmationClient({
             </div>
           </CardContent>
         </Card>
+
+        {validOrder?.event?.minorAuthorizationEnabled && (
+          <Card>
+            <CardContent className="p-6 flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-warm-yellow mt-0.5 shrink-0" />
+              <div>
+                <p className="font-medium">Asistentes de 16 y 17 años</p>
+                <p className="text-sm text-muted-foreground">
+                  Recuerda llevar la autorización firmada por el padre/madre/tutor a la entrada.
+                </p>
+                <a
+                  href={`/api/events/${validOrder.event.slug}/minor-authorization`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                >
+                  <Download className="h-3.5 w-3.5" /> Descargar autorización (PDF)
+                </a>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardContent className="p-6">

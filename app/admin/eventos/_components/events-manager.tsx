@@ -11,13 +11,14 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
-import { Plus, Pencil, Trash2, Loader2, Calendar, Hourglass, ShoppingCart, Archive, ArchiveRestore } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, Calendar, Hourglass, ShoppingCart, Archive, ArchiveRestore, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
 import { ConfirmDeleteDialog } from '@/app/admin/_components/confirm-delete-dialog';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 import { hasEventEnded } from '@/lib/active-event';
+import { DEFAULT_MINOR_AUTHORIZATION_TEXT } from '@/lib/minor-authorization-text';
 
 type EventWithCount = Event & { _count?: { tickets: number }; temporada?: { id: string; nombre: string } | null };
 
@@ -33,6 +34,8 @@ type EventFormState = {
   endTime: string;
   minAge: number;
   conditions: string;
+  minorAuthorizationEnabled: boolean;
+  minorAuthorizationText: string;
   maxCapacity: number;
   maxTicketsPerEmail: number | string;
   waitingRoomEnabled: boolean;
@@ -80,7 +83,7 @@ export default function EventsManager() {
 
   const openCreate = () => {
     setEditingEvent(null);
-    setForm({ name: '', description: '', venue: '', city: '', address: '', artists: '', date: '', doorsOpen: '', endTime: '', minAge: 18, conditions: '', maxCapacity: 500, maxTicketsPerEmail: '', waitingRoomEnabled: false, waitingRoomConcurrentSlots: '', waitingRoomPurchaseWindowMinutes: '', waitingRoomMessage: '', status: 'DRAFT', latitude: '', longitude: '', imageUrl: '', temporadaId: null });
+    setForm({ name: '', description: '', venue: '', city: '', address: '', artists: '', date: '', doorsOpen: '', endTime: '', minAge: 18, conditions: '', minorAuthorizationEnabled: false, minorAuthorizationText: '', maxCapacity: 500, maxTicketsPerEmail: '', waitingRoomEnabled: false, waitingRoomConcurrentSlots: '', waitingRoomPurchaseWindowMinutes: '', waitingRoomMessage: '', status: 'DRAFT', latitude: '', longitude: '', imageUrl: '', temporadaId: null });
     setDialogOpen(true);
   };
 
@@ -98,6 +101,8 @@ export default function EventsManager() {
       endTime: event?.endTime ?? '',
       minAge: event?.minAge ?? 18,
       conditions: event?.conditions ?? '',
+      minorAuthorizationEnabled: event?.minorAuthorizationEnabled ?? false,
+      minorAuthorizationText: event?.minorAuthorizationText ?? '',
       maxCapacity: event?.maxCapacity ?? 500,
       maxTicketsPerEmail: event?.maxTicketsPerEmail ?? '',
       waitingRoomEnabled: event?.waitingRoomEnabled ?? false,
@@ -330,6 +335,46 @@ export default function EventsManager() {
                 <div><Label>Edad mínima</Label><Input type="number" value={form?.minAge ?? 18} onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField('minAge', parseInt(e?.target?.value) || 18)} className="mt-1" /></div>
               </div>
               <div><Label>Condiciones de acceso</Label><Textarea value={form?.conditions ?? ''} onChange={handleChange('conditions')} className="mt-1" rows={2} /></div>
+
+              <div className="space-y-4 rounded-lg border border-border p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-primary" />
+                    <Label className="font-semibold">Autorización de menores (16-17 años)</Label>
+                  </div>
+                  <Switch
+                    checked={form?.minorAuthorizationEnabled ?? false}
+                    onCheckedChange={(v: boolean) => {
+                      updateField('minorAuthorizationEnabled', v);
+                      if (v && !form?.minorAuthorizationText) {
+                        updateField('minorAuthorizationText', DEFAULT_MINOR_AUTHORIZATION_TEXT);
+                      }
+                    }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground -mt-2">
+                  Actívalo si este evento requiere que los asistentes de 16 y 17 años presenten en taquilla una
+                  autorización firmada por su padre/madre/tutor. Se mostrará un aviso con el enlace de descarga en la
+                  página del evento, el formulario de compra, la confirmación y el email de entradas.
+                </p>
+                {form?.minorAuthorizationEnabled && (
+                  <div className="space-y-1.5 pt-2 border-t border-border">
+                    <Label>Texto legal de la autorización (editable)</Label>
+                    <Textarea
+                      value={form?.minorAuthorizationText ?? ''}
+                      onChange={handleChange('minorAuthorizationText')}
+                      className="mt-1"
+                      rows={8}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Puedes personalizar este texto por evento. El PDF descargable siempre incluye además los datos
+                      del menor y del tutor con líneas en blanco para rellenar a mano, y el pie "Entregar en taquilla"
+                      con espacio para el lugar, la fecha y la firma.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <Button onClick={handleSave} disabled={saving} className="w-full">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 {editingEvent ? 'Guardar Cambios' : 'Crear Evento'}

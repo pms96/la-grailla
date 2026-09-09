@@ -135,6 +135,8 @@ model Event {
   endTime                          String?
   minAge                           Int                @default(18)
   conditions                       String?            @db.Text
+  minorAuthorizationEnabled        Boolean            @default(false)
+  minorAuthorizationText           String?            @db.Text
   maxCapacity                      Int                @default(500)
   currentCount                     Int                @default(0)
   maxTicketsPerEmail               Int?

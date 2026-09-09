@@ -218,6 +218,30 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
                 </SlideIn>
               )}
 
+              {event?.minorAuthorizationEnabled && (
+                <SlideIn from="left" delay={0.35}>
+                  <Card>
+                    <CardContent className="p-6">
+                      <h2 className="font-display font-bold text-lg mb-3 flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 text-warm-yellow" /> Menores de 16 y 17 años
+                      </h2>
+                      <p className="text-muted-foreground text-sm">
+                        Si el asistente tiene 16 o 17 años, deberá presentar en taquilla esta autorización rellena y
+                        firmada por su padre/madre/tutor.
+                      </p>
+                      <a
+                        href={`/api/events/${event.slug}/minor-authorization`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-3 inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                      >
+                        Descargar autorización de menores (PDF)
+                      </a>
+                    </CardContent>
+                  </Card>
+                </SlideIn>
+              )}
+
               <SlideIn from="left" delay={0.4}>
                 <Card>
                   <CardContent className="p-6">
