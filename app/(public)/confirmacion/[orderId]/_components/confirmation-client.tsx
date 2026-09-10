@@ -20,7 +20,7 @@ import {
   SearchX,
   AlertTriangle,
 } from 'lucide-react';
-import { FadeIn } from '@/components/ui/animate';
+import { FadeIn, Stagger, StaggerItem } from '@/components/ui/animate';
 import { EventTicket, TICKET_BARCODE_BG } from '@/components/event-ticket';
 import { Logo } from '@/components/logo';
 import QRCode from 'qrcode';
@@ -406,9 +406,9 @@ function TicketCarousel({
   const hasWallet = wallet.google || wallet.apple;
 
   return (
-    <div className="-mx-4 flex snap-x snap-proximity gap-4 overflow-x-auto px-4 pb-2">
+    <Stagger staggerDelay={0.1} className="-mx-4 flex snap-x snap-proximity gap-4 overflow-x-auto px-4 pb-2">
       {tickets.map((ticket) => (
-        <div key={ticket?.id} className="w-[220px] shrink-0 snap-start">
+        <StaggerItem key={ticket?.id} className="w-[220px] shrink-0 snap-start">
           <EventTicket
             aria-label={`Entrada de ${ticket?.holderName ?? ''} para ${order?.event?.name ?? ''}`}
             stubHeight={hasWallet ? 172 : 128}
@@ -485,8 +485,8 @@ function TicketCarousel({
               </div>
             }
           />
-        </div>
+        </StaggerItem>
       ))}
-    </div>
+    </Stagger>
   );
 }

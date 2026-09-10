@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, DollarSign, Ticket, Calendar, Receipt, Mail, Moon, ArrowRight, BarChart3, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SkeletonPulse } from '@/components/ui/animate';
 import { toast } from 'sonner';
 import { CapacityBar } from '@/components/admin/capacity-bar';
 import { isEventTonight } from '@/lib/active-event';
@@ -75,17 +76,37 @@ export default function AdminDashboard() {
 
   if (loading) {
     return (
-      <div className="flex justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <SkeletonPulse className="h-8 w-48" />
+          <SkeletonPulse className="h-4 w-72" />
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="p-4 space-y-2.5">
+                <SkeletonPulse className="h-5 w-24" />
+                <SkeletonPulse className="h-7 w-16" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardContent className="p-6 space-y-3">
+            <SkeletonPulse className="h-5 w-32" />
+            <SkeletonPulse className="h-16 w-full rounded-lg" />
+            <SkeletonPulse className="h-16 w-full rounded-lg" />
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   const cards = [
-    { label: 'Ingresos', value: `${(stats?.totalRevenue ?? 0).toFixed(2)}€`, icon: DollarSign, color: 'text-green-500' },
+    { label: 'Ingresos', value: `${(stats?.totalRevenue ?? 0).toFixed(2)}€`, icon: DollarSign, color: 'text-lima' },
     { label: 'Entradas vendidas', value: stats?.totalTickets ?? 0, icon: Ticket, color: 'text-primary' },
-    { label: 'Pedidos', value: stats?.totalOrders ?? 0, icon: Receipt, color: 'text-blue-500' },
-    { label: 'Eventos', value: stats?.totalEvents ?? 0, icon: Calendar, color: 'text-yellow-500' },
+    { label: 'Pedidos', value: stats?.totalOrders ?? 0, icon: Receipt, color: 'text-lavender' },
+    { label: 'Eventos', value: stats?.totalEvents ?? 0, icon: Calendar, color: 'text-warm-yellow' },
   ];
 
   const tonightEvent = (stats?.events ?? []).find(
@@ -145,7 +166,7 @@ export default function AdminDashboard() {
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-2">
-                <Wallet className={`h-5 w-5 ${margenTemporada.margen >= 0 ? 'text-green-500' : 'text-destructive'}`} />
+                <Wallet className={`h-5 w-5 ${margenTemporada.margen >= 0 ? 'text-lima' : 'text-destructive'}`} />
                 <span className="text-xs text-muted-foreground">Margen ({margenTemporada.nombre})</span>
               </div>
               <p className="font-display text-2xl font-bold">

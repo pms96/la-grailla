@@ -368,8 +368,8 @@ export default function EventsManager() {
                     />
                     <p className="text-xs text-muted-foreground">
                       Puedes personalizar este texto por evento. El PDF descargable siempre incluye además los datos
-                      del menor y del tutor con líneas en blanco para rellenar a mano, y el pie "Entregar en taquilla"
-                      con espacio para el lugar, la fecha y la firma.
+                      del menor y del tutor con líneas en blanco para rellenar a mano, y el pie &ldquo;Entregar en
+                      taquilla&rdquo; con espacio para el lugar, la fecha y la firma.
                     </p>
                   </div>
                 )}

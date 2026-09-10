@@ -237,7 +237,7 @@ export default function AccessClient() {
             </div>
             <div className="w-full bg-muted rounded-full h-2 mt-2">
               <div
-                className={`h-2 rounded-full transition-all ${capacityPercent >= 95 ? 'bg-red-500' : capacityPercent >= 80 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                className={`h-2 rounded-full transition-[width] duration-normal ease-out ${capacityPercent >= 95 ? 'bg-red-500' : capacityPercent >= 80 ? 'bg-yellow-500' : 'bg-green-500'}`}
                 style={{ width: `${Math.min(capacityPercent, 100)}%` }}
               />
             </div>
@@ -264,10 +264,10 @@ export default function AccessClient() {
           <TabsContent value="scan" className="space-y-4">
         {/* Mode toggle */}
         <div className="flex gap-2">
-          <Button variant={mode === 'camera' ? 'default' : 'outline'} className="flex-1 gap-2" onClick={() => setMode('camera')}>
+          <Button size="lg" variant={mode === 'camera' ? 'default' : 'outline'} className="flex-1 gap-2" onClick={() => setMode('camera')}>
             <Camera className="h-4 w-4" /> Cámara
           </Button>
-          <Button variant={mode === 'manual' ? 'default' : 'outline'} className="flex-1 gap-2" onClick={() => setMode('manual')}>
+          <Button size="lg" variant={mode === 'manual' ? 'default' : 'outline'} className="flex-1 gap-2" onClick={() => setMode('manual')}>
             <Keyboard className="h-4 w-4" /> Manual
           </Button>
         </div>
@@ -284,13 +284,14 @@ export default function AccessClient() {
             <CardContent className="p-4">
               <div className="flex gap-2">
                 <Input
+                  size="lg"
                   placeholder="Introduce código QR"
                   value={manualCode}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setManualCode(e?.target?.value ?? '')}
                   onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e?.key === 'Enter' && handleManualSubmit()}
                   autoFocus
                 />
-                <Button onClick={handleManualSubmit} disabled={!manualCode?.trim()}>Validar</Button>
+                <Button size="lg" onClick={handleManualSubmit} disabled={!manualCode?.trim()}>Validar</Button>
               </div>
             </CardContent>
           </Card>

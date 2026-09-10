@@ -34,6 +34,9 @@ const buttonVariants = cva(
         lg: "h-11 rounded-lg px-6 text-base",
         icon: "h-10 w-10",
         "icon-sm": "h-8 w-8 rounded-md",
+        // 44px — objetivo táctil mínimo para taquilla/control de acceso (pantallas
+        // usadas con prisa, de pie, a veces con guantes o en la calle de noche).
+        "icon-lg": "h-11 w-11",
       },
     },
     defaultVariants: {

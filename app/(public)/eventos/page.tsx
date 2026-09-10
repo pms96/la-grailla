@@ -101,7 +101,7 @@ export default async function EventosPage() {
                             <img
                               src={featured.imageUrl}
                               alt={featured.name}
-                              className="object-cover w-full h-full"
+                              className="object-cover w-full h-full transition-transform duration-slow ease-out group-hover:scale-[1.04]"
                             />
                           ) : (
                             <Music className="h-16 w-16 text-primary/30" />
@@ -201,7 +201,11 @@ function EventCard({ event }: { event: EventWithTicketTypes }) {
       >
         <div className="aspect-[16/9] bg-gradient-to-br from-primary/20 via-primary/5 to-lima/5 relative flex items-center justify-center">
           {event?.imageUrl ? (
-            <img src={event.imageUrl} alt={event?.name ?? ''} className="object-cover w-full h-full" />
+            <img
+              src={event.imageUrl}
+              alt={event?.name ?? ''}
+              className="object-cover w-full h-full transition-transform duration-slow ease-out group-hover:scale-[1.04]"
+            />
           ) : (
             <Music className="h-14 w-14 text-primary/30" />
           )}

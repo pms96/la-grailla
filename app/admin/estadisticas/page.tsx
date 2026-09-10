@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import CapacityAlertsEditor from '@/components/admin/capacity-alerts-editor';
 import { CapacityBar } from '@/components/admin/capacity-bar';
+import { SkeletonPulse } from '@/components/ui/animate';
 import { downloadAdminCsv } from '@/lib/admin-export';
 import SalesChart from './_components/sales-chart';
 
@@ -151,15 +152,32 @@ export default function EstadisticasPage() {
       />
 
       {loading ? (
-        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Card key={i}>
+                <CardContent className="p-4 space-y-2.5">
+                  <SkeletonPulse className="h-5 w-24" />
+                  <SkeletonPulse className="h-7 w-16" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <Card>
+            <CardContent className="p-6 space-y-3">
+              <SkeletonPulse className="h-5 w-32" />
+              <SkeletonPulse className="h-60 w-full rounded-lg" />
+            </CardContent>
+          </Card>
+        </div>
       ) : (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-            <Card><CardContent className="p-4"><div className="flex items-center gap-2 mb-2"><DollarSign className="h-5 w-5 text-green-500" /><span className="text-xs text-muted-foreground">Ingresos brutos</span></div><p className="font-display text-2xl font-bold">{(stats?.totalRevenue ?? 0).toFixed(2)}€</p></CardContent></Card>
+            <Card><CardContent className="p-4"><div className="flex items-center gap-2 mb-2"><DollarSign className="h-5 w-5 text-lima" /><span className="text-xs text-muted-foreground">Ingresos brutos</span></div><p className="font-display text-2xl font-bold">{(stats?.totalRevenue ?? 0).toFixed(2)}€</p></CardContent></Card>
             <Card><CardContent className="p-4"><div className="flex items-center gap-2 mb-2"><Wallet className="h-5 w-5 text-lima" /><span className="text-xs text-muted-foreground">Ingresos netos</span></div><p className="font-display text-2xl font-bold">{(stats?.netRevenue ?? 0).toFixed(2)}€</p></CardContent></Card>
             <Card><CardContent className="p-4"><div className="flex items-center gap-2 mb-2"><Ticket className="h-5 w-5 text-primary" /><span className="text-xs text-muted-foreground">Entradas vendidas</span></div><p className="font-display text-2xl font-bold">{stats?.totalTickets ?? 0}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><div className="flex items-center gap-2 mb-2"><BarChart3 className="h-5 w-5 text-blue-500" /><span className="text-xs text-muted-foreground">Pedidos</span></div><p className="font-display text-2xl font-bold">{stats?.totalOrders ?? 0}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><div className="flex items-center gap-2 mb-2"><Calendar className="h-5 w-5 text-yellow-500" /><span className="text-xs text-muted-foreground">Eventos</span></div><p className="font-display text-2xl font-bold">{stats?.totalEvents ?? 0}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><div className="flex items-center gap-2 mb-2"><BarChart3 className="h-5 w-5 text-lavender" /><span className="text-xs text-muted-foreground">Pedidos</span></div><p className="font-display text-2xl font-bold">{stats?.totalOrders ?? 0}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><div className="flex items-center gap-2 mb-2"><Calendar className="h-5 w-5 text-warm-yellow" /><span className="text-xs text-muted-foreground">Eventos</span></div><p className="font-display text-2xl font-bold">{stats?.totalEvents ?? 0}</p></CardContent></Card>
           </div>
 
           <Card>

@@ -73,7 +73,18 @@ export default function PublicNav() {
 
         {/* Mobile toggle */}
         <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setOpen(!open)} aria-label="Menú">
-          {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={open ? 'close' : 'open'}
+              initial={{ opacity: 0, rotate: reduceMotion ? 0 : -45, scale: reduceMotion ? 1 : 0.8 }}
+              animate={{ opacity: 1, rotate: 0, scale: 1 }}
+              exit={{ opacity: 0, rotate: reduceMotion ? 0 : 45, scale: reduceMotion ? 1 : 0.8 }}
+              transition={{ duration: 0.15, ease: EASE_OUT }}
+              className="flex"
+            >
+              {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </motion.span>
+          </AnimatePresence>
         </Button>
       </div>
 

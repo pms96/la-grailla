@@ -2,11 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Ticket, Hourglass, RotateCcw, ArrowLeft, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FadeIn } from '@/components/ui/animate';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import BuyTicketsForm, { type EventData } from './buy-tickets-form';
+
+// Curva de ease-out reforzada (equivalente a --ease-out en globals.css).
+const EASE_OUT: [number, number, number, number] = [0.23, 1, 0.32, 1];
 
 type WaitingRoomEvent = EventData & { waitingRoomEnabled: boolean };
 
@@ -57,6 +62,7 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
   const [state, setState] = useState<QueueState>(
     event.waitingRoomEnabled ? { status: 'CHECKING' } : { status: 'ADMITTED', token: '', expiresAt: '' }
   );
+  const reduceMotion = useReducedMotion();
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const slowTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const networkFailsRef = useRef(0);
@@ -311,9 +317,18 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
             <p className="font-display font-semibold text-xs uppercase tracking-wide text-muted-foreground">
               Tu número
             </p>
-            <p className="font-display text-7xl md:text-8xl font-bold leading-none tracking-tight text-primary">
-              {state.position}
-            </p>
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.p
+                key={state.position}
+                initial={{ opacity: 0, y: reduceMotion ? 0 : 10, scale: reduceMotion ? 1 : 0.92 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: reduceMotion ? 0 : -10, scale: reduceMotion ? 1 : 0.92 }}
+                transition={{ duration: 0.3, ease: EASE_OUT }}
+                className="font-display text-7xl md:text-8xl font-bold leading-none tracking-tight text-primary"
+              >
+                {state.position}
+              </motion.p>
+            </AnimatePresence>
             <p className="sr-only">
               Posición {state.position}. {statusText}
             </p>
@@ -412,7 +427,10 @@ function AdmittedCountdown({ expiresAt, onExpire }: { expiresAt: string; onExpir
 
   return (
     <p
-      className={`text-xs font-mono ${low ? 'text-destructive' : 'text-muted-foreground'}`}
+      className={cn(
+        'text-xs font-mono transition-colors duration-300',
+        low ? 'text-destructive' : 'text-muted-foreground'
+      )}
       role="timer"
       aria-live={low ? 'assertive' : 'off'}
     >
