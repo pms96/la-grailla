@@ -4,6 +4,7 @@ import { sendMail } from '@/lib/mailer';
 import { orderAccessQuery } from '@/lib/access-token';
 import { buildTicketsPdf } from '@/lib/ticket-pdf';
 import { buildMinorAuthorizationPdf } from '@/lib/minor-authorization-pdf';
+import { getWalletAvailability, buildApplePass } from '@/lib/wallet';
 import { escapeHtml as esc } from '@/lib/html-escape';
 
 // DATA-01: derivado del propio `prisma` (extendido — totalAmount/commission
@@ -65,7 +66,59 @@ export async function buildTicketsHtml(orderId: string): Promise<{ html: string;
   return { html, order };
 }
 
-function buildEmailHtml(order: OrderWithTickets, printUrl: string, logoUrl: string, minorAuthUrl?: string): string {
+// Un botón-enlace por entrada y wallet disponible. Apple además se adjunta
+// como .pkpass real en el email (ver sendTicketsEmail) — este enlace es el
+// respaldo para quien no abra el adjunto, y la única vía posible para Google
+// Wallet (que no tiene un formato de archivo adjuntable, solo el enlace
+// firmado de "Guardar en Google Wallet").
+function buildWalletLinksHtml(
+  tickets: OrderWithTickets['tickets'],
+  appUrl: string,
+  orderId: string,
+  wallet: { google: boolean; apple: boolean }
+): string {
+  if ((!wallet.google && !wallet.apple) || !tickets?.length) return '';
+  const tokenQs = orderAccessQuery(orderId);
+  const buttonStyle =
+    'display:inline-block;margin:3px 6px 3px 0;padding:6px 12px;border-radius:999px;border:1px solid #1a1a1a;' +
+    'color:#1a1a1a;text-decoration:none;font-size:12px;font-weight:600;';
+  const rows = tickets
+    .map((t) => {
+      const links: string[] = [];
+      if (wallet.apple) {
+        links.push(
+          `<a href="${appUrl}/api/wallet/apple/${t.id}?${tokenQs}" style="${buttonStyle}">Apple Wallet</a>`
+        );
+      }
+      if (wallet.google) {
+        links.push(
+          `<a href="${appUrl}/api/wallet/google/${t.id}?${tokenQs}" style="${buttonStyle}">Google Wallet</a>`
+        );
+      }
+      return (
+        '<p style="margin:6px 0;font-size:13px;color:#333;"><strong>' +
+        esc(t.holderName) +
+        ':</strong><br/>' +
+        links.join(' ') +
+        '</p>'
+      );
+    })
+    .join('');
+  return (
+    '<div style="background:#f3f0ff;border-radius:8px;padding:14px;margin:18px 0;">' +
+    '<p style="margin:0 0 8px;font-size:13px;color:#4c3d99;"><strong>Añade tus entradas a Wallet</strong> — las tendrás siempre a mano, incluso sin conexión.</p>' +
+    rows +
+    '</div>'
+  );
+}
+
+function buildEmailHtml(
+  order: OrderWithTickets,
+  printUrl: string,
+  logoUrl: string,
+  minorAuthUrl?: string,
+  walletLinksHtml?: string
+): string {
   const eventDate = order.event?.date
     ? new Date(order.event.date).toLocaleDateString('es-ES', {
         weekday: 'long',
@@ -105,6 +158,7 @@ function buildEmailHtml(order: OrderWithTickets, printUrl: string, logoUrl: stri
     '<p style="margin:4px 0;"><strong>Referencia:</strong> ' + esc(order.id?.slice(0, 8)?.toUpperCase()) + '</p>' +
     '</div>' +
     minorAuthNotice +
+    (walletLinksHtml ?? '') +
     cta +
     '<p style="font-size:12px;color:#999;">Adjuntamos un PDF con tus entradas. Tambien puedes abrir el enlace de arriba para verlas e imprimirlas. No compartas tus codigos con nadie.</p>' +
     '</div>'
@@ -152,6 +206,8 @@ export async function sendTicketsEmail(
   const printUrl = appUrl + '/api/tickets/' + order.id + '/pdf-html?' + orderAccessQuery(order.id);
   const logoUrl = appUrl + '/brand/logo-black.png';
   const minorAuthUrl = order.event?.slug ? appUrl + '/api/events/' + order.event.slug + '/minor-authorization' : undefined;
+  const wallet = await getWalletAvailability();
+  const walletLinksHtml = buildWalletLinksHtml(order.tickets ?? [], appUrl, order.id, wallet);
 
   let pdfBytes: Uint8Array | null = null;
   try {
@@ -175,6 +231,43 @@ export async function sendTicketsEmail(
     }
   }
 
+  // Se adjunta el .pkpass real por entrada (no solo un enlace): en Apple
+  // Mail se ve al instante el botón nativo "Añadir a Wallet" sin salir del
+  // email, y en cualquier otro cliente de iOS basta con abrir el adjunto —
+  // el sistema reconoce el tipo de archivo. Un fallo puntual generando un
+  // pase no debe tumbar el envío del resto de adjuntos ni del email.
+  const applePassAttachments: { filename: string; content: Buffer; contentType: string }[] = [];
+  if (wallet.apple && order.event) {
+    for (const ticket of order.tickets ?? []) {
+      try {
+        const passBuffer = await buildApplePass({
+          ticketId: ticket.id,
+          eventId: ticket.eventId,
+          qrCode: ticket.qrCode,
+          holderName: ticket.holderName,
+          eventName: order.event.name,
+          venue: order.event.venue ?? '',
+          city: order.event.city ?? '',
+          date: order.event.date,
+          ticketTypeName: ticket.ticketType?.name ?? 'General',
+          eventImageUrl: order.event.imageUrl,
+        });
+        if (passBuffer) {
+          applePassAttachments.push({
+            filename: `apple-wallet-${ticket.id.slice(0, 8)}.pkpass`,
+            content: passBuffer,
+            contentType: 'application/vnd.apple.pkpass',
+          });
+        }
+      } catch (error) {
+        console.error(
+          `[sendTicketsEmail] Pase Apple Wallet fallido para ticket ${ticket.id}:`,
+          error instanceof Error ? error.message : error
+        );
+      }
+    }
+  }
+
   const attachments = [
     ...(pdfBytes
       ? [{ filename: `entradas-${order.id.slice(0, 8)}.pdf`, content: Buffer.from(pdfBytes), contentType: 'application/pdf' }]
@@ -188,12 +281,13 @@ export async function sendTicketsEmail(
           },
         ]
       : []),
+    ...applePassAttachments,
   ];
 
   const result = await sendMail({
     to: order.buyerEmail,
     subject: 'Tus entradas para ' + (order.event?.name ?? 'La Grailla'),
-    html: buildEmailHtml(order, printUrl, logoUrl, minorAuthUrl),
+    html: buildEmailHtml(order, printUrl, logoUrl, minorAuthUrl, walletLinksHtml),
     attachments: attachments.length ? attachments : undefined,
   });
 

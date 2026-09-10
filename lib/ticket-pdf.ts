@@ -31,6 +31,10 @@ export async function buildTicketsPdf(order: OrderForPdf): Promise<Uint8Array> {
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
+  const logoBytes = await readFile(path.join(process.cwd(), 'public', 'brand', 'logo-black.png'));
+  const logoImage = await pdf.embedPng(new Uint8Array(logoBytes));
+  const logoAspect = logoImage.height / logoImage.width;
+
   const eventDate = order.event?.date
     ? new Date(order.event.date).toLocaleDateString('es-ES', {
         weekday: 'long',
@@ -61,7 +65,10 @@ export async function buildTicketsPdf(order: OrderForPdf): Promise<Uint8Array> {
       y -= size + 6;
     };
 
-    draw('La Grailla', { size: 22, bold: true, color: rgb(0.55, 0.2, 0.85) });
+    const logoHeight = 26;
+    const logoWidth = logoHeight / logoAspect;
+    page.drawImage(logoImage, { x: margin, y: y - logoHeight, width: logoWidth, height: logoHeight });
+    y -= logoHeight + 10;
     draw('Entrada digital', { size: 11, color: rgb(0.4, 0.4, 0.4) });
     y -= 12;
 
