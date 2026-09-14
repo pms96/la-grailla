@@ -13,7 +13,16 @@ export async function getPedidosParaExport(temporadaId: string) {
     },
   });
 
-  return { temporada, pedidos };
+  // El formato de venta de cada proveedor (p.ej. "Caja 24uds") vive en PrecioArticulo,
+  // aparte del formato general del artículo — se resuelve aquí, por par artículo+proveedor,
+  // para que los exports puedan ofrecer uno u otro sin tocar la consulta principal.
+  const proveedorIds = [...new Set(pedidos.map((p) => p.proveedorId))];
+  const precios = proveedorIds.length
+    ? await prisma.precioArticulo.findMany({ where: { proveedorId: { in: proveedorIds } } })
+    : [];
+  const formatoProveedorPorClave = new Map(precios.map((p) => [`${p.articuloId}_${p.proveedorId}`, p.formatoVenta]));
+
+  return { temporada, pedidos, formatoProveedorPorClave };
 }
 
 export type PedidosParaExport = NonNullable<Awaited<ReturnType<typeof getPedidosParaExport>>>;

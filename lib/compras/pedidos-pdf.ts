@@ -32,10 +32,17 @@ function truncar(texto: string, font: PDFFont, size: number, maxWidth: number): 
   return `${out}…`;
 }
 
-export async function buildPedidosPdf(data: PedidosParaExport, opts: { incluirPrecios?: boolean } = {}): Promise<Uint8Array> {
+export async function buildPedidosPdf(
+  data: PedidosParaExport,
+  opts: { incluirPrecios?: boolean; usarFormatoProveedor?: boolean } = {}
+): Promise<Uint8Array> {
   const incluirPrecios = opts.incluirPrecios ?? true;
+  const usarFormatoProveedor = opts.usarFormatoProveedor ?? false;
   const COLUMNAS = incluirPrecios ? COLUMNAS_CON_PRECIO : COLUMNAS_SIN_PRECIO;
-  const { temporada, pedidos } = data;
+  const { temporada, pedidos, formatoProveedorPorClave } = data;
+
+  const formatoLinea = (proveedorId: string, l: PedidoParaExport['lineas'][number]) =>
+    (usarFormatoProveedor && formatoProveedorPorClave.get(`${l.articuloId}_${proveedorId}`)) || l.articulo.formato;
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -95,9 +102,10 @@ export async function buildPedidosPdf(data: PedidosParaExport, opts: { incluirPr
         drawHeaderRow();
       }
       const precioUd = precioFinalUnidad(l.precioSinIva, l.descuentoPercent, l.ivaPercent);
+      const formato = formatoLinea(pedido.proveedorId, l);
       const valores = incluirPrecios
-        ? [l.articulo.nombre, l.articulo.formato, String(l.cantidad), `${precioUd.toFixed(2)}€`, `${(precioUd * l.cantidad).toFixed(2)}€`]
-        : [l.articulo.nombre, l.articulo.formato, String(l.cantidad)];
+        ? [l.articulo.nombre, formato, String(l.cantidad), `${precioUd.toFixed(2)}€`, `${(precioUd * l.cantidad).toFixed(2)}€`]
+        : [l.articulo.nombre, formato, String(l.cantidad)];
       let x = MARGIN;
       COLUMNAS.forEach((col, i) => {
         const texto = truncar(valores[i], font, 9, col.width - 8);

@@ -46,6 +46,7 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
   const [registrarGastoPedido, setRegistrarGastoPedido] = useState<PedidoConDetalle | null>(null);
   const [exportando, setExportando] = useState<'excel' | 'pdf' | null>(null);
   const [incluirPrecios, setIncluirPrecios] = useState(true);
+  const [usarFormatoProveedor, setUsarFormatoProveedor] = useState(false);
 
   const fetchPedidos = useCallback(() => {
     if (!temporada) { setPedidos([]); setLoading(false); return; }
@@ -103,7 +104,7 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
     if (!temporada) return;
     setExportando(format);
     try {
-      await downloadPedidosExport(temporada.id, format, incluirPrecios);
+      await downloadPedidosExport(temporada.id, format, incluirPrecios, usarFormatoProveedor);
       toast.success(format === 'excel' ? 'Excel de pedidos descargado' : 'PDF de pedidos descargado');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error al exportar');
@@ -134,6 +135,15 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
         <label className="flex items-center gap-1.5 text-xs text-muted-foreground mr-1">
           <input type="checkbox" checked={incluirPrecios} onChange={(e) => setIncluirPrecios(e.target.checked)} className="h-3.5 w-3.5" />
           Incluir precios en la exportación
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground mr-1">
+          <input
+            type="checkbox"
+            checked={usarFormatoProveedor}
+            onChange={(e) => setUsarFormatoProveedor(e.target.checked)}
+            className="h-3.5 w-3.5"
+          />
+          Usar el formato de compra del proveedor
         </label>
         <Button variant="outline" size="sm" className="gap-2" disabled={exportando !== null || pedidos.length === 0} onClick={() => handleExport('excel')}>
           {exportando === 'excel' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}

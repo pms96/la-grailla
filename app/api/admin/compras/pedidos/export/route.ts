@@ -18,6 +18,7 @@ export async function GET(request: Request) {
     const temporadaId = searchParams.get('temporadaId');
     const format = searchParams.get('format');
     const incluirPrecios = searchParams.get('incluirPrecios') !== 'false';
+    const usarFormatoProveedor = searchParams.get('usarFormatoProveedor') === 'true';
     if (!temporadaId) {
       return NextResponse.json({ error: 'Falta temporadaId' }, { status: 400 });
     }
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
     const sufijo = incluirPrecios ? '' : '-sin-precios';
 
     if (format === 'excel') {
-      const buffer = await buildPedidosExcel(data, { incluirPrecios });
+      const buffer = await buildPedidosExcel(data, { incluirPrecios, usarFormatoProveedor });
       return new NextResponse(buffer, {
         status: 200,
         headers: {
@@ -47,7 +48,7 @@ export async function GET(request: Request) {
       });
     }
 
-    const pdfBytes = await buildPedidosPdf(data, { incluirPrecios });
+    const pdfBytes = await buildPedidosPdf(data, { incluirPrecios, usarFormatoProveedor });
     return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
       headers: {

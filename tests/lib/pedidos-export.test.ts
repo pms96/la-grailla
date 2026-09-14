@@ -112,6 +112,7 @@ const data: PedidosParaExport = {
       ],
     },
   ],
+  formatoProveedorPorClave: new Map([['art-1_prov-ramirez', 'Palet de 40 cajas']]),
 } as unknown as PedidosParaExport;
 
 describe('buildPedidosExcel', () => {
@@ -150,6 +151,22 @@ describe('buildPedidosExcel', () => {
     expect(textoHoja).not.toContain('TOTAL');
     expect(textoHoja).toContain('Cruzcampo 1/3');
   });
+
+  it('usa el formato de venta del proveedor en vez del formato general cuando usarFormatoProveedor es true', async () => {
+    const buffer = await buildPedidosExcel(data, { usarFormatoProveedor: true });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+
+    const hojaRamirez = workbook.getWorksheet('Ramírez Velasco')!;
+    const textoRamirez = hojaRamirez.getSheetValues().flat().join(' ');
+    expect(textoRamirez).toContain('Palet de 40 cajas');
+    expect(textoRamirez).not.toContain('Botella 1/3');
+
+    // Javi no tiene formato de venta registrado para su artículo -> cae al formato general.
+    const hojaJavi = workbook.getWorksheet('Javi Sánchez-Garrido')!;
+    const textoJavi = hojaJavi.getSheetValues().flat().join(' ');
+    expect(textoJavi).toContain('Lata 33cl');
+  });
 });
 
 describe('buildPedidosPdf', () => {
@@ -164,5 +181,11 @@ describe('buildPedidosPdf', () => {
     const bytes = await buildPedidosPdf(data, { incluirPrecios: false });
     expect(Buffer.from(bytes.slice(0, 4)).toString('utf8')).toBe('%PDF');
     expect(bytes.length).toBeGreaterThan(300);
+  });
+
+  it('genera un PDF con usarFormatoProveedor sin errores', async () => {
+    const bytes = await buildPedidosPdf(data, { usarFormatoProveedor: true });
+    expect(Buffer.from(bytes.slice(0, 4)).toString('utf8')).toBe('%PDF');
+    expect(bytes.length).toBeGreaterThan(500);
   });
 });

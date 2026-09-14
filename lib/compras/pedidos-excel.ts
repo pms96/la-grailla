@@ -19,9 +19,16 @@ function nombreHoja(nombre: string, usados: Set<string>): string {
   return candidato;
 }
 
-export async function buildPedidosExcel(data: PedidosParaExport, opts: { incluirPrecios?: boolean } = {}): Promise<Buffer> {
+export async function buildPedidosExcel(
+  data: PedidosParaExport,
+  opts: { incluirPrecios?: boolean; usarFormatoProveedor?: boolean } = {}
+): Promise<Buffer> {
   const incluirPrecios = opts.incluirPrecios ?? true;
-  const { temporada, pedidos } = data;
+  const usarFormatoProveedor = opts.usarFormatoProveedor ?? false;
+  const { temporada, pedidos, formatoProveedorPorClave } = data;
+
+  const formatoLinea = (proveedorId: string, l: PedidosParaExport['pedidos'][number]['lineas'][number]) =>
+    (usarFormatoProveedor && formatoProveedorPorClave.get(`${l.articuloId}_${proveedorId}`)) || l.articulo.formato;
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'La Grailla';
   workbook.created = new Date();
@@ -102,13 +109,13 @@ export async function buildPedidosExcel(data: PedidosParaExport, opts: { incluir
 
     pedido.lineas.forEach((l) => {
       if (!incluirPrecios) {
-        sheet.addRow({ articulo: l.articulo.nombre, formato: l.articulo.formato, cantidad: l.cantidad });
+        sheet.addRow({ articulo: l.articulo.nombre, formato: formatoLinea(pedido.proveedorId, l), cantidad: l.cantidad });
         return;
       }
       const precioUd = precioFinalUnidad(l.precioSinIva, l.descuentoPercent, l.ivaPercent);
       const row = sheet.addRow({
         articulo: l.articulo.nombre,
-        formato: l.articulo.formato,
+        formato: formatoLinea(pedido.proveedorId, l),
         cantidad: l.cantidad,
         precioUd,
         subtotal: Math.round(precioUd * l.cantidad * 100) / 100,
