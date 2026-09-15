@@ -1,17 +1,28 @@
 'use client';
 
-/** Descarga los pedidos de una temporada (uno por proveedor) en Excel o PDF, con o sin precios y con el formato general o el del proveedor. */
+import type { PedidosExportOptions } from '@/lib/compras/pedidos-data';
+
+/** Descarga los pedidos de una temporada (uno por proveedor) en Excel o PDF, con las columnas que marquen los checks de opts. */
 export async function downloadPedidosExport(
   temporadaId: string,
   format: 'excel' | 'pdf',
-  incluirPrecios = true,
-  usarFormatoProveedor = false
+  opts: PedidosExportOptions = {}
 ): Promise<void> {
+  const {
+    incluirPrecios = true,
+    incluirPrecioSinIva = false,
+    incluirSubtotalSinIva = false,
+    incluirIvaDescuento = false,
+    incluirFormatoProveedor = false,
+  } = opts;
   const qs = new URLSearchParams({
     temporadaId,
     format,
     incluirPrecios: String(incluirPrecios),
-    usarFormatoProveedor: String(usarFormatoProveedor),
+    incluirPrecioSinIva: String(incluirPrecioSinIva),
+    incluirSubtotalSinIva: String(incluirSubtotalSinIva),
+    incluirIvaDescuento: String(incluirIvaDescuento),
+    incluirFormatoProveedor: String(incluirFormatoProveedor),
   });
   const res = await fetch(`/api/admin/compras/pedidos/export?${qs.toString()}`);
   if (!res.ok) {

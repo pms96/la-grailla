@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
-import { getPedidosParaExport } from '@/lib/compras/pedidos-data';
+import { getPedidosParaExport, type PedidosExportOptions } from '@/lib/compras/pedidos-data';
 import { buildPedidosExcel } from '@/lib/compras/pedidos-excel';
 import { buildPedidosPdf } from '@/lib/compras/pedidos-pdf';
 
@@ -18,7 +18,13 @@ export async function GET(request: Request) {
     const temporadaId = searchParams.get('temporadaId');
     const format = searchParams.get('format');
     const incluirPrecios = searchParams.get('incluirPrecios') !== 'false';
-    const usarFormatoProveedor = searchParams.get('usarFormatoProveedor') === 'true';
+    const opts: PedidosExportOptions = {
+      incluirPrecios,
+      incluirPrecioSinIva: searchParams.get('incluirPrecioSinIva') === 'true',
+      incluirSubtotalSinIva: searchParams.get('incluirSubtotalSinIva') === 'true',
+      incluirIvaDescuento: searchParams.get('incluirIvaDescuento') === 'true',
+      incluirFormatoProveedor: searchParams.get('incluirFormatoProveedor') === 'true',
+    };
     if (!temporadaId) {
       return NextResponse.json({ error: 'Falta temporadaId' }, { status: 400 });
     }
@@ -37,7 +43,7 @@ export async function GET(request: Request) {
     const sufijo = incluirPrecios ? '' : '-sin-precios';
 
     if (format === 'excel') {
-      const buffer = await buildPedidosExcel(data, { incluirPrecios, usarFormatoProveedor });
+      const buffer = await buildPedidosExcel(data, opts);
       return new NextResponse(buffer, {
         status: 200,
         headers: {
@@ -48,7 +54,7 @@ export async function GET(request: Request) {
       });
     }
 
-    const pdfBytes = await buildPedidosPdf(data, { incluirPrecios, usarFormatoProveedor });
+    const pdfBytes = await buildPedidosPdf(data, opts);
     return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
       headers: {

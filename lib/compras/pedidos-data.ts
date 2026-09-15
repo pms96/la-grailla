@@ -15,7 +15,7 @@ export async function getPedidosParaExport(temporadaId: string) {
 
   // El formato de venta de cada proveedor (p.ej. "Caja 24uds") vive en PrecioArticulo,
   // aparte del formato general del artículo — se resuelve aquí, por par artículo+proveedor,
-  // para que los exports puedan ofrecer uno u otro sin tocar la consulta principal.
+  // para que los exports puedan mostrar ambos formatos sin tocar la consulta principal.
   const proveedorIds = [...new Set(pedidos.map((p) => p.proveedorId))];
   const precios = proveedorIds.length
     ? await prisma.precioArticulo.findMany({ where: { proveedorId: { in: proveedorIds } } })
@@ -27,3 +27,14 @@ export async function getPedidosParaExport(temporadaId: string) {
 
 export type PedidosParaExport = NonNullable<Awaited<ReturnType<typeof getPedidosParaExport>>>;
 export type PedidoParaExport = PedidosParaExport['pedidos'][number];
+
+// Cada check es aditivo: activa una columna más sobre las que ya hay, nunca sustituye una por otra.
+// Los desgloses de precio (incluirPrecioSinIva/incluirSubtotalSinIva/incluirIvaDescuento) solo
+// tienen efecto si incluirPrecios está activo — ver buildColumnas en pedidos-excel.ts/pedidos-pdf.ts.
+export type PedidosExportOptions = {
+  incluirPrecios?: boolean;
+  incluirPrecioSinIva?: boolean;
+  incluirSubtotalSinIva?: boolean;
+  incluirIvaDescuento?: boolean;
+  incluirFormatoProveedor?: boolean;
+};

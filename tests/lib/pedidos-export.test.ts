@@ -152,20 +152,57 @@ describe('buildPedidosExcel', () => {
     expect(textoHoja).toContain('Cruzcampo 1/3');
   });
 
-  it('usa el formato de venta del proveedor en vez del formato general cuando usarFormatoProveedor es true', async () => {
-    const buffer = await buildPedidosExcel(data, { usarFormatoProveedor: true });
+  it('añade una columna con el formato del proveedor sin quitar la columna de formato general', async () => {
+    const buffer = await buildPedidosExcel(data, { incluirFormatoProveedor: true });
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer);
 
     const hojaRamirez = workbook.getWorksheet('Ramírez Velasco')!;
     const textoRamirez = hojaRamirez.getSheetValues().flat().join(' ');
-    expect(textoRamirez).toContain('Palet de 40 cajas');
-    expect(textoRamirez).not.toContain('Botella 1/3');
+    expect(textoRamirez).toContain('Botella 1/3'); // formato general del artículo, sigue presente
+    expect(textoRamirez).toContain('Palet de 40 cajas'); // formato del proveedor, columna nueva
 
-    // Javi no tiene formato de venta registrado para su artículo -> cae al formato general.
+    // Javi no tiene formato de venta registrado para ese proveedor -> "—" en vez de inventar uno.
     const hojaJavi = workbook.getWorksheet('Javi Sánchez-Garrido')!;
     const textoJavi = hojaJavi.getSheetValues().flat().join(' ');
     expect(textoJavi).toContain('Lata 33cl');
+    expect(textoJavi).toContain('—');
+  });
+
+  it('añade precio ud. sin IVA, subtotal sin IVA y %IVA/%descuento cuando se activan esos checks', async () => {
+    const buffer = await buildPedidosExcel(data, {
+      incluirPrecioSinIva: true,
+      incluirSubtotalSinIva: true,
+      incluirIvaDescuento: true,
+    });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+
+    const headers = (workbook.getWorksheet('Ramírez Velasco')!.getRow(5).values as unknown[]).map((v) => String(v ?? ''));
+    expect(headers).toContain('Precio ud. s/IVA (€)');
+    expect(headers).toContain('Subtotal s/IVA (€)');
+    expect(headers).toContain('% IVA');
+    expect(headers).toContain('% Descuento');
+
+    // Ramírez: 0.53€ sin descuento -> precio ud. sin IVA 0.53€; subtotal sin IVA = 0.53 × 600 = 318€.
+    const textoRamirez = workbook.getWorksheet('Ramírez Velasco')!.getSheetValues().flat().join(' ');
+    expect(textoRamirez).toContain('0.53');
+    expect(textoRamirez).toContain('318');
+  });
+
+  it('ignora los desgloses de precio si incluirPrecios es false, aunque se pidan explícitamente', async () => {
+    const buffer = await buildPedidosExcel(data, {
+      incluirPrecios: false,
+      incluirPrecioSinIva: true,
+      incluirSubtotalSinIva: true,
+      incluirIvaDescuento: true,
+    });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+
+    const headers = (workbook.getWorksheet('Ramírez Velasco')!.getRow(5).values as unknown[]).map((v) => String(v ?? ''));
+    expect(headers.some((h) => h.includes('IVA'))).toBe(false);
+    expect(headers.some((h) => h.includes('Subtotal'))).toBe(false);
   });
 });
 
@@ -183,8 +220,13 @@ describe('buildPedidosPdf', () => {
     expect(bytes.length).toBeGreaterThan(300);
   });
 
-  it('genera un PDF con usarFormatoProveedor sin errores', async () => {
-    const bytes = await buildPedidosPdf(data, { usarFormatoProveedor: true });
+  it('genera un PDF con todas las columnas activas a la vez (encogiendo anchos/fuente) sin errores', async () => {
+    const bytes = await buildPedidosPdf(data, {
+      incluirFormatoProveedor: true,
+      incluirPrecioSinIva: true,
+      incluirSubtotalSinIva: true,
+      incluirIvaDescuento: true,
+    });
     expect(Buffer.from(bytes.slice(0, 4)).toString('utf8')).toBe('%PDF');
     expect(bytes.length).toBeGreaterThan(500);
   });

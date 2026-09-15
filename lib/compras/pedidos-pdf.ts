@@ -1,27 +1,46 @@
 import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont } from 'pdf-lib';
-import { precioFinalUnidad } from '@/lib/compras/calculadora';
+import { precioFinalUnidad, precioTrasDescuento } from '@/lib/compras/calculadora';
 import { PEDIDO_STATUS_LABEL } from '@/lib/compras/constantes';
-import type { PedidosParaExport, PedidoParaExport } from '@/lib/compras/pedidos-data';
+import type { PedidosParaExport, PedidoParaExport, PedidosExportOptions } from '@/lib/compras/pedidos-data';
 
 const PAGE_SIZE: [number, number] = [595.28, 841.89]; // A4 vertical
 const MARGIN = 48;
+const CONTENT_WIDTH = PAGE_SIZE[0] - MARGIN * 2;
 const ROW_HEIGHT = 18;
 
-type Columna = { header: string; width: number; align?: 'left' | 'right' };
+type Columna = { key: string; header: string; base: number; align?: 'left' | 'right'; width: number };
 
-const COLUMNAS_CON_PRECIO: Columna[] = [
-  { header: 'Artículo', width: 210 },
-  { header: 'Formato', width: 110 },
-  { header: 'Cantidad', width: 60, align: 'right' },
-  { header: 'Precio ud. c/IVA', width: 75, align: 'right' },
-  { header: 'Subtotal', width: 75, align: 'right' },
-];
+function buildColumnas(opts: Required<PedidosExportOptions>): Columna[] {
+  const cols: Omit<Columna, 'width'>[] = [
+    { key: 'articulo', header: 'Artículo', base: 150 },
+    { key: 'formato', header: 'Formato', base: 90 },
+  ];
+  if (opts.incluirFormatoProveedor) cols.push({ key: 'formatoProveedor', header: 'Fmt. proveedor', base: 90 });
+  cols.push({ key: 'cantidad', header: 'Cantidad', base: 55, align: 'right' });
+  if (opts.incluirPrecios) {
+    if (opts.incluirPrecioSinIva) cols.push({ key: 'precioUdSinIva', header: 'Ud. s/IVA', base: 62, align: 'right' });
+    cols.push({ key: 'precioUd', header: 'Ud. c/IVA', base: 62, align: 'right' });
+    if (opts.incluirIvaDescuento) {
+      cols.push({ key: 'ivaPercent', header: '% IVA', base: 42, align: 'right' });
+      cols.push({ key: 'descuentoPercent', header: '% Dto.', base: 42, align: 'right' });
+    }
+    if (opts.incluirSubtotalSinIva) cols.push({ key: 'subtotalSinIva', header: 'Subt. s/IVA', base: 66, align: 'right' });
+    cols.push({ key: 'subtotal', header: 'Subt. c/IVA', base: 66, align: 'right' });
+  }
 
-const COLUMNAS_SIN_PRECIO: Columna[] = [
-  { header: 'Artículo', width: 300 },
-  { header: 'Formato', width: 150 },
-  { header: 'Cantidad', width: 80, align: 'right' },
-];
+  // Los anchos "base" están pensados para una tabla cómoda de 3-5 columnas. Si el admin activa
+  // más checks de los que caben en el ancho de una A4, se reduce todo proporcionalmente en vez
+  // de desbordar la página — el texto que aun así no quepa se trunca con "…" al dibujar la fila.
+  const totalBase = cols.reduce((sum, c) => sum + c.base, 0);
+  const escala = totalBase > CONTENT_WIDTH ? CONTENT_WIDTH / totalBase : 1;
+  return cols.map((c) => ({ ...c, width: Math.floor(c.base * escala) }));
+}
+
+function tamanoFuente(nColumnas: number): number {
+  if (nColumnas > 9) return 6.5;
+  if (nColumnas > 7) return 7.5;
+  return 9;
+}
 
 function truncar(texto: string, font: PDFFont, size: number, maxWidth: number): string {
   if (font.widthOfTextAtSize(texto, size) <= maxWidth) return texto;
@@ -32,17 +51,22 @@ function truncar(texto: string, font: PDFFont, size: number, maxWidth: number): 
   return `${out}…`;
 }
 
-export async function buildPedidosPdf(
-  data: PedidosParaExport,
-  opts: { incluirPrecios?: boolean; usarFormatoProveedor?: boolean } = {}
-): Promise<Uint8Array> {
+export async function buildPedidosPdf(data: PedidosParaExport, opts: PedidosExportOptions = {}): Promise<Uint8Array> {
   const incluirPrecios = opts.incluirPrecios ?? true;
-  const usarFormatoProveedor = opts.usarFormatoProveedor ?? false;
-  const COLUMNAS = incluirPrecios ? COLUMNAS_CON_PRECIO : COLUMNAS_SIN_PRECIO;
+  const options: Required<PedidosExportOptions> = {
+    incluirPrecios,
+    incluirPrecioSinIva: incluirPrecios && (opts.incluirPrecioSinIva ?? false),
+    incluirSubtotalSinIva: incluirPrecios && (opts.incluirSubtotalSinIva ?? false),
+    incluirIvaDescuento: incluirPrecios && (opts.incluirIvaDescuento ?? false),
+    incluirFormatoProveedor: opts.incluirFormatoProveedor ?? false,
+  };
   const { temporada, pedidos, formatoProveedorPorClave } = data;
+  const COLUMNAS = buildColumnas(options);
+  const fontSize = tamanoFuente(COLUMNAS.length);
 
-  const formatoLinea = (proveedorId: string, l: PedidoParaExport['lineas'][number]) =>
-    (usarFormatoProveedor && formatoProveedorPorClave.get(`${l.articuloId}_${proveedorId}`)) || l.articulo.formato;
+  const formatoProveedorLinea = (proveedorId: string, l: PedidoParaExport['lineas'][number]) =>
+    formatoProveedorPorClave.get(`${l.articuloId}_${proveedorId}`) ?? '—';
+
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -58,7 +82,7 @@ export async function buildPedidosPdf(
     let x = MARGIN;
     page.drawRectangle({ x: MARGIN, y: y - 4, width: tableWidth, height: ROW_HEIGHT, color: morado });
     COLUMNAS.forEach((col) => {
-      page.drawText(col.header, { x: x + 4, y, size: 9, font: fontBold, color: rgb(1, 1, 1) });
+      page.drawText(col.header, { x: x + 4, y, size: fontSize, font: fontBold, color: rgb(1, 1, 1) });
       x += col.width;
     });
     y -= ROW_HEIGHT;
@@ -69,8 +93,10 @@ export async function buildPedidosPdf(
     y = page.getSize().height - MARGIN;
   };
 
-  const totalPedido = (p: PedidoParaExport) =>
+  const totalConIvaPedido = (p: PedidoParaExport) =>
     p.lineas.reduce((sum, l) => sum + precioFinalUnidad(l.precioSinIva, l.descuentoPercent, l.ivaPercent) * l.cantidad, 0);
+  const totalSinIvaPedido = (p: PedidoParaExport) =>
+    p.lineas.reduce((sum, l) => sum + precioTrasDescuento(l.precioSinIva, l.descuentoPercent) * l.cantidad, 0);
 
   pedidos.forEach((pedido, index) => {
     if (index === 0) {
@@ -101,19 +127,28 @@ export async function buildPedidosPdf(
         newPage();
         drawHeaderRow();
       }
+      const precioUdSinIva = precioTrasDescuento(l.precioSinIva, l.descuentoPercent);
       const precioUd = precioFinalUnidad(l.precioSinIva, l.descuentoPercent, l.ivaPercent);
-      const formato = formatoLinea(pedido.proveedorId, l);
-      const valores = incluirPrecios
-        ? [l.articulo.nombre, formato, String(l.cantidad), `${precioUd.toFixed(2)}€`, `${(precioUd * l.cantidad).toFixed(2)}€`]
-        : [l.articulo.nombre, formato, String(l.cantidad)];
+      const valoresPorClave: Record<string, string> = {
+        articulo: l.articulo.nombre,
+        formato: l.articulo.formato,
+        formatoProveedor: formatoProveedorLinea(pedido.proveedorId, l),
+        cantidad: String(l.cantidad),
+        precioUdSinIva: `${precioUdSinIva.toFixed(2)}€`,
+        precioUd: `${precioUd.toFixed(2)}€`,
+        ivaPercent: `${l.ivaPercent}%`,
+        descuentoPercent: `${l.descuentoPercent}%`,
+        subtotalSinIva: `${(precioUdSinIva * l.cantidad).toFixed(2)}€`,
+        subtotal: `${(precioUd * l.cantidad).toFixed(2)}€`,
+      };
       let x = MARGIN;
-      COLUMNAS.forEach((col, i) => {
-        const texto = truncar(valores[i], font, 9, col.width - 8);
-        const textWidth = col.align === 'right' ? font.widthOfTextAtSize(texto, 9) : 0;
+      COLUMNAS.forEach((col) => {
+        const texto = truncar(valoresPorClave[col.key] ?? '', font, fontSize, col.width - 8);
+        const textWidth = col.align === 'right' ? font.widthOfTextAtSize(texto, fontSize) : 0;
         page.drawText(texto, {
           x: col.align === 'right' ? x + col.width - 4 - textWidth : x + 4,
           y,
-          size: 9,
+          size: fontSize,
           font,
           color: negro,
         });
@@ -129,9 +164,13 @@ export async function buildPedidosPdf(
     });
 
     if (incluirPrecios) {
-      if (y < MARGIN + ROW_HEIGHT) newPage();
+      if (y < MARGIN + ROW_HEIGHT * 2) newPage();
       y -= 8;
-      page.drawText(`Total pedido: ${totalPedido(pedido).toFixed(2)}€ (c/IVA)`, { x: MARGIN, y, size: 12, font: fontBold, color: morado });
+      if (options.incluirSubtotalSinIva) {
+        page.drawText(`Total pedido (sin IVA): ${totalSinIvaPedido(pedido).toFixed(2)}€`, { x: MARGIN, y, size: 10, font, color: gris });
+        y -= 16;
+      }
+      page.drawText(`Total pedido: ${totalConIvaPedido(pedido).toFixed(2)}€ (c/IVA)`, { x: MARGIN, y, size: 12, font: fontBold, color: morado });
     }
   });
 

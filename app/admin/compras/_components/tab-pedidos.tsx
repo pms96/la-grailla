@@ -46,7 +46,10 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
   const [registrarGastoPedido, setRegistrarGastoPedido] = useState<PedidoConDetalle | null>(null);
   const [exportando, setExportando] = useState<'excel' | 'pdf' | null>(null);
   const [incluirPrecios, setIncluirPrecios] = useState(true);
-  const [usarFormatoProveedor, setUsarFormatoProveedor] = useState(false);
+  const [incluirPrecioSinIva, setIncluirPrecioSinIva] = useState(false);
+  const [incluirSubtotalSinIva, setIncluirSubtotalSinIva] = useState(false);
+  const [incluirIvaDescuento, setIncluirIvaDescuento] = useState(false);
+  const [incluirFormatoProveedor, setIncluirFormatoProveedor] = useState(false);
 
   const fetchPedidos = useCallback(() => {
     if (!temporada) { setPedidos([]); setLoading(false); return; }
@@ -104,7 +107,13 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
     if (!temporada) return;
     setExportando(format);
     try {
-      await downloadPedidosExport(temporada.id, format, incluirPrecios, usarFormatoProveedor);
+      await downloadPedidosExport(temporada.id, format, {
+        incluirPrecios,
+        incluirPrecioSinIva,
+        incluirSubtotalSinIva,
+        incluirIvaDescuento,
+        incluirFormatoProveedor,
+      });
       toast.success(format === 'excel' ? 'Excel de pedidos descargado' : 'PDF de pedidos descargado');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error al exportar');
@@ -131,20 +140,57 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
           duplica.
         </p>
       </div>
+      <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+        <p className="text-xs font-medium text-muted-foreground">Columnas de la exportación (Excel y PDF)</p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={incluirFormatoProveedor}
+              onChange={(e) => setIncluirFormatoProveedor(e.target.checked)}
+              className="h-3.5 w-3.5"
+            />
+            Incluir formato del proveedor
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <input type="checkbox" checked={incluirPrecios} onChange={(e) => setIncluirPrecios(e.target.checked)} className="h-3.5 w-3.5" />
+            Incluir precios
+          </label>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-l border-border pl-3 ml-0.5" aria-disabled={!incluirPrecios}>
+            <label className={`flex items-center gap-1.5 text-xs ${incluirPrecios ? 'text-muted-foreground' : 'text-muted-foreground/40'}`}>
+              <input
+                type="checkbox"
+                checked={incluirPrecioSinIva}
+                disabled={!incluirPrecios}
+                onChange={(e) => setIncluirPrecioSinIva(e.target.checked)}
+                className="h-3.5 w-3.5"
+              />
+              Precio ud. sin IVA
+            </label>
+            <label className={`flex items-center gap-1.5 text-xs ${incluirPrecios ? 'text-muted-foreground' : 'text-muted-foreground/40'}`}>
+              <input
+                type="checkbox"
+                checked={incluirSubtotalSinIva}
+                disabled={!incluirPrecios}
+                onChange={(e) => setIncluirSubtotalSinIva(e.target.checked)}
+                className="h-3.5 w-3.5"
+              />
+              Subtotal sin IVA
+            </label>
+            <label className={`flex items-center gap-1.5 text-xs ${incluirPrecios ? 'text-muted-foreground' : 'text-muted-foreground/40'}`}>
+              <input
+                type="checkbox"
+                checked={incluirIvaDescuento}
+                disabled={!incluirPrecios}
+                onChange={(e) => setIncluirIvaDescuento(e.target.checked)}
+                className="h-3.5 w-3.5"
+              />
+              % IVA y % descuento
+            </label>
+          </div>
+        </div>
+      </div>
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground mr-1">
-          <input type="checkbox" checked={incluirPrecios} onChange={(e) => setIncluirPrecios(e.target.checked)} className="h-3.5 w-3.5" />
-          Incluir precios en la exportación
-        </label>
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground mr-1">
-          <input
-            type="checkbox"
-            checked={usarFormatoProveedor}
-            onChange={(e) => setUsarFormatoProveedor(e.target.checked)}
-            className="h-3.5 w-3.5"
-          />
-          Usar el formato de compra del proveedor
-        </label>
         <Button variant="outline" size="sm" className="gap-2" disabled={exportando !== null || pedidos.length === 0} onClick={() => handleExport('excel')}>
           {exportando === 'excel' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
           Exportar Excel
