@@ -133,6 +133,31 @@ describe('POST /api/admin/compras/pedidos/generar', () => {
     }
   });
 
+  it('genera la línea a 0€ cuando el artículo no tiene ningún precio y el proveedor se eligió a mano', async () => {
+    const temporada = await prisma.temporada.create({ data: { nombre: 'Test Temporada Sin Precio', anio: 2098 } });
+    const proveedor = await prisma.proveedor.create({ data: { nombre: 'Proveedor Sin Precio Test' } });
+    const articulo = await prisma.articulo.create({ data: { nombre: 'Artículo Sin Precio Test', categoria: 'Otros', formato: 'Unidad' } });
+    try {
+      await putPlan(
+        new Request('http://localhost', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id, cantidadPlanificada: 8, proveedorElegidoId: proveedor.id }) }),
+        { params: { articuloId: articulo.id } }
+      );
+
+      const res = await generar(
+        new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id }) })
+      );
+      const data = await res.json();
+      expect(res.status).toBe(200);
+      expect(data.pedidos).toHaveLength(1);
+      expect(data.pedidos[0].proveedor.id).toBe(proveedor.id);
+      expect(data.pedidos[0].lineas[0].cantidad).toBe(8);
+      expect(data.pedidos[0].lineas[0].precioSinIva).toBe(0);
+      expect(data.pedidos[0].lineas[0].descuentoPercent).toBe(0);
+    } finally {
+      await limpiar(temporada.id, [proveedor.id], articulo.id);
+    }
+  });
+
   it('no modifica un pedido ya ENVIADO/RECIBIDO y lo reporta como omitido', async () => {
     const { temporada, proveedorBarato, proveedorCaro, articulo } = await crearEscenario();
     try {

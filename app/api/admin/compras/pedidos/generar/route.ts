@@ -44,17 +44,23 @@ export async function POST(request: Request) {
         }));
       const recomendado = proveedorRecomendado(precios);
       const proveedorId = plan.proveedorElegidoId ?? recomendado?.proveedorId;
-      if (!proveedorId) continue; // sin proveedor con precio, no se puede generar línea
+      if (!proveedorId) continue; // sin proveedor con precio ni elegido a mano, no se puede generar línea
 
       const precio = precios.find((p) => p.proveedorId === proveedorId);
-      if (!precio) continue;
+      // El recomendado siempre trae precio (sale de `precios`). Si falta es porque el admin
+      // eligió a mano un proveedor sin precio vigente para este artículo: si el artículo no
+      // tiene NINGÚN precio registrado ("sin precio"), se genera igualmente la línea a 0€ sin
+      // IVA, para completar después desde Artículos — así no se pierde la planificación. Si el
+      // artículo sí tiene precios pero el elegido ya no está entre ellos (p.ej. se borró o su
+      // proveedor se desactivó), se omite en vez de generar con datos obsoletos.
+      if (!precio && precios.length > 0) continue;
 
       const lineas = porProveedor.get(proveedorId) ?? [];
       lineas.push({
         articuloId: plan.articuloId,
         cantidad: plan.cantidadPlanificada,
-        precioSinIva: precio.precioSinIva,
-        descuentoPercent: precio.descuentoPercent,
+        precioSinIva: precio?.precioSinIva ?? 0,
+        descuentoPercent: precio?.descuentoPercent ?? 0,
         ivaPercent: plan.articulo.ivaPercent,
       });
       porProveedor.set(proveedorId, lineas);

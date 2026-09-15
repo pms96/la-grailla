@@ -23,36 +23,39 @@ function nombreHoja(nombre: string, usados: Set<string>): string {
   return candidato;
 }
 
+// Artículo y Cantidad son la base fija del documento; el resto de columnas solo aparece si su
+// check está activo — nada se muestra "porque sí", cada columna es una decisión explícita del admin.
 function buildColumnas(opts: Required<PedidosExportOptions>): Columna[] {
-  const cols: Columna[] = [
-    { key: 'articulo', header: 'Artículo', width: 30 },
-    { key: 'formato', header: 'Formato', width: 18 },
-  ];
+  const cols: Columna[] = [{ key: 'articulo', header: 'Artículo', width: 30 }];
+  if (opts.incluirFormato) cols.push({ key: 'formato', header: 'Formato', width: 18 });
   if (opts.incluirFormatoProveedor) cols.push({ key: 'formatoProveedor', header: 'Formato proveedor', width: 20 });
   cols.push({ key: 'cantidad', header: 'Cantidad', width: 12 });
-  if (opts.incluirPrecios) {
-    if (opts.incluirPrecioSinIva) cols.push({ key: 'precioUdSinIva', header: 'Precio ud. s/IVA (€)', width: 18 });
-    cols.push({ key: 'precioUd', header: 'Precio ud. c/IVA (€)', width: 18 });
-    if (opts.incluirIvaDescuento) {
-      cols.push({ key: 'ivaPercent', header: '% IVA', width: 10 });
-      cols.push({ key: 'descuentoPercent', header: '% Descuento', width: 12 });
-    }
-    if (opts.incluirSubtotalSinIva) cols.push({ key: 'subtotalSinIva', header: 'Subtotal s/IVA (€)', width: 18 });
-    cols.push({ key: 'subtotal', header: 'Subtotal c/IVA (€)', width: 18 });
+  if (opts.incluirPrecioSinIva) cols.push({ key: 'precioUdSinIva', header: 'Precio ud. s/IVA (€)', width: 18 });
+  if (opts.incluirPrecioConIva) cols.push({ key: 'precioUd', header: 'Precio ud. c/IVA (€)', width: 18 });
+  if (opts.incluirIvaDescuento) {
+    cols.push({ key: 'ivaPercent', header: '% IVA', width: 10 });
+    cols.push({ key: 'descuentoPercent', header: '% Descuento', width: 12 });
   }
+  if (opts.incluirSubtotalSinIva) cols.push({ key: 'subtotalSinIva', header: 'Subtotal s/IVA (€)', width: 18 });
+  if (opts.incluirSubtotalConIva) cols.push({ key: 'subtotal', header: 'Subtotal c/IVA (€)', width: 18 });
   return cols;
 }
 
 export async function buildPedidosExcel(data: PedidosParaExport, opts: PedidosExportOptions = {}): Promise<Buffer> {
-  const incluirPrecios = opts.incluirPrecios ?? true;
   const options: Required<PedidosExportOptions> = {
-    incluirPrecios,
-    // Los desgloses de precio no tienen sentido si no se incluyen precios en absoluto.
-    incluirPrecioSinIva: incluirPrecios && (opts.incluirPrecioSinIva ?? false),
-    incluirSubtotalSinIva: incluirPrecios && (opts.incluirSubtotalSinIva ?? false),
-    incluirIvaDescuento: incluirPrecios && (opts.incluirIvaDescuento ?? false),
+    incluirFormato: opts.incluirFormato ?? false,
     incluirFormatoProveedor: opts.incluirFormatoProveedor ?? false,
+    incluirPrecioSinIva: opts.incluirPrecioSinIva ?? false,
+    incluirPrecioConIva: opts.incluirPrecioConIva ?? false,
+    incluirIvaDescuento: opts.incluirIvaDescuento ?? false,
+    incluirSubtotalSinIva: opts.incluirSubtotalSinIva ?? false,
+    incluirSubtotalConIva: opts.incluirSubtotalConIva ?? false,
   };
+  // El "Total pedido" resume la columna de subtotal correspondiente — sin esa columna no hay
+  // nada que sumar, así que su presencia también depende únicamente del check del subtotal.
+  const mostrarTotalConIva = options.incluirSubtotalConIva;
+  const mostrarTotalSinIva = options.incluirSubtotalSinIva;
+
   const { temporada, pedidos, formatoProveedorPorClave } = data;
   const columnas = buildColumnas(options);
 
@@ -73,7 +76,7 @@ export async function buildPedidosExcel(data: PedidosParaExport, opts: PedidosEx
     { header: 'Proveedor', key: 'proveedor', width: 26 },
     { header: 'Estado', key: 'estado', width: 14 },
     { header: 'Nº artículos', key: 'nArticulos', width: 14 },
-    ...(incluirPrecios ? [{ header: 'Total estimado (€ c/IVA)', key: 'total', width: 22 }] : []),
+    ...(mostrarTotalConIva ? [{ header: 'Total estimado (€ c/IVA)', key: 'total', width: 22 }] : []),
   ];
   const resumenHeader = resumen.getRow(1);
   resumenHeader.eachCell((cell) => {
@@ -85,10 +88,10 @@ export async function buildPedidosExcel(data: PedidosParaExport, opts: PedidosEx
       proveedor: p.proveedor.nombre,
       estado: PEDIDO_STATUS_LABEL[p.status] ?? p.status,
       nArticulos: p.lineas.length,
-      ...(incluirPrecios ? { total: Math.round(totalConIvaPedido(p) * 100) / 100 } : {}),
+      ...(mostrarTotalConIva ? { total: Math.round(totalConIvaPedido(p) * 100) / 100 } : {}),
     });
   });
-  if (incluirPrecios) {
+  if (mostrarTotalConIva) {
     resumen.getColumn('total').numFmt = MONEY_FMT;
     const totalGeneralRow = resumen.addRow({
       proveedor: 'TOTAL TEMPORADA',
@@ -150,15 +153,15 @@ export async function buildPedidosExcel(data: PedidosParaExport, opts: PedidosEx
       if (tieneColumna('subtotal')) row.getCell('subtotal').numFmt = MONEY_FMT;
     });
 
-    if (incluirPrecios) {
+    if (mostrarTotalSinIva || mostrarTotalConIva) {
       const totalRow = sheet.addRow({
         articulo: 'TOTAL',
-        ...(tieneColumna('subtotalSinIva') ? { subtotalSinIva: Math.round(totalSinIvaPedido(pedido) * 100) / 100 } : {}),
-        subtotal: Math.round(totalConIvaPedido(pedido) * 100) / 100,
+        ...(mostrarTotalSinIva ? { subtotalSinIva: Math.round(totalSinIvaPedido(pedido) * 100) / 100 } : {}),
+        ...(mostrarTotalConIva ? { subtotal: Math.round(totalConIvaPedido(pedido) * 100) / 100 } : {}),
       });
       totalRow.font = { bold: true };
-      if (tieneColumna('subtotalSinIva')) totalRow.getCell('subtotalSinIva').numFmt = MONEY_FMT;
-      totalRow.getCell('subtotal').numFmt = MONEY_FMT;
+      if (mostrarTotalSinIva) totalRow.getCell('subtotalSinIva').numFmt = MONEY_FMT;
+      if (mostrarTotalConIva) totalRow.getCell('subtotal').numFmt = MONEY_FMT;
       totalRow.eachCell((cell) => {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GRIS_CLARO } };
       });

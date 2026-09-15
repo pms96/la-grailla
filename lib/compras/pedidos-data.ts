@@ -28,13 +28,15 @@ export async function getPedidosParaExport(temporadaId: string) {
 export type PedidosParaExport = NonNullable<Awaited<ReturnType<typeof getPedidosParaExport>>>;
 export type PedidoParaExport = PedidosParaExport['pedidos'][number];
 
-// Cada check es aditivo: activa una columna más sobre las que ya hay, nunca sustituye una por otra.
-// Los desgloses de precio (incluirPrecioSinIva/incluirSubtotalSinIva/incluirIvaDescuento) solo
-// tienen efecto si incluirPrecios está activo — ver buildColumnas en pedidos-excel.ts/pedidos-pdf.ts.
+// Por defecto el documento solo lleva Artículo y Cantidad — cada check activa una columna más,
+// sin depender de ningún otro check ("todo lo que se ve es porque se ha marcado su check").
+// Ver buildColumnas en pedidos-excel.ts/pedidos-pdf.ts.
 export type PedidosExportOptions = {
-  incluirPrecios?: boolean;
-  incluirPrecioSinIva?: boolean;
-  incluirSubtotalSinIva?: boolean;
-  incluirIvaDescuento?: boolean;
+  incluirFormato?: boolean;
   incluirFormatoProveedor?: boolean;
+  incluirPrecioSinIva?: boolean;
+  incluirPrecioConIva?: boolean;
+  incluirIvaDescuento?: boolean;
+  incluirSubtotalSinIva?: boolean;
+  incluirSubtotalConIva?: boolean;
 };

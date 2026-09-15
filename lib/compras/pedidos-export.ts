@@ -9,20 +9,24 @@ export async function downloadPedidosExport(
   opts: PedidosExportOptions = {}
 ): Promise<void> {
   const {
-    incluirPrecios = true,
-    incluirPrecioSinIva = false,
-    incluirSubtotalSinIva = false,
-    incluirIvaDescuento = false,
+    incluirFormato = false,
     incluirFormatoProveedor = false,
+    incluirPrecioSinIva = false,
+    incluirPrecioConIva = false,
+    incluirIvaDescuento = false,
+    incluirSubtotalSinIva = false,
+    incluirSubtotalConIva = false,
   } = opts;
   const qs = new URLSearchParams({
     temporadaId,
     format,
-    incluirPrecios: String(incluirPrecios),
-    incluirPrecioSinIva: String(incluirPrecioSinIva),
-    incluirSubtotalSinIva: String(incluirSubtotalSinIva),
-    incluirIvaDescuento: String(incluirIvaDescuento),
+    incluirFormato: String(incluirFormato),
     incluirFormatoProveedor: String(incluirFormatoProveedor),
+    incluirPrecioSinIva: String(incluirPrecioSinIva),
+    incluirPrecioConIva: String(incluirPrecioConIva),
+    incluirIvaDescuento: String(incluirIvaDescuento),
+    incluirSubtotalSinIva: String(incluirSubtotalSinIva),
+    incluirSubtotalConIva: String(incluirSubtotalConIva),
   });
   const res = await fetch(`/api/admin/compras/pedidos/export?${qs.toString()}`);
   if (!res.ok) {

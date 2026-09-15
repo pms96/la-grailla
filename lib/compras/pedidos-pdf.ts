@@ -10,23 +10,21 @@ const ROW_HEIGHT = 18;
 
 type Columna = { key: string; header: string; base: number; align?: 'left' | 'right'; width: number };
 
+// Artículo y Cantidad son la base fija del documento; el resto de columnas solo aparece si su
+// check está activo — nada se muestra "porque sí", cada columna es una decisión explícita del admin.
 function buildColumnas(opts: Required<PedidosExportOptions>): Columna[] {
-  const cols: Omit<Columna, 'width'>[] = [
-    { key: 'articulo', header: 'Artículo', base: 150 },
-    { key: 'formato', header: 'Formato', base: 90 },
-  ];
+  const cols: Omit<Columna, 'width'>[] = [{ key: 'articulo', header: 'Artículo', base: 150 }];
+  if (opts.incluirFormato) cols.push({ key: 'formato', header: 'Formato', base: 90 });
   if (opts.incluirFormatoProveedor) cols.push({ key: 'formatoProveedor', header: 'Fmt. proveedor', base: 90 });
   cols.push({ key: 'cantidad', header: 'Cantidad', base: 55, align: 'right' });
-  if (opts.incluirPrecios) {
-    if (opts.incluirPrecioSinIva) cols.push({ key: 'precioUdSinIva', header: 'Ud. s/IVA', base: 62, align: 'right' });
-    cols.push({ key: 'precioUd', header: 'Ud. c/IVA', base: 62, align: 'right' });
-    if (opts.incluirIvaDescuento) {
-      cols.push({ key: 'ivaPercent', header: '% IVA', base: 42, align: 'right' });
-      cols.push({ key: 'descuentoPercent', header: '% Dto.', base: 42, align: 'right' });
-    }
-    if (opts.incluirSubtotalSinIva) cols.push({ key: 'subtotalSinIva', header: 'Subt. s/IVA', base: 66, align: 'right' });
-    cols.push({ key: 'subtotal', header: 'Subt. c/IVA', base: 66, align: 'right' });
+  if (opts.incluirPrecioSinIva) cols.push({ key: 'precioUdSinIva', header: 'Ud. s/IVA', base: 62, align: 'right' });
+  if (opts.incluirPrecioConIva) cols.push({ key: 'precioUd', header: 'Ud. c/IVA', base: 62, align: 'right' });
+  if (opts.incluirIvaDescuento) {
+    cols.push({ key: 'ivaPercent', header: '% IVA', base: 42, align: 'right' });
+    cols.push({ key: 'descuentoPercent', header: '% Dto.', base: 42, align: 'right' });
   }
+  if (opts.incluirSubtotalSinIva) cols.push({ key: 'subtotalSinIva', header: 'Subt. s/IVA', base: 66, align: 'right' });
+  if (opts.incluirSubtotalConIva) cols.push({ key: 'subtotal', header: 'Subt. c/IVA', base: 66, align: 'right' });
 
   // Los anchos "base" están pensados para una tabla cómoda de 3-5 columnas. Si el admin activa
   // más checks de los que caben en el ancho de una A4, se reduce todo proporcionalmente en vez
@@ -52,14 +50,20 @@ function truncar(texto: string, font: PDFFont, size: number, maxWidth: number): 
 }
 
 export async function buildPedidosPdf(data: PedidosParaExport, opts: PedidosExportOptions = {}): Promise<Uint8Array> {
-  const incluirPrecios = opts.incluirPrecios ?? true;
   const options: Required<PedidosExportOptions> = {
-    incluirPrecios,
-    incluirPrecioSinIva: incluirPrecios && (opts.incluirPrecioSinIva ?? false),
-    incluirSubtotalSinIva: incluirPrecios && (opts.incluirSubtotalSinIva ?? false),
-    incluirIvaDescuento: incluirPrecios && (opts.incluirIvaDescuento ?? false),
+    incluirFormato: opts.incluirFormato ?? false,
     incluirFormatoProveedor: opts.incluirFormatoProveedor ?? false,
+    incluirPrecioSinIva: opts.incluirPrecioSinIva ?? false,
+    incluirPrecioConIva: opts.incluirPrecioConIva ?? false,
+    incluirIvaDescuento: opts.incluirIvaDescuento ?? false,
+    incluirSubtotalSinIva: opts.incluirSubtotalSinIva ?? false,
+    incluirSubtotalConIva: opts.incluirSubtotalConIva ?? false,
   };
+  // El "Total pedido" resume la columna de subtotal correspondiente — sin esa columna no hay
+  // nada que sumar, así que su presencia también depende únicamente del check del subtotal.
+  const mostrarTotalConIva = options.incluirSubtotalConIva;
+  const mostrarTotalSinIva = options.incluirSubtotalSinIva;
+
   const { temporada, pedidos, formatoProveedorPorClave } = data;
   const COLUMNAS = buildColumnas(options);
   const fontSize = tamanoFuente(COLUMNAS.length);
@@ -163,14 +167,16 @@ export async function buildPedidosPdf(data: PedidosParaExport, opts: PedidosExpo
       });
     });
 
-    if (incluirPrecios) {
+    if (mostrarTotalSinIva || mostrarTotalConIva) {
       if (y < MARGIN + ROW_HEIGHT * 2) newPage();
       y -= 8;
-      if (options.incluirSubtotalSinIva) {
+      if (mostrarTotalSinIva) {
         page.drawText(`Total pedido (sin IVA): ${totalSinIvaPedido(pedido).toFixed(2)}€`, { x: MARGIN, y, size: 10, font, color: gris });
         y -= 16;
       }
-      page.drawText(`Total pedido: ${totalConIvaPedido(pedido).toFixed(2)}€ (c/IVA)`, { x: MARGIN, y, size: 12, font: fontBold, color: morado });
+      if (mostrarTotalConIva) {
+        page.drawText(`Total pedido: ${totalConIvaPedido(pedido).toFixed(2)}€ (c/IVA)`, { x: MARGIN, y, size: 12, font: fontBold, color: morado });
+      }
     }
   });
 

@@ -17,13 +17,14 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const temporadaId = searchParams.get('temporadaId');
     const format = searchParams.get('format');
-    const incluirPrecios = searchParams.get('incluirPrecios') !== 'false';
     const opts: PedidosExportOptions = {
-      incluirPrecios,
-      incluirPrecioSinIva: searchParams.get('incluirPrecioSinIva') === 'true',
-      incluirSubtotalSinIva: searchParams.get('incluirSubtotalSinIva') === 'true',
-      incluirIvaDescuento: searchParams.get('incluirIvaDescuento') === 'true',
+      incluirFormato: searchParams.get('incluirFormato') === 'true',
       incluirFormatoProveedor: searchParams.get('incluirFormatoProveedor') === 'true',
+      incluirPrecioSinIva: searchParams.get('incluirPrecioSinIva') === 'true',
+      incluirPrecioConIva: searchParams.get('incluirPrecioConIva') === 'true',
+      incluirIvaDescuento: searchParams.get('incluirIvaDescuento') === 'true',
+      incluirSubtotalSinIva: searchParams.get('incluirSubtotalSinIva') === 'true',
+      incluirSubtotalConIva: searchParams.get('incluirSubtotalConIva') === 'true',
     };
     if (!temporadaId) {
       return NextResponse.json({ error: 'Falta temporadaId' }, { status: 400 });
@@ -40,7 +41,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Esta temporada no tiene pedidos generados todavía' }, { status: 400 });
     }
     const slug = data.temporada.anio;
-    const sufijo = incluirPrecios ? '' : '-sin-precios';
+    const incluyePrecios = opts.incluirPrecioConIva || opts.incluirPrecioSinIva || opts.incluirSubtotalConIva || opts.incluirSubtotalSinIva;
+    const sufijo = incluyePrecios ? '' : '-sin-precios';
 
     if (format === 'excel') {
       const buffer = await buildPedidosExcel(data, opts);

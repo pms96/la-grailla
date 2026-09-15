@@ -45,11 +45,15 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [registrarGastoPedido, setRegistrarGastoPedido] = useState<PedidoConDetalle | null>(null);
   const [exportando, setExportando] = useState<'excel' | 'pdf' | null>(null);
-  const [incluirPrecios, setIncluirPrecios] = useState(true);
-  const [incluirPrecioSinIva, setIncluirPrecioSinIva] = useState(false);
-  const [incluirSubtotalSinIva, setIncluirSubtotalSinIva] = useState(false);
-  const [incluirIvaDescuento, setIncluirIvaDescuento] = useState(false);
+  // El documento arranca solo con Artículo y Cantidad — cada check de abajo añade una columna
+  // más, ninguna aparece por defecto.
+  const [incluirFormato, setIncluirFormato] = useState(false);
   const [incluirFormatoProveedor, setIncluirFormatoProveedor] = useState(false);
+  const [incluirPrecioSinIva, setIncluirPrecioSinIva] = useState(false);
+  const [incluirPrecioConIva, setIncluirPrecioConIva] = useState(false);
+  const [incluirIvaDescuento, setIncluirIvaDescuento] = useState(false);
+  const [incluirSubtotalSinIva, setIncluirSubtotalSinIva] = useState(false);
+  const [incluirSubtotalConIva, setIncluirSubtotalConIva] = useState(false);
 
   const fetchPedidos = useCallback(() => {
     if (!temporada) { setPedidos([]); setLoading(false); return; }
@@ -108,11 +112,13 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
     setExportando(format);
     try {
       await downloadPedidosExport(temporada.id, format, {
-        incluirPrecios,
-        incluirPrecioSinIva,
-        incluirSubtotalSinIva,
-        incluirIvaDescuento,
+        incluirFormato,
         incluirFormatoProveedor,
+        incluirPrecioSinIva,
+        incluirPrecioConIva,
+        incluirIvaDescuento,
+        incluirSubtotalSinIva,
+        incluirSubtotalConIva,
       });
       toast.success(format === 'excel' ? 'Excel de pedidos descargado' : 'PDF de pedidos descargado');
     } catch (e) {
@@ -141,8 +147,14 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
         </p>
       </div>
       <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
-        <p className="text-xs font-medium text-muted-foreground">Columnas de la exportación (Excel y PDF)</p>
+        <p className="text-xs font-medium text-muted-foreground">
+          Columnas de la exportación (Excel y PDF) — por defecto solo lleva Artículo y Cantidad; cada check añade una columna más.
+        </p>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <input type="checkbox" checked={incluirFormato} onChange={(e) => setIncluirFormato(e.target.checked)} className="h-3.5 w-3.5" />
+            Formato del artículo
+          </label>
           <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <input
               type="checkbox"
@@ -150,44 +162,53 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
               onChange={(e) => setIncluirFormatoProveedor(e.target.checked)}
               className="h-3.5 w-3.5"
             />
-            Incluir formato del proveedor
+            Formato del proveedor
           </label>
           <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <input type="checkbox" checked={incluirPrecios} onChange={(e) => setIncluirPrecios(e.target.checked)} className="h-3.5 w-3.5" />
-            Incluir precios
+            <input
+              type="checkbox"
+              checked={incluirPrecioSinIva}
+              onChange={(e) => setIncluirPrecioSinIva(e.target.checked)}
+              className="h-3.5 w-3.5"
+            />
+            Precio ud. sin IVA
           </label>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-l border-border pl-3 ml-0.5" aria-disabled={!incluirPrecios}>
-            <label className={`flex items-center gap-1.5 text-xs ${incluirPrecios ? 'text-muted-foreground' : 'text-muted-foreground/40'}`}>
-              <input
-                type="checkbox"
-                checked={incluirPrecioSinIva}
-                disabled={!incluirPrecios}
-                onChange={(e) => setIncluirPrecioSinIva(e.target.checked)}
-                className="h-3.5 w-3.5"
-              />
-              Precio ud. sin IVA
-            </label>
-            <label className={`flex items-center gap-1.5 text-xs ${incluirPrecios ? 'text-muted-foreground' : 'text-muted-foreground/40'}`}>
-              <input
-                type="checkbox"
-                checked={incluirSubtotalSinIva}
-                disabled={!incluirPrecios}
-                onChange={(e) => setIncluirSubtotalSinIva(e.target.checked)}
-                className="h-3.5 w-3.5"
-              />
-              Subtotal sin IVA
-            </label>
-            <label className={`flex items-center gap-1.5 text-xs ${incluirPrecios ? 'text-muted-foreground' : 'text-muted-foreground/40'}`}>
-              <input
-                type="checkbox"
-                checked={incluirIvaDescuento}
-                disabled={!incluirPrecios}
-                onChange={(e) => setIncluirIvaDescuento(e.target.checked)}
-                className="h-3.5 w-3.5"
-              />
-              % IVA y % descuento
-            </label>
-          </div>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={incluirPrecioConIva}
+              onChange={(e) => setIncluirPrecioConIva(e.target.checked)}
+              className="h-3.5 w-3.5"
+            />
+            Precio ud. con IVA
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={incluirIvaDescuento}
+              onChange={(e) => setIncluirIvaDescuento(e.target.checked)}
+              className="h-3.5 w-3.5"
+            />
+            % IVA y % descuento
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={incluirSubtotalSinIva}
+              onChange={(e) => setIncluirSubtotalSinIva(e.target.checked)}
+              className="h-3.5 w-3.5"
+            />
+            Subtotal sin IVA
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={incluirSubtotalConIva}
+              onChange={(e) => setIncluirSubtotalConIva(e.target.checked)}
+              className="h-3.5 w-3.5"
+            />
+            Subtotal con IVA
+          </label>
         </div>
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2">

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { Temporada } from '@prisma/client';
+import type { Temporada, Proveedor } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -55,6 +55,7 @@ function AhorroBar({ pct }: { pct: number }) {
 export function TabPlanificador({ temporada }: { temporada: Temporada | null }) {
   const [filas, setFilas] = useState<Fila[]>([]);
   const [temporadaAnterior, setTemporadaAnterior] = useState<Temporada | null>(null);
+  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [loading, setLoading] = useState(true);
   const [exportando, setExportando] = useState<'excel' | 'pdf' | null>(null);
 
@@ -72,6 +73,12 @@ export function TabPlanificador({ temporada }: { temporada: Temporada | null }) 
   }, [temporada]);
 
   useEffect(() => { fetchPlanificador(); }, [fetchPlanificador]);
+  useEffect(() => {
+    fetch('/api/admin/compras/proveedores')
+      .then((r) => r.json())
+      .then((d) => setProveedores(Array.isArray(d) ? d.filter((p: Proveedor) => p.activo) : []))
+      .catch(() => {});
+  }, []);
 
   const guardarPlan = async (articuloId: string, patch: { proveedorElegidoId?: string | null; cantidadPlanificada?: number; observaciones?: string }) => {
     if (!temporada) return;
@@ -208,13 +215,18 @@ export function TabPlanificador({ temporada }: { temporada: Temporada | null }) 
                         <Select
                           value={f.proveedorElegidoId ?? ''}
                           onValueChange={(v) => { updateLocal(f.articuloId, { proveedorElegidoId: v }); guardarPlan(f.articuloId, { proveedorElegidoId: v }); }}
-                          disabled={f.precios.length === 0}
+                          disabled={f.precios.length === 0 && proveedores.length === 0}
                         >
                           <SelectTrigger className="h-8"><SelectValue placeholder="—" /></SelectTrigger>
                           <SelectContent>
-                            {f.precios.map((p) => <SelectItem key={p.proveedorId} value={p.proveedorId}>{p.proveedorNombre}</SelectItem>)}
+                            {f.precios.length > 0
+                              ? f.precios.map((p) => <SelectItem key={p.proveedorId} value={p.proveedorId}>{p.proveedorNombre}</SelectItem>)
+                              : proveedores.map((p) => <SelectItem key={p.id} value={p.id}>{p.nombre} (sin precio)</SelectItem>)}
                           </SelectContent>
                         </Select>
+                        {f.precios.length === 0 && f.proveedorElegidoId && (
+                          <p className="text-xs text-amber-500 whitespace-nowrap">Sin precio — la línea saldrá a 0€</p>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Input
