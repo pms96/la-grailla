@@ -1,22 +1,24 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { put } from '@vercel/blob';
+import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
 import { allowSponsorAccess, getTokenFromRequest } from '@/lib/access-token';
-import { rateLimit } from '@/lib/rate-limit';
 import { nextStatusAfterEdit } from '@/lib/sponsor-portal';
+import { ALLOWED_SPONSOR_MATERIAL_TYPES } from '@/lib/sponsor-uploads';
 
-// Tamaño máximo por tipo — el vídeo de referencia pesa mucho más que un logo.
-const ALLOWED_TYPES: Record<string, number> = {
-  'image/png': 10 * 1024 * 1024,
-  'image/jpeg': 10 * 1024 * 1024,
-  'image/svg+xml': 10 * 1024 * 1024,
-  'application/pdf': 10 * 1024 * 1024,
-  'video/mp4': 50 * 1024 * 1024,
-  'video/quicktime': 50 * 1024 * 1024,
-};
+// El archivo ya se ha subido directamente del navegador a Vercel Blob (ver
+// upload-token/route.ts) — aquí solo se confirma y se persiste como
+// SponsorAsset. Subir el binario a través de esta ruta (como antes) chocaba
+// con el límite de payload de las funciones serverless de Vercel (~4.5MB),
+// rompiendo cualquier vídeo de referencia real.
+const confirmSchema = z.object({
+  url: z.string().url(),
+  fileName: z.string().min(1).max(255),
+  fileType: z.string().min(1),
+  fileSize: z.number().int().positive(),
+});
 
 export async function POST(request: Request, { params }: { params: { sponsorId: string } }) {
   try {
@@ -28,15 +30,6 @@ export async function POST(request: Request, { params }: { params: { sponsorId: 
     if (!(await allowSponsorAccess(sponsorId, sponsor.portalTokenVersion, getTokenFromRequest(request)))) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
-
-    const limit = await rateLimit('sponsor-portal-upload', sponsorId, 20, 60 * 60_000);
-    if (!limit.ok) {
-      return NextResponse.json(
-        { error: 'Demasiadas subidas. Espera un momento.' },
-        { status: 429, headers: { 'Retry-After': String(limit.retryAfter) } }
-      );
-    }
-
     if (sponsor.status === 'APROBADO_PARA_VIDEO' || sponsor.status === 'RECHAZADO') {
       return NextResponse.json(
         { error: 'Esta solicitud ya está cerrada — escríbenos si necesitas cambiar algo.' },
@@ -44,38 +37,24 @@ export async function POST(request: Request, { params }: { params: { sponsorId: 
       );
     }
 
-    const formData = await request.formData();
-    const file = formData.get('file');
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: 'No se ha recibido ningún archivo' }, { status: 400 });
+    const body = confirmSchema.parse(await request.json());
+    if (!ALLOWED_SPONSOR_MATERIAL_TYPES.has(body.fileType)) {
+      return NextResponse.json({ error: 'Formato no admitido.' }, { status: 400 });
     }
-
-    const maxSize = ALLOWED_TYPES[file.type];
-    if (!maxSize) {
-      return NextResponse.json(
-        { error: 'Formato no admitido. Usa PNG, JPG, SVG, PDF o un vídeo corto (MP4/MOV).' },
-        { status: 400 }
-      );
+    // El token de subida ya restringía la ruta a sponsors/{sponsorId}/ — esto
+    // es una comprobación extra de que la URL confirmada es la que de verdad
+    // se generó para este sponsor (evita que alguien cuele la URL de otro).
+    if (!body.url.includes(`/sponsors/${sponsorId}/`)) {
+      return NextResponse.json({ error: 'Archivo inválido' }, { status: 400 });
     }
-    if (file.size > maxSize) {
-      return NextResponse.json(
-        { error: `El archivo supera el tamaño máximo permitido (${Math.round(maxSize / (1024 * 1024))}MB).` },
-        { status: 400 }
-      );
-    }
-
-    const blob = await put(`sponsors/${sponsorId}/${crypto.randomUUID()}-${file.name}`, file, {
-      access: 'public',
-      addRandomSuffix: false,
-    });
 
     const asset = await prisma.sponsorAsset.create({
       data: {
         sponsorId,
-        url: blob.url,
-        fileType: file.type,
-        fileName: file.name,
-        fileSize: file.size,
+        url: body.url,
+        fileType: body.fileType,
+        fileName: body.fileName,
+        fileSize: body.fileSize,
       },
     });
 

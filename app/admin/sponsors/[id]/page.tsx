@@ -12,6 +12,7 @@ import {
   Loader2, Sparkles, Check, X as XIcon, Mail, ExternalLink, ArrowLeft, Search, Handshake, Upload, Trash2, Film,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { upload } from '@vercel/blob/client';
 import { PageHeader } from '@/components/layouts/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
@@ -19,6 +20,7 @@ import { SPONSOR_GUIDED_QUESTIONS } from '@/lib/sponsor-guided-questions';
 import { CONSOLIDATED_STATUS_LABELS, CONSOLIDATED_STATUS_VARIANT, consolidatedSponsorStatus, type ConsolidatedSponsorStatus } from '@/lib/sponsor-status';
 import { SponsorInviteDelivery } from '../_components/sponsor-invite-delivery';
 import { SponsorAssetList } from '@/components/sponsor-asset-list';
+import { parseJsonSafe } from '@/lib/utils';
 
 const LEAD_STATUS_LABELS: Record<string, string> = {
   PENDING: 'Pendiente', CONTACTED: 'Contactado', ACCEPTED: 'Aceptado', REJECTED: 'Rechazado',
@@ -186,10 +188,20 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
     if (!detail?.sponsor) return;
     setUploadingFinalVideo(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch(`/api/admin/sponsors-portal/${detail.sponsor.id}/final-video`, { method: 'POST', body: formData });
-      const data = await res.json();
+      // Sube directamente del navegador a Vercel Blob — el binario nunca
+      // pasa por nuestro servidor, así que no choca con el límite de
+      // payload (~4.5MB) de las funciones serverless de Vercel.
+      const blob = await upload(`sponsors/${detail.sponsor.id}/final-video/${crypto.randomUUID()}-${file.name}`, file, {
+        access: 'public',
+        handleUploadUrl: `/api/admin/sponsors-portal/${detail.sponsor.id}/final-video/upload-token`,
+      });
+
+      const res = await fetch(`/api/admin/sponsors-portal/${detail.sponsor.id}/final-video`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: blob.url, fileName: file.name, fileSize: file.size }),
+      });
+      const data = await parseJsonSafe(res);
       if (!res.ok) throw new Error(data?.error ?? 'No se pudo subir el vídeo');
       toast.success('Vídeo final subido');
       fetchDetail();
@@ -406,7 +418,7 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
             <input
               ref={finalVideoInputRef}
               type="file"
-              accept="video/mp4,video/quicktime,video/webm"
+              accept="video/mp4,video/quicktime,video/webm,video/x-msvideo,video/x-matroska,video/3gpp,video/x-m4v,video/mpeg"
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];

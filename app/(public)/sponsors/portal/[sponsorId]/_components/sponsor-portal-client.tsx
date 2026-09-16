@@ -10,8 +10,9 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Upload, CheckCircle, Clapperboard, SearchX, Pencil, Sparkles, Clock, PartyPopper, Download } from 'lucide-react';
 import { toast } from 'sonner';
+import { upload } from '@vercel/blob/client';
 import { FadeIn } from '@/components/ui/animate';
-import { cn } from '@/lib/utils';
+import { cn, parseJsonSafe } from '@/lib/utils';
 import { SPONSOR_GUIDED_QUESTIONS, CUSTOM_OPTION_LABEL, type GuidedQuestion } from '@/lib/sponsor-guided-questions';
 import { SponsorAssetList, type SponsorAssetItem } from '@/components/sponsor-asset-list';
 
@@ -196,10 +197,22 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
   const uploadFile = async (file: File) => {
     setUploading(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch(`/api/sponsors/portal/${sponsorId}/logo${tokenQs}`, { method: 'POST', body: formData });
-      const data = await res.json();
+      // El archivo se sube directamente del navegador a Vercel Blob (nunca
+      // pasa por nuestro servidor) — necesario porque las funciones
+      // serverless de Vercel cortan cualquier payload de más de ~4.5MB con
+      // un 413 en texto plano, rompiendo cualquier vídeo real por pequeño
+      // que fuera el límite que anunciábamos nosotros mismos.
+      const blob = await upload(`sponsors/${sponsorId}/${crypto.randomUUID()}-${file.name}`, file, {
+        access: 'public',
+        handleUploadUrl: `/api/sponsors/portal/${sponsorId}/logo/upload-token${tokenQs}`,
+      });
+
+      const res = await fetch(`/api/sponsors/portal/${sponsorId}/logo${tokenQs}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: blob.url, fileName: file.name, fileType: file.type, fileSize: file.size }),
+      });
+      const data = await parseJsonSafe(res);
       if (!res.ok) throw new Error(data?.error ?? 'Error al subir el archivo');
       toast.success('Archivo subido correctamente');
       fetchSponsor();
@@ -218,7 +231,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ guidedAnswers: answers, freeText }),
       });
-      const data = await res.json();
+      const data = await parseJsonSafe<SponsorData>(res);
       if (!res.ok) throw new Error(data?.error ?? 'No se pudo guardar');
       toast.success('Guardado — el equipo de La Grailla revisará tus materiales');
       setSponsor(data);
@@ -348,7 +361,8 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
                 <div>
                   <h2 className="font-display font-bold text-lg">Tu logotipo</h2>
                   <p className="text-sm text-muted-foreground">
-                    Puedes subir varios archivos: PNG, JPG, SVG, PDF o un vídeo corto de referencia.
+                    Puedes subir varios archivos: PNG, JPG, SVG, PDF o un vídeo corto de referencia
+                    (MP4, MOV, WebM, AVI, MKV, 3GP).
                   </p>
                 </div>
 
@@ -357,7 +371,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/png,image/jpeg,image/svg+xml,application/pdf,video/mp4,video/quicktime"
+                  accept="image/png,image/jpeg,image/svg+xml,application/pdf,video/mp4,video/quicktime,video/webm,video/x-msvideo,video/x-matroska,video/3gpp,video/x-m4v"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];

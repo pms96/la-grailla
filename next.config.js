@@ -51,8 +51,15 @@ const nextConfig = {
       `worker-src 'self' blob:`,
       `style-src 'self' 'unsafe-inline'`,
       `img-src 'self' data: blob: https://*.public.blob.vercel-storage.com`,
+      // El vídeo final y los vídeos de referencia del sponsor se sirven
+      // desde Vercel Blob, igual que las imágenes de arriba.
+      `media-src 'self' https://*.public.blob.vercel-storage.com`,
       `font-src 'self' data:`,
-      `connect-src 'self'`,
+      // La subida de archivos del sponsor/admin va DIRECTA del navegador a
+      // Vercel Blob (@vercel/blob/client) para no chocar con el límite de
+      // payload de las funciones serverless — sin este origen aquí, el PUT
+      // del navegador a *.public.blob.vercel-storage.com lo bloquea la CSP.
+      `connect-src 'self' https://*.public.blob.vercel-storage.com`,
       `frame-src https://www.google.com https://maps.google.com`,
       `object-src 'none'`,
       `base-uri 'self'`,

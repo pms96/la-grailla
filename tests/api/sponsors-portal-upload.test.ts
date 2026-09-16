@@ -6,20 +6,117 @@ vi.mock('next-auth', () => ({
   getServerSession: vi.fn(async () => null),
 }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
-vi.mock('@vercel/blob', () => ({
-  put: vi.fn(async (key: string) => ({ url: `https://blob.test/${key}` })),
+
+// El binario ya no pasa por nuestras rutas — el navegador lo sube
+// directamente a Vercel Blob usando un token que emite upload-token/route.ts
+// (ver ese archivo). Aquí se simula esa llamada invocando directamente el
+// `onBeforeGenerateToken` que le pasamos, igual que haría el SDK real.
+vi.mock('@vercel/blob/client', () => ({
+  handleUpload: vi.fn(async ({ body, onBeforeGenerateToken }: any) => {
+    const { pathname, clientPayload, multipart } = body.payload;
+    const options = await onBeforeGenerateToken(pathname, clientPayload ?? null, multipart ?? false);
+    return { type: 'blob.generate-client-token', clientToken: 'fake-client-token', ...options };
+  }),
 }));
 
 const { POST: uploadLogo } = await import('@/app/api/sponsors/portal/[sponsorId]/logo/route');
+const { POST: getUploadToken } = await import('@/app/api/sponsors/portal/[sponsorId]/logo/upload-token/route');
 const { GET: getSponsor } = await import('@/app/api/sponsors/portal/[sponsorId]/route');
 
-function multipartRequest(url: string, file: File): Request {
-  const formData = new FormData();
-  formData.append('file', file);
-  return new Request(url, { method: 'POST', body: formData });
+function tokenRequest(url: string, pathname: string): Request {
+  return new Request(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'blob.generate-client-token', payload: { pathname, multipart: false, clientPayload: null } }),
+  });
 }
 
-describe('POST /api/sponsors/portal/[sponsorId]/logo', () => {
+function confirmRequest(url: string, file: { url: string; fileName: string; fileType: string; fileSize: number }): Request {
+  return new Request(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(file),
+  });
+}
+
+describe('POST /api/sponsors/portal/[sponsorId]/logo/upload-token', () => {
+  let sponsorRequestId: string;
+  let sponsorId: string;
+  let token: string;
+
+  beforeAll(async () => {
+    const request = await prisma.sponsorRequest.create({
+      data: {
+        companyName: 'Token Sponsor SL',
+        contactName: 'Titular Token',
+        email: 'sponsor-token-test@example.com',
+        sponsorType: 'evento',
+        status: 'ACCEPTED',
+      },
+    });
+    sponsorRequestId = request.id;
+    const sponsor = await prisma.sponsor.create({ data: { sponsorRequestId } });
+    sponsorId = sponsor.id;
+    token = signSponsorAccess(sponsorId, sponsor.portalTokenVersion);
+  });
+
+  afterAll(async () => {
+    await prisma.sponsor.deleteMany({ where: { id: sponsorId } });
+    await prisma.sponsorRequest.deleteMany({ where: { id: sponsorRequestId } });
+  });
+
+  it('rechaza sin token', async () => {
+    const res = await getUploadToken(tokenRequest('http://localhost', `sponsors/${sponsorId}/x-logo.png`), { params: { sponsorId } });
+    expect(res.status).toBe(401);
+  });
+
+  // AUDIT: el sponsorId de la URL debe contrastarse contra el token — el
+  // token de OTRO sponsor no debe poder pedir un token de subida para este.
+  it('rechaza el token de otro sponsor (IDOR)', async () => {
+    const otherToken = signSponsorAccess('otro-sponsor-id', 1);
+    const res = await getUploadToken(
+      tokenRequest(`http://localhost?t=${otherToken}`, `sponsors/${sponsorId}/x-logo.png`),
+      { params: { sponsorId } }
+    );
+    expect(res.status).toBe(401);
+  });
+
+  // AUDIT: el pathname lo elige el cliente antes de pedir el token — sin
+  // esta comprobación, un sponsor autenticado podría pedir un token válido
+  // para escribir en la carpeta de blob de OTRO sponsor.
+  it('rechaza un pathname fuera de la carpeta de este sponsor', async () => {
+    const res = await getUploadToken(
+      tokenRequest(`http://localhost?t=${token}`, `sponsors/otro-sponsor-id/x-logo.png`),
+      { params: { sponsorId } }
+    );
+    expect(res.status).toBe(500);
+  });
+
+  it('rechaza si la solicitud ya está cerrada', async () => {
+    await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'RECHAZADO' } });
+    const res = await getUploadToken(
+      tokenRequest(`http://localhost?t=${token}`, `sponsors/${sponsorId}/x-logo.png`),
+      { params: { sponsorId } }
+    );
+    expect(res.status).toBe(409);
+    await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'PENDIENTE_MATERIALES' } });
+  });
+
+  it('emite un token con los formatos y el tamaño máximo permitidos', async () => {
+    const res = await getUploadToken(
+      tokenRequest(`http://localhost?t=${token}`, `sponsors/${sponsorId}/x-logo.png`),
+      { params: { sponsorId } }
+    );
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.allowedContentTypes).toEqual(
+      expect.arrayContaining(['image/png', 'video/mp4', 'video/x-matroska'])
+    );
+    expect(data.maximumSizeInBytes).toBe(50 * 1024 * 1024);
+  });
+});
+
+describe('POST /api/sponsors/portal/[sponsorId]/logo (confirmación tras subir a Blob)', () => {
   let sponsorRequestId: string;
   let sponsorId: string;
   let token: string;
@@ -47,46 +144,35 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo', () => {
   });
 
   it('rechaza sin token', async () => {
-    const file = new File([new Uint8Array([1, 2, 3])], 'logo.png', { type: 'image/png' });
-    const res = await uploadLogo(multipartRequest('http://localhost', file), { params: { sponsorId } });
-    expect(res.status).toBe(401);
-  });
-
-  // AUDIT: el sponsorId de la URL debe contrastarse contra el token — el
-  // token de OTRO sponsor no debe permitir subir un archivo a este.
-  it('rechaza el token de otro sponsor (IDOR)', async () => {
-    const otherToken = signSponsorAccess('otro-sponsor-id', 1);
-    const file = new File([new Uint8Array([1, 2, 3])], 'logo.png', { type: 'image/png' });
     const res = await uploadLogo(
-      multipartRequest(`http://localhost?t=${otherToken}`, file),
+      confirmRequest('http://localhost', { url: `https://blob.test/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
       { params: { sponsorId } }
     );
     expect(res.status).toBe(401);
   });
 
   it('rechaza un tipo de archivo no permitido', async () => {
-    const file = new File([new Uint8Array([1, 2, 3])], 'malware.exe', { type: 'application/x-msdownload' });
     const res = await uploadLogo(
-      multipartRequest(`http://localhost?t=${token}`, file),
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/malware.exe`, fileName: 'malware.exe', fileType: 'application/x-msdownload', fileSize: 100 }),
       { params: { sponsorId } }
     );
     expect(res.status).toBe(400);
   });
 
-  it('rechaza un archivo que supera el tamaño máximo', async () => {
-    const big = new Uint8Array(11 * 1024 * 1024); // 11MB > 10MB para imágenes
-    const file = new File([big], 'logo.png', { type: 'image/png' });
+  // AUDIT: la URL confirmada debe pertenecer de verdad a este sponsor — sin
+  // esto, un cliente podría "colar" la URL del blob de otro sponsor (que ya
+  // es pública) como si fuera su propio material.
+  it('rechaza una URL que no pertenece a este sponsor', async () => {
     const res = await uploadLogo(
-      multipartRequest(`http://localhost?t=${token}`, file),
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/otro-sponsor-id/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
       { params: { sponsorId } }
     );
     expect(res.status).toBe(400);
   });
 
   it('acepta un logo válido y lo deja como currentAsset', async () => {
-    const file = new File([new Uint8Array([1, 2, 3])], 'logo.png', { type: 'image/png' });
     const res = await uploadLogo(
-      multipartRequest(`http://localhost?t=${token}`, file),
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
       { params: { sponsorId } }
     );
     expect(res.status).toBe(200);
@@ -102,17 +188,21 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo', () => {
   // archivo que nadie ha visto todavía.
   it('vuelve a poner en revisión un sponsor ya marcado como listo si se cambia el logo', async () => {
     await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'LISTO_PARA_GENERAR', guidedAnswers: { estilo: 'x' } } });
-    const file = new File([new Uint8Array([9, 9, 9])], 'logo-v2.png', { type: 'image/png' });
-    const res = await uploadLogo(multipartRequest(`http://localhost?t=${token}`, file), { params: { sponsorId } });
+    const res = await uploadLogo(
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/logo-v2.png`, fileName: 'logo-v2.png', fileType: 'image/png', fileSize: 100 }),
+      { params: { sponsorId } }
+    );
     expect(res.status).toBe(200);
     const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } });
     expect(sponsor?.status).toBe('PENDIENTE_REVISION');
   });
 
-  it('rechaza subir un logo si la solicitud ya está aprobada o rechazada', async () => {
+  it('rechaza confirmar un logo si la solicitud ya está aprobada o rechazada', async () => {
     await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'APROBADO_PARA_VIDEO' } });
-    const file = new File([new Uint8Array([1, 2, 3])], 'logo.png', { type: 'image/png' });
-    const res = await uploadLogo(multipartRequest(`http://localhost?t=${token}`, file), { params: { sponsorId } });
+    const res = await uploadLogo(
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
+      { params: { sponsorId } }
+    );
     expect(res.status).toBe(409);
   });
 });
@@ -148,11 +238,14 @@ describe('varios archivos coexisten (no se reemplazan)', () => {
   });
 
   it('el GET devuelve todos los archivos subidos, no solo el último', async () => {
-    const logo = new File([new Uint8Array([1, 2, 3])], 'logo.png', { type: 'image/png' });
-    await uploadLogo(multipartRequest(`http://localhost?t=${token}`, logo), { params: { sponsorId } });
-
-    const reference = new File([new Uint8Array([4, 5, 6])], 'referencia.mp4', { type: 'video/mp4' });
-    await uploadLogo(multipartRequest(`http://localhost?t=${token}`, reference), { params: { sponsorId } });
+    await uploadLogo(
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
+      { params: { sponsorId } }
+    );
+    await uploadLogo(
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/referencia.mp4`, fileName: 'referencia.mp4', fileType: 'video/mp4', fileSize: 200 }),
+      { params: { sponsorId } }
+    );
 
     const res = await getSponsor(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
     const data = await res.json();

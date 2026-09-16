@@ -1,7 +1,8 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { put, del } from '@vercel/blob';
+import { z } from 'zod';
+import { del } from '@vercel/blob';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
@@ -10,11 +11,13 @@ import { handleApiError } from '@/lib/api-error';
 // El vídeo final ya producido (no el de referencia que sube el sponsor, ni
 // la propuesta generada por IA) — lo sube el admin a mano cuando está
 // terminado. Un único slot por sponsor: cada subida reemplaza a la anterior.
-const ALLOWED_TYPES: Record<string, number> = {
-  'video/mp4': 200 * 1024 * 1024,
-  'video/quicktime': 200 * 1024 * 1024,
-  'video/webm': 200 * 1024 * 1024,
-};
+// El binario se sube directamente del navegador a Vercel Blob (ver
+// upload-token/route.ts) — esta ruta solo confirma y persiste el resultado.
+const confirmSchema = z.object({
+  url: z.string().url(),
+  fileName: z.string().min(1).max(255),
+  fileSize: z.number().int().positive(),
+});
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
@@ -27,35 +30,18 @@ export async function POST(request: Request, { params }: { params: { id: string 
       return NextResponse.json({ error: 'Sponsor no encontrado' }, { status: 404 });
     }
 
-    const formData = await request.formData();
-    const file = formData.get('file');
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: 'No se ha recibido ningún archivo' }, { status: 400 });
+    const body = confirmSchema.parse(await request.json());
+    if (!body.url.includes(`/sponsors/${sponsor.id}/final-video/`)) {
+      return NextResponse.json({ error: 'Archivo inválido' }, { status: 400 });
     }
-
-    const maxSize = ALLOWED_TYPES[file.type];
-    if (!maxSize) {
-      return NextResponse.json({ error: 'Formato no admitido. Usa MP4, MOV o WebM.' }, { status: 400 });
-    }
-    if (file.size > maxSize) {
-      return NextResponse.json(
-        { error: `El archivo supera el tamaño máximo permitido (${Math.round(maxSize / (1024 * 1024))}MB).` },
-        { status: 400 }
-      );
-    }
-
-    const blob = await put(`sponsors/${sponsor.id}/final-video/${crypto.randomUUID()}-${file.name}`, file, {
-      access: 'public',
-      addRandomSuffix: false,
-    });
 
     const previousUrl = sponsor.finalVideoUrl;
     const updated = await prisma.sponsor.update({
       where: { id: sponsor.id },
       data: {
-        finalVideoUrl: blob.url,
-        finalVideoFileName: file.name,
-        finalVideoSize: file.size,
+        finalVideoUrl: body.url,
+        finalVideoFileName: body.fileName,
+        finalVideoSize: body.fileSize,
         finalVideoUploadedAt: new Date(),
       },
     });
