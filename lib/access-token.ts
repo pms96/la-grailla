@@ -115,30 +115,45 @@ export async function allowTicketAccess(
   return isStaffSession();
 }
 
-/** Token de acceso al portal de un sponsor (sin cuenta, como los de pedido/ticket). */
-export function signSponsorAccess(sponsorId: string): string {
-  return sign('sponsor', sponsorId);
+/**
+ * Token de acceso al portal de un sponsor (sin cuenta, como los de pedido/ticket),
+ * versionado por Sponsor.portalTokenVersion — a diferencia de order/shoporder/ticket,
+ * este SÍ se puede revocar individualmente: incrementar la versión invalida
+ * cualquier enlace firmado con la versión anterior, sin tocar NEXTAUTH_SECRET.
+ */
+export function signSponsorAccess(sponsorId: string, tokenVersion: number): string {
+  return sign('sponsor', `${sponsorId}:${tokenVersion}`);
 }
 
-export function verifySponsorAccess(sponsorId: string, token: string | null | undefined): boolean {
+/**
+ * Compatibilidad con enlaces emitidos antes de introducir el versionado (firmados
+ * como `sign('sponsor', sponsorId)`, sin versión): mientras el sponsor nunca se
+ * haya regenerado (tokenVersion === 1), ese formato legado sigue siendo válido
+ * además del nuevo formato versionado — así ningún enlace ya enviado se rompe.
+ * En cuanto se regenera (tokenVersion > 1), solo el formato nuevo es válido.
+ */
+export function verifySponsorAccess(sponsorId: string, tokenVersion: number, token: string | null | undefined): boolean {
   if (!token) return false;
   try {
-    return safeEqual(signSponsorAccess(sponsorId), token);
+    if (safeEqual(signSponsorAccess(sponsorId, tokenVersion), token)) return true;
+    if (tokenVersion === 1) return safeEqual(sign('sponsor', sponsorId), token);
+    return false;
   } catch {
     return false;
   }
 }
 
-export function sponsorAccessQuery(sponsorId: string): string {
-  return `t=${encodeURIComponent(signSponsorAccess(sponsorId))}`;
+export function sponsorAccessQuery(sponsorId: string, tokenVersion: number): string {
+  return `t=${encodeURIComponent(signSponsorAccess(sponsorId, tokenVersion))}`;
 }
 
-/** Token de sponsor válido o sesión de admin (staff revisando el portal). */
+/** Token de sponsor válido (con su versión vigente) o sesión de admin/taquilla. */
 export async function allowSponsorAccess(
   sponsorId: string,
+  tokenVersion: number,
   token: string | null | undefined
 ): Promise<boolean> {
-  if (verifySponsorAccess(sponsorId, token)) return true;
+  if (verifySponsorAccess(sponsorId, tokenVersion, token)) return true;
   return isStaffSession();
 }
 

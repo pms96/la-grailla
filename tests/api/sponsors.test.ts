@@ -44,6 +44,7 @@ describe('POST /api/sponsors', () => {
           email: 'sponsor-html-test@example.com',
           sponsorType: 'Stand',
           message: '<script>alert("xss")</script>Hola',
+          consentAccepted: true,
         },
         TEST_IP
       )

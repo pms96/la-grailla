@@ -83,6 +83,7 @@ model User {
   scanLogs          ScanLog[]
   promptApprovals   SponsorVideoPrompt[]  @relation("SponsorPromptApprovals")
   promptGenerations PromptGenerationLog[] @relation("SponsorPromptGenerations")
+  sponsorEmailsSent SponsorEmailLog[]     @relation("SponsorEmailsSent")
   gastosCreados     Gasto[]
 }
 
@@ -388,10 +389,15 @@ model SponsorRequest {
   // Event.temporadaId — para poder sacar informes de patrocinios por edición.
   // Null = sin asignar; se enlaza manualmente desde la UI, sin backfill.
   temporadaId String?
+  // Evidencia de consentimiento RGPD del formulario público. Null = solicitud
+  // anterior a este campo, o alta manual desde admin (consentimiento obtenido
+  // por otra vía — llamada, WhatsApp — no exigido ahí).
+  consentAt   DateTime?
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
   temporada   Temporada?           @relation(fields: [temporadaId], references: [id])
   sponsor     Sponsor?
+  emailLogs   SponsorEmailLog[]
 
   @@index([temporadaId])
 }
@@ -408,28 +414,41 @@ enum SponsorPortalStatus {
 // Se crea al aceptar un SponsorRequest — el lead (SponsorRequest) no se toca,
 // esto es el ciclo de vida aparte del portal de materiales + prompt de vídeo.
 model Sponsor {
-  id               String              @id @default(cuid())
-  sponsorRequestId String              @unique
-  status           SponsorPortalStatus @default(PENDIENTE_MATERIALES)
-  guidedAnswers    Json?
-  freeText         String?             @db.Text
+  id                    String              @id @default(cuid())
+  sponsorRequestId      String              @unique
+  status                SponsorPortalStatus @default(PENDIENTE_MATERIALES)
+  guidedAnswers         Json?
+  freeText              String?             @db.Text
   // Investigación de marca que el ADMIN añade (web, redes, a qué se dedica de
   // verdad) antes de generar — sin esto, la IA solo veía el logo + 6
   // respuestas cortas y todos los vídeos salían con la misma estructura
   // genérica de "partículas convirtiéndose en logo", diera igual la marca.
-  brandContext     String?             @db.Text
-  currentAssetId   String?             @unique
-  isGenerating     Boolean             @default(false)
-  generationCount  Int                 @default(0)
-  maxGenerations   Int                 @default(3)
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
+  brandContext          String?             @db.Text
+  currentAssetId        String?             @unique
+  isGenerating          Boolean             @default(false)
+  generationCount       Int                 @default(0)
+  maxGenerations        Int                 @default(3)
+  // Versión del token de acceso al portal (lib/access-token.ts). Incrementarla
+  // invalida cualquier enlace firmado con la versión anterior — la acción admin
+  // "Regenerar enlace" hace exactamente eso, sin tocar NEXTAUTH_SECRET ni afectar
+  // a otros sponsors/pedidos/entradas. Default 1 = todo sponsor ya existente sigue
+  // aceptando su enlace ya enviado (ver verifySponsorAccess, compatibilidad v1).
+  portalTokenVersion    Int                 @default(1)
+  // Resultado del último intento de envío del email de invitación al portal —
+  // antes se perdía en un console.error si SMTP fallaba y el admin nunca se
+  // enteraba. 'SENT' | 'FAILED'; null = aún no se ha intentado.
+  invitationEmailStatus String?
+  invitationEmailError  String?
+  invitationSentAt      DateTime?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
 
   sponsorRequest SponsorRequest        @relation(fields: [sponsorRequestId], references: [id])
   currentAsset   SponsorAsset?         @relation("CurrentAsset", fields: [currentAssetId], references: [id])
   assets         SponsorAsset[]        @relation("SponsorAssets")
   videoPrompt    SponsorVideoPrompt?
   generationLogs PromptGenerationLog[]
+  emailLogs      SponsorEmailLog[]
 
   @@index([status])
 }
@@ -489,6 +508,40 @@ model PromptGenerationLog {
   admin   User?   @relation("SponsorPromptGenerations", fields: [adminId], references: [id])
 
   @@index([sponsorId])
+}
+
+enum SponsorEmailType {
+  LEAD_CONFIRMATION
+  PORTAL_INVITE
+  PORTAL_INVITE_RESEND
+  STATUS_NOTIFY
+  REJECTION
+}
+
+// Historial de comunicaciones con el sponsor — mismo patrón que PromptGenerationLog
+// (inmutable, append-only). sponsorRequestId siempre presente; sponsorId solo a
+// partir de ACCEPTED (cuando ya existe el Sponsor). Cierra el hueco de "fallo de
+// email silencioso" y da trazabilidad a cada envío (inicial, reenvío, notificación
+// de estado, rechazo).
+model SponsorEmailLog {
+  id               String           @id @default(cuid())
+  sponsorRequestId String?
+  sponsorId        String?
+  type             SponsorEmailType
+  recipient        String
+  success          Boolean
+  error            String?
+  // Admin que lo disparó manualmente; null = automático (confirmación al lead,
+  // invitación al aceptar, aviso de rechazo).
+  sentById         String?
+  createdAt        DateTime         @default(now())
+
+  sponsorRequest SponsorRequest? @relation(fields: [sponsorRequestId], references: [id], onDelete: Cascade)
+  sponsor        Sponsor?        @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+  sentBy         User?           @relation("SponsorEmailsSent", fields: [sentById], references: [id])
+
+  @@index([sponsorId])
+  @@index([sponsorRequestId])
 }
 
 model GuestList {
@@ -721,7 +774,7 @@ model Pedido {
 }
 
 model LineaPedido {
-  id               String @id @default(cuid())
+  id               String  @id @default(cuid())
   pedidoId         String
   articuloId       String
   cantidad         Float

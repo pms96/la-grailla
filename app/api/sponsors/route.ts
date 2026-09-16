@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { sendMail } from '@/lib/mailer';
 import { handleApiError } from '@/lib/api-error';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
+import { normalizePhone } from '@/lib/phone';
 
 // Los campos del formulario van directos al HTML de dos emails reales (a
 // grupolagrailla@gmail.com y al remitente) — sin escapar, cualquiera podía
@@ -18,13 +19,18 @@ function esc(value: unknown): string {
 }
 
 const createSponsorRequestSchema = z.object({
-  companyName: z.string().min(1),
-  contactName: z.string().min(1),
-  email: z.string().email(),
-  phone: z.string().optional().nullable(),
-  website: z.string().optional().nullable(),
+  companyName: z.string().min(1).max(200),
+  contactName: z.string().min(1).max(200),
+  email: z.string().email().max(255),
+  phone: z.string().max(30).optional().nullable(),
+  website: z.string().max(300).optional().nullable(),
   sponsorType: z.string().min(1),
-  message: z.string().optional().nullable(),
+  message: z.string().max(5000).optional().nullable(),
+  // Checkbox obligatorio del formulario público — el alta manual desde admin
+  // no lo exige (consentimiento obtenido por otra vía).
+  consentAccepted: z.literal(true, {
+    errorMap: () => ({ message: 'Debes aceptar la política de privacidad para enviar la solicitud' }),
+  }),
 });
 
 export async function POST(request: Request) {
@@ -42,7 +48,16 @@ export async function POST(request: Request) {
     );
 
     const sponsorReq = await prisma.sponsorRequest.create({
-      data: { companyName, contactName, email, phone, website, sponsorType, message },
+      data: {
+        companyName,
+        contactName,
+        email,
+        phone: normalizePhone(phone),
+        website,
+        sponsorType,
+        message,
+        consentAt: new Date(),
+      },
     });
 
     const adminHtml = `
@@ -78,10 +93,20 @@ export async function POST(request: Request) {
       </div>
     `;
 
-    await sendMail({
+    const confirmResult = await sendMail({
       subject: 'Solicitud de patrocinio recibida - La Grailla',
       html: confirmHtml,
       to: email,
+    });
+
+    await prisma.sponsorEmailLog.create({
+      data: {
+        sponsorRequestId: sponsorReq.id,
+        type: 'LEAD_CONFIRMATION',
+        recipient: email,
+        success: confirmResult.success,
+        error: confirmResult.success ? null : (confirmResult.error ?? 'Error desconocido'),
+      },
     });
 
     return NextResponse.json({ success: true, id: sponsorReq.id });

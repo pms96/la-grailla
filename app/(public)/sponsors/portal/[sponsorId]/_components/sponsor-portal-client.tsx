@@ -148,7 +148,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
   const tokenQs = accessToken ? `?t=${encodeURIComponent(accessToken)}` : '';
 
   const fetchSponsor = (opts?: { silent?: boolean }) => {
-    fetch(`/api/patrocinadores/${sponsorId}${tokenQs}`)
+    fetch(`/api/sponsors/portal/${sponsorId}${tokenQs}`)
       .then(async (r) => {
         if (!r.ok) throw new Error('not_found');
         return r.json();
@@ -195,7 +195,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch(`/api/patrocinadores/${sponsorId}/logo${tokenQs}`, { method: 'POST', body: formData });
+      const res = await fetch(`/api/sponsors/portal/${sponsorId}/logo${tokenQs}`, { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? 'Error al subir el archivo');
       toast.success('Logo subido correctamente');
@@ -210,7 +210,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
   const saveCreativity = async () => {
     setSaving(true);
     try {
-      const res = await fetch(`/api/patrocinadores/${sponsorId}/creatividad${tokenQs}`, {
+      const res = await fetch(`/api/sponsors/portal/${sponsorId}/creatividad${tokenQs}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ guidedAnswers: answers, freeText }),

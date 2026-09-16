@@ -6,6 +6,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 
+class StaleStatusError extends Error {}
+
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') {
@@ -18,16 +20,28 @@ export async function POST(request: Request, { params }: { params: { id: string 
       return NextResponse.json({ error: 'Este sponsor todavía no tiene un prompt generado' }, { status: 400 });
     }
 
-    await prisma.$transaction([
-      prisma.sponsorVideoPrompt.update({
+    // Guarda de estado: solo se puede aprobar desde PROMPT_GENERADO — evita
+    // "aprobar" un sponsor ya aprobado o ya rechazado. El updateMany guardado
+    // y la actualización del prompt van en la misma transacción, como antes.
+    await prisma.$transaction(async (tx) => {
+      const claim = await tx.sponsor.updateMany({
+        where: { id: sponsorId, status: 'PROMPT_GENERADO' },
+        data: { status: 'APROBADO_PARA_VIDEO' },
+      });
+      if (claim.count === 0) {
+        throw new StaleStatusError();
+      }
+      await tx.sponsorVideoPrompt.update({
         where: { sponsorId },
         data: { approvedAt: new Date(), approvedById: session.user?.id },
-      }),
-      prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'APROBADO_PARA_VIDEO' } }),
-    ]);
+      });
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof StaleStatusError) {
+      return NextResponse.json({ error: 'El sponsor no está en estado "prompt generado"' }, { status: 409 });
+    }
     return handleApiError(error, 'POST /api/admin/sponsors-portal/[id]/approve');
   }
 }

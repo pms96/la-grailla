@@ -15,16 +15,16 @@ const creativitySchema = z.object({
 export async function POST(request: Request, { params }: { params: { sponsorId: string } }) {
   try {
     const sponsorId = params?.sponsorId;
-    if (!(await allowSponsorAccess(sponsorId, getTokenFromRequest(request)))) {
+    const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } });
+    if (!sponsor) {
+      return NextResponse.json({ error: 'Sponsor no encontrado' }, { status: 404 });
+    }
+    if (!(await allowSponsorAccess(sponsorId, sponsor.portalTokenVersion, getTokenFromRequest(request)))) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
     const body = creativitySchema.parse(await request.json());
 
-    const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } });
-    if (!sponsor) {
-      return NextResponse.json({ error: 'Sponsor no encontrado' }, { status: 404 });
-    }
     if (sponsor.status === 'APROBADO_PARA_VIDEO' || sponsor.status === 'RECHAZADO') {
       return NextResponse.json(
         { error: 'Esta solicitud ya está cerrada — escríbenos si necesitas cambiar algo.' },
@@ -41,6 +41,6 @@ export async function POST(request: Request, { params }: { params: { sponsorId: 
 
     return NextResponse.json(updated);
   } catch (error) {
-    return handleApiError(error, 'POST /api/patrocinadores/[sponsorId]/creatividad');
+    return handleApiError(error, 'POST /api/sponsors/portal/[sponsorId]/creatividad');
   }
 }

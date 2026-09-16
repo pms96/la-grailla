@@ -24,6 +24,12 @@ const nextConfig = {
     return [
       { source: '/patrocinio', destination: '/sponsors', permanent: true },
       { source: '/patrocinio/:path*', destination: '/sponsors', permanent: true },
+      // El portal del sponsor vivía en español; los enlaces con token ya
+      // enviados por email siguen siendo válidos indefinidamente — Next.js
+      // preserva automáticamente el ?t=... al redirigir.
+      { source: '/patrocinadores/portal/:sponsorId', destination: '/sponsors/portal/:sponsorId', permanent: true },
+      // La pantalla admin de pipeline se fusionó dentro de /admin/sponsors.
+      { source: '/admin/sponsors-portal', destination: '/admin/sponsors', permanent: false },
     ];
   },
   async headers() {

@@ -8,7 +8,11 @@ import { allowSponsorAccess, getTokenFromRequest } from '@/lib/access-token';
 export async function GET(request: Request, { params }: { params: { sponsorId: string } }) {
   try {
     const sponsorId = params?.sponsorId;
-    if (!(await allowSponsorAccess(sponsorId, getTokenFromRequest(request)))) {
+    // portalTokenVersion se necesita ANTES de poder verificar el token —
+    // se lee en una consulta ligera separada porque el token puede no ser
+    // válido y no queremos exponer el resto de la fila en ese caso.
+    const versionRow = await prisma.sponsor.findUnique({ where: { id: sponsorId }, select: { portalTokenVersion: true } });
+    if (!versionRow || !(await allowSponsorAccess(sponsorId, versionRow.portalTokenVersion, getTokenFromRequest(request)))) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
@@ -29,6 +33,6 @@ export async function GET(request: Request, { params }: { params: { sponsorId: s
 
     return NextResponse.json(sponsor);
   } catch (error) {
-    return handleApiError(error, 'GET /api/patrocinadores/[sponsorId]');
+    return handleApiError(error, 'GET /api/sponsors/portal/[sponsorId]');
   }
 }

@@ -19,9 +19,21 @@ export async function PUT(request: Request, { params }: { params: { id: string }
   }
   try {
     const body = editPromptSchema.parse(await request.json());
+    const existing = await prisma.sponsorVideoPrompt.findUnique({ where: { sponsorId: params?.id } });
+    if (!existing) {
+      return NextResponse.json({ error: 'Este sponsor todavía no tiene un prompt generado' }, { status: 404 });
+    }
+    // Editar un prompt ya aprobado deja esa aprobación obsoleta — se limpia
+    // approvedAt/notifiedAt para que quede claro que hay que revisar/aprobar
+    // de nuevo antes de dar el prompt por bueno.
+    const wasApproved = Boolean(existing.approvedAt);
     const updated = await prisma.sponsorVideoPrompt.update({
       where: { sponsorId: params?.id },
-      data: { promptEs: body.promptEs, promptEn: body.promptEn },
+      data: {
+        promptEs: body.promptEs,
+        promptEn: body.promptEn,
+        ...(wasApproved ? { approvedAt: null, approvedById: null, notifiedAt: null } : {}),
+      },
     });
     return NextResponse.json(updated);
   } catch (error) {

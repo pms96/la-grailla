@@ -10,8 +10,8 @@ vi.mock('@vercel/blob', () => ({
   put: vi.fn(async (key: string) => ({ url: `https://blob.test/${key}` })),
 }));
 
-const { POST: uploadLogo } = await import('@/app/api/patrocinadores/[sponsorId]/logo/route');
-const { GET: getSponsor } = await import('@/app/api/patrocinadores/[sponsorId]/route');
+const { POST: uploadLogo } = await import('@/app/api/sponsors/portal/[sponsorId]/logo/route');
+const { GET: getSponsor } = await import('@/app/api/sponsors/portal/[sponsorId]/route');
 
 function multipartRequest(url: string, file: File): Request {
   const formData = new FormData();
@@ -19,7 +19,7 @@ function multipartRequest(url: string, file: File): Request {
   return new Request(url, { method: 'POST', body: formData });
 }
 
-describe('POST /api/patrocinadores/[sponsorId]/logo', () => {
+describe('POST /api/sponsors/portal/[sponsorId]/logo', () => {
   let sponsorRequestId: string;
   let sponsorId: string;
   let token: string;
@@ -37,7 +37,7 @@ describe('POST /api/patrocinadores/[sponsorId]/logo', () => {
     sponsorRequestId = request.id;
     const sponsor = await prisma.sponsor.create({ data: { sponsorRequestId } });
     sponsorId = sponsor.id;
-    token = signSponsorAccess(sponsorId);
+    token = signSponsorAccess(sponsorId, sponsor.portalTokenVersion);
   });
 
   afterAll(async () => {
@@ -55,7 +55,7 @@ describe('POST /api/patrocinadores/[sponsorId]/logo', () => {
   // AUDIT: el sponsorId de la URL debe contrastarse contra el token — el
   // token de OTRO sponsor no debe permitir subir un archivo a este.
   it('rechaza el token de otro sponsor (IDOR)', async () => {
-    const otherToken = signSponsorAccess('otro-sponsor-id');
+    const otherToken = signSponsorAccess('otro-sponsor-id', 1);
     const file = new File([new Uint8Array([1, 2, 3])], 'logo.png', { type: 'image/png' });
     const res = await uploadLogo(
       multipartRequest(`http://localhost?t=${otherToken}`, file),

@@ -4,20 +4,21 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
-import { notifySponsorStatus } from '@/lib/sponsor-portal';
+import { regenerateSponsorPortalToken } from '@/lib/sponsor-portal';
 import { getBaseUrl } from '@/lib/url';
 
-// Único disparador de aviso genérico de estado — el rechazo automático vive
-// en reject/route.ts, la invitación inicial y el reenvío en sus propias rutas.
+// Invalida el enlace del portal actual (p. ej. se filtró, o el sponsor lo
+// pide de nuevo por seguridad) sin tocar NEXTAUTH_SECRET ni afectar a ningún
+// otro sponsor/pedido/entrada — solo incrementa Sponsor.portalTokenVersion.
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
   try {
-    const result = await notifySponsorStatus(params?.id, getBaseUrl(request), session.user?.id);
-    return NextResponse.json({ success: result.success, error: result.error });
+    const portalUrl = await regenerateSponsorPortalToken(params?.id, getBaseUrl(request));
+    return NextResponse.json({ portalUrl });
   } catch (error) {
-    return handleApiError(error, 'POST /api/admin/sponsors-portal/[id]/notify');
+    return handleApiError(error, 'POST /api/admin/sponsors-portal/[id]/regenerate-token');
   }
 }
