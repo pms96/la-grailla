@@ -260,8 +260,8 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
   };
 
   const saveDatos = async () => {
-    if (!datosForm.companyName.trim() || !datosForm.contactName.trim() || !datosForm.sponsorType) {
-      toast.error('Completa empresa, contacto y tipo de patrocinio');
+    if (!datosForm.companyName.trim() || !datosForm.contactName.trim()) {
+      toast.error('Completa empresa y persona de contacto');
       return;
     }
     const isFirstTimeEmail = !sponsor?.sponsorRequest?.email && Boolean(datosForm.email.trim());
@@ -416,25 +416,6 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
                   <Label>Teléfono</Label>
                   <Input className="mt-1" value={datosForm.phone} onChange={(e) => setDatosForm((f) => ({ ...f, phone: e.target.value }))} placeholder="+34 600 000 000" />
                 </div>
-                <div>
-                  <Label>Web o Instagram</Label>
-                  <Input className="mt-1" value={datosForm.website} onChange={(e) => setDatosForm((f) => ({ ...f, website: e.target.value }))} placeholder="https://tuempresa.com" />
-                </div>
-                <div>
-                  <Label>Tipo de patrocinio *</Label>
-                  <Select value={datosForm.sponsorType} onValueChange={(v) => setDatosForm((f) => ({ ...f, sponsorType: v }))}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Selecciona una opción" /></SelectTrigger>
-                    <SelectContent>
-                      {tiers.map((tier) => (
-                        <SelectItem key={tier.value} value={tier.value}>{tier.label} — {tier.priceLabel}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div>
-                <Label>Mensaje</Label>
-                <Textarea rows={3} className="mt-1" value={datosForm.message} onChange={(e) => setDatosForm((f) => ({ ...f, message: e.target.value }))} />
               </div>
               {isFirstTimeEmail && (
                 <div className="flex items-start gap-2">
