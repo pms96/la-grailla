@@ -21,6 +21,9 @@ export async function GET(request: Request, { params }: { params: { sponsorId: s
       include: {
         sponsorRequest: true,
         currentAsset: true,
+        // Historial completo de materiales enviados — nunca se borran, cada
+        // subida es una fila nueva (ver comentario en SponsorAsset).
+        assets: { orderBy: { uploadedAt: 'desc' } },
         // Solo lo que el sponsor debe poder ver de su propio prompt: el
         // texto y si ya está aprobado — nada de logs de generación ni de
         // quién lo aprobó internamente.
@@ -31,7 +34,16 @@ export async function GET(request: Request, { params }: { params: { sponsorId: s
       return NextResponse.json({ error: 'Sponsor no encontrado' }, { status: 404 });
     }
 
-    return NextResponse.json(sponsor);
+    // El vídeo final solo se muestra una vez el sponsor está formalmente
+    // aprobado — si el admin lo sube antes (mientras aún prepara/revisa), no
+    // se expone todavía aunque la fila ya tenga la URL.
+    const { finalVideoUrl, finalVideoFileName, finalVideoSize, finalVideoUploadedAt, ...rest } = sponsor;
+    const finalVideo =
+      sponsor.status === 'APROBADO_PARA_VIDEO' && finalVideoUrl
+        ? { url: finalVideoUrl, fileName: finalVideoFileName, size: finalVideoSize, uploadedAt: finalVideoUploadedAt }
+        : null;
+
+    return NextResponse.json({ ...rest, finalVideo });
   } catch (error) {
     return handleApiError(error, 'GET /api/sponsors/portal/[sponsorId]');
   }

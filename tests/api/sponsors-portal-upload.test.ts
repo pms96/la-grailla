@@ -116,3 +116,48 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo', () => {
     expect(res.status).toBe(409);
   });
 });
+
+// AUDIT: subir un segundo archivo (ej. logo + vídeo corto de referencia) no
+// debe perder el primero — antes solo se exponía `currentAsset` (el más
+// reciente), así que el sponsor no podía tener varios materiales a la vez.
+describe('varios archivos coexisten (no se reemplazan)', () => {
+  let sponsorRequestId: string;
+  let sponsorId: string;
+  let token: string;
+
+  beforeAll(async () => {
+    const request = await prisma.sponsorRequest.create({
+      data: {
+        companyName: 'Multi Materiales SL',
+        contactName: 'Titular Multi',
+        email: 'sponsor-multi-test@example.com',
+        sponsorType: 'evento',
+        status: 'ACCEPTED',
+      },
+    });
+    sponsorRequestId = request.id;
+    const sponsor = await prisma.sponsor.create({ data: { sponsorRequestId } });
+    sponsorId = sponsor.id;
+    token = signSponsorAccess(sponsorId, sponsor.portalTokenVersion);
+  });
+
+  afterAll(async () => {
+    await prisma.sponsorAsset.deleteMany({ where: { sponsorId } });
+    await prisma.sponsor.deleteMany({ where: { id: sponsorId } });
+    await prisma.sponsorRequest.deleteMany({ where: { id: sponsorRequestId } });
+  });
+
+  it('el GET devuelve todos los archivos subidos, no solo el último', async () => {
+    const logo = new File([new Uint8Array([1, 2, 3])], 'logo.png', { type: 'image/png' });
+    await uploadLogo(multipartRequest(`http://localhost?t=${token}`, logo), { params: { sponsorId } });
+
+    const reference = new File([new Uint8Array([4, 5, 6])], 'referencia.mp4', { type: 'video/mp4' });
+    await uploadLogo(multipartRequest(`http://localhost?t=${token}`, reference), { params: { sponsorId } });
+
+    const res = await getSponsor(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
+    const data = await res.json();
+    expect(data.assets).toHaveLength(2);
+    const fileNames = data.assets.map((a: { fileName: string }) => a.fileName).sort();
+    expect(fileNames).toEqual(['logo.png', 'referencia.mp4']);
+  });
+});

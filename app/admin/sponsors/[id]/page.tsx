@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { Temporada } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  Loader2, Sparkles, Check, X as XIcon, Mail, ExternalLink, ArrowLeft, Search, Handshake,
+  Loader2, Sparkles, Check, X as XIcon, Mail, ExternalLink, ArrowLeft, Search, Handshake, Upload, Trash2, Film,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
@@ -18,6 +18,7 @@ import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-sel
 import { SPONSOR_GUIDED_QUESTIONS } from '@/lib/sponsor-guided-questions';
 import { CONSOLIDATED_STATUS_LABELS, CONSOLIDATED_STATUS_VARIANT, consolidatedSponsorStatus, type ConsolidatedSponsorStatus } from '@/lib/sponsor-status';
 import { SponsorInviteDelivery } from '../_components/sponsor-invite-delivery';
+import { SponsorAssetList } from '@/components/sponsor-asset-list';
 
 const LEAD_STATUS_LABELS: Record<string, string> = {
   PENDING: 'Pendiente', CONTACTED: 'Contactado', ACCEPTED: 'Aceptado', REJECTED: 'Rechazado',
@@ -50,6 +51,10 @@ type SponsorPortal = {
   maxGenerations: number;
   isGenerating: boolean;
   invitationEmailStatus: string | null;
+  finalVideoUrl: string | null;
+  finalVideoFileName: string | null;
+  finalVideoSize: number | null;
+  finalVideoUploadedAt: string | null;
 };
 
 type Detail = {
@@ -77,6 +82,8 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
   const [busy, setBusy] = useState<string | null>(null);
   const [promptDraft, setPromptDraft] = useState({ promptEs: '', promptEn: '' });
   const [brandContextDraft, setBrandContextDraft] = useState('');
+  const [uploadingFinalVideo, setUploadingFinalVideo] = useState(false);
+  const finalVideoInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDetail = () => {
     fetch(`/api/admin/sponsors/${params.id}`)
@@ -174,6 +181,39 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
   const notify = async () => { const r = await sponsorAction('notify', 'POST'); if (r?.success) { toast.success('Sponsor notificado por email'); fetchDetail(); } else if (r) toast.error('No se pudo enviar el email'); };
   const resendInvite = async () => { const r = await sponsorAction('resend-invite', 'POST'); if (r?.success) { toast.success('Invitación reenviada'); fetchDetail(); } else if (r) toast.error('No se pudo reenviar'); };
   const regenerateToken = async () => { const r = await sponsorAction('regenerate-token', 'POST'); if (r) { toast.success('Enlace regenerado — el anterior ha dejado de funcionar'); fetchDetail(); } };
+
+  const uploadFinalVideo = async (file: File) => {
+    if (!detail?.sponsor) return;
+    setUploadingFinalVideo(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`/api/admin/sponsors-portal/${detail.sponsor.id}/final-video`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? 'No se pudo subir el vídeo');
+      toast.success('Vídeo final subido');
+      fetchDetail();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo subir el vídeo');
+    } finally {
+      setUploadingFinalVideo(false);
+    }
+  };
+
+  const deleteFinalVideo = async () => {
+    if (!detail?.sponsor) return;
+    setBusy('delete-final-video');
+    try {
+      const res = await fetch(`/api/admin/sponsors-portal/${detail.sponsor.id}/final-video`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      toast.success('Vídeo final eliminado');
+      fetchDetail();
+    } catch {
+      toast.error('No se pudo eliminar el vídeo');
+    } finally {
+      setBusy(null);
+    }
+  };
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
 
@@ -278,15 +318,7 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
                 ))}
               </div>
             )}
-            {sponsor.currentAsset && (
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                {sponsor.currentAsset.fileType.startsWith('image/') && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={sponsor.currentAsset.url} alt="" className="h-12 w-12 rounded object-contain bg-white" />
-                )}
-                <p className="text-sm">{sponsor.currentAsset.fileName}</p>
-              </div>
-            )}
+            <SponsorAssetList assets={sponsor.assets ?? []} />
 
             <div className="rounded-lg border border-border p-3 space-y-2">
               <div className="flex items-center justify-between">
@@ -349,6 +381,50 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
                 ))}
               </div>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {sponsor && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium flex items-center gap-2"><Film className="h-3.5 w-3.5" /> Vídeo final</p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              El vídeo ya producido — el sponsor lo verá en su portal en cuanto esté en estado &quot;Aprobado para vídeo&quot;.
+            </p>
+
+            {sponsor.finalVideoUrl && (
+              <div className="space-y-2">
+                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                <video src={sponsor.finalVideoUrl} controls className="w-full max-w-md rounded-lg bg-black" />
+                <p className="text-xs text-muted-foreground">{sponsor.finalVideoFileName}</p>
+              </div>
+            )}
+
+            <input
+              ref={finalVideoInputRef}
+              type="file"
+              accept="video/mp4,video/quicktime,video/webm"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void uploadFinalVideo(file);
+                e.target.value = '';
+              }}
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" disabled={uploadingFinalVideo} onClick={() => finalVideoInputRef.current?.click()} className="gap-2">
+                {uploadingFinalVideo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                {sponsor.finalVideoUrl ? 'Reemplazar vídeo' : 'Subir vídeo final'}
+              </Button>
+              {sponsor.finalVideoUrl && (
+                <Button size="sm" variant="ghost" disabled={busyGlobal} onClick={deleteFinalVideo} className="gap-2 text-muted-foreground">
+                  {busy === 'delete-final-video' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Eliminar
+                </Button>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}

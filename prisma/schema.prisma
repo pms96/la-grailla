@@ -440,6 +440,13 @@ model Sponsor {
   invitationEmailStatus String?
   invitationEmailError  String?
   invitationSentAt      DateTime?
+  // Vídeo final ya producido, subido a mano por el admin — distinto del
+  // pipeline de prompt/IA de arriba. Solo visible para el sponsor cuando
+  // status = APROBADO_PARA_VIDEO (ver GET /api/sponsors/portal/[sponsorId]).
+  finalVideoUrl         String?
+  finalVideoFileName    String?
+  finalVideoSize        Int?
+  finalVideoUploadedAt  DateTime?
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
 

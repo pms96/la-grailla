@@ -8,11 +8,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Upload, CheckCircle, Clapperboard, SearchX, Pencil, Sparkles, Clock } from 'lucide-react';
+import { Loader2, Upload, CheckCircle, Clapperboard, SearchX, Pencil, Sparkles, Clock, PartyPopper, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { FadeIn } from '@/components/ui/animate';
 import { cn } from '@/lib/utils';
 import { SPONSOR_GUIDED_QUESTIONS, CUSTOM_OPTION_LABEL, type GuidedQuestion } from '@/lib/sponsor-guided-questions';
+import { SponsorAssetList, type SponsorAssetItem } from '@/components/sponsor-asset-list';
 
 function GuidedQuestionField({ question, value, onChange }: { question: GuidedQuestion; value: string; onChange: (v: string) => void }) {
   // El useState debe llamarse siempre, en el mismo orden, sin importar el
@@ -97,8 +98,10 @@ type SponsorData = {
   guidedAnswers: Record<string, string> | null;
   freeText: string | null;
   currentAsset: { url: string; fileType: string; fileName: string } | null;
+  assets: SponsorAssetItem[];
   videoPrompt: { promptEs: string; promptEn: string; approvedAt: string | null } | null;
   sponsorRequest: { companyName: string };
+  finalVideo: { url: string; fileName: string | null; size: number | null; uploadedAt: string | null } | null;
 };
 
 function SponsorStepper({ status }: { status: string }) {
@@ -160,7 +163,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
         if (!hasInitialized) {
           // La primera vez: si ya hay materiales enviados, empieza colapsado
           // en el resumen — si no, abierto directamente en el formulario.
-          setEditing(!(data?.currentAsset && data?.guidedAnswers));
+          setEditing(!(data?.assets?.length && data?.guidedAnswers));
           setHasInitialized(true);
         }
       })
@@ -198,7 +201,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
       const res = await fetch(`/api/sponsors/portal/${sponsorId}/logo${tokenQs}`, { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? 'Error al subir el archivo');
-      toast.success('Logo subido correctamente');
+      toast.success('Archivo subido correctamente');
       fetchSponsor();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error al subir el archivo');
@@ -219,7 +222,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
       if (!res.ok) throw new Error(data?.error ?? 'No se pudo guardar');
       toast.success('Guardado — el equipo de La Grailla revisará tus materiales');
       setSponsor(data);
-      if (data?.currentAsset || sponsor?.currentAsset) setEditing(false);
+      if (data?.assets?.length || sponsor?.assets?.length) setEditing(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'No se pudo guardar');
     } finally {
@@ -250,7 +253,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
   }
 
   const isFinal = sponsor.status === 'APROBADO_PARA_VIDEO' || sponsor.status === 'RECHAZADO';
-  const hasSubmitted = Boolean(sponsor.currentAsset && sponsor.guidedAnswers);
+  const hasSubmitted = Boolean(sponsor.assets?.length && sponsor.guidedAnswers);
   const showForm = editing || !hasSubmitted;
 
   const statusNote: Record<string, string> = {
@@ -281,6 +284,27 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
           </CardContent>
         </Card>
 
+        {sponsor.finalVideo && (
+          <Card className="border-lima/50">
+            <CardContent className="p-6 space-y-3">
+              <div className="flex items-center gap-2">
+                <PartyPopper className="h-5 w-5 text-lima" />
+                <h2 className="font-display font-bold text-lg">Tu vídeo final</h2>
+              </div>
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+              <video src={sponsor.finalVideo.url} controls className="w-full rounded-lg bg-black" />
+              <a
+                href={sponsor.finalVideo.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm underline inline-flex items-center gap-1"
+              >
+                <Download className="h-3.5 w-3.5" /> Descargar {sponsor.finalVideo.fileName ?? 'vídeo'}
+              </a>
+            </CardContent>
+          </Card>
+        )}
+
         {sponsor.videoPrompt && (
           <Card>
             <CardContent className="p-6 space-y-3">
@@ -299,15 +323,11 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
         {!isFinal && hasSubmitted && !editing && (
           <Card>
             <CardContent className="p-6 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                {sponsor.currentAsset?.fileType.startsWith('image/') && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={sponsor.currentAsset.url} alt="Tu logo" className="h-12 w-12 object-contain rounded bg-white" />
-                )}
-                <div>
-                  <p className="font-medium text-sm">Materiales enviados</p>
-                  <p className="text-xs text-muted-foreground">{sponsor.currentAsset?.fileName}</p>
-                </div>
+              <div>
+                <p className="font-medium text-sm">Materiales enviados</p>
+                <p className="text-xs text-muted-foreground">
+                  {sponsor.assets.length} {sponsor.assets.length === 1 ? 'archivo' : 'archivos'}
+                </p>
               </div>
               <Button variant="outline" size="sm" className="gap-2 shrink-0" onClick={() => setEditing(true)}>
                 <Pencil className="h-3.5 w-3.5" /> Editar
@@ -327,20 +347,12 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
               <CardContent className="p-6 space-y-4">
                 <div>
                   <h2 className="font-display font-bold text-lg">Tu logotipo</h2>
-                  <p className="text-sm text-muted-foreground">PNG, JPG, SVG, PDF o un vídeo corto de referencia.</p>
+                  <p className="text-sm text-muted-foreground">
+                    Puedes subir varios archivos: PNG, JPG, SVG, PDF o un vídeo corto de referencia.
+                  </p>
                 </div>
 
-                {sponsor.currentAsset && (
-                  <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                    {sponsor.currentAsset.fileType.startsWith('image/') ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={sponsor.currentAsset.url} alt="Logo actual" className="h-16 w-16 object-contain rounded bg-white" />
-                    ) : (
-                      <Badge variant="secondary">{sponsor.currentAsset.fileType}</Badge>
-                    )}
-                    <p className="text-sm">{sponsor.currentAsset.fileName}</p>
-                  </div>
-                )}
+                <SponsorAssetList assets={sponsor.assets} />
 
                 <input
                   ref={fileInputRef}
@@ -350,11 +362,12 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) void uploadFile(file);
+                    e.target.value = '';
                   }}
                 />
                 <Button variant="outline" disabled={uploading} onClick={() => fileInputRef.current?.click()} className="gap-2">
                   {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                  {sponsor.currentAsset ? 'Reemplazar archivo' : 'Subir archivo'}
+                  {sponsor.assets?.length ? 'Subir otro archivo' : 'Subir archivo'}
                 </Button>
               </CardContent>
             </Card>
