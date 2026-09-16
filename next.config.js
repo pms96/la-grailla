@@ -57,9 +57,11 @@ const nextConfig = {
       `font-src 'self' data:`,
       // La subida de archivos del sponsor/admin va DIRECTA del navegador a
       // Vercel Blob (@vercel/blob/client) para no chocar con el límite de
-      // payload de las funciones serverless — sin este origen aquí, el PUT
-      // del navegador a *.public.blob.vercel-storage.com lo bloquea la CSP.
-      `connect-src 'self' https://*.public.blob.vercel-storage.com`,
+      // payload de las funciones serverless. El SDK sube el binario a través
+      // de https://vercel.com/api/blob (no directamente al dominio de
+      // *.public.blob.vercel-storage.com, que solo sirve lecturas) — sin
+      // ambos orígenes aquí, el PUT del navegador lo bloquea la CSP.
+      `connect-src 'self' https://vercel.com https://*.public.blob.vercel-storage.com`,
       `frame-src https://www.google.com https://maps.google.com`,
       `object-src 'none'`,
       `base-uri 'self'`,
