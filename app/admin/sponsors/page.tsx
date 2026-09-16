@@ -10,6 +10,7 @@ import { Loader2, Handshake, Plus, Search } from 'lucide-react';
 import { PageHeader } from '@/components/layouts/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { CONSOLIDATED_STATUS_LABELS, CONSOLIDATED_STATUS_VARIANT, consolidatedSponsorStatus, type ConsolidatedSponsorStatus } from '@/lib/sponsor-status';
+import { findSponsorTier, type SponsorTier } from '@/lib/sponsor-tiers';
 import { CreateSponsorDialog } from './_components/create-sponsor-dialog';
 
 type SponsorRow = {
@@ -30,6 +31,7 @@ export default function SponsorsAdminPage() {
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [createOpen, setCreateOpen] = useState(false);
+  const [tiers, setTiers] = useState<SponsorTier[]>([]);
 
   const fetchSponsors = () => {
     fetch('/api/admin/sponsors')
@@ -40,8 +42,14 @@ export default function SponsorsAdminPage() {
   };
 
   useEffect(() => { fetchSponsors(); }, []);
+  useEffect(() => {
+    fetch('/api/sponsors/tiers')
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d?.tiers)) setTiers(d.tiers); })
+      .catch(() => {});
+  }, []);
 
-  const withStatus = sponsors.map((s) => ({ ...s, consolidated: consolidatedSponsorStatus(s) }));
+  const withStatus = sponsors.map((s) => ({ ...s, consolidated: consolidatedSponsorStatus(s), tier: findSponsorTier(tiers, s.sponsorType) }));
   const filtered = withStatus.filter((s) => {
     if (statusFilter !== 'all' && s.consolidated !== statusFilter) return false;
     if (!q.trim()) return true;
@@ -93,7 +101,9 @@ export default function SponsorsAdminPage() {
                   <div className="min-w-0">
                     <p className="font-medium truncate">{s.companyName}</p>
                     <p className="text-xs text-muted-foreground truncate">{s.contactName} · {s.email}{s.phone ? ` · ${s.phone}` : ''}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{s.sponsorType}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {s.tier ? `${s.tier.label} — ${s.tier.priceLabel}` : s.sponsorType}
+                    </p>
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     <StatusBadge<ConsolidatedSponsorStatus> status={s.consolidated} labels={CONSOLIDATED_STATUS_LABELS} variants={CONSOLIDATED_STATUS_VARIANT} />

@@ -14,6 +14,15 @@ export const DEFAULT_SPONSOR_TIERS: SponsorTier[] = [
   { value: 'ambos', label: 'Ambos', priceLabel: '75€' },
 ];
 
+// Para mostrar la etiqueta/precio elegidos junto al sponsorType guardado
+// (SponsorRequest.sponsorType), que solo persiste el "valor interno" — el
+// resto de datos del tipo puede haber cambiado o desaparecido desde
+// Configuración, así que null es un resultado normal a tener en cuenta.
+export function findSponsorTier(tiers: SponsorTier[], value: string | null | undefined): SponsorTier | null {
+  if (!value) return null;
+  return tiers.find((t) => t.value === value) ?? null;
+}
+
 export function parseSponsorTiers(raw: string | null | undefined): SponsorTier[] {
   if (!raw) return DEFAULT_SPONSOR_TIERS;
   try {

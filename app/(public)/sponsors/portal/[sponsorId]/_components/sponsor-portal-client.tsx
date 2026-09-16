@@ -15,6 +15,7 @@ import { FadeIn } from '@/components/ui/animate';
 import { cn, parseJsonSafe } from '@/lib/utils';
 import { SPONSOR_GUIDED_QUESTIONS, CUSTOM_OPTION_LABEL, type GuidedQuestion } from '@/lib/sponsor-guided-questions';
 import { SponsorAssetList, type SponsorAssetItem } from '@/components/sponsor-asset-list';
+import { findSponsorTier, type SponsorTier } from '@/lib/sponsor-tiers';
 
 function GuidedQuestionField({ question, value, onChange }: { question: GuidedQuestion; value: string; onChange: (v: string) => void }) {
   // El useState debe llamarse siempre, en el mismo orden, sin importar el
@@ -101,7 +102,7 @@ type SponsorData = {
   currentAsset: { url: string; fileType: string; fileName: string } | null;
   assets: SponsorAssetItem[];
   videoPrompt: { promptEs: string; promptEn: string; approvedAt: string | null } | null;
-  sponsorRequest: { companyName: string };
+  sponsorRequest: { companyName: string; sponsorType: string };
   finalVideo: { url: string; fileName: string | null; size: number | null; uploadedAt: string | null } | null;
 };
 
@@ -146,10 +147,18 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
   const [hasInitialized, setHasInitialized] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [freeText, setFreeText] = useState('');
+  const [tiers, setTiers] = useState<SponsorTier[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollCount = useRef(0);
 
   const tokenQs = accessToken ? `?t=${encodeURIComponent(accessToken)}` : '';
+
+  useEffect(() => {
+    fetch('/api/sponsors/tiers')
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d?.tiers)) setTiers(d.tiers); })
+      .catch(() => {});
+  }, []);
 
   const fetchSponsor = (opts?: { silent?: boolean }) => {
     fetch(`/api/sponsors/portal/${sponsorId}${tokenQs}`)
@@ -267,6 +276,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
 
   const isFinal = sponsor.status === 'APROBADO_PARA_VIDEO' || sponsor.status === 'RECHAZADO';
   const hasSubmitted = Boolean(sponsor.assets?.length && sponsor.guidedAnswers);
+  const sponsorTier = findSponsorTier(tiers, sponsor.sponsorRequest?.sponsorType);
   const showForm = editing || !hasSubmitted;
 
   const statusNote: Record<string, string> = {
@@ -285,6 +295,9 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
           <Clapperboard className="h-10 w-10 text-primary mx-auto mb-2" />
           <h1 className="font-display text-2xl font-bold">Portal de patrocinador</h1>
           <p className="text-muted-foreground">{sponsor.sponsorRequest?.companyName}</p>
+          {sponsorTier && (
+            <Badge variant="secondary" className="mt-1">{sponsorTier.label} — {sponsorTier.priceLabel}</Badge>
+          )}
         </div>
 
         <Card>

@@ -19,7 +19,11 @@ export async function GET(request: Request, { params }: { params: { sponsorId: s
     const sponsor = await prisma.sponsor.findUnique({
       where: { id: sponsorId },
       include: {
-        sponsorRequest: true,
+        // Solo lo que el portal necesita mostrar — sponsorRequest también
+        // tiene adminNotes (notas internas, nunca pensadas para el sponsor)
+        // y otros campos de gestión que no le corresponde ver a quien solo
+        // tiene el token del portal.
+        sponsorRequest: { select: { companyName: true, contactName: true, sponsorType: true } },
         currentAsset: true,
         // Historial completo de materiales enviados — nunca se borran, cada
         // subida es una fila nueva (ver comentario en SponsorAsset).

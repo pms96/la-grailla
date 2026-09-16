@@ -21,6 +21,7 @@ import { CONSOLIDATED_STATUS_LABELS, CONSOLIDATED_STATUS_VARIANT, consolidatedSp
 import { SponsorInviteDelivery } from '../_components/sponsor-invite-delivery';
 import { SponsorAssetList } from '@/components/sponsor-asset-list';
 import { parseJsonSafe } from '@/lib/utils';
+import { findSponsorTier, type SponsorTier } from '@/lib/sponsor-tiers';
 
 const LEAD_STATUS_LABELS: Record<string, string> = {
   PENDING: 'Pendiente', CONTACTED: 'Contactado', ACCEPTED: 'Aceptado', REJECTED: 'Rechazado',
@@ -85,6 +86,7 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
   const [promptDraft, setPromptDraft] = useState({ promptEs: '', promptEn: '' });
   const [brandContextDraft, setBrandContextDraft] = useState('');
   const [uploadingFinalVideo, setUploadingFinalVideo] = useState(false);
+  const [tiers, setTiers] = useState<SponsorTier[]>([]);
   const finalVideoInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDetail = () => {
@@ -103,6 +105,13 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
     fetchDetail();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
+
+  useEffect(() => {
+    fetch('/api/sponsors/tiers')
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d?.tiers)) setTiers(d.tiers); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch('/api/admin/compras/temporadas')
@@ -241,6 +250,7 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
 
   const consolidated = consolidatedSponsorStatus(detail);
   const sponsor = detail.sponsor;
+  const sponsorTier = findSponsorTier(tiers, detail.sponsorType);
   const busyGlobal = busy !== null;
 
   return (
@@ -258,7 +268,9 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
 
       <Card>
         <CardContent className="p-4 space-y-3">
-          <p className="text-sm text-muted-foreground"><strong>Tipo:</strong> {detail.sponsorType}</p>
+          <p className="text-sm text-muted-foreground">
+            <strong>Tipo:</strong> {sponsorTier ? `${sponsorTier.label} — ${sponsorTier.priceLabel}` : detail.sponsorType}
+          </p>
           {detail.website && (
             <p className="text-sm text-muted-foreground">
               <strong>Web:</strong> <a href={detail.website} target="_blank" rel="noopener noreferrer" className="underline inline-flex items-center gap-1">{detail.website} <ExternalLink className="h-3 w-3" /></a>
