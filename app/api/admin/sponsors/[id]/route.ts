@@ -13,6 +13,9 @@ const updateSponsorSchema = z.object({
   status: z.enum(['PENDING', 'CONTACTED', 'ACCEPTED', 'REJECTED']).optional(),
   adminNotes: z.string().optional().nullable(),
   temporadaId: z.string().optional().nullable(),
+  // El formulario público ya no pide el tipo de patrocinio — lo asigna el
+  // admin aquí, junto con el precio que le corresponde.
+  sponsorType: z.string().min(1).max(100).optional().nullable(),
 });
 
 // Vista unificada de un sponsor: el lead (SponsorRequest) + su portal
@@ -71,6 +74,7 @@ export async function PUT(
         status: body?.status,
         adminNotes: body?.adminNotes,
         temporadaId: body?.temporadaId === undefined ? undefined : body.temporadaId || null,
+        sponsorType: body?.sponsorType === undefined ? undefined : body.sponsorType || null,
       },
     });
 

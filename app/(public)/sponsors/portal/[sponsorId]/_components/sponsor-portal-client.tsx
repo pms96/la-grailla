@@ -111,7 +111,7 @@ type SponsorData = {
     email: string | null;
     phone: string | null;
     website: string | null;
-    sponsorType: string;
+    sponsorType: string | null;
     message: string | null;
   };
   finalVideo: { url: string; fileName: string | null; size: number | null; uploadedAt: string | null } | null;
@@ -159,7 +159,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [freeText, setFreeText] = useState('');
   const [tiers, setTiers] = useState<SponsorTier[]>([]);
-  const [datosForm, setDatosForm] = useState({ companyName: '', contactName: '', email: '', phone: '', website: '', sponsorType: '', message: '' });
+  const [datosForm, setDatosForm] = useState({ companyName: '', contactName: '', email: '', phone: '', website: '', message: '' });
   const [datosConsent, setDatosConsent] = useState(false);
   const [editingDatos, setEditingDatos] = useState(false);
   const [savingDatos, setSavingDatos] = useState(false);
@@ -191,7 +191,6 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
           email: data?.sponsorRequest?.email ?? '',
           phone: data?.sponsorRequest?.phone ?? '',
           website: data?.sponsorRequest?.website ?? '',
-          sponsorType: data?.sponsorRequest?.sponsorType ?? '',
           message: data?.sponsorRequest?.message ?? '',
         });
         if (!hasInitialized) {

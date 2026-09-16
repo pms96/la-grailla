@@ -21,7 +21,7 @@ import { CONSOLIDATED_STATUS_LABELS, CONSOLIDATED_STATUS_VARIANT, consolidatedSp
 import { SponsorInviteDelivery } from '../_components/sponsor-invite-delivery';
 import { SponsorAssetList } from '@/components/sponsor-asset-list';
 import { parseJsonSafe } from '@/lib/utils';
-import { findSponsorTier, type SponsorTier } from '@/lib/sponsor-tiers';
+import { type SponsorTier } from '@/lib/sponsor-tiers';
 
 const LEAD_STATUS_LABELS: Record<string, string> = {
   PENDING: 'Pendiente', CONTACTED: 'Contactado', ACCEPTED: 'Aceptado', REJECTED: 'Rechazado',
@@ -67,7 +67,7 @@ type Detail = {
   email: string | null;
   phone: string | null;
   website: string | null;
-  sponsorType: string;
+  sponsorType: string | null;
   message: string | null;
   status: string;
   adminNotes: string | null;
@@ -263,7 +263,6 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
 
   const consolidated = consolidatedSponsorStatus(detail);
   const sponsor = detail.sponsor;
-  const sponsorTier = findSponsorTier(tiers, detail.sponsorType);
   const busyGlobal = busy !== null;
 
   return (
@@ -281,9 +280,17 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
 
       <Card>
         <CardContent className="p-4 space-y-3">
-          <p className="text-sm text-muted-foreground">
-            <strong>Tipo:</strong> {sponsorTier ? `${sponsorTier.label} — ${sponsorTier.priceLabel}` : detail.sponsorType}
-          </p>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-muted-foreground shrink-0"><strong>Tipo:</strong></label>
+            <Select value={detail.sponsorType ?? ''} onValueChange={(v) => updateLead({ sponsorType: v })}>
+              <SelectTrigger className="h-8 w-auto min-w-[220px]"><SelectValue placeholder="Sin asignar todavía" /></SelectTrigger>
+              <SelectContent>
+                {tiers.map((tier) => (
+                  <SelectItem key={tier.value} value={tier.value}>{tier.label} — {tier.priceLabel}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           {detail.website && (
             <p className="text-sm text-muted-foreground">
               <strong>Web:</strong> <a href={detail.website} target="_blank" rel="noopener noreferrer" className="underline inline-flex items-center gap-1">{detail.website} <ExternalLink className="h-3 w-3" /></a>

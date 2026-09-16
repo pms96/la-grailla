@@ -11,13 +11,14 @@ import { normalizePhone } from '@/lib/phone';
 // lo dio de alta sin email todavía (o con datos parciales) — mismos campos
 // que el formulario público, editables desde el portal en vez de solo al
 // crear la solicitud.
+// El tipo de patrocinio NO se edita aquí — lo asigna el admin desde
+// /admin/sponsors/[id] (va ligado al precio acordado).
 const datosSchema = z.object({
   companyName: z.string().min(1).max(200),
   contactName: z.string().min(1).max(200),
   email: z.union([z.string().trim().email().max(255), z.literal('')]).optional(),
   phone: z.string().max(30).optional().nullable(),
   website: z.string().max(300).optional().nullable(),
-  sponsorType: z.string().min(1).max(100),
   message: z.string().max(5000).optional().nullable(),
   consentAccepted: z.boolean().optional(),
 });
@@ -62,7 +63,6 @@ export async function POST(request: Request, { params }: { params: { sponsorId: 
         email: newEmail,
         phone: normalizePhone(body.phone),
         website: body.website || null,
-        sponsorType: body.sponsorType,
         message: body.message || null,
         consentAt: isFirstTimeProvidingEmail ? new Date() : sponsor.sponsorRequest.consentAt,
       },

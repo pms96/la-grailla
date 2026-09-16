@@ -24,7 +24,6 @@ const createSponsorRequestSchema = z.object({
   email: z.string().email().max(255),
   phone: z.string().max(30).optional().nullable(),
   website: z.string().max(300).optional().nullable(),
-  sponsorType: z.string().min(1),
   message: z.string().max(5000).optional().nullable(),
   // Checkbox obligatorio del formulario público — el alta manual desde admin
   // no lo exige (consentimiento obtenido por otra vía).
@@ -43,7 +42,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { companyName, contactName, email, phone, website, sponsorType, message } = createSponsorRequestSchema.parse(
+    const { companyName, contactName, email, phone, website, message } = createSponsorRequestSchema.parse(
       await request.json()
     );
 
@@ -54,7 +53,8 @@ export async function POST(request: Request) {
         email,
         phone: normalizePhone(phone),
         website,
-        sponsorType,
+        // El tipo de patrocinio ya no se pide en el formulario público — el
+        // admin lo asigna después desde /admin/sponsors/[id].
         message,
         consentAt: new Date(),
       },
@@ -69,7 +69,6 @@ export async function POST(request: Request) {
           <p><strong>Email:</strong> <a href="mailto:${esc(email)}">${esc(email)}</a></p>
           <p><strong>Tel\u00e9fono:</strong> ${esc(phone) || 'No proporcionado'}</p>
           <p><strong>Web/redes:</strong> ${website ? `<a href="${esc(website)}">${esc(website)}</a>` : 'No proporcionada'}</p>
-          <p><strong>Tipo:</strong> ${esc(sponsorType)}</p>
           ${message ? `<p><strong>Mensaje:</strong></p><div style="background: white; padding: 15px; border-radius: 4px; border-left: 4px solid #a855f7;">${esc(message)}</div>` : ''}
         </div>
       </div>

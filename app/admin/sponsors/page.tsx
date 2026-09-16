@@ -19,7 +19,7 @@ type SponsorRow = {
   contactName: string;
   email: string | null;
   phone: string | null;
-  sponsorType: string;
+  sponsorType: string | null;
   status: string;
   createdAt: string;
   sponsor: { id: string; status: string; invitationEmailStatus: string | null } | null;
@@ -108,7 +108,7 @@ export default function SponsorsAdminPage() {
                       {s.contactName}{s.email ? ` · ${s.email}` : ' · sin email'}{s.phone ? ` · ${s.phone}` : ''}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {s.tier ? `${s.tier.label} — ${s.tier.priceLabel}` : s.sponsorType}
+                      {s.tier ? `${s.tier.label} — ${s.tier.priceLabel}` : (s.sponsorType ?? 'Sin tipo asignado')}
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">

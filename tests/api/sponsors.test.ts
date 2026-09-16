@@ -68,4 +68,29 @@ describe('POST /api/sponsors', () => {
 
     await prisma.sponsorRequest.deleteMany({ where: { email: 'sponsor-html-test@example.com' } });
   });
+
+  // AUDIT: el tipo de patrocinio ya no se pide en el formulario público — lo
+  // asigna el admin después desde /admin/sponsors/[id]. La solicitud debe
+  // poder crearse igualmente, con sponsorType a null.
+  it('crea la solicitud sin pedir tipo de patrocinio', async () => {
+    const res = await createSponsorRequest(
+      sponsorRequest(
+        {
+          companyName: 'Sin Tipo SL',
+          contactName: 'Nora',
+          email: 'sponsor-sin-tipo-test@example.com',
+          consentAccepted: true,
+        },
+        TEST_IP
+      )
+    );
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.success).toBe(true);
+
+    const created = await prisma.sponsorRequest.findUnique({ where: { id: json.id } });
+    expect(created?.sponsorType).toBeNull();
+
+    await prisma.sponsorRequest.deleteMany({ where: { email: 'sponsor-sin-tipo-test@example.com' } });
+  });
 });

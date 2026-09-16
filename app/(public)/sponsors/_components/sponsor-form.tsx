@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,10 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CheckCircle, Loader2, Send } from 'lucide-react';
 import { toast } from 'sonner';
-import { DEFAULT_SPONSOR_TIERS, type SponsorTier } from '@/lib/sponsor-tiers';
 
 type FormState = {
   companyName: string;
@@ -19,7 +17,6 @@ type FormState = {
   email: string;
   phone: string;
   website: string;
-  sponsorType: string;
   message: string;
 };
 
@@ -33,8 +30,6 @@ function validateField(key: keyof FormState, value: string): string | undefined 
       return value.trim() ? undefined : 'Indica una persona de contacto';
     case 'email':
       return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()) ? undefined : 'Introduce un email válido';
-    case 'sponsorType':
-      return value ? undefined : 'Elige un tipo de patrocinio';
     default:
       return undefined;
   }
@@ -49,21 +44,12 @@ export default function SponsorForm() {
     email: '',
     phone: '',
     website: '',
-    sponsorType: '',
     message: '',
   });
   const [errors, setErrors] = useState<FieldErrors>({});
   const [touched, setTouched] = useState<Partial<Record<keyof FormState, boolean>>>({});
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [consentTouched, setConsentTouched] = useState(false);
-  const [tiers, setTiers] = useState<SponsorTier[]>(DEFAULT_SPONSOR_TIERS);
-
-  useEffect(() => {
-    fetch('/api/sponsors/tiers')
-      .then((r) => r.json())
-      .then((d) => { if (Array.isArray(d?.tiers) && d.tiers.length > 0) setTiers(d.tiers); })
-      .catch(() => {});
-  }, []);
 
   const updateField = (key: keyof FormState, value: string) => {
     setForm((prev) => ({ ...(prev ?? {}), [key]: value }));
@@ -87,7 +73,7 @@ export default function SponsorForm() {
       if (error) fieldErrors[key] = error;
     });
     setErrors(fieldErrors);
-    setTouched({ companyName: true, contactName: true, email: true, phone: true, website: true, sponsorType: true, message: true });
+    setTouched({ companyName: true, contactName: true, email: true, phone: true, website: true, message: true });
     setConsentTouched(true);
 
     if (Object.keys(fieldErrors).length > 0) {
@@ -194,20 +180,14 @@ export default function SponsorForm() {
           <p className="text-xs text-muted-foreground mt-1">Nos ayuda a conocer tu marca para adaptar mejor el material que preparemos.</p>
         </div>
         <div>
-          <Label>Tipo de patrocinio *</Label>
-          <Select value={form.sponsorType} onValueChange={(v: string) => { updateField('sponsorType', v); setTouched((p) => ({ ...p, sponsorType: true })); }}>
-            <SelectTrigger className="mt-1" aria-invalid={Boolean(errors.sponsorType)}><SelectValue placeholder="Selecciona una opción" /></SelectTrigger>
-            <SelectContent>
-              {tiers.map((tier) => (
-                <SelectItem key={tier.value} value={tier.value}>{tier.label} — {tier.priceLabel}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {errors.sponsorType && <p className="text-xs text-destructive mt-1">{errors.sponsorType}</p>}
-        </div>
-        <div>
           <Label>Mensaje</Label>
-          <Textarea value={form.message} onChange={handleChange('message')} className="mt-1" placeholder="Cuéntanos más sobre tu propuesta..." rows={4} />
+          <Textarea
+            value={form.message}
+            onChange={handleChange('message')}
+            className="mt-1"
+            placeholder="Cuéntanos qué tipo de patrocinio te interesa (evento, espacio físico, ambos...) y cualquier otro detalle de tu propuesta."
+            rows={4}
+          />
         </div>
         <div className="flex items-start gap-2 pt-1">
           <Checkbox

@@ -385,7 +385,10 @@ model SponsorRequest {
   email       String?
   phone       String?
   website     String?
-  sponsorType String
+  // Nullable — el formulario público de /sponsors ya no lo pide; el admin lo
+  // asigna después desde /admin/sponsors/[id] (junto con el precio, que
+  // depende del tipo elegido).
+  sponsorType String?
   message     String?              @db.Text
   status      SponsorRequestStatus @default(PENDING)
   adminNotes  String?              @db.Text
