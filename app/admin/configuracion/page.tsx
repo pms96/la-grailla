@@ -6,11 +6,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { Loader2, Save, CreditCard, Mail, Globe, FileText, Send, Wallet, ShieldAlert, Zap, Sparkles, Clapperboard, Printer } from 'lucide-react';
+import { Loader2, Save, CreditCard, Mail, Globe, FileText, Send, Wallet, ShieldAlert, Zap, Sparkles, Clapperboard, Printer, Handshake } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ConfigField } from '@/app/admin/_components/config-field';
+import { SponsorTiersConfig } from '@/app/admin/_components/sponsor-tiers-config';
 
 export default function ConfiguracionPage() {
   const [configs, setConfigs] = useState<AppConfig[]>([]);
@@ -101,6 +102,7 @@ export default function ConfiguracionPage() {
           <TabsTrigger value="smtp" className="gap-2"><Send className="h-3.5 w-3.5" /> Email</TabsTrigger>
           <TabsTrigger value="wallet" className="gap-2"><Wallet className="h-3.5 w-3.5" /> Wallets</TabsTrigger>
           <TabsTrigger value="printer" className="gap-2"><Printer className="h-3.5 w-3.5" /> Impresora</TabsTrigger>
+          <TabsTrigger value="sponsors" className="gap-2"><Handshake className="h-3.5 w-3.5" /> Sponsors</TabsTrigger>
           <TabsTrigger value="abacus" className="gap-2"><Clapperboard className="h-3.5 w-3.5" /> Vídeo IA</TabsTrigger>
           <TabsTrigger value="security" className="gap-2"><ShieldAlert className="h-3.5 w-3.5" /> Seguridad</TabsTrigger>
           <TabsTrigger value="legal" className="gap-2"><FileText className="h-3.5 w-3.5" /> Legal</TabsTrigger>
@@ -369,6 +371,12 @@ export default function ConfiguracionPage() {
                 />
               </div>
             </div>
+          </CardContent></Card>
+        </TabsContent>
+
+        <TabsContent value="sponsors">
+          <Card><CardContent className="p-6">
+            <SponsorTiersConfig value={values?.sponsor_tiers ?? ''} onChange={(v) => updateValue('sponsor_tiers', v)} />
           </CardContent></Card>
         </TabsContent>
 

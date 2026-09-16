@@ -1,8 +1,10 @@
 import { prisma } from '@/lib/prisma';
 import { decryptSecret, encryptSecret, isSensitiveConfigKey } from '@/lib/secrets';
+import { DEFAULT_SPONSOR_TIERS } from '@/lib/sponsor-tiers';
 
 const CONFIG_DEFAULTS: Record<string, string> = {
   payment_gateway: 'mock',
+  sponsor_tiers: JSON.stringify(DEFAULT_SPONSOR_TIERS),
   stripe_publishable_key: '',
   stripe_secret_key: '',
   stripe_webhook_secret: '',

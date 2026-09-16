@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { SPONSOR_TIERS } from '@/lib/sponsor-tiers';
+import { DEFAULT_SPONSOR_TIERS, type SponsorTier } from '@/lib/sponsor-tiers';
 import { SponsorInviteDelivery } from './sponsor-invite-delivery';
 
 type FormState = {
@@ -51,6 +51,14 @@ export function CreateSponsorDialog({ open, onOpenChange, onCreated }: Props) {
   const [form, setForm] = useState<FormState>(emptyForm());
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<CreateResult | null>(null);
+  const [tiers, setTiers] = useState<SponsorTier[]>(DEFAULT_SPONSOR_TIERS);
+
+  useEffect(() => {
+    fetch('/api/sponsors/tiers')
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d?.tiers) && d.tiers.length > 0) setTiers(d.tiers); })
+      .catch(() => {});
+  }, []);
 
   const close = (openState: boolean) => {
     if (!openState) {
@@ -144,7 +152,7 @@ export function CreateSponsorDialog({ open, onOpenChange, onCreated }: Props) {
                 <Select value={form.sponsorType} onValueChange={(v) => setForm((f) => ({ ...f, sponsorType: v }))}>
                   <SelectTrigger className="mt-1"><SelectValue placeholder="Selecciona" /></SelectTrigger>
                   <SelectContent>
-                    {SPONSOR_TIERS.map((tier) => (
+                    {tiers.map((tier) => (
                       <SelectItem key={tier.value} value={tier.value}>{tier.label} — {tier.priceLabel}</SelectItem>
                     ))}
                   </SelectContent>
