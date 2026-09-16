@@ -17,7 +17,7 @@ type SponsorRow = {
   id: string;
   companyName: string;
   contactName: string;
-  email: string;
+  email: string | null;
   phone: string | null;
   sponsorType: string;
   status: string;
@@ -54,7 +54,11 @@ export default function SponsorsAdminPage() {
     if (statusFilter !== 'all' && s.consolidated !== statusFilter) return false;
     if (!q.trim()) return true;
     const needle = q.trim().toLowerCase();
-    return s.companyName.toLowerCase().includes(needle) || s.contactName.toLowerCase().includes(needle) || s.email.toLowerCase().includes(needle);
+    return (
+      s.companyName.toLowerCase().includes(needle) ||
+      s.contactName.toLowerCase().includes(needle) ||
+      (s.email ?? '').toLowerCase().includes(needle)
+    );
   });
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
@@ -100,7 +104,9 @@ export default function SponsorsAdminPage() {
                 <CardContent className="p-4 flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-medium truncate">{s.companyName}</p>
-                    <p className="text-xs text-muted-foreground truncate">{s.contactName} · {s.email}{s.phone ? ` · ${s.phone}` : ''}</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {s.contactName}{s.email ? ` · ${s.email}` : ' · sin email'}{s.phone ? ` · ${s.phone}` : ''}
+                    </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {s.tier ? `${s.tier.label} — ${s.tier.priceLabel}` : s.sponsorType}
                     </p>

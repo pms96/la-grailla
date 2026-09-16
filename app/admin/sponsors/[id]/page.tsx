@@ -64,7 +64,7 @@ type Detail = {
   id: string;
   companyName: string;
   contactName: string;
-  email: string;
+  email: string | null;
   phone: string | null;
   website: string | null;
   sponsorType: string;
@@ -187,9 +187,22 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
   const approve = async () => { if (await sponsorAction('approve', 'POST')) { toast.success('Aprobado para vídeo'); fetchDetail(); } };
   const reject = async () => {
     const r = await sponsorAction('reject', 'POST');
-    if (r) { toast.success(r.rejectionEmailSuccess ? 'Rechazado — sponsor avisado por email' : 'Rechazado — el aviso por email falló'); fetchDetail(); }
+    if (r) {
+      toast.success(
+        r.rejectionEmailSuccess
+          ? 'Rechazado — sponsor avisado por email'
+          : detail?.email
+            ? 'Rechazado — el aviso por email falló'
+            : 'Rechazado — sin email guardado, avísale por otra vía'
+      );
+      fetchDetail();
+    }
   };
-  const notify = async () => { const r = await sponsorAction('notify', 'POST'); if (r?.success) { toast.success('Sponsor notificado por email'); fetchDetail(); } else if (r) toast.error('No se pudo enviar el email'); };
+  const notify = async () => {
+    const r = await sponsorAction('notify', 'POST');
+    if (r?.success) { toast.success('Sponsor notificado por email'); fetchDetail(); }
+    else if (r) toast.error(detail?.email ? 'No se pudo enviar el email' : 'Este sponsor no tiene email guardado');
+  };
   const resendInvite = async () => { const r = await sponsorAction('resend-invite', 'POST'); if (r?.success) { toast.success('Invitación reenviada'); fetchDetail(); } else if (r) toast.error('No se pudo reenviar'); };
   const regenerateToken = async () => { const r = await sponsorAction('regenerate-token', 'POST'); if (r) { toast.success('Enlace regenerado — el anterior ha dejado de funcionar'); fetchDetail(); } };
 
@@ -261,7 +274,7 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
         </Link>
         <PageHeader
           title={detail.companyName}
-          description={`${detail.contactName} · ${detail.email}${detail.phone ? ` · ${detail.phone}` : ''}`}
+          description={`${detail.contactName}${detail.email ? ` · ${detail.email}` : ' · sin email'}${detail.phone ? ` · ${detail.phone}` : ''}`}
           actions={<StatusBadge<ConsolidatedSponsorStatus> status={consolidated} labels={CONSOLIDATED_STATUS_LABELS} variants={CONSOLIDATED_STATUS_VARIANT} />}
         />
       </div>
@@ -316,6 +329,7 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
               portalUrl={detail.portalUrl}
               contactName={detail.contactName}
               phone={detail.phone}
+              hasEmail={Boolean(detail.email)}
               emailStatus={sponsor.invitationEmailStatus as 'SENT' | 'FAILED' | null}
               onResend={resendInvite}
               onRegenerate={regenerateToken}

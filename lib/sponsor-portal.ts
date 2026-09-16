@@ -87,10 +87,19 @@ function copyForType(
  * Envía un email de ciclo de vida del sponsor y registra el intento en
  * SponsorEmailLog (éxito o fallo) — mismo patrón que PromptGenerationLog:
  * historial inmutable, nunca se pierde en un console.error silencioso.
+ *
+ * Requiere `sponsorRequest.email` no nulo — los llamantes deben comprobarlo
+ * antes (SponsorRequest.email es opcional: un sponsor dado de alta sin email
+ * todavía no tiene a quién escribir, y eso no es un fallo de envío).
  */
 async function sendSponsorLifecycleEmail(
   type: SponsorEmailType,
-  { sponsor, sponsorRequest, baseUrl, sentById }: { sponsor: Sponsor; sponsorRequest: SponsorRequest; baseUrl: string; sentById?: string | null }
+  {
+    sponsor,
+    sponsorRequest,
+    baseUrl,
+    sentById,
+  }: { sponsor: Sponsor; sponsorRequest: Omit<SponsorRequest, 'email'> & { email: string }; baseUrl: string; sentById?: string | null }
 ): Promise<SendMailResult> {
   const portalUrl = buildSponsorPortalUrl(baseUrl, sponsor.id, sponsor.portalTokenVersion);
   const { subject, html } = copyForType(type, {
@@ -142,7 +151,20 @@ export async function ensureSponsorPortalInvite(sponsorRequestId: string, baseUr
   }
 
   const sponsor = await prisma.sponsor.create({ data: { sponsorRequestId } });
-  const emailResult = await sendSponsorLifecycleEmail('PORTAL_INVITE', { sponsor, sponsorRequest: request, baseUrl });
+
+  // Sin email no hay a quién escribir — el admin comparte el enlace a mano
+  // (copiar/WhatsApp) y el propio sponsor puede añadir su email más tarde
+  // desde el portal. No se marca como fallo: invitationEmailStatus se queda
+  // en null ("aún no se ha intentado"), no en 'FAILED'.
+  if (!request.email) {
+    return {
+      sponsor,
+      portalUrl: buildSponsorPortalUrl(baseUrl, sponsor.id, sponsor.portalTokenVersion),
+      emailResult: { success: false, transport: 'none' },
+    };
+  }
+
+  const emailResult = await sendSponsorLifecycleEmail('PORTAL_INVITE', { sponsor, sponsorRequest: { ...request, email: request.email }, baseUrl });
 
   const updated = await prisma.sponsor.update({
     where: { id: sponsor.id },
@@ -160,10 +182,17 @@ export async function ensureSponsorPortalInvite(sponsorRequestId: string, baseUr
 export async function resendSponsorPortalInvite(sponsorId: string, baseUrl: string, sentById?: string | null): Promise<EnsureInviteResult> {
   const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId }, include: { sponsorRequest: true } });
   if (!sponsor) throw new Error(`Sponsor ${sponsorId} no encontrado`);
+  if (!sponsor.sponsorRequest.email) {
+    return {
+      sponsor,
+      portalUrl: buildSponsorPortalUrl(baseUrl, sponsor.id, sponsor.portalTokenVersion),
+      emailResult: { success: false, transport: 'none', error: 'Este sponsor todavía no tiene email guardado' },
+    };
+  }
 
   const emailResult = await sendSponsorLifecycleEmail('PORTAL_INVITE_RESEND', {
     sponsor,
-    sponsorRequest: sponsor.sponsorRequest,
+    sponsorRequest: { ...sponsor.sponsorRequest, email: sponsor.sponsorRequest.email },
     baseUrl,
     sentById,
   });
@@ -184,8 +213,16 @@ export async function resendSponsorPortalInvite(sponsorId: string, baseUrl: stri
 export async function notifySponsorStatus(sponsorId: string, baseUrl: string, sentById?: string | null): Promise<SendMailResult> {
   const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId }, include: { sponsorRequest: true, videoPrompt: true } });
   if (!sponsor) throw new Error(`Sponsor ${sponsorId} no encontrado`);
+  if (!sponsor.sponsorRequest.email) {
+    return { success: false, transport: 'none', error: 'Este sponsor todavía no tiene email guardado' };
+  }
 
-  const result = await sendSponsorLifecycleEmail('STATUS_NOTIFY', { sponsor, sponsorRequest: sponsor.sponsorRequest, baseUrl, sentById });
+  const result = await sendSponsorLifecycleEmail('STATUS_NOTIFY', {
+    sponsor,
+    sponsorRequest: { ...sponsor.sponsorRequest, email: sponsor.sponsorRequest.email },
+    baseUrl,
+    sentById,
+  });
 
   if (sponsor.videoPrompt) {
     await prisma.sponsorVideoPrompt.update({ where: { sponsorId: sponsor.id }, data: { notifiedAt: new Date() } });
@@ -198,7 +235,10 @@ export async function notifySponsorStatus(sponsorId: string, baseUrl: string, se
 export async function notifySponsorRejection(sponsorId: string, baseUrl: string): Promise<SendMailResult> {
   const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId }, include: { sponsorRequest: true } });
   if (!sponsor) throw new Error(`Sponsor ${sponsorId} no encontrado`);
-  return sendSponsorLifecycleEmail('REJECTION', { sponsor, sponsorRequest: sponsor.sponsorRequest, baseUrl });
+  if (!sponsor.sponsorRequest.email) {
+    return { success: false, transport: 'none', error: 'Este sponsor todavía no tiene email guardado' };
+  }
+  return sendSponsorLifecycleEmail('REJECTION', { sponsor, sponsorRequest: { ...sponsor.sponsorRequest, email: sponsor.sponsorRequest.email }, baseUrl });
 }
 
 /**

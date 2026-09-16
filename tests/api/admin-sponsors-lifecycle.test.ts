@@ -175,3 +175,68 @@ describe('rechazo, reenvío y regeneración de enlace', () => {
     expect(verifySponsorAccess(sponsorId, staleVersion, newToken)).toBe(false);
   });
 });
+
+// AUDIT: el admin puede cerrar un acuerdo sin tener el email todavía
+// (en persona/por teléfono) — el portal debe crearse igual, sin tratar la
+// ausencia de email como un fallo de envío (ni marcarlo como FAILED, ni
+// registrar un intento fantasma en SponsorEmailLog).
+describe('alta manual sin email', () => {
+  let requestId: string;
+  let sponsorId: string;
+
+  afterAll(async () => {
+    await cleanup(requestId, sponsorId);
+  });
+
+  it('crea el portal sin intentar enviar ningún email', async () => {
+    sendMailMock.mockClear();
+    const res = await createSponsor(
+      adminRequest({
+        companyName: 'Sin Email SL',
+        contactName: 'Nacho',
+        sponsorType: 'evento',
+        status: 'ACCEPTED',
+      })
+    );
+    const data = await res.json();
+    requestId = data.sponsorRequest.id;
+    sponsorId = data.sponsor.id;
+
+    expect(res.status).toBe(201);
+    expect(data.sponsorRequest.email).toBeNull();
+    expect(typeof data.portalUrl).toBe('string');
+    expect(data.invitationEmailSuccess).toBe(false);
+    expect(sendMailMock).not.toHaveBeenCalled();
+
+    const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } });
+    // null, no 'FAILED' — no se intentó nada, así que no cuenta como fallo.
+    expect(sponsor?.invitationEmailStatus).toBeNull();
+
+    const logs = await prisma.sponsorEmailLog.findMany({ where: { sponsorId } });
+    expect(logs).toHaveLength(0);
+  });
+
+  it('reenviar invitación sin email no revienta y no manda nada', async () => {
+    sendMailMock.mockClear();
+    const res = await resendInvite(adminRequest(), { params: { id: sponsorId } });
+    const data = await res.json();
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(false);
+    expect(sendMailMock).not.toHaveBeenCalled();
+  });
+
+  it('rechazar sin email actualiza el estado pero no manda ni registra ningún email', async () => {
+    sendMailMock.mockClear();
+    const res = await reject(adminRequest(), { params: { id: sponsorId } });
+    const data = await res.json();
+    expect(res.status).toBe(200);
+    expect(data.rejectionEmailSuccess).toBe(false);
+    expect(sendMailMock).not.toHaveBeenCalled();
+
+    const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } });
+    expect(sponsor?.status).toBe('RECHAZADO');
+
+    const logs = await prisma.sponsorEmailLog.findMany({ where: { sponsorId, type: 'REJECTION' } });
+    expect(logs).toHaveLength(0);
+  });
+});

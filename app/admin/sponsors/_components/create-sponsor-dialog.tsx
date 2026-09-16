@@ -69,7 +69,7 @@ export function CreateSponsorDialog({ open, onOpenChange, onCreated }: Props) {
   };
 
   const handleSave = async () => {
-    if (!form.companyName.trim() || !form.contactName.trim() || !form.email.trim() || !form.sponsorType) {
+    if (!form.companyName.trim() || !form.contactName.trim() || !form.sponsorType) {
       toast.error('Completa los campos obligatorios');
       return;
     }
@@ -116,6 +116,7 @@ export function CreateSponsorDialog({ open, onOpenChange, onCreated }: Props) {
               portalUrl={result.portalUrl!}
               contactName={result.contactName}
               phone={result.phone}
+              hasEmail={Boolean(form.email.trim())}
               emailStatus={result.invitationEmailSuccess === false ? 'FAILED' : result.invitationEmailSuccess === true ? 'SENT' : null}
             />
             <Button variant="outline" className="w-full" onClick={() => close(false)}>Cerrar</Button>
@@ -134,7 +135,7 @@ export function CreateSponsorDialog({ open, onOpenChange, onCreated }: Props) {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Email *</Label>
+                <Label>Email (opcional)</Label>
                 <Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} className="mt-1" placeholder="contacto@empresa.com" />
               </div>
               <div>
@@ -142,6 +143,11 @@ export function CreateSponsorDialog({ open, onOpenChange, onCreated }: Props) {
                 <Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} className="mt-1" placeholder="+34 600 000 000" />
               </div>
             </div>
+            {!form.email.trim() && (
+              <p className="text-xs text-muted-foreground -mt-2">
+                Sin email podrás compartir el enlace por WhatsApp o copiándolo — el sponsor podrá añadir su email desde el propio portal.
+              </p>
+            )}
             <div>
               <Label>Web o Instagram</Label>
               <Input value={form.website} onChange={(e) => setForm((f) => ({ ...f, website: e.target.value }))} className="mt-1" />

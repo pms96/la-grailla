@@ -10,6 +10,10 @@ type Props = {
   contactName: string;
   phone?: string | null;
   emailStatus?: 'SENT' | 'FAILED' | null;
+  // false = el sponsor todavía no tiene email guardado (alta manual sin
+  // email) — oculta "Reenviar invitación" en vez de dejar que falle al
+  // intentar mandarlo a nadie. Por defecto true para no romper otros usos.
+  hasEmail?: boolean;
   onResend?: () => void;
   onRegenerate?: () => void;
   resending?: boolean;
@@ -25,6 +29,7 @@ export function SponsorInviteDelivery({
   contactName,
   phone,
   emailStatus,
+  hasEmail = true,
   onResend,
   onRegenerate,
   resending,
@@ -49,11 +54,14 @@ export function SponsorInviteDelivery({
       <div className="rounded-md bg-muted/50 p-2 overflow-x-auto">
         <code className="text-xs whitespace-nowrap">{portalUrl}</code>
       </div>
-      {emailStatus === 'FAILED' && (
+      {!hasEmail && (
+        <p className="text-xs text-muted-foreground">Sin email guardado — comparte el enlace por WhatsApp o copiándolo. El sponsor puede añadir su email desde el propio portal.</p>
+      )}
+      {hasEmail && emailStatus === 'FAILED' && (
         <p className="text-xs text-destructive">⚠️ La invitación por email no se pudo enviar — usa copiar enlace o WhatsApp mientras tanto.</p>
       )}
       <div className="flex flex-wrap gap-2">
-        {onResend && (
+        {hasEmail && onResend && (
           <Button size="sm" variant="outline" className="gap-2" disabled={resending} onClick={onResend}>
             {resending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
             {emailStatus === 'FAILED' ? 'Reintentar envío' : 'Reenviar invitación'}

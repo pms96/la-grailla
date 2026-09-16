@@ -29,7 +29,10 @@ export async function GET() {
 const createSponsorSchema = z.object({
   companyName: z.string().min(1).max(200),
   contactName: z.string().min(1).max(200),
-  email: z.string().email().max(255),
+  // Opcional a propósito — el admin puede dar de alta sin email todavía y
+  // compartir el enlace del portal por WhatsApp/copiar enlace; el sponsor lo
+  // añade él mismo desde ahí (ver /api/sponsors/portal/[sponsorId]/datos).
+  email: z.union([z.string().email().max(255), z.literal('')]).optional(),
   phone: z.string().max(30).optional().nullable(),
   website: z.string().max(300).optional().nullable(),
   sponsorType: z.string().min(1),
@@ -55,7 +58,7 @@ export async function POST(request: Request) {
       data: {
         companyName: body.companyName,
         contactName: body.contactName,
-        email: body.email,
+        email: body.email || null,
         phone: normalizePhone(body.phone),
         website: body.website || null,
         sponsorType: body.sponsorType,

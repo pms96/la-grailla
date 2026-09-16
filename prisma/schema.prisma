@@ -378,7 +378,11 @@ model SponsorRequest {
   id          String               @id @default(cuid())
   companyName String
   contactName String
-  email       String
+  // Nullable a propósito: el admin puede dar de alta un sponsor sin email
+  // todavía (acuerdo cerrado en persona/por teléfono, sin datos completos) y
+  // compartir el enlace del portal por WhatsApp/copiar enlace — el propio
+  // sponsor lo rellena desde ahí (ver POST .../portal/[sponsorId]/datos).
+  email       String?
   phone       String?
   website     String?
   sponsorType String

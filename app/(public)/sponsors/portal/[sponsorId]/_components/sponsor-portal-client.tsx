@@ -1,14 +1,17 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Upload, CheckCircle, Clapperboard, SearchX, Pencil, Sparkles, Clock, PartyPopper, Download } from 'lucide-react';
+import { Loader2, Upload, CheckCircle, Clapperboard, SearchX, Pencil, Sparkles, Clock, PartyPopper, Download, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { upload } from '@vercel/blob/client';
 import { FadeIn } from '@/components/ui/animate';
@@ -102,7 +105,15 @@ type SponsorData = {
   currentAsset: { url: string; fileType: string; fileName: string } | null;
   assets: SponsorAssetItem[];
   videoPrompt: { promptEs: string; promptEn: string; approvedAt: string | null } | null;
-  sponsorRequest: { companyName: string; sponsorType: string };
+  sponsorRequest: {
+    companyName: string;
+    contactName: string;
+    email: string | null;
+    phone: string | null;
+    website: string | null;
+    sponsorType: string;
+    message: string | null;
+  };
   finalVideo: { url: string; fileName: string | null; size: number | null; uploadedAt: string | null } | null;
 };
 
@@ -148,6 +159,10 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [freeText, setFreeText] = useState('');
   const [tiers, setTiers] = useState<SponsorTier[]>([]);
+  const [datosForm, setDatosForm] = useState({ companyName: '', contactName: '', email: '', phone: '', website: '', sponsorType: '', message: '' });
+  const [datosConsent, setDatosConsent] = useState(false);
+  const [editingDatos, setEditingDatos] = useState(false);
+  const [savingDatos, setSavingDatos] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollCount = useRef(0);
 
@@ -170,10 +185,22 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
         setSponsor(data);
         setAnswers(data?.guidedAnswers ?? {});
         setFreeText(data?.freeText ?? '');
+        setDatosForm({
+          companyName: data?.sponsorRequest?.companyName ?? '',
+          contactName: data?.sponsorRequest?.contactName ?? '',
+          email: data?.sponsorRequest?.email ?? '',
+          phone: data?.sponsorRequest?.phone ?? '',
+          website: data?.sponsorRequest?.website ?? '',
+          sponsorType: data?.sponsorRequest?.sponsorType ?? '',
+          message: data?.sponsorRequest?.message ?? '',
+        });
         if (!hasInitialized) {
           // La primera vez: si ya hay materiales enviados, empieza colapsado
           // en el resumen — si no, abierto directamente en el formulario.
           setEditing(!(data?.assets?.length && data?.guidedAnswers));
+          // Igual con los datos de contacto — si el admin dio de alta sin
+          // email (o faltan datos básicos), se abre el formulario directamente.
+          setEditingDatos(!(data?.sponsorRequest?.companyName && data?.sponsorRequest?.contactName && data?.sponsorRequest?.email));
           setHasInitialized(true);
         }
       })
@@ -232,6 +259,35 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
     }
   };
 
+  const saveDatos = async () => {
+    if (!datosForm.companyName.trim() || !datosForm.contactName.trim() || !datosForm.sponsorType) {
+      toast.error('Completa empresa, contacto y tipo de patrocinio');
+      return;
+    }
+    const isFirstTimeEmail = !sponsor?.sponsorRequest?.email && Boolean(datosForm.email.trim());
+    if (isFirstTimeEmail && !datosConsent) {
+      toast.error('Debes aceptar la política de privacidad para guardar tu email');
+      return;
+    }
+    setSavingDatos(true);
+    try {
+      const res = await fetch(`/api/sponsors/portal/${sponsorId}/datos${tokenQs}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...datosForm, consentAccepted: isFirstTimeEmail ? datosConsent : undefined }),
+      });
+      const data = await parseJsonSafe(res);
+      if (!res.ok) throw new Error(data?.error ?? 'No se pudo guardar');
+      toast.success('Datos guardados');
+      setEditingDatos(false);
+      fetchSponsor();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo guardar');
+    } finally {
+      setSavingDatos(false);
+    }
+  };
+
   const saveCreativity = async () => {
     setSaving(true);
     try {
@@ -278,6 +334,8 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
   const hasSubmitted = Boolean(sponsor.assets?.length && sponsor.guidedAnswers);
   const sponsorTier = findSponsorTier(tiers, sponsor.sponsorRequest?.sponsorType);
   const showForm = editing || !hasSubmitted;
+  const hasCompleteDatos = Boolean(sponsor.sponsorRequest?.companyName && sponsor.sponsorRequest?.contactName && sponsor.sponsorRequest?.email);
+  const isFirstTimeEmail = !sponsor.sponsorRequest?.email && Boolean(datosForm.email.trim());
 
   const statusNote: Record<string, string> = {
     PENDIENTE_MATERIALES: 'Sube tu logo y cuéntanos cómo lo imaginas para que podamos empezar.',
@@ -309,6 +367,96 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
             </Alert>
           </CardContent>
         </Card>
+
+        {!hasCompleteDatos && !editingDatos && (
+          <Alert className="gap-2">
+            <Building2 className="h-4 w-4" />
+            <AlertDescription>Te falta completar los datos de contacto de tu empresa — ábrelos justo aquí abajo.</AlertDescription>
+          </Alert>
+        )}
+
+        {hasCompleteDatos && !editingDatos ? (
+          <Card>
+            <CardContent className="p-6 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="font-medium text-sm">Datos de tu empresa</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {sponsor.sponsorRequest.contactName} · {sponsor.sponsorRequest.email}
+                  {sponsor.sponsorRequest.phone ? ` · ${sponsor.sponsorRequest.phone}` : ''}
+                </p>
+              </div>
+              <Button variant="outline" size="sm" className="gap-2 shrink-0" onClick={() => setEditingDatos(true)}>
+                <Pencil className="h-3.5 w-3.5" /> Editar
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent className="p-6 space-y-4">
+              <div>
+                <h2 className="font-display font-bold text-lg flex items-center gap-2">
+                  <Building2 className="h-5 w-5 text-primary" /> Datos de tu empresa
+                </h2>
+                <p className="text-sm text-muted-foreground">Para que podamos contactarte y avisarte de novedades.</p>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <Label>Empresa *</Label>
+                  <Input className="mt-1" value={datosForm.companyName} onChange={(e) => setDatosForm((f) => ({ ...f, companyName: e.target.value }))} placeholder="Empresa S.L." />
+                </div>
+                <div>
+                  <Label>Persona de contacto *</Label>
+                  <Input className="mt-1" value={datosForm.contactName} onChange={(e) => setDatosForm((f) => ({ ...f, contactName: e.target.value }))} placeholder="Juan Pérez" />
+                </div>
+                <div>
+                  <Label>Email</Label>
+                  <Input type="email" className="mt-1" value={datosForm.email} onChange={(e) => setDatosForm((f) => ({ ...f, email: e.target.value }))} placeholder="contacto@empresa.com" />
+                </div>
+                <div>
+                  <Label>Teléfono</Label>
+                  <Input className="mt-1" value={datosForm.phone} onChange={(e) => setDatosForm((f) => ({ ...f, phone: e.target.value }))} placeholder="+34 600 000 000" />
+                </div>
+                <div>
+                  <Label>Web o Instagram</Label>
+                  <Input className="mt-1" value={datosForm.website} onChange={(e) => setDatosForm((f) => ({ ...f, website: e.target.value }))} placeholder="https://tuempresa.com" />
+                </div>
+                <div>
+                  <Label>Tipo de patrocinio *</Label>
+                  <Select value={datosForm.sponsorType} onValueChange={(v) => setDatosForm((f) => ({ ...f, sponsorType: v }))}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Selecciona una opción" /></SelectTrigger>
+                    <SelectContent>
+                      {tiers.map((tier) => (
+                        <SelectItem key={tier.value} value={tier.value}>{tier.label} — {tier.priceLabel}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div>
+                <Label>Mensaje</Label>
+                <Textarea rows={3} className="mt-1" value={datosForm.message} onChange={(e) => setDatosForm((f) => ({ ...f, message: e.target.value }))} />
+              </div>
+              {isFirstTimeEmail && (
+                <div className="flex items-start gap-2">
+                  <Checkbox id="datos-consent" checked={datosConsent} onCheckedChange={(v) => setDatosConsent(v === true)} className="mt-0.5" />
+                  <Label htmlFor="datos-consent" className="text-xs font-normal text-muted-foreground leading-snug cursor-pointer">
+                    He leído y acepto la{' '}
+                    <Link href="/legal/privacidad" target="_blank" className="underline">política de privacidad</Link>
+                    {' '}de La Grailla para el tratamiento de estos datos.
+                  </Label>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Button disabled={savingDatos} onClick={saveDatos}>
+                  {savingDatos ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
+                </Button>
+                {hasCompleteDatos && (
+                  <Button variant="ghost" disabled={savingDatos} onClick={() => setEditingDatos(false)}>Cancelar</Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {sponsor.finalVideo && (
           <Card className="border-lima/50">
