@@ -27,6 +27,10 @@ function toNumber(value: { toNumber(): number }): number {
   return value.toNumber();
 }
 
+function toNullableNumber(value: { toNumber(): number } | null): number | null {
+  return value === null ? null : value.toNumber();
+}
+
 export const prisma = basePrisma.$extends({
   result: {
     ticketType: {
@@ -61,6 +65,9 @@ export const prisma = basePrisma.$extends({
       importeSinIva: { needs: { importeSinIva: true }, compute: (m) => toNumber(m.importeSinIva) },
       ivaPercent: { needs: { ivaPercent: true }, compute: (m) => toNumber(m.ivaPercent) },
     },
+    sponsor: {
+      paidAmount: { needs: { paidAmount: true }, compute: (m) => toNullableNumber(m.paidAmount) },
+    },
   },
 });
 
@@ -81,6 +88,12 @@ export type PrismaTransactionClient = Parameters<Parameters<typeof prisma.$trans
 export type EventWithTicketTypes = NonNullable<
   Awaited<ReturnType<typeof prisma.event.findFirst<{ include: { ticketTypes: true } }>>>
 >;
+
+// Mismo motivo, para Sponsor.paidAmount (Decimal → number) — lib/sponsor-portal.ts
+// pasa el resultado de prisma.sponsor.{findUnique,create,update}(...) entre
+// funciones y necesita tiparlo contra la forma real, no contra `Sponsor` de
+// '@prisma/client' (que seguiría describiendo paidAmount como Decimal).
+export type SponsorRecord = NonNullable<Awaited<ReturnType<typeof prisma.sponsor.findFirst>>>;
 
 // Para tipar en componentes 'use client' datos ya recibidos por fetch(...).
 // then(r => r.json()): esos campos monetarios llegan como number (mismo JSON

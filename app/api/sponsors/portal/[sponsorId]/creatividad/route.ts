@@ -32,8 +32,11 @@ export async function POST(request: Request, { params }: { params: { sponsorId: 
       );
     }
 
-    const hasAsset = Boolean(sponsor.currentAssetId);
-    const nextStatus = nextStatusAfterEdit(sponsor.status, hasAsset, true);
+    // No usar currentAssetId aquí: ahora solo apunta a imágenes (ver
+    // logo/route.ts), y un sponsor que ya subió un vídeo de referencia (sin
+    // ninguna imagen) también debe poder avanzar de estado al guardar.
+    const assetCount = await prisma.sponsorAsset.count({ where: { sponsorId } });
+    const nextStatus = nextStatusAfterEdit(sponsor.status, assetCount > 0, true);
     const updated = await prisma.sponsor.update({
       where: { id: sponsorId },
       data: { guidedAnswers: body.guidedAnswers, freeText: body.freeText ?? null, status: nextStatus },

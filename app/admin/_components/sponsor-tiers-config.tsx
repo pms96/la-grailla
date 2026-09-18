@@ -25,10 +25,14 @@ export function SponsorTiersConfig({ value, onChange }: Props) {
   };
 
   const updateTier = (index: number, field: keyof SponsorTier, fieldValue: string) => {
-    emit(tiers.map((tier, i) => (i === index ? { ...tier, [field]: fieldValue } : tier)));
+    emit(
+      tiers.map((tier, i) =>
+        i === index ? { ...tier, [field]: field === 'priceAmount' ? Number(fieldValue) || 0 : fieldValue } : tier
+      )
+    );
   };
 
-  const addTier = () => emit([...tiers, { value: '', label: '', priceLabel: '' }]);
+  const addTier = () => emit([...tiers, { value: '', label: '', priceLabel: '', priceAmount: 0 }]);
   const removeTier = (index: number) => emit(tiers.filter((_, i) => i !== index));
 
   return (
@@ -36,11 +40,14 @@ export function SponsorTiersConfig({ value, onChange }: Props) {
       <p className="text-sm text-muted-foreground">
         Los tipos que ve quien rellena el formulario público de sponsors y quien da de alta un sponsor
         manualmente desde admin. El &quot;valor interno&quot; identifica el tipo en la base de datos —
-        cámbialo con cuidado si ya hay solicitudes guardadas con ese valor.
+        cámbialo con cuidado si ya hay solicitudes guardadas con ese valor. El &quot;Importe&quot; es el
+        número real que se registra como ingreso al marcar un sponsor como pagado — el &quot;Precio
+        (texto)&quot; es solo lo que se muestra, puede incluir matices (&quot;30€ + IVA&quot;) pero no se usa
+        para calcular nada.
       </p>
       <div className="space-y-3">
         {tiers.map((tier, i) => (
-          <div key={i} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_120px_auto] gap-2 sm:items-end rounded-lg border border-border p-3 sm:border-none sm:p-0">
+          <div key={i} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_100px_100px_auto] gap-2 sm:items-end rounded-lg border border-border p-3 sm:border-none sm:p-0">
             <div>
               <Label className="text-xs">Valor interno</Label>
               <Input value={tier.value} onChange={(e) => updateTier(i, 'value', e.target.value)} className="mt-1" placeholder="evento" />
@@ -50,8 +57,20 @@ export function SponsorTiersConfig({ value, onChange }: Props) {
               <Input value={tier.label} onChange={(e) => updateTier(i, 'label', e.target.value)} className="mt-1" placeholder="Patrocinio de Evento" />
             </div>
             <div>
-              <Label className="text-xs">Precio</Label>
+              <Label className="text-xs">Precio (texto)</Label>
               <Input value={tier.priceLabel} onChange={(e) => updateTier(i, 'priceLabel', e.target.value)} className="mt-1" placeholder="30€" />
+            </div>
+            <div>
+              <Label className="text-xs">Importe (€)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={tier.priceAmount}
+                onChange={(e) => updateTier(i, 'priceAmount', e.target.value)}
+                className="mt-1"
+                placeholder="30"
+              />
             </div>
             <Button
               type="button"

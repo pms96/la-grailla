@@ -39,10 +39,10 @@ export async function GET(request: Request, { params }: { params: { sponsorId: s
         // Historial completo de materiales enviados — nunca se borran, cada
         // subida es una fila nueva (ver comentario en SponsorAsset).
         assets: { orderBy: { uploadedAt: 'desc' } },
-        // Solo lo que el sponsor debe poder ver de su propio prompt: el
-        // texto y si ya está aprobado — nada de logs de generación ni de
-        // quién lo aprobó internamente.
-        videoPrompt: { select: { promptEs: true, promptEn: true, approvedAt: true } },
+        // El prompt en sí (promptEs/promptEn) ya no se expone al sponsor —
+        // es una herramienta interna para producir el vídeo, no algo pensado
+        // para que lo lea literalmente. Lo que ve el sponsor en ese paso es
+        // el aviso de pago pendiente o, si ya pagó, el vídeo final.
       },
     });
     if (!sponsor) {
@@ -50,11 +50,12 @@ export async function GET(request: Request, { params }: { params: { sponsorId: s
     }
 
     // El vídeo final solo se muestra una vez el sponsor está formalmente
-    // aprobado — si el admin lo sube antes (mientras aún prepara/revisa), no
-    // se expone todavía aunque la fila ya tenga la URL.
-    const { finalVideoUrl, finalVideoFileName, finalVideoSize, finalVideoUploadedAt, ...rest } = sponsor;
+    // aprobado Y ha pagado — si el admin lo sube o aprueba antes (el
+    // pipeline interno no depende del pago, ver mark-paid/route.ts), el
+    // sponsor sigue viendo el aviso de pago pendiente en vez del vídeo.
+    const { finalVideoUrl, finalVideoFileName, finalVideoSize, finalVideoUploadedAt, paidAmount, paidAt, ...rest } = sponsor;
     const finalVideo =
-      sponsor.status === 'APROBADO_PARA_VIDEO' && finalVideoUrl
+      sponsor.status === 'APROBADO_PARA_VIDEO' && sponsor.isPaid && finalVideoUrl
         ? { url: finalVideoUrl, fileName: finalVideoFileName, size: finalVideoSize, uploadedAt: finalVideoUploadedAt }
         : null;
 

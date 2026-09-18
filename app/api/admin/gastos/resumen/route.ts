@@ -33,7 +33,7 @@ export async function GET(request: Request) {
       orderBy: { anio: 'desc' },
     });
 
-    const [gastos, gastosAnterior, planes, eventosEnlazados] = await Promise.all([
+    const [gastos, gastosAnterior, planes, eventosEnlazados, patrociniosAgg] = await Promise.all([
       prisma.gasto.findMany({ where: { temporadaId } }),
       temporadaAnterior ? prisma.gasto.findMany({ where: { temporadaId: temporadaAnterior.id } }) : Promise.resolve([]),
       prisma.planCompra.findMany({
@@ -41,6 +41,13 @@ export async function GET(request: Request) {
         include: { articulo: { include: { precios: { include: { proveedor: true } } } } },
       }),
       prisma.event.findMany({ where: { temporadaId }, select: { id: true } }),
+      // Ingreso por patrocinio de la temporada: sponsors marcados como pagados
+      // cuya SponsorRequest está asignada a esta temporada (ver
+      // mark-paid/route.ts) — independiente de si hay eventos enlazados.
+      prisma.sponsor.aggregate({
+        where: { isPaid: true, sponsorRequest: { temporadaId } },
+        _sum: { paidAmount: true },
+      }),
     ]);
 
     const gastoTotal = Math.round(gastos.reduce((acc, g) => acc + precioConIvaTotal(g.importeSinIva, g.ivaPercent), 0) * 100) / 100;
@@ -55,7 +62,9 @@ export async function GET(request: Request) {
           _sum: { totalAmount: true },
         })
       : null;
-    const ingresos = Math.round((ingresosAgg?._sum.totalAmount ?? 0) * 100) / 100;
+    const ingresosEntradas = Math.round((ingresosAgg?._sum.totalAmount ?? 0) * 100) / 100;
+    const ingresosPatrocinio = Math.round((patrociniosAgg._sum.paidAmount ?? 0) * 100) / 100;
+    const ingresos = Math.round((ingresosEntradas + ingresosPatrocinio) * 100) / 100;
     const margen = Math.round((ingresos - gastoTotal) * 100) / 100;
 
     const porCategoriaMap = new Map<string, number>();
@@ -109,6 +118,8 @@ export async function GET(request: Request) {
       comparativoCategorias,
       topAhorro,
       ingresos,
+      ingresosEntradas,
+      ingresosPatrocinio,
       margen,
       nEventosEnlazados,
     });

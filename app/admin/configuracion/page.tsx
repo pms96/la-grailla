@@ -375,8 +375,18 @@ export default function ConfiguracionPage() {
         </TabsContent>
 
         <TabsContent value="sponsors">
-          <Card><CardContent className="p-6">
+          <Card><CardContent className="p-6 space-y-6">
             <SponsorTiersConfig value={values?.sponsor_tiers ?? ''} onChange={(v) => updateValue('sponsor_tiers', v)} />
+            <div className="pt-4 border-t border-border">
+              <ConfigField
+                label="Mensaje de pago pendiente"
+                type="textarea"
+                rows={3}
+                value={values?.sponsor_payment_pending_message ?? ''}
+                onChange={(v) => updateValue('sponsor_payment_pending_message', v)}
+                description="Lo ve el sponsor en su portal, en el paso de pago, mientras no lo hayamos marcado como pagado — se le añade automáticamente el importe de su tipo de patrocinio."
+              />
+            </div>
           </CardContent></Card>
         </TabsContent>
 

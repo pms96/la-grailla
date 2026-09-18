@@ -1,7 +1,9 @@
-import { prisma } from '@/lib/prisma';
+import { prisma, type SponsorRecord } from '@/lib/prisma';
 import { sendMail, escapeHtml, type SendMailResult } from '@/lib/mailer';
 import { signSponsorAccess } from '@/lib/access-token';
-import type { Sponsor, SponsorEmailType, SponsorPortalStatus, SponsorRequest } from '@prisma/client';
+import type { SponsorEmailType, SponsorPortalStatus, SponsorRequest } from '@prisma/client';
+// Alias local — el resto de este archivo ya se refería al tipo como `Sponsor`.
+type Sponsor = SponsorRecord;
 
 export function buildSponsorPortalUrl(baseUrl: string, sponsorId: string, tokenVersion: number): string {
   return `${baseUrl}/sponsors/portal/${sponsorId}?t=${encodeURIComponent(signSponsorAccess(sponsorId, tokenVersion))}`;

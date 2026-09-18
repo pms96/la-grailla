@@ -454,6 +454,16 @@ model Sponsor {
   finalVideoFileName    String?
   finalVideoSize        Int?
   finalVideoUploadedAt  DateTime?
+  // Pago del patrocinio — importe tomado del precio del tipo asignado
+  // (lib/sponsor-tiers.ts) en el momento de marcarlo, no recalculado después
+  // si el precio del tipo cambia más tarde. No bloquea ninguna acción del
+  // pipeline (el admin sigue pudiendo generar/aprobar sin estar pagado); solo
+  // condiciona lo que ve el propio sponsor en su portal (ver
+  // GET /api/sponsors/portal/[sponsorId]) y se suma a los ingresos de la
+  // temporada en /admin/gastos.
+  isPaid                Boolean             @default(false)
+  paidAmount            Decimal?            @db.Decimal(10, 2)
+  paidAt                DateTime?
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
 

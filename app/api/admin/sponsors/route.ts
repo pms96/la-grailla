@@ -18,7 +18,7 @@ export async function GET() {
   try {
     const sponsors = await prisma.sponsorRequest.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { sponsor: { select: { id: true, status: true, invitationEmailStatus: true } } },
+      include: { sponsor: { select: { id: true, status: true, invitationEmailStatus: true, isPaid: true } } },
     });
     return NextResponse.json(sponsors ?? []);
   } catch (error) {

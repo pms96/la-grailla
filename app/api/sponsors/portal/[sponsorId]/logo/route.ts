@@ -58,10 +58,21 @@ export async function POST(request: Request, { params }: { params: { sponsorId: 
       },
     });
 
-    const nextStatus = nextStatusAfterEdit(sponsor.status, true, Boolean(sponsor.guidedAnswers));
+    // currentAsset es lo que se manda a Abacus.AI como imagen de referencia
+    // del logo — un vídeo o PDF subido después NUNCA debe reemplazarlo, o la
+    // generación por IA recibe una URL que no puede interpretar como imagen.
+    const isImage = body.fileType.startsWith('image/');
+    const allAssets = await prisma.sponsorAsset.findMany({ where: { sponsorId }, select: { fileType: true } });
+    const hasVideo = allAssets.some((a) => a.fileType.startsWith('video/'));
+
+    // Un vídeo de referencia cuenta como respuesta al prompt guiado — igual
+    // que en el portal público (ver hasSubmitted en sponsor-portal-client),
+    // sin esto un sponsor que solo sube vídeo se queda atascado en
+    // PENDIENTE_MATERIALES para siempre porque nunca rellena guidedAnswers.
+    const nextStatus = nextStatusAfterEdit(sponsor.status, true, Boolean(sponsor.guidedAnswers) || hasVideo);
     await prisma.sponsor.update({
       where: { id: sponsorId },
-      data: { currentAssetId: asset.id, status: nextStatus },
+      data: { ...(isImage ? { currentAssetId: asset.id } : {}), status: nextStatus },
     });
 
     return NextResponse.json({ asset, status: nextStatus });

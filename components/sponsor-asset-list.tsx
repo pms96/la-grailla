@@ -17,7 +17,7 @@ function formatDate(iso?: string): string | null {
 // nueva, ver comentario en el modelo SponsorAsset), así que aquí se ve el
 // historial completo, no solo el último archivo.
 export function SponsorAssetList({ assets }: { assets: SponsorAssetItem[] }) {
-  if (assets.length === 0) return null;
+  if (!assets?.length) return null;
 
   return (
     <div className="space-y-2">

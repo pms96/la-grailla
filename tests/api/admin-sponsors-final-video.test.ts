@@ -154,8 +154,18 @@ describe('POST/DELETE /api/admin/sponsors-portal/[id]/final-video (confirmación
     expect(portalData.finalVideo).toBeNull();
   });
 
-  it('el portal público expone el vídeo una vez aprobado', async () => {
-    const sponsor = await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'APROBADO_PARA_VIDEO' } });
+  // AUDIT: aprobado por sí solo no basta — el vídeo también se retiene hasta
+  // que el sponsor esté marcado como pagado (ver mark-paid/route.ts).
+  it('aprobado pero sin pagar: el portal sigue sin exponer el vídeo', async () => {
+    const sponsor = await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'APROBADO_PARA_VIDEO', isPaid: false } });
+    const token = signSponsorAccess(sponsorId, sponsor.portalTokenVersion);
+    const portalRes = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
+    const portalData = await portalRes.json();
+    expect(portalData.finalVideo).toBeNull();
+  });
+
+  it('el portal público expone el vídeo una vez aprobado y pagado', async () => {
+    const sponsor = await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'APROBADO_PARA_VIDEO', isPaid: true } });
     const token = signSponsorAccess(sponsorId, sponsor.portalTokenVersion);
     const portalRes = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
     const portalData = await portalRes.json();

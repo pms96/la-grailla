@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  Loader2, Sparkles, Check, X as XIcon, Mail, ExternalLink, ArrowLeft, Search, Handshake, Upload, Trash2, Film,
+  Loader2, Sparkles, Check, X as XIcon, Mail, ExternalLink, ArrowLeft, Search, Handshake, Upload, Trash2, Film, Wallet,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { upload } from '@vercel/blob/client';
@@ -21,7 +21,7 @@ import { CONSOLIDATED_STATUS_LABELS, CONSOLIDATED_STATUS_VARIANT, consolidatedSp
 import { SponsorInviteDelivery } from '../_components/sponsor-invite-delivery';
 import { SponsorAssetList } from '@/components/sponsor-asset-list';
 import { parseJsonSafe } from '@/lib/utils';
-import { type SponsorTier } from '@/lib/sponsor-tiers';
+import { findSponsorTier, type SponsorTier } from '@/lib/sponsor-tiers';
 
 const LEAD_STATUS_LABELS: Record<string, string> = {
   PENDING: 'Pendiente', CONTACTED: 'Contactado', ACCEPTED: 'Aceptado', REJECTED: 'Rechazado',
@@ -58,6 +58,9 @@ type SponsorPortal = {
   finalVideoFileName: string | null;
   finalVideoSize: number | null;
   finalVideoUploadedAt: string | null;
+  isPaid: boolean;
+  paidAmount: number | null;
+  paidAt: string | null;
 };
 
 type Detail = {
@@ -182,6 +185,9 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
 
   const markReady = async () => { if (await sponsorAction('ready', 'POST')) { toast.success('Marcado como listo para generar'); fetchDetail(); } };
   const generate = async () => { const r = await sponsorAction('generate', 'POST'); if (r?.success) { toast.success('Prompt generado'); fetchDetail(); } else fetchDetail(); };
+  const approveWithVideo = async () => { if (await sponsorAction('approve-with-video', 'POST')) { toast.success('Aprobado con el vídeo del sponsor'); fetchDetail(); } };
+  const markPaid = async () => { if (await sponsorAction('mark-paid', 'POST', { paid: true })) { toast.success('Marcado como pagado'); fetchDetail(); } };
+  const unmarkPaid = async () => { if (await sponsorAction('mark-paid', 'POST', { paid: false })) { toast.success('Marca de pago retirada'); fetchDetail(); } };
   const saveBrandContext = async () => { if (await sponsorAction('brand-context', 'PUT', { brandContext: brandContextDraft })) toast.success('Contexto de marca guardado'); };
   const savePrompt = async () => { if (await sponsorAction('prompt', 'PUT', promptDraft)) toast.success('Prompt guardado'); };
   const approve = async () => { if (await sponsorAction('approve', 'POST')) { toast.success('Aprobado para vídeo'); fetchDetail(); } };
@@ -260,6 +266,8 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
       </div>
     );
   }
+
+  const sponsorTierForPayment = findSponsorTier(tiers, detail.sponsorType);
 
   const consolidated = consolidatedSponsorStatus(detail);
   const sponsor = detail.sponsor;
@@ -365,6 +373,31 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
             )}
             <SponsorAssetList assets={sponsor.assets ?? []} />
 
+            <div className={`rounded-lg border p-3 flex items-center justify-between gap-3 flex-wrap ${sponsor.isPaid ? 'border-lima/40 bg-lima/5' : 'border-border'}`}>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Wallet className={`h-4 w-4 shrink-0 ${sponsor.isPaid ? 'text-lima' : 'text-muted-foreground'}`} />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{sponsor.isPaid ? 'Pagado' : 'Pago pendiente'}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {sponsor.isPaid
+                      ? `${(sponsor.paidAmount ?? 0).toFixed(2)}€ · ${sponsor.paidAt ? new Date(sponsor.paidAt).toLocaleDateString('es-ES') : ''}`
+                      : sponsorTierForPayment
+                        ? `Importe según su tipo: ${sponsorTierForPayment.priceLabel}`
+                        : 'Asigna el tipo de patrocinio para poder marcarlo como pagado'}
+                  </p>
+                </div>
+              </div>
+              {sponsor.isPaid ? (
+                <Button size="sm" variant="outline" disabled={busyGlobal} onClick={unmarkPaid}>
+                  {busy === 'mark-paid' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Desmarcar pago'}
+                </Button>
+              ) : (
+                <Button size="sm" disabled={busyGlobal || !sponsorTierForPayment} onClick={markPaid} className="gap-2">
+                  {busy === 'mark-paid' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Marcar como pagado
+                </Button>
+              )}
+            </div>
+
             <div className="rounded-lg border border-border p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium flex items-center gap-2"><Search className="h-3.5 w-3.5" /> Contexto de marca (investigación)</p>
@@ -383,9 +416,20 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
                 <Button size="sm" disabled={busyGlobal} onClick={markReady}>Marcar listo para generar</Button>
               )}
               {(sponsor.status === 'LISTO_PARA_GENERAR' || sponsor.status === 'PROMPT_GENERADO') && (
-                <Button size="sm" disabled={busyGlobal || sponsor.isGenerating || sponsor.generationCount >= sponsor.maxGenerations} onClick={generate} className="gap-2">
-                  {busy === 'generate' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Generar con Abacus.AI
-                </Button>
+                sponsor.currentAsset || sponsor.status === 'PROMPT_GENERADO' ? (
+                  <Button size="sm" disabled={busyGlobal || sponsor.isGenerating || sponsor.generationCount >= sponsor.maxGenerations} onClick={generate} className="gap-2">
+                    {busy === 'generate' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Generar con Abacus.AI
+                  </Button>
+                ) : (sponsor.assets ?? []).some((a) => a.fileType.startsWith('video/')) ? (
+                  // Sin ninguna imagen de logo, Abacus.AI no tiene nada que animar
+                  // (ver generate/route.ts) — si en cambio dieron un vídeo de
+                  // referencia, se usa directamente como vídeo final.
+                  <Button size="sm" variant="outline" disabled={busyGlobal} onClick={approveWithVideo} className="gap-2">
+                    {busy === 'approve-with-video' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Aprobar directamente con el vídeo del sponsor
+                  </Button>
+                ) : (
+                  <p className="text-xs text-muted-foreground self-center">Este sponsor todavía no ha subido ningún logo ni vídeo.</p>
+                )
               )}
               {sponsor.videoPrompt && sponsor.status !== 'APROBADO_PARA_VIDEO' && sponsor.status !== 'RECHAZADO' && (
                 <Button size="sm" variant="outline" disabled={busyGlobal} onClick={approve} className="gap-2">

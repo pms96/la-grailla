@@ -81,4 +81,47 @@ describe('GET /api/admin/gastos/resumen — Ingresos y Margen (Fase 3)', () => {
       await cleanupTestEvent(eventB.id);
     }
   });
+
+  // AUDIT: marcar un sponsor como pagado debía registrarse en algún sitio del
+  // resumen financiero de la temporada — antes ningún ingreso de sponsors se
+  // sumaba a ninguna cifra (ver mark-paid/route.ts).
+  it('suma el importe de los sponsors pagados de la temporada a ingresos y margen', async () => {
+    const request = await prisma.sponsorRequest.create({
+      data: {
+        companyName: '[TEST] Sponsor Resumen SL',
+        contactName: 'Test',
+        email: `sponsor-resumen-${Date.now()}@example.com`,
+        sponsorType: 'evento',
+        status: 'ACCEPTED',
+        temporadaId: temporada.id,
+      },
+    });
+    const sponsor = await prisma.sponsor.create({
+      data: { sponsorRequestId: request.id, isPaid: true, paidAmount: 45.5, paidAt: new Date() },
+    });
+    // Un sponsor de OTRA temporada (o sin temporada asignada) no debe sumar aquí.
+    const otherRequest = await prisma.sponsorRequest.create({
+      data: {
+        companyName: '[TEST] Sponsor Otra Temporada SL',
+        contactName: 'Test',
+        email: `sponsor-resumen-otra-${Date.now()}@example.com`,
+        sponsorType: 'evento',
+        status: 'ACCEPTED',
+      },
+    });
+    const otherSponsor = await prisma.sponsor.create({
+      data: { sponsorRequestId: otherRequest.id, isPaid: true, paidAmount: 999 },
+    });
+
+    try {
+      const res = await getResumen(new Request(`http://localhost?temporadaId=${temporada.id}`));
+      const data = await res.json();
+      expect(data.ingresosPatrocinio).toBe(45.5);
+      expect(data.ingresos).toBe(45.5);
+      expect(data.margen).toBe(45.5);
+    } finally {
+      await prisma.sponsor.deleteMany({ where: { id: { in: [sponsor.id, otherSponsor.id] } } });
+      await prisma.sponsorRequest.deleteMany({ where: { id: { in: [request.id, otherRequest.id] } } });
+    }
+  });
 });

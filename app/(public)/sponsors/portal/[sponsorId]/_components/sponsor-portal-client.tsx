@@ -11,7 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Upload, CheckCircle, Clapperboard, SearchX, Pencil, Sparkles, Clock, PartyPopper, Download, Building2 } from 'lucide-react';
+import { Loader2, Upload, CheckCircle, Clapperboard, SearchX, Pencil, Sparkles, Clock, PartyPopper, Download, Building2, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { upload } from '@vercel/blob/client';
 import { FadeIn } from '@/components/ui/animate';
@@ -78,8 +78,10 @@ function GuidedQuestionField({ question, value, onChange }: { question: GuidedQu
 }
 
 // Pasos tal como los ve el sponsor — LISTO_PARA_GENERAR es un detalle interno
-// del panel admin, de cara al sponsor sigue siendo "en revisión".
-const STEPS = ['Materiales', 'En revisión', 'Propuesta de vídeo', 'Aprobado'] as const;
+// del panel admin, de cara al sponsor sigue siendo "en revisión". El paso 3
+// ya no muestra el prompt de vídeo (herramienta interna) sino el estado del
+// pago — el vídeo final solo se revela en el paso 4 una vez pagado.
+const STEPS = ['Materiales', 'En revisión', 'Pago', 'Aprobado'] as const;
 function stepIndexFor(status: string): number {
   switch (status) {
     case 'PENDIENTE_MATERIALES': return 0;
@@ -104,7 +106,7 @@ type SponsorData = {
   freeText: string | null;
   currentAsset: { url: string; fileType: string; fileName: string } | null;
   assets: SponsorAssetItem[];
-  videoPrompt: { promptEs: string; promptEn: string; approvedAt: string | null } | null;
+  isPaid: boolean;
   sponsorRequest: {
     companyName: string;
     contactName: string;
@@ -156,9 +158,14 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [hasInitialized, setHasInitialized] = useState(false);
+  // El sponsor puede pedir igualmente el formulario de creatividad aunque ya
+  // haya un vídeo de referencia — por defecto se oculta (el vídeo ya dice
+  // cómo lo imagina), pero no se le bloquea si quiere matizarlo.
+  const [wantsPromptAnyway, setWantsPromptAnyway] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [freeText, setFreeText] = useState('');
   const [tiers, setTiers] = useState<SponsorTier[]>([]);
+  const [paymentPendingMessage, setPaymentPendingMessage] = useState('');
   const [datosForm, setDatosForm] = useState({ companyName: '', contactName: '', email: '', phone: '', website: '', message: '' });
   const [datosConsent, setDatosConsent] = useState(false);
   const [editingDatos, setEditingDatos] = useState(false);
@@ -171,7 +178,10 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
   useEffect(() => {
     fetch('/api/sponsors/tiers')
       .then((r) => r.json())
-      .then((d) => { if (Array.isArray(d?.tiers)) setTiers(d.tiers); })
+      .then((d) => {
+        if (Array.isArray(d?.tiers)) setTiers(d.tiers);
+        if (typeof d?.paymentPendingMessage === 'string') setPaymentPendingMessage(d.paymentPendingMessage);
+      })
       .catch(() => {});
   }, []);
 
@@ -195,8 +205,11 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
         });
         if (!hasInitialized) {
           // La primera vez: si ya hay materiales enviados, empieza colapsado
-          // en el resumen — si no, abierto directamente en el formulario.
-          setEditing(!(data?.assets?.length && data?.guidedAnswers));
+          // en el resumen — si no, abierto directamente en el formulario. Un
+          // vídeo de referencia cuenta como "completo" igual que el prompt
+          // guiado (ver hasSubmitted más abajo).
+          const initialHasVideo = Boolean(data?.assets?.some((a) => a.fileType?.startsWith('video/')));
+          setEditing(!(data?.assets?.length && (data?.guidedAnswers || initialHasVideo)));
           // Igual con los datos de contacto — si el admin dio de alta sin
           // email (o faltan datos básicos), se abre el formulario directamente.
           setEditingDatos(!(data?.sponsorRequest?.companyName && data?.sponsorRequest?.contactName && data?.sponsorRequest?.email));
@@ -330,7 +343,10 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
   }
 
   const isFinal = sponsor.status === 'APROBADO_PARA_VIDEO' || sponsor.status === 'RECHAZADO';
-  const hasSubmitted = Boolean(sponsor.assets?.length && sponsor.guidedAnswers);
+  // Un vídeo de referencia ya es la respuesta a "cómo lo imaginas" — no hace
+  // falta el prompt guiado para considerar los materiales completos.
+  const hasVideo = Boolean(sponsor.assets?.some((a) => a.fileType?.startsWith('video/')));
+  const hasSubmitted = Boolean(sponsor.assets?.length && (sponsor.guidedAnswers || hasVideo));
   const sponsorTier = findSponsorTier(tiers, sponsor.sponsorRequest?.sponsorType);
   const showForm = editing || !hasSubmitted;
   const hasCompleteDatos = Boolean(sponsor.sponsorRequest?.companyName && sponsor.sponsorRequest?.contactName && sponsor.sponsorRequest?.email);
@@ -340,8 +356,12 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
     PENDIENTE_MATERIALES: 'Sube tu logo y cuéntanos cómo lo imaginas para que podamos empezar.',
     PENDIENTE_REVISION: 'Recibido — nuestro equipo está revisando tus materiales. Puedes editarlos mientras tanto si cambias de idea.',
     LISTO_PARA_GENERAR: 'Tus materiales están revisados y en cola para generar la propuesta de vídeo.',
-    PROMPT_GENERADO: 'Ya tenemos una propuesta de vídeo lista — la puedes ver más abajo.',
-    APROBADO_PARA_VIDEO: 'Tu vídeo ha sido aprobado y está en producción. ¡Gracias por confiar en La Grailla!',
+    PROMPT_GENERADO: sponsor.isPaid
+      ? 'Pago confirmado — tu vídeo está en producción.'
+      : 'Ya estamos preparando tu vídeo — confirma el pago más abajo para poder enviártelo en cuanto esté listo.',
+    APROBADO_PARA_VIDEO: sponsor.isPaid
+      ? 'Tu vídeo ha sido aprobado y está en producción. ¡Gracias por confiar en La Grailla!'
+      : 'Tu vídeo está listo — confirma el pago más abajo para poder verlo.',
     RECHAZADO: 'Nos pondremos en contacto contigo sobre tu solicitud de patrocinio.',
   };
 
@@ -459,17 +479,26 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
           </Card>
         )}
 
-        {sponsor.videoPrompt && (
-          <Card>
-            <CardContent className="p-6 space-y-3">
+        {!sponsor.isPaid && (sponsor.status === 'PROMPT_GENERADO' || sponsor.status === 'APROBADO_PARA_VIDEO') && (
+          <Card className="border-primary/40">
+            <CardContent className="p-6 space-y-2">
               <div className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-primary" />
-                <h2 className="font-display font-bold text-lg">Propuesta de vídeo</h2>
-                <Badge variant={sponsor.videoPrompt.approvedAt ? 'default' : 'secondary'}>
-                  {sponsor.videoPrompt.approvedAt ? 'Aprobada' : 'Pendiente de aprobación final'}
-                </Badge>
+                <Wallet className="h-5 w-5 text-primary" />
+                <h2 className="font-display font-bold text-lg">Pago pendiente</h2>
               </div>
-              <p className="text-sm text-muted-foreground">{sponsor.videoPrompt.promptEs}</p>
+              <p className="text-sm text-muted-foreground">
+                {paymentPendingMessage || 'Antes de poder ver tu vídeo final necesitamos confirmar el pago de tu patrocinio. Contacta con nosotros para completarlo.'}
+                {sponsorTier && <> Importe: <strong className="text-foreground">{sponsorTier.priceLabel}</strong>.</>}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {sponsor.isPaid && sponsor.status === 'PROMPT_GENERADO' && (
+          <Card>
+            <CardContent className="p-6 flex items-center gap-3">
+              <Sparkles className="h-5 w-5 text-primary shrink-0" />
+              <p className="text-sm text-muted-foreground">Pago confirmado — tu vídeo está en producción, te avisaremos en cuanto esté listo.</p>
             </CardContent>
           </Card>
         )}
@@ -480,7 +509,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
               <div>
                 <p className="font-medium text-sm">Materiales enviados</p>
                 <p className="text-xs text-muted-foreground">
-                  {sponsor.assets.length} {sponsor.assets.length === 1 ? 'archivo' : 'archivos'}
+                  {sponsor.assets?.length ?? 0} {sponsor.assets?.length === 1 ? 'archivo' : 'archivos'}
                 </p>
               </div>
               <Button variant="outline" size="sm" className="gap-2 shrink-0" onClick={() => setEditing(true)}>
@@ -527,6 +556,19 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
               </CardContent>
             </Card>
 
+            {hasVideo && !wantsPromptAnyway ? (
+              <Card>
+                <CardContent className="p-6 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-sm">Cuéntanos cómo lo imaginas</p>
+                    <p className="text-xs text-muted-foreground">Nos has enviado un vídeo de referencia, así que no hace falta rellenar esto — lo usaremos directamente.</p>
+                  </div>
+                  <Button variant="outline" size="sm" className="shrink-0" onClick={() => setWantsPromptAnyway(true)}>
+                    Aun así quiero detallarlo
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
             <Card>
               <CardContent className="p-6 space-y-4">
                 <h2 className="font-display font-bold text-lg">Cuéntanos cómo lo imaginas</h2>
@@ -551,9 +593,13 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
                   {hasSubmitted && (
                     <Button variant="ghost" disabled={saving} onClick={() => setEditing(false)}>Cancelar</Button>
                   )}
+                  {hasVideo && (
+                    <Button variant="ghost" disabled={saving} onClick={() => setWantsPromptAnyway(false)}>Ocultar de nuevo</Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
+            )}
           </>
         )}
       </div>

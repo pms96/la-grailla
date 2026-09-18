@@ -5,6 +5,8 @@ import { DEFAULT_SPONSOR_TIERS } from '@/lib/sponsor-tiers';
 const CONFIG_DEFAULTS: Record<string, string> = {
   payment_gateway: 'mock',
   sponsor_tiers: JSON.stringify(DEFAULT_SPONSOR_TIERS),
+  sponsor_payment_pending_message:
+    'Antes de poder ver tu vídeo final necesitamos confirmar el pago de tu patrocinio. Contacta con nosotros para completarlo.',
   stripe_publishable_key: '',
   stripe_secret_key: '',
   stripe_webhook_secret: '',

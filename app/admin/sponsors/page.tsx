@@ -6,7 +6,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Handshake, Plus, Search } from 'lucide-react';
+import { Loader2, Handshake, Plus, Search, Wallet, Check } from 'lucide-react';
+import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { CONSOLIDATED_STATUS_LABELS, CONSOLIDATED_STATUS_VARIANT, consolidatedSponsorStatus, type ConsolidatedSponsorStatus } from '@/lib/sponsor-status';
@@ -22,7 +23,7 @@ type SponsorRow = {
   sponsorType: string | null;
   status: string;
   createdAt: string;
-  sponsor: { id: string; status: string; invitationEmailStatus: string | null } | null;
+  sponsor: { id: string; status: string; invitationEmailStatus: string | null; isPaid: boolean } | null;
 };
 
 export default function SponsorsAdminPage() {
@@ -32,6 +33,7 @@ export default function SponsorsAdminPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [createOpen, setCreateOpen] = useState(false);
   const [tiers, setTiers] = useState<SponsorTier[]>([]);
+  const [payingId, setPayingId] = useState<string | null>(null);
 
   const fetchSponsors = () => {
     fetch('/api/admin/sponsors')
@@ -48,6 +50,25 @@ export default function SponsorsAdminPage() {
       .then((d) => { if (Array.isArray(d?.tiers)) setTiers(d.tiers); })
       .catch(() => {});
   }, []);
+
+  const markPaidQuick = async (sponsorId: string) => {
+    setPayingId(sponsorId);
+    try {
+      const res = await fetch(`/api/admin/sponsors-portal/${sponsorId}/mark-paid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paid: true }),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.error) throw new Error(data?.error ?? 'Error');
+      toast.success('Marcado como pagado');
+      fetchSponsors();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error');
+    } finally {
+      setPayingId(null);
+    }
+  };
 
   const withStatus = sponsors.map((s) => ({ ...s, consolidated: consolidatedSponsorStatus(s), tier: findSponsorTier(tiers, s.sponsorType) }));
   const filtered = withStatus.filter((s) => {
@@ -115,6 +136,21 @@ export default function SponsorsAdminPage() {
                     <StatusBadge<ConsolidatedSponsorStatus> status={s.consolidated} labels={CONSOLIDATED_STATUS_LABELS} variants={CONSOLIDATED_STATUS_VARIANT} />
                     {s.sponsor?.invitationEmailStatus === 'FAILED' && (
                       <span className="text-xs text-destructive">⚠️ Invitación no enviada</span>
+                    )}
+                    {s.sponsor && (
+                      s.sponsor.isPaid ? (
+                        <span className="text-xs text-lima flex items-center gap-1"><Wallet className="h-3 w-3" /> Pagado</span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-xs gap-1"
+                          disabled={payingId === s.sponsor.id || !s.tier}
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (s.sponsor) markPaidQuick(s.sponsor.id); }}
+                        >
+                          {payingId === s.sponsor.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} Marcar pagado
+                        </Button>
+                      )
                     )}
                   </div>
                 </CardContent>

@@ -254,3 +254,77 @@ describe('varios archivos coexisten (no se reemplazan)', () => {
     expect(fileNames).toEqual(['logo.png', 'referencia.mp4']);
   });
 });
+
+// AUDIT: currentAsset es lo que se manda a Abacus.AI como imagen del logo
+// (ver generate/route.ts) — un vídeo subido después de la imagen no debe
+// reemplazarlo, o la generación por IA recibe una URL que no es una imagen y
+// falla con 502. Severidad: Alto.
+describe('currentAsset solo se actualiza con imágenes', () => {
+  let sponsorRequestId: string;
+  let sponsorId: string;
+  let token: string;
+
+  beforeAll(async () => {
+    const request = await prisma.sponsorRequest.create({
+      data: {
+        companyName: 'Solo Imagen SL',
+        contactName: 'Titular Imagen',
+        email: 'sponsor-current-asset-test@example.com',
+        sponsorType: 'evento',
+        status: 'ACCEPTED',
+      },
+    });
+    sponsorRequestId = request.id;
+    const sponsor = await prisma.sponsor.create({ data: { sponsorRequestId } });
+    sponsorId = sponsor.id;
+    token = signSponsorAccess(sponsorId, sponsor.portalTokenVersion);
+  });
+
+  afterAll(async () => {
+    await prisma.sponsorAsset.deleteMany({ where: { sponsorId } });
+    await prisma.sponsor.deleteMany({ where: { id: sponsorId } });
+    await prisma.sponsorRequest.deleteMany({ where: { id: sponsorRequestId } });
+  });
+
+  it('un vídeo subido tras la imagen no reemplaza currentAsset', async () => {
+    await uploadLogo(
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
+      { params: { sponsorId } }
+    );
+    await uploadLogo(
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/referencia.mp4`, fileName: 'referencia.mp4', fileType: 'video/mp4', fileSize: 200 }),
+      { params: { sponsorId } }
+    );
+
+    const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId }, include: { currentAsset: true } });
+    expect(sponsor?.currentAsset?.fileName).toBe('logo.png');
+  });
+
+  it('un sponsor que solo sube vídeo se queda sin currentAsset pero avanza de estado', async () => {
+    const request = await prisma.sponsorRequest.create({
+      data: {
+        companyName: 'Solo Vídeo SL',
+        contactName: 'Titular Vídeo',
+        email: 'sponsor-video-only-test@example.com',
+        sponsorType: 'evento',
+        status: 'ACCEPTED',
+      },
+    });
+    const sponsor = await prisma.sponsor.create({ data: { sponsorRequestId: request.id } });
+    const videoToken = signSponsorAccess(sponsor.id, sponsor.portalTokenVersion);
+
+    const res = await uploadLogo(
+      confirmRequest(`http://localhost?t=${videoToken}`, { url: `https://blob.test/sponsors/${sponsor.id}/referencia.mp4`, fileName: 'referencia.mp4', fileType: 'video/mp4', fileSize: 200 }),
+      { params: { sponsorId: sponsor.id } }
+    );
+    expect(res.status).toBe(200);
+
+    const updated = await prisma.sponsor.findUnique({ where: { id: sponsor.id } });
+    expect(updated?.currentAssetId).toBeNull();
+    expect(updated?.status).toBe('PENDIENTE_REVISION');
+
+    await prisma.sponsorAsset.deleteMany({ where: { sponsorId: sponsor.id } });
+    await prisma.sponsor.deleteMany({ where: { id: sponsor.id } });
+    await prisma.sponsorRequest.deleteMany({ where: { id: request.id } });
+  });
+});

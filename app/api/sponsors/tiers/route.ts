@@ -10,8 +10,12 @@ import { handleApiError } from '@/lib/api-error';
 // tipos/precios de patrocinio.
 export async function GET() {
   try {
-    const tiers = parseSponsorTiers(await getConfig('sponsor_tiers'));
-    return NextResponse.json({ tiers });
+    const [tiersRaw, paymentPendingMessage] = await Promise.all([
+      getConfig('sponsor_tiers'),
+      getConfig('sponsor_payment_pending_message'),
+    ]);
+    const tiers = parseSponsorTiers(tiersRaw);
+    return NextResponse.json({ tiers, paymentPendingMessage });
   } catch (error) {
     return handleApiError(error, 'GET /api/sponsors/tiers');
   }
