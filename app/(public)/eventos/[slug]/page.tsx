@@ -1,6 +1,7 @@
 import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import { hasEventEnded } from '@/lib/active-event';
+import { getEventDemandLevel } from '@/lib/ticket-availability';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -62,7 +63,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
   const dateStr = event?.date
     ? new Date(event.date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
     : '';
-  const spotsLeft = (event?.maxCapacity ?? 0) - (event?.currentCount ?? 0);
+  const demand = getEventDemandLevel(event?.maxCapacity ?? 0, event?.currentCount ?? 0);
   const mapQuery =
     event?.latitude != null && event?.longitude != null
       ? `${event.latitude},${event.longitude}`
@@ -75,7 +76,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
   const anyTicketsLeft = activeTypes.some(
     (tt) => (tt?.maxQuantity ?? 0) - (tt?.soldCount ?? 0) > 0
   );
-  const soldOut = spotsLeft <= 0 || !anyTicketsLeft || activeTypes.length === 0;
+  const soldOut = demand === 'sold_out' || !anyTicketsLeft || activeTypes.length === 0;
   const eventEnded = hasEventEnded(event?.date);
 
   const ticketsCard = (
@@ -86,7 +87,13 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
         </h2>
         <p className="text-sm text-muted-foreground mb-4 flex items-center gap-1">
           <Users className="h-3.5 w-3.5" />
-          {eventEnded ? 'Evento finalizado' : spotsLeft > 0 ? `${spotsLeft} plazas disponibles` : 'Sin plazas online'}
+          {eventEnded
+            ? 'Evento finalizado'
+            : demand === 'sold_out'
+            ? 'Sin plazas online'
+            : demand === 'high'
+            ? <span className="text-warm-yellow font-medium">Alta demanda</span>
+            : 'Plazas disponibles'}
         </p>
         <div className="space-y-3">
           {activeTypes.map((tt) => {

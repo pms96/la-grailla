@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
 import { EVENT_GRACE_PERIOD_MS } from '@/lib/active-event';
+import { getEventDemandLevel } from '@/lib/ticket-availability';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -154,10 +155,7 @@ function EventMeta({ event }: { event: EventWithTicketTypes }) {
       })
     : '';
   const minPrice = event?.ticketTypes?.[0]?.price;
-  const spotsLeft = (event?.maxCapacity ?? 0) - (event?.currentCount ?? 0);
-  const showUrgency = spotsLeft > 0 && spotsLeft <= 50 && (event?.maxCapacity ?? 0) > 0
-    ? spotsLeft / (event.maxCapacity ?? 1) <= 0.2
-    : false;
+  const demand = getEventDemandLevel(event?.maxCapacity ?? 0, event?.currentCount ?? 0);
 
   return (
     <div className="space-y-2 text-sm text-muted-foreground">
@@ -168,16 +166,12 @@ function EventMeta({ event }: { event: EventWithTicketTypes }) {
       <p className="flex items-center gap-1.5">
         <MapPin className="h-3.5 w-3.5" /> {event?.venue ?? ''}, {event?.city ?? ''}
       </p>
-      {spotsLeft > 0 ? (
-        <p className="text-xs">
-          {showUrgency ? (
-            <span className="text-warm-yellow font-medium">Quedan {spotsLeft} plazas</span>
-          ) : (
-            <span>{spotsLeft} plazas disponibles</span>
-          )}
-        </p>
-      ) : (
+      {demand === 'sold_out' ? (
         <p className="text-xs text-destructive font-medium">Sin plazas online</p>
+      ) : demand === 'high' ? (
+        <p className="text-xs text-warm-yellow font-medium">Alta demanda</p>
+      ) : (
+        <p className="text-xs">Plazas disponibles</p>
       )}
       {minPrice != null && (
         <Badge variant="secondary" className="text-primary mt-1">
@@ -189,9 +183,7 @@ function EventMeta({ event }: { event: EventWithTicketTypes }) {
 }
 
 function EventCard({ event }: { event: EventWithTicketTypes }) {
-  const spotsLeft = (event?.maxCapacity ?? 0) - (event?.currentCount ?? 0);
-  const capacity = event?.maxCapacity ?? 0;
-  const showUrgency = capacity > 0 && spotsLeft > 0 && spotsLeft / capacity <= 0.2;
+  const demand = getEventDemandLevel(event?.maxCapacity ?? 0, event?.currentCount ?? 0);
 
   return (
     <Link href={`/eventos/${event?.slug ?? ''}`}>
@@ -209,12 +201,12 @@ function EventCard({ event }: { event: EventWithTicketTypes }) {
           ) : (
             <Music className="h-14 w-14 text-primary/30" />
           )}
-          {showUrgency && (
+          {demand === 'high' && (
             <Badge
               variant="outline"
               className="absolute top-3 right-3 text-xs border-warm-yellow/60 text-warm-yellow bg-warm-yellow/10"
             >
-              Quedan {spotsLeft} plazas
+              Alta demanda
             </Badge>
           )}
         </div>
