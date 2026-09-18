@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-  Loader2, Mail, Search, Ticket, X, Ban, RotateCcw, ExternalLink, Download,
+  Loader2, Mail, Search, Ticket, X, Ban, RotateCcw, ExternalLink, Download, ShieldCheck, BadgeEuro,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
@@ -146,10 +146,20 @@ export default function VentasPage() {
     }
   };
 
-  const runAction = async (orderId: string, action: 'cancel' | 'refund') => {
-    const label = action === 'refund' ? 'reembolsar' : 'cancelar';
-    if (!confirm(`¿Seguro que quieres ${label} este pedido? Se anularán las entradas y se liberará el aforo.`)) {
-      return;
+  const runAction = async (orderId: string, action: 'cancel' | 'refund' | 'verify' | 'complete') => {
+    if (action === 'cancel' || action === 'refund') {
+      const label = action === 'refund' ? 'reembolsar' : 'cancelar';
+      if (!confirm(`¿Seguro que quieres ${label} este pedido? Se anularán las entradas y se liberará el aforo.`)) {
+        return;
+      }
+    } else if (action === 'complete') {
+      if (
+        !confirm(
+          '¿Confirmas que has comprobado el cobro fuera de la app (extracto bancario, panel de Stripe/SumUp...) y quieres marcar este pedido como pagado SIN verificarlo automáticamente?\n\nSe generarán las entradas y se enviará el email de confirmación al comprador.'
+        )
+      ) {
+        return;
+      }
     }
     setActionLoading(action);
     try {
@@ -161,7 +171,13 @@ export default function VentasPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? 'Error');
       setDetail(data);
-      toast.success(action === 'refund' ? 'Pedido reembolsado' : 'Pedido cancelado');
+      const successLabel = {
+        refund: 'Pedido reembolsado',
+        cancel: 'Pedido cancelado',
+        verify: 'Pago confirmado — entradas generadas y enviadas',
+        complete: 'Pedido marcado como pagado — entradas generadas y enviadas',
+      }[action];
+      toast.success(successLabel);
       fetchOrders();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'No se pudo completar la acción');
@@ -172,6 +188,8 @@ export default function VentasPage() {
 
   const canInvalidate = detail?.status === 'COMPLETED' || detail?.status === 'PENDING';
   const canRefund = detail?.status === 'COMPLETED';
+  const canVerifyPayment =
+    detail?.status === 'PENDING' && Boolean(detail?.paymentProvider) && Boolean(detail?.paymentId) && detail?.paymentProvider !== 'mock';
 
   const handleExport = async () => {
     setExporting(true);
@@ -348,6 +366,12 @@ export default function VentasPage() {
                     {detail.paymentMethod}
                     {detail.paymentProvider ? ` · ${detail.paymentProvider}` : ''}
                   </p>
+                  {detail.status === 'PENDING' && (
+                    <p className="font-mono text-xs break-all">
+                      <span className="text-muted-foreground font-sans">Payment ID:</span>{' '}
+                      {detail.paymentId || 'sin guardar — no se puede verificar automáticamente'}
+                    </p>
+                  )}
                   {detail.emailSentAt && (
                     <p>
                       <span className="text-muted-foreground">Email:</span>{' '}
@@ -387,6 +411,35 @@ export default function VentasPage() {
                 </div>
 
                 <div className="flex flex-col gap-2 pt-1">
+                  {detail.status === 'PENDING' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 text-primary border-primary/40"
+                      disabled={actionLoading !== null || !canVerifyPayment}
+                      onClick={() => runAction(detail.id, 'verify')}
+                      title={canVerifyPayment ? undefined : 'Este pedido no tiene un pago asociado en la pasarela'}
+                    >
+                      {actionLoading === 'verify'
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : <ShieldCheck className="h-4 w-4" />}
+                      Verificar pago
+                    </Button>
+                  )}
+                  {detail.status === 'PENDING' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 text-warm-yellow border-warm-yellow/50"
+                      disabled={actionLoading !== null}
+                      onClick={() => runAction(detail.id, 'complete')}
+                    >
+                      {actionLoading === 'complete'
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : <BadgeEuro className="h-4 w-4" />}
+                      Marcar como pagado
+                    </Button>
+                  )}
                   {detail.status === 'COMPLETED' && (
                     <Button
                       variant="outline"
