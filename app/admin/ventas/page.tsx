@@ -8,8 +8,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
-  Loader2, Mail, Search, Ticket, X, Ban, RotateCcw, ExternalLink, Download, ShieldCheck, BadgeEuro,
+  Loader2, Mail, Search, Ticket, X, Ban, RotateCcw, ExternalLink, Download, ShieldCheck, BadgeEuro, Pencil,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
@@ -66,6 +67,9 @@ export default function VentasPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [emailDraft, setEmailDraft] = useState('');
+  const [savingEmail, setSavingEmail] = useState(false);
 
   const fetchOrders = useCallback(() => {
     setLoading(true);
@@ -143,6 +147,39 @@ export default function VentasPage() {
       toast.error(e instanceof Error ? e.message : 'No se pudieron reenviar');
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const openEmailDialog = () => {
+    if (!detail) return;
+    setEmailDraft(detail.buyerEmail);
+    setEmailDialogOpen(true);
+  };
+
+  const saveEmail = async () => {
+    if (!detail) return;
+    const email = emailDraft.trim();
+    if (!email) {
+      toast.error('Introduce un email');
+      return;
+    }
+    setSavingEmail(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${detail.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update-email', email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? 'Error');
+      setDetail(data);
+      setEmailDialogOpen(false);
+      toast.success('Email actualizado — usa "Reenviar entradas" para mandarlas a la nueva dirección');
+      fetchOrders();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo actualizar el email');
+    } finally {
+      setSavingEmail(false);
     }
   };
 
@@ -335,7 +372,18 @@ export default function VentasPage() {
                     <p className="font-medium">
                       {detail.buyerName} {detail.buyerLastName}
                     </p>
-                    <p className="text-xs text-muted-foreground break-all">{detail.buyerEmail}</p>
+                    <p className="text-xs text-muted-foreground break-all flex items-center gap-1.5">
+                      {detail.buyerEmail}
+                      <button
+                        type="button"
+                        onClick={openEmailDialog}
+                        className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                        aria-label="Editar email"
+                        title="Editar email"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    </p>
                     <p className="text-xs text-muted-foreground font-mono mt-1">
                       {detail.id.slice(0, 12).toUpperCase()}…
                     </p>
@@ -495,6 +543,35 @@ export default function VentasPage() {
           )}
         </div>
       </div>
+
+      <Dialog open={emailDialogOpen} onOpenChange={setEmailDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar email del comprador</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input
+              type="email"
+              value={emailDraft}
+              onChange={(e) => setEmailDraft(e.target.value)}
+              placeholder="correo@ejemplo.com"
+            />
+            <p className="text-xs text-muted-foreground">
+              Corrige el email si el comprador se equivocó al escribirlo. Después usa &ldquo;Reenviar
+              entradas&rdquo; para mandarlas a la dirección corregida.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEmailDialogOpen(false)} disabled={savingEmail}>
+              Cancelar
+            </Button>
+            <Button onClick={saveEmail} disabled={savingEmail} className="gap-2">
+              {savingEmail && <Loader2 className="h-4 w-4 animate-spin" />}
+              Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

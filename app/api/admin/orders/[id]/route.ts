@@ -11,7 +11,8 @@ import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
 
 const updateOrderSchema = z.object({
-  action: z.enum(['cancel', 'refund', 'verify', 'complete']),
+  action: z.enum(['cancel', 'refund', 'verify', 'complete', 'update-email']),
+  email: z.string().trim().email().optional(),
 });
 
 const orderInclude = {
@@ -106,6 +107,15 @@ export async function PATCH(
         return NextResponse.json({ error: 'Este pedido ya no está pendiente' }, { status: 422 });
       }
       await completeOrder(params?.id, getBaseUrl(request));
+    } else if (body.action === 'update-email') {
+      if (!body.email) {
+        return NextResponse.json({ error: 'Introduce un email válido' }, { status: 422 });
+      }
+      const existing = await prisma.order.findUnique({ where: { id: params?.id } });
+      if (!existing) {
+        return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
+      }
+      await prisma.order.update({ where: { id: params?.id }, data: { buyerEmail: body.email } });
     }
 
     const order = await prisma.order.findUnique({

@@ -23,6 +23,8 @@ const updateEventSchema = z.object({
   conditions: z.string().optional().nullable(),
   minorAuthorizationEnabled: z.boolean().optional(),
   minorAuthorizationText: z.string().optional().nullable(),
+  ageWarningEnabled: z.boolean().optional(),
+  ageWarningMessage: z.string().optional().nullable(),
   maxCapacity: z.number().optional(),
   maxTicketsPerEmail: z.union([z.number(), z.string(), z.null()]).optional(),
   waitingRoomEnabled: z.boolean().optional(),
@@ -71,6 +73,8 @@ export async function PUT(
         conditions: body?.conditions,
         minorAuthorizationEnabled: body?.minorAuthorizationEnabled,
         minorAuthorizationText: body?.minorAuthorizationText,
+        ageWarningEnabled: body?.ageWarningEnabled,
+        ageWarningMessage: body?.ageWarningMessage,
         maxCapacity: body?.maxCapacity,
         maxTicketsPerEmail: body?.maxTicketsPerEmail === undefined
           ? undefined

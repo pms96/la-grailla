@@ -2,6 +2,7 @@ import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import { hasEventEnded } from '@/lib/active-event';
 import { getEventDemandLevel } from '@/lib/ticket-availability';
+import { getEventAgeWarningMessage } from '@/lib/age-warning';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -10,6 +11,7 @@ import { Calendar, MapPin, Clock, Users, ShieldCheck, Ticket, AlertTriangle, Mus
 import { FadeIn, SlideIn } from '@/components/ui/animate';
 import { Container } from '@/components/layouts/container';
 import { MobileBuyBar } from './_components/mobile-buy-bar';
+import { AgeWarningGate } from './_components/age-warning-gate';
 import { ReloadButton } from '@/components/reload-button';
 
 export const revalidate = 60;
@@ -78,6 +80,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
   );
   const soldOut = demand === 'sold_out' || !anyTicketsLeft || activeTypes.length === 0;
   const eventEnded = hasEventEnded(event?.date);
+  const ageWarningMessage = getEventAgeWarningMessage(event ?? { ageWarningEnabled: false });
 
   const ticketsCard = (
     <Card id="entradas">
@@ -118,14 +121,16 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
           })}
         </div>
         {!soldOut && !eventEnded && (
-          <Link href={`/eventos/${event?.slug ?? ''}/comprar`} className="hidden lg:block">
-            <Button
-              className="w-full mt-4 gap-2 font-display font-semibold rounded-full shadow-lg shadow-primary/25"
+          <div className="hidden lg:block">
+            <AgeWarningGate
+              href={`/eventos/${event?.slug ?? ''}/comprar`}
+              warningMessage={ageWarningMessage}
               size="lg"
+              className="w-full mt-4 gap-2 font-display font-semibold rounded-full shadow-lg shadow-primary/25"
             >
               <Ticket className="h-5 w-5" /> Comprar entradas
-            </Button>
-          </Link>
+            </AgeWarningGate>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -301,6 +306,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
         minPrice={minPrice}
         soldOut={soldOut}
         ended={eventEnded}
+        ageWarningMessage={ageWarningMessage}
       />
     </>
   );

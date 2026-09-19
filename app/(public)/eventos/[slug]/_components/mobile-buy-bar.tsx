@@ -3,15 +3,17 @@
 import Link from 'next/link';
 import { Ticket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { AgeWarningGate } from './age-warning-gate';
 
 interface MobileBuyBarProps {
   slug: string;
   minPrice: number | null;
   soldOut: boolean;
   ended?: boolean;
+  ageWarningMessage?: string | null;
 }
 
-export function MobileBuyBar({ slug, minPrice, soldOut, ended = false }: MobileBuyBarProps) {
+export function MobileBuyBar({ slug, minPrice, soldOut, ended = false, ageWarningMessage = null }: MobileBuyBarProps) {
   const disabled = soldOut || ended;
   return (
     <div
@@ -45,15 +47,17 @@ export function MobileBuyBar({ slug, minPrice, soldOut, ended = false }: MobileB
                 {minPrice != null ? `${minPrice.toFixed(2)}€` : '—'}
               </p>
             </div>
-            <Link href={`/eventos/${slug}/comprar`} className="shrink-0">
-              <Button
+            <div className="shrink-0">
+              <AgeWarningGate
+                href={`/eventos/${slug}/comprar`}
+                warningMessage={ageWarningMessage}
                 size="lg"
                 className="gap-2 font-display font-semibold rounded-full shadow-lg shadow-primary/25 h-12 px-6"
               >
                 <Ticket className="h-5 w-5" />
                 Comprar
-              </Button>
-            </Link>
+              </AgeWarningGate>
+            </div>
           </>
         )}
       </div>

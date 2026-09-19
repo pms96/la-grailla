@@ -46,6 +46,8 @@ function sampleOrder() {
       conditions: null,
       minorAuthorizationEnabled: false,
       minorAuthorizationText: null,
+      ageWarningEnabled: false,
+      ageWarningMessage: null,
       maxCapacity: 100,
       currentCount: 0,
       maxTicketsPerEmail: null,

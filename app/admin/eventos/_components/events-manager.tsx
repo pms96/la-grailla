@@ -36,6 +36,8 @@ type EventFormState = {
   conditions: string;
   minorAuthorizationEnabled: boolean;
   minorAuthorizationText: string;
+  ageWarningEnabled: boolean;
+  ageWarningMessage: string;
   maxCapacity: number;
   maxTicketsPerEmail: number | string;
   waitingRoomEnabled: boolean;
@@ -83,7 +85,7 @@ export default function EventsManager() {
 
   const openCreate = () => {
     setEditingEvent(null);
-    setForm({ name: '', description: '', venue: '', city: '', address: '', artists: '', date: '', doorsOpen: '', endTime: '', minAge: 18, conditions: '', minorAuthorizationEnabled: false, minorAuthorizationText: '', maxCapacity: 500, maxTicketsPerEmail: '', waitingRoomEnabled: false, waitingRoomConcurrentSlots: '', waitingRoomPurchaseWindowMinutes: '', waitingRoomMessage: '', status: 'DRAFT', latitude: '', longitude: '', imageUrl: '', temporadaId: null });
+    setForm({ name: '', description: '', venue: '', city: '', address: '', artists: '', date: '', doorsOpen: '', endTime: '', minAge: 18, conditions: '', minorAuthorizationEnabled: false, minorAuthorizationText: '', ageWarningEnabled: false, ageWarningMessage: '', maxCapacity: 500, maxTicketsPerEmail: '', waitingRoomEnabled: false, waitingRoomConcurrentSlots: '', waitingRoomPurchaseWindowMinutes: '', waitingRoomMessage: '', status: 'DRAFT', latitude: '', longitude: '', imageUrl: '', temporadaId: null });
     setDialogOpen(true);
   };
 
@@ -103,6 +105,8 @@ export default function EventsManager() {
       conditions: event?.conditions ?? '',
       minorAuthorizationEnabled: event?.minorAuthorizationEnabled ?? false,
       minorAuthorizationText: event?.minorAuthorizationText ?? '',
+      ageWarningEnabled: event?.ageWarningEnabled ?? false,
+      ageWarningMessage: event?.ageWarningMessage ?? '',
       maxCapacity: event?.maxCapacity ?? 500,
       maxTicketsPerEmail: event?.maxTicketsPerEmail ?? '',
       waitingRoomEnabled: event?.waitingRoomEnabled ?? false,
@@ -371,6 +375,36 @@ export default function EventsManager() {
                       del menor y del tutor con líneas en blanco para rellenar a mano, y el pie &ldquo;Entregar en
                       taquilla&rdquo; con espacio para el lugar, la fecha y la firma.
                     </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4 rounded-lg border border-border p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-warm-yellow" />
+                    <Label className="font-semibold">Aviso de edad mínima al comprar</Label>
+                  </div>
+                  <Switch
+                    checked={form?.ageWarningEnabled ?? false}
+                    onCheckedChange={(v: boolean) => updateField('ageWarningEnabled', v)}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground -mt-2">
+                  Actívalo para mostrar un aviso que el comprador debe confirmar antes de pasar a elegir entradas
+                  (botón &ldquo;Comprar entradas&rdquo;, tanto en escritorio como en móvil). Si dejas el mensaje en
+                  blanco, se genera uno automático a partir de la edad mínima de arriba.
+                </p>
+                {form?.ageWarningEnabled && (
+                  <div className="space-y-1.5 pt-2 border-t border-border">
+                    <Label>Mensaje personalizado (opcional)</Label>
+                    <Textarea
+                      value={form?.ageWarningMessage ?? ''}
+                      onChange={handleChange('ageWarningMessage')}
+                      className="mt-1"
+                      rows={3}
+                      placeholder={`No se permite la entrada a personas menores de ${form?.minAge ?? 18} años. Asegúrate de cumplir la edad mínima antes de comprar tu entrada — no se realizarán devoluciones por este motivo.`}
+                    />
                   </div>
                 )}
               </div>

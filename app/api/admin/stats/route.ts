@@ -26,9 +26,14 @@ export async function GET(request: Request) {
       ...(eventId ? { eventId } : {}),
       ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
     };
+    // Mismo rango de fechas que orderWhere — si no, "Entradas vendidas" podía
+    // incluir entradas de fuera del rango seleccionado mientras que
+    // ingresos/nº de pedidos sí lo respetaban, dando cifras inconsistentes
+    // entre sí en la misma pantalla.
     const ticketWhere = {
       status: { notIn: ['CANCELLED', 'REFUNDED'] as ('CANCELLED' | 'REFUNDED')[] },
       ...(eventId ? { eventId } : {}),
+      ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
     };
 
     const [
