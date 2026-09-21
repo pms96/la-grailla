@@ -6,7 +6,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Handshake, Plus, Search, Wallet, Check } from 'lucide-react';
+import { Loader2, Handshake, Plus, Search, Wallet, Check, ChevronDown } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -23,7 +26,7 @@ type SponsorRow = {
   sponsorType: string | null;
   status: string;
   createdAt: string;
-  sponsor: { id: string; status: string; invitationEmailStatus: string | null; isPaid: boolean } | null;
+  sponsor: { id: string; status: string; invitationEmailStatus: string | null; isPaid: boolean; isCollaboration: boolean } | null;
 };
 
 export default function SponsorsAdminPage() {
@@ -51,17 +54,17 @@ export default function SponsorsAdminPage() {
       .catch(() => {});
   }, []);
 
-  const markPaidQuick = async (sponsorId: string) => {
+  const markPaymentQuick = async (sponsorId: string, mode: 'paid' | 'collaboration') => {
     setPayingId(sponsorId);
     try {
       const res = await fetch(`/api/admin/sponsors-portal/${sponsorId}/mark-paid`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paid: true }),
+        body: JSON.stringify({ mode }),
       });
       const data = await res.json();
       if (!res.ok || data?.error) throw new Error(data?.error ?? 'Error');
-      toast.success('Marcado como pagado');
+      toast.success(mode === 'collaboration' ? 'Marcado como colaboración' : 'Marcado como pagado');
       fetchSponsors();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error');
@@ -139,17 +142,29 @@ export default function SponsorsAdminPage() {
                     )}
                     {s.sponsor && (
                       s.sponsor.isPaid ? (
-                        <span className="text-xs text-lima flex items-center gap-1"><Wallet className="h-3 w-3" /> Pagado</span>
+                        s.sponsor.isCollaboration ? (
+                          <span className="text-xs text-lima flex items-center gap-1"><Handshake className="h-3 w-3" /> Colaboración</span>
+                        ) : (
+                          <span className="text-xs text-lima flex items-center gap-1"><Wallet className="h-3 w-3" /> Pagado</span>
+                        )
                       ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 px-2 text-xs gap-1"
-                          disabled={payingId === s.sponsor.id || !s.tier}
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (s.sponsor) markPaidQuick(s.sponsor.id); }}
-                        >
-                          {payingId === s.sponsor.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} Marcar pagado
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-xs gap-1"
+                              disabled={payingId === s.sponsor.id || !s.tier}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                            >
+                              {payingId === s.sponsor.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} Marcar pago <ChevronDown className="h-3 w-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenuItem onSelect={() => s.sponsor && markPaymentQuick(s.sponsor.id, 'paid')}>Pagado</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => s.sponsor && markPaymentQuick(s.sponsor.id, 'collaboration')}>Colaboración</DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       )
                     )}
                   </div>

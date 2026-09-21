@@ -56,7 +56,7 @@ describe('POST /api/admin/sponsors-portal/[id]/mark-paid', () => {
 
   it('rechaza a quien no es admin', async () => {
     sessionRole = null;
-    const res = await markPaid(postRequest({ paid: true }), { params: { id: sponsorId } });
+    const res = await markPaid(postRequest({ mode: 'paid' }), { params: { id: sponsorId } });
     expect(res.status).toBe(401);
     sessionRole = 'ADMIN';
   });
@@ -71,17 +71,18 @@ describe('POST /api/admin/sponsors-portal/[id]/mark-paid', () => {
       },
     });
     const sponsor = await prisma.sponsor.create({ data: { sponsorRequestId: request.id } });
-    const res = await markPaid(postRequest({ paid: true }), { params: { id: sponsor.id } });
+    const res = await markPaid(postRequest({ mode: 'paid' }), { params: { id: sponsor.id } });
     expect(res.status).toBe(400);
     await prisma.sponsor.deleteMany({ where: { id: sponsor.id } });
     await prisma.sponsorRequest.deleteMany({ where: { id: request.id } });
   });
 
   it('marca como pagado tomando el importe del tipo de patrocinio asignado', async () => {
-    const res = await markPaid(postRequest({ paid: true }), { params: { id: sponsorId } });
+    const res = await markPaid(postRequest({ mode: 'paid' }), { params: { id: sponsorId } });
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.isPaid).toBe(true);
+    expect(data.isCollaboration).toBe(false);
     expect(data.paidAmount).toBe(30);
     expect(data.paidAt).toBeTruthy();
   });
@@ -92,11 +93,34 @@ describe('POST /api/admin/sponsors-portal/[id]/mark-paid', () => {
   });
 
   it('se puede desmarcar el pago', async () => {
-    const res = await markPaid(postRequest({ paid: false }), { params: { id: sponsorId } });
+    const res = await markPaid(postRequest({ mode: 'unpaid' }), { params: { id: sponsorId } });
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.isPaid).toBe(false);
+    expect(data.isCollaboration).toBe(false);
     expect(data.paidAmount).toBeNull();
     expect(data.paidAt).toBeNull();
+  });
+
+  // AUDIT: una aportación en especie (producto/servicio en vez de dinero) no
+  // tenía forma de registrarse — el admin solo podía marcarla como "pagado"
+  // igual que un pago real, lo que inflaba ingresosPatrocinio en
+  // /admin/gastos con dinero que nunca entró en la cuenta.
+  it('marca como colaboración: desbloquea el portal (isPaid) pero queda distinguida de un pago real', async () => {
+    const res = await markPaid(postRequest({ mode: 'collaboration' }), { params: { id: sponsorId } });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.isPaid).toBe(true);
+    expect(data.isCollaboration).toBe(true);
+    expect(data.paidAmount).toBe(30);
+    expect(data.paidAt).toBeTruthy();
+  });
+
+  it('desmarcar limpia también isCollaboration', async () => {
+    const res = await markPaid(postRequest({ mode: 'unpaid' }), { params: { id: sponsorId } });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.isPaid).toBe(false);
+    expect(data.isCollaboration).toBe(false);
   });
 });

@@ -9,7 +9,7 @@ import { handleApiError } from '@/lib/api-error';
 import { getConfig } from '@/lib/config';
 import { findSponsorTier, parseSponsorTiers } from '@/lib/sponsor-tiers';
 
-const bodySchema = z.object({ paid: z.boolean() });
+const bodySchema = z.object({ mode: z.enum(['unpaid', 'paid', 'collaboration']) });
 
 // Marcar/desmarcar el pago no bloquea ni exige ningún estado del pipeline —
 // el admin puede generar/aprobar el vídeo igual esté pagado o no (eso solo
@@ -17,6 +17,11 @@ const bodySchema = z.object({ paid: z.boolean() });
 // /api/sponsors/portal/[sponsorId]). El importe se toma del precio del tipo
 // de patrocinio asignado EN ESTE MOMENTO — si el precio del tipo cambia
 // después en /admin/configuracion, el importe ya registrado no se recalcula.
+//
+// 'collaboration' es el mismo desbloqueo que 'paid' (isPaid: true — el
+// sponsor no tiene ningún pago pendiente) pero marcado con isCollaboration
+// para que /admin/gastos lo excluya de ingresosPatrocinio: fue una
+// aportación en especie, no dinero real cobrado.
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') {
@@ -26,10 +31,10 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const sponsorId = params?.id;
     const body = bodySchema.parse(await request.json());
 
-    if (!body.paid) {
+    if (body.mode === 'unpaid') {
       const updated = await prisma.sponsor.update({
         where: { id: sponsorId },
-        data: { isPaid: false, paidAmount: null, paidAt: null },
+        data: { isPaid: false, isCollaboration: false, paidAmount: null, paidAt: null },
       });
       return NextResponse.json(updated);
     }
@@ -49,7 +54,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     const updated = await prisma.sponsor.update({
       where: { id: sponsorId },
-      data: { isPaid: true, paidAmount: tier.priceAmount, paidAt: new Date() },
+      data: { isPaid: true, isCollaboration: body.mode === 'collaboration', paidAmount: tier.priceAmount, paidAt: new Date() },
     });
     return NextResponse.json(updated);
   } catch (error) {

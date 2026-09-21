@@ -124,4 +124,46 @@ describe('GET /api/admin/gastos/resumen — Ingresos y Margen (Fase 3)', () => {
       await prisma.sponsorRequest.deleteMany({ where: { id: { in: [request.id, otherRequest.id] } } });
     }
   });
+
+  // AUDIT: los sponsors marcados como "colaboración" (aportación en especie)
+  // se sumaban a ingresosPatrocinio igual que un pago real — inflaba los
+  // ingresos de la temporada con dinero que nunca entró en la cuenta.
+  it('excluye los sponsors marcados como colaboración de ingresosPatrocinio', async () => {
+    const paidRequest = await prisma.sponsorRequest.create({
+      data: {
+        companyName: '[TEST] Sponsor Pagado SL',
+        contactName: 'Test',
+        email: `sponsor-colab-pagado-${Date.now()}@example.com`,
+        sponsorType: 'evento',
+        status: 'ACCEPTED',
+        temporadaId: temporada.id,
+      },
+    });
+    const paidSponsor = await prisma.sponsor.create({
+      data: { sponsorRequestId: paidRequest.id, isPaid: true, isCollaboration: false, paidAmount: 30, paidAt: new Date() },
+    });
+    const collabRequest = await prisma.sponsorRequest.create({
+      data: {
+        companyName: '[TEST] Sponsor Colaboración SL',
+        contactName: 'Test',
+        email: `sponsor-colab-${Date.now()}@example.com`,
+        sponsorType: 'evento',
+        status: 'ACCEPTED',
+        temporadaId: temporada.id,
+      },
+    });
+    const collabSponsor = await prisma.sponsor.create({
+      data: { sponsorRequestId: collabRequest.id, isPaid: true, isCollaboration: true, paidAmount: 200, paidAt: new Date() },
+    });
+
+    try {
+      const res = await getResumen(new Request(`http://localhost?temporadaId=${temporada.id}`));
+      const data = await res.json();
+      // Solo cuenta el pagado de verdad (30€) — la colaboración (200€) no se contabiliza.
+      expect(data.ingresosPatrocinio).toBe(30);
+    } finally {
+      await prisma.sponsor.deleteMany({ where: { id: { in: [paidSponsor.id, collabSponsor.id] } } });
+      await prisma.sponsorRequest.deleteMany({ where: { id: { in: [paidRequest.id, collabRequest.id] } } });
+    }
+  });
 });

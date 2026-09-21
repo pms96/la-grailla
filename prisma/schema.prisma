@@ -464,6 +464,13 @@ model Sponsor {
   // GET /api/sponsors/portal/[sponsorId]) y se suma a los ingresos de la
   // temporada en /admin/gastos.
   isPaid                Boolean             @default(false)
+  // true cuando el patrocinio se saldó como aportación en especie (producto,
+  // servicio...) en vez de dinero — isPaid sigue en true (desbloquea el
+  // portal igual que un pago real, ver GET /api/sponsors/portal/[sponsorId]),
+  // pero /admin/gastos excluye estos importes de ingresosPatrocinio: no ha
+  // entrado dinero real en la cuenta. paidAmount aquí es el valor estimado
+  // de la colaboración, solo para referencia interna.
+  isCollaboration       Boolean             @default(false)
   paidAmount            Decimal?            @db.Decimal(10, 2)
   paidAt                DateTime?
   createdAt             DateTime            @default(now())

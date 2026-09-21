@@ -44,8 +44,10 @@ export async function GET(request: Request) {
       // Ingreso por patrocinio de la temporada: sponsors marcados como pagados
       // cuya SponsorRequest está asignada a esta temporada (ver
       // mark-paid/route.ts) — independiente de si hay eventos enlazados.
+      // isCollaboration: false excluye las aportaciones en especie: no ha
+      // entrado dinero real, así que no deben contabilizarse como ingreso.
       prisma.sponsor.aggregate({
-        where: { isPaid: true, sponsorRequest: { temporadaId } },
+        where: { isPaid: true, isCollaboration: false, sponsorRequest: { temporadaId } },
         _sum: { paidAmount: true },
       }),
     ]);
