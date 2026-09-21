@@ -140,6 +140,14 @@ model Event {
   minorAuthorizationText           String?            @db.Text
   ageWarningEnabled                Boolean            @default(false)
   ageWarningMessage                String?            @db.Text
+  // Cierra la venta ONLINE de este evento (web) sin tocar su status ni su
+  // visibilidad en /eventos — sigue publicado y listado, pero la web muestra
+  // "Solo en taquilla" en vez del botón de compra y /comprar bloquea el
+  // checkout (ver app/api/orders/route.ts). No afecta a /api/taquilla/sale:
+  // el personal en taquilla sigue vendiendo con normalidad, independiente de
+  // este flag — está pensado justo para ese caso (evento con aforo real
+  // disponible, pero se prefiere vender solo en persona el día del evento).
+  onlineSalesClosed                Boolean            @default(false)
   maxCapacity                      Int                @default(500)
   currentCount                     Int                @default(0)
   maxTicketsPerEmail               Int?

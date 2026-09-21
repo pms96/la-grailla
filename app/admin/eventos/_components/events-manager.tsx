@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
-import { Plus, Pencil, Trash2, Loader2, Calendar, Hourglass, ShoppingCart, Archive, ArchiveRestore, ShieldCheck } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, Calendar, Hourglass, ShoppingCart, Archive, ArchiveRestore, ShieldCheck, MonitorOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
@@ -38,6 +38,7 @@ type EventFormState = {
   minorAuthorizationText: string;
   ageWarningEnabled: boolean;
   ageWarningMessage: string;
+  onlineSalesClosed: boolean;
   maxCapacity: number;
   maxTicketsPerEmail: number | string;
   waitingRoomEnabled: boolean;
@@ -85,7 +86,7 @@ export default function EventsManager() {
 
   const openCreate = () => {
     setEditingEvent(null);
-    setForm({ name: '', description: '', venue: '', city: '', address: '', artists: '', date: '', doorsOpen: '', endTime: '', minAge: 18, conditions: '', minorAuthorizationEnabled: false, minorAuthorizationText: '', ageWarningEnabled: false, ageWarningMessage: '', maxCapacity: 500, maxTicketsPerEmail: '', waitingRoomEnabled: false, waitingRoomConcurrentSlots: '', waitingRoomPurchaseWindowMinutes: '', waitingRoomMessage: '', status: 'DRAFT', latitude: '', longitude: '', imageUrl: '', temporadaId: null });
+    setForm({ name: '', description: '', venue: '', city: '', address: '', artists: '', date: '', doorsOpen: '', endTime: '', minAge: 18, conditions: '', minorAuthorizationEnabled: false, minorAuthorizationText: '', ageWarningEnabled: false, ageWarningMessage: '', onlineSalesClosed: false, maxCapacity: 500, maxTicketsPerEmail: '', waitingRoomEnabled: false, waitingRoomConcurrentSlots: '', waitingRoomPurchaseWindowMinutes: '', waitingRoomMessage: '', status: 'DRAFT', latitude: '', longitude: '', imageUrl: '', temporadaId: null });
     setDialogOpen(true);
   };
 
@@ -107,6 +108,7 @@ export default function EventsManager() {
       minorAuthorizationText: event?.minorAuthorizationText ?? '',
       ageWarningEnabled: event?.ageWarningEnabled ?? false,
       ageWarningMessage: event?.ageWarningMessage ?? '',
+      onlineSalesClosed: event?.onlineSalesClosed ?? false,
       maxCapacity: event?.maxCapacity ?? 500,
       maxTicketsPerEmail: event?.maxTicketsPerEmail ?? '',
       waitingRoomEnabled: event?.waitingRoomEnabled ?? false,
@@ -407,6 +409,25 @@ export default function EventsManager() {
                     />
                   </div>
                 )}
+              </div>
+
+              <div className="space-y-4 rounded-lg border border-border p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <MonitorOff className="h-4 w-4 text-warm-yellow" />
+                    <Label className="font-semibold">Cerrar venta online</Label>
+                  </div>
+                  <Switch
+                    checked={form?.onlineSalesClosed ?? false}
+                    onCheckedChange={(v: boolean) => updateField('onlineSalesClosed', v)}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground -mt-2">
+                  El evento sigue publicado y visible en /eventos, pero la web muestra &ldquo;Solo en
+                  taquilla&rdquo; en vez del botón de compra y no se puede pagar online. El personal en taquilla
+                  sigue vendiendo con normalidad — útil para reservar las últimas entradas a la venta en persona
+                  el día del evento.
+                </p>
               </div>
 
               <Button onClick={handleSave} disabled={saving} className="w-full">

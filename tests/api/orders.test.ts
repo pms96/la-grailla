@@ -374,4 +374,36 @@ describe('POST /api/orders', () => {
       await cleanupTestEvent(smallEvent.id);
     }
   });
+
+  // AUDIT: onlineSalesClosed permite dejar un evento publicado (visible en
+  // /eventos) pero cerrado a compra online, para venderlo solo en taquilla —
+  // este endpoint es justo el que hay que bloquear server-side, no solo
+  // ocultar el botón en la web, para que nadie se lo salte llamando a la API.
+  it('rechaza el pedido si el evento tiene la venta online cerrada (solo taquilla)', async () => {
+    const taquillaOnlyEvent = await createTestEvent({ onlineSalesClosed: true });
+    const ticketType = await createTicketType(taquillaOnlyEvent.id, { maxQuantity: 10 });
+
+    try {
+      const res = await createOrder(
+        orderRequest(
+          {
+            eventId: taquillaOnlyEvent.id,
+            buyerName: 'Ana',
+            buyerLastName: 'García',
+            buyerEmail: 'ana@example.com',
+            items: [{ ticketTypeId: ticketType.id, quantity: 1 }],
+          },
+          '203.0.113.6'
+        )
+      );
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toMatch(/cerradas/i);
+
+      const orders = await prisma.order.findMany({ where: { eventId: taquillaOnlyEvent.id } });
+      expect(orders).toHaveLength(0);
+    } finally {
+      await cleanupTestEvent(taquillaOnlyEvent.id);
+    }
+  });
 });

@@ -81,4 +81,35 @@ describe('POST /api/taquilla/sale', () => {
     const ticketCount = await prisma.ticket.count({ where: { orderId: data1.orderId } });
     expect(ticketCount).toBe(1);
   });
+
+  // AUDIT: onlineSalesClosed solo debe cerrar la compra ONLINE (ver
+  // app/api/orders/route.ts) — la venta en taquilla tiene que seguir
+  // funcionando con normalidad, es justo el caso de uso que motiva el flag
+  // (aforo real disponible, pero solo se vende en persona el día del evento).
+  it('sigue vendiendo con normalidad aunque el evento tenga la venta online cerrada', async () => {
+    const closedEvent = await createTestEvent({ onlineSalesClosed: true });
+    const closedTicketType = await createTicketType(closedEvent.id, { maxQuantity: 10 });
+
+    try {
+      const res = await taquillaSale(
+        saleRequest({
+          eventId: closedEvent.id,
+          buyerName: 'Venta',
+          buyerLastName: 'Presencial',
+          buyerEmail: '',
+          items: [{ ticketTypeId: closedTicketType.id, quantity: 1 }],
+          paymentMethod: 'cash',
+        })
+      );
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+
+      const order = await prisma.order.findUnique({ where: { id: data.orderId } });
+      expect(order?.channel).toBe('TAQUILLA');
+      expect(order?.status).toBe('COMPLETED');
+    } finally {
+      await cleanupTestEvent(closedEvent.id);
+    }
+  });
 });

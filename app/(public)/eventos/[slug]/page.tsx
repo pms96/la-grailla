@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, MapPin, Clock, Users, ShieldCheck, Ticket, AlertTriangle, Music } from 'lucide-react';
+import { Calendar, MapPin, Clock, Users, ShieldCheck, Ticket, AlertTriangle, Music, Store } from 'lucide-react';
 import { FadeIn, SlideIn } from '@/components/ui/animate';
 import { Container } from '@/components/layouts/container';
 import { MobileBuyBar } from './_components/mobile-buy-bar';
@@ -79,6 +79,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
     (tt) => (tt?.maxQuantity ?? 0) - (tt?.soldCount ?? 0) > 0
   );
   const soldOut = demand === 'sold_out' || !anyTicketsLeft || activeTypes.length === 0;
+  const taquillaOnly = Boolean(event?.onlineSalesClosed);
   const eventEnded = hasEventEnded(event?.date);
   const ageWarningMessage = getEventAgeWarningMessage(event ?? { ageWarningEnabled: false });
 
@@ -92,6 +93,8 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
           <Users className="h-3.5 w-3.5" />
           {eventEnded
             ? 'Evento finalizado'
+            : taquillaOnly
+            ? <span className="text-warm-yellow font-medium">Solo en taquilla</span>
             : demand === 'sold_out'
             ? 'Sin plazas online'
             : demand === 'high'
@@ -120,7 +123,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
             );
           })}
         </div>
-        {!soldOut && !eventEnded && (
+        {!soldOut && !taquillaOnly && !eventEnded && (
           <div className="hidden lg:block">
             <AgeWarningGate
               href={`/eventos/${event?.slug ?? ''}/comprar`}
@@ -130,6 +133,12 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
             >
               <Ticket className="h-5 w-5" /> Comprar entradas
             </AgeWarningGate>
+          </div>
+        )}
+        {taquillaOnly && !eventEnded && (
+          <div className="hidden lg:flex items-start gap-2 mt-4 rounded-lg border border-warm-yellow/30 bg-warm-yellow/5 p-3 text-sm text-muted-foreground">
+            <Store className="h-4 w-4 text-warm-yellow shrink-0 mt-0.5" />
+            <span>Entradas online cerradas para este evento — cómpralas en taquilla el día del evento.</span>
           </div>
         )}
       </CardContent>
@@ -305,6 +314,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
         slug={event?.slug ?? ''}
         minPrice={minPrice}
         soldOut={soldOut}
+        taquillaOnly={taquillaOnly}
         ended={eventEnded}
         ageWarningMessage={ageWarningMessage}
       />

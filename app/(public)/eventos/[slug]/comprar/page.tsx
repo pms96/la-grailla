@@ -24,6 +24,26 @@ export default async function ComprarPage({ params }: { params: { slug: string }
 
   if (!event || event?.status !== 'PUBLISHED') notFound();
 
+  // Bloqueo server-side, no solo de UI — cualquiera con el enlace directo
+  // (guardado antes de cerrarse, o compartido) debe ver esto en vez del
+  // formulario de compra. app/api/orders/route.ts rechaza igual la creación
+  // del pedido si alguien se salta esta pantalla llamando a la API a mano.
+  if (event.onlineSalesClosed) {
+    return (
+      <Container size="md">
+        <div className="py-20 text-center space-y-4">
+          <p className="font-display text-xl font-bold tracking-tight">Entradas solo en taquilla</p>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            Las entradas online para {event.name} están cerradas — cómpralas en taquilla el día del evento.
+          </p>
+          <Button asChild>
+            <Link href="/eventos">Ver programación</Link>
+          </Button>
+        </div>
+      </Container>
+    );
+  }
+
   if (hasEventEnded(event.date)) {
     return (
       <Container size="md">

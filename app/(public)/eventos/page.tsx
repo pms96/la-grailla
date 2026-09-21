@@ -166,7 +166,9 @@ function EventMeta({ event }: { event: EventWithTicketTypes }) {
       <p className="flex items-center gap-1.5">
         <MapPin className="h-3.5 w-3.5" /> {event?.venue ?? ''}, {event?.city ?? ''}
       </p>
-      {demand === 'sold_out' ? (
+      {event?.onlineSalesClosed ? (
+        <p className="text-xs text-warm-yellow font-medium">Solo en taquilla</p>
+      ) : demand === 'sold_out' ? (
         <p className="text-xs text-destructive font-medium">Sin plazas online</p>
       ) : demand === 'high' ? (
         <p className="text-xs text-warm-yellow font-medium">Alta demanda</p>
@@ -201,14 +203,21 @@ function EventCard({ event }: { event: EventWithTicketTypes }) {
           ) : (
             <Music className="h-14 w-14 text-primary/30" />
           )}
-          {demand === 'high' && (
+          {event?.onlineSalesClosed ? (
+            <Badge
+              variant="outline"
+              className="absolute top-3 right-3 text-xs border-warm-yellow/60 text-warm-yellow bg-warm-yellow/10"
+            >
+              Solo en taquilla
+            </Badge>
+          ) : demand === 'high' ? (
             <Badge
               variant="outline"
               className="absolute top-3 right-3 text-xs border-warm-yellow/60 text-warm-yellow bg-warm-yellow/10"
             >
               Alta demanda
             </Badge>
-          )}
+          ) : null}
         </div>
         <CardContent className="p-5">
           <h3 className="font-display font-bold text-lg mb-2 group-hover:text-primary transition-colors">

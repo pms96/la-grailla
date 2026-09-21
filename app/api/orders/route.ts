@@ -98,6 +98,13 @@ export async function POST(request: Request) {
     if (!event || event.status !== 'PUBLISHED') {
       return NextResponse.json({ error: 'Evento no disponible' }, { status: 400 });
     }
+    // Venta online cerrada a propósito (evento "solo en taquilla") — no
+    // depende solo de que la web oculte el botón de compra, para que nadie
+    // pueda saltárselo llamando directamente a este endpoint. No afecta a
+    // /api/taquilla/sale, que es donde el personal sigue vendiendo en persona.
+    if (event.onlineSalesClosed) {
+      return NextResponse.json({ error: 'Las entradas online para este evento están cerradas' }, { status: 400 });
+    }
     if (hasEventEnded(event.date)) {
       return NextResponse.json({ error: 'Este evento ya ha finalizado' }, { status: 400 });
     }
