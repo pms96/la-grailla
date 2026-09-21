@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
 import { EVENT_GRACE_PERIOD_MS } from '@/lib/active-event';
 import { getEventDemandLevel } from '@/lib/ticket-availability';
+import { getOnlineSalesClosedLabel } from '@/lib/online-sales-closed';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -167,7 +168,7 @@ function EventMeta({ event }: { event: EventWithTicketTypes }) {
         <MapPin className="h-3.5 w-3.5" /> {event?.venue ?? ''}, {event?.city ?? ''}
       </p>
       {event?.onlineSalesClosed ? (
-        <p className="text-xs text-warm-yellow font-medium">Solo en taquilla</p>
+        <p className="text-xs text-warm-yellow font-medium">{getOnlineSalesClosedLabel(event)}</p>
       ) : demand === 'sold_out' ? (
         <p className="text-xs text-destructive font-medium">Sin plazas online</p>
       ) : demand === 'high' ? (
@@ -208,7 +209,7 @@ function EventCard({ event }: { event: EventWithTicketTypes }) {
               variant="outline"
               className="absolute top-3 right-3 text-xs border-warm-yellow/60 text-warm-yellow bg-warm-yellow/10"
             >
-              Solo en taquilla
+              {getOnlineSalesClosedLabel(event)}
             </Badge>
           ) : demand === 'high' ? (
             <Badge

@@ -148,6 +148,11 @@ model Event {
   // este flag — está pensado justo para ese caso (evento con aforo real
   // disponible, pero se prefiere vender solo en persona el día del evento).
   onlineSalesClosed                Boolean            @default(false)
+  // Copys personalizables para el modo anterior — null/vacío usa el texto
+  // por defecto (ver lib/online-sales-closed.ts). Label = etiqueta corta
+  // (badge, barra fija móvil); Message = texto largo explicativo.
+  onlineSalesClosedLabel           String?
+  onlineSalesClosedMessage         String?            @db.Text
   maxCapacity                      Int                @default(500)
   currentCount                     Int                @default(0)
   maxTicketsPerEmail               Int?

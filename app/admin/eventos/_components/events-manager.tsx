@@ -19,6 +19,7 @@ import { ConfirmDeleteDialog } from '@/app/admin/_components/confirm-delete-dial
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 import { hasEventEnded } from '@/lib/active-event';
 import { DEFAULT_MINOR_AUTHORIZATION_TEXT } from '@/lib/minor-authorization-text';
+import { DEFAULT_ONLINE_SALES_CLOSED_LABEL, DEFAULT_ONLINE_SALES_CLOSED_MESSAGE } from '@/lib/online-sales-closed';
 
 type EventWithCount = Event & { _count?: { tickets: number }; temporada?: { id: string; nombre: string } | null };
 
@@ -39,6 +40,8 @@ type EventFormState = {
   ageWarningEnabled: boolean;
   ageWarningMessage: string;
   onlineSalesClosed: boolean;
+  onlineSalesClosedLabel: string;
+  onlineSalesClosedMessage: string;
   maxCapacity: number;
   maxTicketsPerEmail: number | string;
   waitingRoomEnabled: boolean;
@@ -86,7 +89,7 @@ export default function EventsManager() {
 
   const openCreate = () => {
     setEditingEvent(null);
-    setForm({ name: '', description: '', venue: '', city: '', address: '', artists: '', date: '', doorsOpen: '', endTime: '', minAge: 18, conditions: '', minorAuthorizationEnabled: false, minorAuthorizationText: '', ageWarningEnabled: false, ageWarningMessage: '', onlineSalesClosed: false, maxCapacity: 500, maxTicketsPerEmail: '', waitingRoomEnabled: false, waitingRoomConcurrentSlots: '', waitingRoomPurchaseWindowMinutes: '', waitingRoomMessage: '', status: 'DRAFT', latitude: '', longitude: '', imageUrl: '', temporadaId: null });
+    setForm({ name: '', description: '', venue: '', city: '', address: '', artists: '', date: '', doorsOpen: '', endTime: '', minAge: 18, conditions: '', minorAuthorizationEnabled: false, minorAuthorizationText: '', ageWarningEnabled: false, ageWarningMessage: '', onlineSalesClosed: false, onlineSalesClosedLabel: '', onlineSalesClosedMessage: '', maxCapacity: 500, maxTicketsPerEmail: '', waitingRoomEnabled: false, waitingRoomConcurrentSlots: '', waitingRoomPurchaseWindowMinutes: '', waitingRoomMessage: '', status: 'DRAFT', latitude: '', longitude: '', imageUrl: '', temporadaId: null });
     setDialogOpen(true);
   };
 
@@ -109,6 +112,8 @@ export default function EventsManager() {
       ageWarningEnabled: event?.ageWarningEnabled ?? false,
       ageWarningMessage: event?.ageWarningMessage ?? '',
       onlineSalesClosed: event?.onlineSalesClosed ?? false,
+      onlineSalesClosedLabel: event?.onlineSalesClosedLabel ?? '',
+      onlineSalesClosedMessage: event?.onlineSalesClosedMessage ?? '',
       maxCapacity: event?.maxCapacity ?? 500,
       maxTicketsPerEmail: event?.maxTicketsPerEmail ?? '',
       waitingRoomEnabled: event?.waitingRoomEnabled ?? false,
@@ -428,6 +433,35 @@ export default function EventsManager() {
                   sigue vendiendo con normalidad — útil para reservar las últimas entradas a la venta en persona
                   el día del evento.
                 </p>
+                {form?.onlineSalesClosed && (
+                  <div className="space-y-3 pt-2 border-t border-border">
+                    <div className="space-y-1.5">
+                      <Label>Etiqueta corta (opcional)</Label>
+                      <Input
+                        value={form?.onlineSalesClosedLabel ?? ''}
+                        onChange={handleChange('onlineSalesClosedLabel')}
+                        className="mt-1"
+                        maxLength={40}
+                        placeholder={DEFAULT_ONLINE_SALES_CLOSED_LABEL}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Se usa en espacios reducidos: la tarjeta del listado, la ficha del evento y la barra de
+                        compra en móvil. Máx. 40 caracteres.
+                      </p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Mensaje explicativo (opcional)</Label>
+                      <Textarea
+                        value={form?.onlineSalesClosedMessage ?? ''}
+                        onChange={handleChange('onlineSalesClosedMessage')}
+                        className="mt-1"
+                        rows={3}
+                        maxLength={500}
+                        placeholder={DEFAULT_ONLINE_SALES_CLOSED_MESSAGE}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <Button onClick={handleSave} disabled={saving} className="w-full">

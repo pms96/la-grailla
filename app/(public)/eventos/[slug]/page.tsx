@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { hasEventEnded } from '@/lib/active-event';
 import { getEventDemandLevel } from '@/lib/ticket-availability';
 import { getEventAgeWarningMessage } from '@/lib/age-warning';
+import { getOnlineSalesClosedLabel, getOnlineSalesClosedMessage } from '@/lib/online-sales-closed';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -80,6 +81,8 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
   );
   const soldOut = demand === 'sold_out' || !anyTicketsLeft || activeTypes.length === 0;
   const taquillaOnly = Boolean(event?.onlineSalesClosed);
+  const taquillaOnlyLabel = getOnlineSalesClosedLabel(event ?? { onlineSalesClosed: false });
+  const taquillaOnlyMessage = getOnlineSalesClosedMessage(event ?? { onlineSalesClosed: false });
   const eventEnded = hasEventEnded(event?.date);
   const ageWarningMessage = getEventAgeWarningMessage(event ?? { ageWarningEnabled: false });
 
@@ -94,7 +97,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
           {eventEnded
             ? 'Evento finalizado'
             : taquillaOnly
-            ? <span className="text-warm-yellow font-medium">Solo en taquilla</span>
+            ? <span className="text-warm-yellow font-medium">{taquillaOnlyLabel}</span>
             : demand === 'sold_out'
             ? 'Sin plazas online'
             : demand === 'high'
@@ -138,7 +141,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
         {taquillaOnly && !eventEnded && (
           <div className="hidden lg:flex items-start gap-2 mt-4 rounded-lg border border-warm-yellow/30 bg-warm-yellow/5 p-3 text-sm text-muted-foreground">
             <Store className="h-4 w-4 text-warm-yellow shrink-0 mt-0.5" />
-            <span>Entradas online cerradas para este evento — cómpralas en taquilla el día del evento.</span>
+            <span>{taquillaOnlyMessage}</span>
           </div>
         )}
       </CardContent>
@@ -315,6 +318,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
         minPrice={minPrice}
         soldOut={soldOut}
         taquillaOnly={taquillaOnly}
+        taquillaOnlyLabel={taquillaOnlyLabel}
         ended={eventEnded}
         ageWarningMessage={ageWarningMessage}
       />

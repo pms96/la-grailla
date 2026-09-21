@@ -26,6 +26,8 @@ const updateEventSchema = z.object({
   ageWarningEnabled: z.boolean().optional(),
   ageWarningMessage: z.string().optional().nullable(),
   onlineSalesClosed: z.boolean().optional(),
+  onlineSalesClosedLabel: z.string().max(40).optional().nullable(),
+  onlineSalesClosedMessage: z.string().max(500).optional().nullable(),
   maxCapacity: z.number().optional(),
   maxTicketsPerEmail: z.union([z.number(), z.string(), z.null()]).optional(),
   waitingRoomEnabled: z.boolean().optional(),
@@ -77,6 +79,8 @@ export async function PUT(
         ageWarningEnabled: body?.ageWarningEnabled,
         ageWarningMessage: body?.ageWarningMessage,
         onlineSalesClosed: body?.onlineSalesClosed,
+        onlineSalesClosedLabel: body?.onlineSalesClosedLabel,
+        onlineSalesClosedMessage: body?.onlineSalesClosedMessage,
         maxCapacity: body?.maxCapacity,
         maxTicketsPerEmail: body?.maxTicketsPerEmail === undefined
           ? undefined

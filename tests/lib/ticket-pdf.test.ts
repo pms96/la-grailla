@@ -49,6 +49,8 @@ function sampleOrder() {
       ageWarningEnabled: false,
       ageWarningMessage: null,
       onlineSalesClosed: false,
+      onlineSalesClosedLabel: null,
+      onlineSalesClosedMessage: null,
       maxCapacity: 100,
       currentCount: 0,
       maxTicketsPerEmail: null,

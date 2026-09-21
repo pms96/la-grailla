@@ -5,6 +5,7 @@ import { Container } from '@/components/layouts/container';
 import { Button } from '@/components/ui/button';
 import { hasEventEnded } from '@/lib/active-event';
 import { getConfig } from '@/lib/config';
+import { getOnlineSalesClosedLabel, getOnlineSalesClosedMessage } from '@/lib/online-sales-closed';
 import WaitingRoomGate from './_components/waiting-room-gate';
 
 export const dynamic = 'force-dynamic';
@@ -32,10 +33,8 @@ export default async function ComprarPage({ params }: { params: { slug: string }
     return (
       <Container size="md">
         <div className="py-20 text-center space-y-4">
-          <p className="font-display text-xl font-bold tracking-tight">Entradas solo en taquilla</p>
-          <p className="text-sm text-muted-foreground max-w-md mx-auto">
-            Las entradas online para {event.name} están cerradas — cómpralas en taquilla el día del evento.
-          </p>
+          <p className="font-display text-xl font-bold tracking-tight">{getOnlineSalesClosedLabel(event)}</p>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">{getOnlineSalesClosedMessage(event)}</p>
           <Button asChild>
             <Link href="/eventos">Ver programación</Link>
           </Button>
