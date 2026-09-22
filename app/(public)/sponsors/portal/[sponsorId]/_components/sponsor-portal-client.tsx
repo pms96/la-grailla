@@ -155,6 +155,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [hasInitialized, setHasInitialized] = useState(false);
@@ -268,6 +269,22 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
       toast.error(e instanceof Error ? e.message : 'Error al subir el archivo');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const deleteAsset = async (assetId: string) => {
+    if (!confirm('¿Eliminar este archivo? No se puede deshacer.')) return;
+    setDeletingAssetId(assetId);
+    try {
+      const res = await fetch(`/api/sponsors/portal/${sponsorId}/assets/${assetId}${tokenQs}`, { method: 'DELETE' });
+      const data = await parseJsonSafe(res);
+      if (!res.ok) throw new Error(data?.error ?? 'No se pudo eliminar el archivo');
+      toast.success('Archivo eliminado');
+      fetchSponsor();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo eliminar el archivo');
+    } finally {
+      setDeletingAssetId(null);
     }
   };
 
@@ -536,7 +553,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
                   </p>
                 </div>
 
-                <SponsorAssetList assets={sponsor.assets} />
+                <SponsorAssetList assets={sponsor.assets} onDelete={deleteAsset} deletingId={deletingAssetId} />
 
                 <input
                   ref={fileInputRef}

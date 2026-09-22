@@ -90,6 +90,7 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
   const [promptDraft, setPromptDraft] = useState({ promptEs: '', promptEn: '' });
   const [brandContextDraft, setBrandContextDraft] = useState('');
   const [uploadingFinalVideo, setUploadingFinalVideo] = useState(false);
+  const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
   const [tiers, setTiers] = useState<SponsorTier[]>([]);
   const finalVideoInputRef = useRef<HTMLInputElement>(null);
 
@@ -242,6 +243,22 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
     }
   };
 
+  const deleteAsset = async (assetId: string) => {
+    if (!detail?.sponsor) return;
+    if (!confirm('¿Eliminar esta imagen o archivo? No se puede deshacer.')) return;
+    setDeletingAssetId(assetId);
+    try {
+      const res = await fetch(`/api/admin/sponsors-portal/${detail.sponsor.id}/assets/${assetId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      toast.success('Archivo eliminado');
+      fetchDetail();
+    } catch {
+      toast.error('No se pudo eliminar el archivo');
+    } finally {
+      setDeletingAssetId(null);
+    }
+  };
+
   const deleteFinalVideo = async () => {
     if (!detail?.sponsor) return;
     setBusy('delete-final-video');
@@ -373,7 +390,7 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
                 ))}
               </div>
             )}
-            <SponsorAssetList assets={sponsor.assets ?? []} />
+            <SponsorAssetList assets={sponsor.assets ?? []} onDelete={deleteAsset} deletingId={deletingAssetId} />
 
             <div className={`rounded-lg border p-3 flex items-center justify-between gap-3 flex-wrap ${sponsor.isPaid ? 'border-lima/40 bg-lima/5' : 'border-border'}`}>
               <div className="flex items-center gap-2.5 min-w-0">

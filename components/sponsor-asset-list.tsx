@@ -1,4 +1,6 @@
-import { FileText, Film } from 'lucide-react';
+'use client';
+
+import { FileText, Film, Trash2, Loader2 } from 'lucide-react';
 
 export type SponsorAssetItem = {
   id: string;
@@ -13,10 +15,17 @@ function formatDate(iso?: string): string | null {
   return new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-// Lista de todo lo que se ha subido — nunca se borra (cada subida es una fila
-// nueva, ver comentario en el modelo SponsorAsset), así que aquí se ve el
-// historial completo, no solo el último archivo.
-export function SponsorAssetList({ assets }: { assets: SponsorAssetItem[] }) {
+interface SponsorAssetListProps {
+  assets: SponsorAssetItem[];
+  // Cada subida sigue sin sobreescribirse nunca sola (ver comentario en el
+  // modelo SponsorAsset) — onDelete es un borrado explícito a petición del
+  // admin o del propio sponsor, no automático. Se omite para dejar la lista
+  // de solo lectura.
+  onDelete?: (assetId: string) => void;
+  deletingId?: string | null;
+}
+
+export function SponsorAssetList({ assets, onDelete, deletingId = null }: SponsorAssetListProps) {
   if (!assets?.length) return null;
 
   return (
@@ -35,7 +44,7 @@ export function SponsorAssetList({ assets }: { assets: SponsorAssetItem[] }) {
               )}
             </div>
           )}
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <a href={asset.url} target="_blank" rel="noopener noreferrer" className="text-sm underline truncate block">
               {asset.fileName}
             </a>
@@ -43,6 +52,17 @@ export function SponsorAssetList({ assets }: { assets: SponsorAssetItem[] }) {
               <p className="text-xs text-muted-foreground">{formatDate(asset.uploadedAt)}</p>
             )}
           </div>
+          {onDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(asset.id)}
+              disabled={deletingId === asset.id}
+              aria-label={`Eliminar ${asset.fileName}`}
+              className="shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+            >
+              {deletingId === asset.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            </button>
+          )}
         </div>
       ))}
     </div>
