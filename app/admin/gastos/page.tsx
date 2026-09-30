@@ -8,16 +8,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Plus, Pencil, Trash2, Wallet } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, Wallet, FileSpreadsheet, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 import { EventosEnlazados } from '@/app/admin/compras/_components/eventos-enlazados';
 import { ConfirmDeleteDialog } from '@/app/admin/_components/confirm-delete-dialog';
 import { GastoDialog } from '@/app/admin/gastos/_components/gasto-dialog';
-import { AhorroBarChart } from '@/app/admin/gastos/_components/ahorro-bar-chart';
 import { GastoPieChart } from '@/app/admin/gastos/_components/gasto-pie-chart';
 import { ComparativoBarChart } from '@/app/admin/gastos/_components/comparativo-bar-chart';
 import { CATEGORIAS_GASTO } from '@/lib/compras/constantes';
+import { downloadGastosExport } from '@/lib/gastos/gastos-export';
 
 type GastoConRelaciones = WithNumberFields<Gasto, 'importeSinIva' | 'ivaPercent'> & { proveedor: Proveedor | null; createdBy: { id: string; name: string | null; email: string } | null };
 
@@ -28,10 +28,6 @@ type Resumen = {
   temporadaAnterior: Temporada | null;
   porCategoria: { categoria: string; total: number }[];
   comparativoCategorias: { categoria: string; actual: number; anterior: number }[];
-  topAhorro: { articulo: string; ahorroTotal: number; proveedorRecomendado: string | null }[];
-  ingresos: number;
-  margen: number;
-  nEventosEnlazados: number;
 };
 
 export default function GastosPage() {
@@ -46,6 +42,7 @@ export default function GastosPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<WithNumberFields<Gasto, 'importeSinIva' | 'ivaPercent'> | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<GastoConRelaciones | null>(null);
+  const [exportando, setExportando] = useState<'excel' | 'pdf' | null>(null);
 
   const fetchTemporadas = useCallback((preferId?: string, incluirArchivadasParam?: boolean) => {
     const params = (incluirArchivadasParam ?? incluirArchivadas) ? '?incluirArchivados=1' : '';
@@ -101,6 +98,19 @@ export default function GastosPage() {
     setDeleteTarget(null);
   };
 
+  const handleExport = async (format: 'excel' | 'pdf') => {
+    if (!temporadaId) return;
+    setExportando(format);
+    try {
+      await downloadGastosExport(temporadaId, format);
+      toast.success(format === 'excel' ? 'Excel de gastos descargado' : 'PDF de gastos descargado');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al exportar');
+    } finally {
+      setExportando(null);
+    }
+  };
+
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
 
   return (
@@ -126,32 +136,7 @@ export default function GastosPage() {
         <p className="text-sm text-muted-foreground py-10 text-center">Crea una temporada para empezar a registrar gastos.</p>
       ) : (
         <>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Ingresos ({temporada.nombre})</p>
-                {resumen && resumen.nEventosEnlazados === 0 ? (
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Sin eventos enlazados —{' '}
-                    <a href="/admin/eventos" className="underline text-primary">enlázalos aquí</a>
-                  </p>
-                ) : (
-                  <p className="text-2xl font-bold text-green-500">{(resumen?.ingresos ?? 0).toFixed(2)}€</p>
-                )}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Margen ({temporada.nombre})</p>
-                {resumen && resumen.nEventosEnlazados === 0 ? (
-                  <p className="text-sm text-muted-foreground mt-1">Sin eventos enlazados</p>
-                ) : (
-                  <p className={`text-2xl font-bold ${(resumen?.margen ?? 0) >= 0 ? 'text-green-500' : 'text-destructive'}`}>
-                    {(resumen?.margen ?? 0) >= 0 ? '+' : ''}{(resumen?.margen ?? 0).toFixed(2)}€
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+          <div className="grid sm:grid-cols-3 gap-4">
             <Card>
               <CardContent className="p-4">
                 <p className="text-xs text-muted-foreground">Gasto total ({temporada.nombre})</p>
@@ -174,24 +159,18 @@ export default function GastosPage() {
             </Card>
           </div>
 
-          <div className="grid lg:grid-cols-2 gap-4">
+          <Card>
+            <CardHeader><CardTitle className="text-base">Gasto por categoría</CardTitle></CardHeader>
+            <CardContent><GastoPieChart data={resumen?.porCategoria ?? []} /></CardContent>
+          </Card>
+          {resumen?.temporadaAnterior && (
             <Card>
-              <CardHeader><CardTitle className="text-base">Gasto por categoría</CardTitle></CardHeader>
-              <CardContent><GastoPieChart data={resumen?.porCategoria ?? []} /></CardContent>
+              <CardHeader><CardTitle className="text-base">Comparativo por categoría: {resumen.temporadaAnterior.nombre} vs {temporada.nombre}</CardTitle></CardHeader>
+              <CardContent>
+                <ComparativoBarChart data={resumen.comparativoCategorias} labelAnterior={resumen.temporadaAnterior.nombre} labelActual={temporada.nombre} />
+              </CardContent>
             </Card>
-            <Card>
-              <CardHeader><CardTitle className="text-base">Top 10 ahorro estimado (planificador)</CardTitle></CardHeader>
-              <CardContent><AhorroBarChart data={resumen?.topAhorro ?? []} /></CardContent>
-            </Card>
-            {resumen?.temporadaAnterior && (
-              <Card className="lg:col-span-2">
-                <CardHeader><CardTitle className="text-base">Comparativo por categoría: {resumen.temporadaAnterior.nombre} vs {temporada.nombre}</CardTitle></CardHeader>
-                <CardContent>
-                  <ComparativoBarChart data={resumen.comparativoCategorias} labelAnterior={resumen.temporadaAnterior.nombre} labelActual={temporada.nombre} />
-                </CardContent>
-              </Card>
-            )}
-          </div>
+          )}
 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Select value={categoriaFiltro} onValueChange={setCategoriaFiltro}>
@@ -201,7 +180,17 @@ export default function GastosPage() {
                 {CATEGORIAS_GASTO.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Button onClick={openCreate} size="sm" className="gap-2"><Plus className="h-4 w-4" /> Nuevo gasto</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" className="gap-2" disabled={exportando !== null || gastos.length === 0} onClick={() => handleExport('excel')}>
+                {exportando === 'excel' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+                Exportar Excel
+              </Button>
+              <Button variant="outline" size="sm" className="gap-2" disabled={exportando !== null || gastos.length === 0} onClick={() => handleExport('pdf')}>
+                {exportando === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                Exportar PDF
+              </Button>
+              <Button onClick={openCreate} size="sm" className="gap-2"><Plus className="h-4 w-4" /> Nuevo gasto</Button>
+            </div>
           </div>
 
           {gastos.length === 0 ? (

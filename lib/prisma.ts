@@ -65,6 +65,9 @@ export const prisma = basePrisma.$extends({
       importeSinIva: { needs: { importeSinIva: true }, compute: (m) => toNumber(m.importeSinIva) },
       ivaPercent: { needs: { ivaPercent: true }, compute: (m) => toNumber(m.ivaPercent) },
     },
+    ingreso: {
+      importe: { needs: { importe: true }, compute: (m) => toNumber(m.importe) },
+    },
     sponsor: {
       paidAmount: { needs: { paidAmount: true }, compute: (m) => toNullableNumber(m.paidAmount) },
     },

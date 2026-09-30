@@ -85,6 +85,7 @@ model User {
   promptGenerations PromptGenerationLog[] @relation("SponsorPromptGenerations")
   sponsorEmailsSent SponsorEmailLog[]     @relation("SponsorEmailsSent")
   gastosCreados     Gasto[]
+  ingresosCreados   Ingreso[]
 }
 
 model Account {
@@ -695,6 +696,7 @@ model Temporada {
   planes          PlanCompra[]
   pedidos         Pedido[]
   gastos          Gasto[]
+  ingresos        Ingreso[]
   eventos         Event[]
   productos       Product[]
   shopOrders      ShopOrder[]
@@ -861,4 +863,25 @@ model Gasto {
 
   @@index([temporadaId, categoria])
   @@index([proveedorId])
+}
+
+// Caja manual de la caseta por día (entradas en puerta, barra, comida...) —
+// no depende de las ventas de entradas online (Order) ni de patrocinios, que
+// se contabilizan aparte en /admin/estadisticas. El balance de /admin/ingresos
+// es solo caja manual menos Gasto de la misma temporada.
+model Ingreso {
+  id          String   @id @default(cuid())
+  temporadaId String
+  fecha       DateTime @default(now())
+  concepto    String
+  importe     Decimal  @db.Decimal(10, 2)
+  notas       String?  @db.Text
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  temporada Temporada @relation(fields: [temporadaId], references: [id])
+  createdBy User?     @relation(fields: [createdById], references: [id])
+
+  @@index([temporadaId, fecha])
 }

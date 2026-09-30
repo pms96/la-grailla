@@ -12,7 +12,7 @@ import { ChangePasswordDialog } from '@/app/admin/_components/change-password-di
 import {
   LayoutDashboard, Calendar, Ticket, Users, ShoppingBag, Package,
   BarChart3, Handshake, Settings, LogOut, Menu, X, QrCode, KeyRound, Receipt, Moon,
-  UserPlus, ScanLine, Gauge, ShoppingCart, Wallet,
+  UserPlus, ScanLine, Gauge, ShoppingCart, Wallet, Coins,
 } from 'lucide-react';
 
 type NavItem = {
@@ -64,6 +64,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: '/admin/compras', label: 'Compras', icon: ShoppingCart },
       { href: '/admin/gastos', label: 'Gastos', icon: Wallet },
+      { href: '/admin/ingresos', label: 'Ingresos', icon: Coins },
     ],
   },
   {
