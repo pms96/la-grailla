@@ -13,6 +13,7 @@ import { CapacityBar } from '@/components/admin/capacity-bar';
 import { SkeletonPulse } from '@/components/ui/animate';
 import { downloadAdminCsv } from '@/lib/admin-export';
 import SalesChart from './_components/sales-chart';
+import VentasPorDia from './_components/ventas-por-dia';
 
 type StatsEvent = Pick<Event, 'id' | 'name' | 'maxCapacity' | 'currentCount' | 'alertThresholds' | 'alertsSent'> & { soldCount: number };
 
@@ -186,6 +187,8 @@ export default function EstadisticasPage() {
               <SalesChart data={stats?.salesByDay ?? []} />
             </CardContent>
           </Card>
+
+          <VentasPorDia eventId={eventId} />
 
           <div className="grid md:grid-cols-2 gap-6">
             <Card>
