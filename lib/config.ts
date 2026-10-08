@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { SecretDecryptionError, decryptSecret, encryptSecret, isSensitiveConfigKey, shouldDecryptOnRead } from '@/lib/secrets';
 import { DEFAULT_SPONSOR_TIERS } from '@/lib/sponsor-tiers';
+import { isPlatformMode } from '@/lib/tenant/mode';
 
 const CONFIG_DEFAULTS: Record<string, string> = {
   payment_gateway: 'mock',
@@ -63,6 +64,25 @@ const CONFIG_DEFAULTS: Record<string, string> = {
   phomemo_confirm_every_chunks: '8',
 };
 
+/** Dirección fija de La Grailla: el destinatario de los avisos de operación en la instalación única. */
+const LEGACY_OPERATOR_EMAIL = 'grupolagrailla@gmail.com';
+
+/** Claves cuyo valor por defecto es un dato de La Grailla que NO debe heredar otro cliente en modo plataforma. */
+const TENANT_NEUTRAL_KEYS = new Set(['admin_email']);
+
+function configDefault(key: string): string {
+  if (isPlatformMode() && TENANT_NEUTRAL_KEYS.has(key)) return '';
+  return CONFIG_DEFAULTS[key] ?? '';
+}
+
+/** Destinatario de los avisos de operación (solicitudes de patrocinio, pagos sobre pedidos anulados, certificados).
+ *  Instalación única: La Grailla, como siempre. Modo plataforma: el `admin_email` DEL CLIENTE, y vacío si no lo
+ *  configuró (quien llama no envía): un aviso con datos personales nunca puede salir hacia otro cliente. */
+export async function getOperatorEmail(): Promise<string> {
+  if (!isPlatformMode()) return LEGACY_OPERATOR_EMAIL;
+  return (await getConfig('admin_email')).trim();
+}
+
 // Una credencial cifrada que no se puede abrir NO debe confundirse con "sin
 // configurar": se registra con el nombre de la clave (nunca el valor) y, según
 // quién llame, o se degrada a '' (getConfig/getConfigs, para que una cert de
@@ -84,9 +104,9 @@ function decryptConfigValue(key: string, raw: string, strict: boolean): string {
 export async function getConfig(key: string): Promise<string> {
   try {
     const config = await prisma.appConfig.findUnique({ where: { key } });
-    return decryptConfigValue(key, config?.value ?? CONFIG_DEFAULTS[key] ?? '', false);
+    return decryptConfigValue(key, config?.value ?? configDefault(key), false);
   } catch {
-    return CONFIG_DEFAULTS[key] ?? '';
+    return configDefault(key);
   }
 }
 
@@ -96,9 +116,9 @@ export async function getConfigOrThrow(key: string): Promise<string> {
   let raw: string;
   try {
     const config = await prisma.appConfig.findUnique({ where: { key } });
-    raw = config?.value ?? CONFIG_DEFAULTS[key] ?? '';
+    raw = config?.value ?? configDefault(key);
   } catch {
-    return CONFIG_DEFAULTS[key] ?? '';
+    return configDefault(key);
   }
   return decryptConfigValue(key, raw, true);
 }
@@ -111,12 +131,12 @@ export async function getConfigs(keys: string[]): Promise<Record<string, string>
     const result: Record<string, string> = {};
     for (const k of keys) {
       const found = configs?.find((c) => c?.key === k);
-      result[k] = decryptConfigValue(k, found?.value ?? CONFIG_DEFAULTS[k] ?? '', false);
+      result[k] = decryptConfigValue(k, found?.value ?? configDefault(k), false);
     }
     return result;
   } catch {
     const result: Record<string, string> = {};
-    for (const k of keys) result[k] = CONFIG_DEFAULTS[k] ?? '';
+    for (const k of keys) result[k] = configDefault(k);
     return result;
   }
 }

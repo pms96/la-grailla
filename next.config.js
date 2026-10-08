@@ -86,7 +86,7 @@ const nextConfig = {
       // clave de caché incluye el dominio). Solo afecta al CDN: el navegador no las guarda.
       ...['/', '/eventos', '/eventos/:slug', '/tienda', '/sponsors', '/legal/:path*'].map((source) => ({
         source,
-        headers: [{ key: 'Vercel-CDN-Cache-Control', value: 'max-age=60, stale-while-revalidate=300' }],
+        headers: [{ key: 'Vercel-CDN-Cache-Control', value: 'max-age=60, stale-while-revalidate=30' }],
       })),
     ];
   },

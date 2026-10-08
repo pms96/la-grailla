@@ -1,4 +1,5 @@
 import { getToken } from 'next-auth/jwt';
+import { sessionCookieName } from './session-cookie';
 import { NextResponse, type NextRequest } from 'next/server';
 import { deriveInstallationSecret, parseMasterKey } from '@grailla/contracts';
 import { isCrossOriginMutation, isOriginCheckExempt } from '@/lib/origin-check';
@@ -67,7 +68,7 @@ export async function platformMiddleware(req: NextRequest): Promise<NextResponse
   if (needsStaff) {
     const secret = await sessionSecretFor(ctx);
     if (!secret) return plain(503, 'Servicio no disponible temporalmente', { 'Retry-After': '5' });
-    const token = await getToken({ req, secret, secureCookie: !isDevHost(ctx.host) });
+    const token = await getToken({ req, secret, secureCookie: !isDevHost(ctx.host), cookieName: sessionCookieName(ctx) });
     // La sesión debe ser DE ESTE cliente. El legacy conserva sesiones anteriores a `tid`; el resto exige que coincida.
     const sameTenant = token ? (token.tid === undefined ? legacyTenantId() === ctx.tenantId : token.tid === ctx.tenantId) : false;
     const role = sameTenant ? (token?.role as string | undefined) : undefined;

@@ -62,7 +62,14 @@ export default function middleware(req: NextRequest, event: NextFetchEvent) {
 }
 
 export const config = {
-  // En modo plataforma TODA ruta tiene que resolver su cliente; en modo normal el middleware deja pasar
-  // enseguida todo lo que no sea /admin, /acceso o /api (ver arriba).
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  // En modo plataforma TODA ruta con datos de cliente tiene que resolver su cliente; en modo normal el middleware deja pasar
+  // enseguida todo lo que no sea /admin, /acceso o /api (ver arriba). Solo se excluyen los estáticos de `public/` (carpeta
+  // brand/ y ficheros de imagen o worker en la raíz): no llevan datos de cliente y así no cuestan una invocación del edge.
+  // /api, /admin y /acceso siempre entran, aunque su ruta acabe en una extensión de imagen.
+  matcher: [
+    '/api/:path*',
+    '/admin/:path*',
+    '/acceso/:path*',
+    '/((?!api/|admin/|acceso/|_next/static|_next/image|brand/|favicon\\.ico$|[^/]+\\.(?:png|jpg|jpeg|webp|svg|mjs)$).*)',
+  ],
 };

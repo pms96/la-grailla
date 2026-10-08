@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { generateMasterKey, parseMasterKey, toBase64Url } from '@grailla/contracts';
 import { signContext } from '@/lib/tenant/context-sign';
 import { CONTEXT_MAX_AGE_MS, verifyContext } from '@/lib/tenant/context-verify';
@@ -46,5 +46,35 @@ describe('cabecera de contexto firmada (edge firma, Node verifica)', () => {
     const decoded = Buffer.from(header.split('.')[0], 'base64url').toString();
     expect(decoded).not.toMatch(/postgres(ql)?:\/\//);
     expect(decoded).not.toContain('testDbUrl');
+  });
+});
+
+// Revisión de seguridad de M4: `headers()` lanza DynamicServerError en una página estática; convertirlo en "sin cliente"
+// ocultaría que la página tiene que ser dinámica (y rompería el build con un error engañoso).
+describe('lectura del contexto desde la cabecera', () => {
+  it('propaga DynamicServerError en vez de tratarlo como "sin cliente"', async () => {
+    vi.resetModules();
+    vi.doMock('next/headers', () => ({
+      headers: () => {
+        throw Object.assign(new Error('Dynamic server usage'), { digest: 'DYNAMIC_SERVER_USAGE' });
+      },
+    }));
+    const { currentTenant } = await import('@/lib/tenant/context');
+    expect(() => currentTenant()).toThrow(/Dynamic server usage/);
+    vi.doUnmock('next/headers');
+    vi.resetModules();
+  });
+
+  it('fuera de una petición (headers() lanza un error corriente) sigue devolviendo null', async () => {
+    vi.resetModules();
+    vi.doMock('next/headers', () => ({
+      headers: () => {
+        throw new Error('headers was called outside a request scope');
+      },
+    }));
+    const { currentTenant } = await import('@/lib/tenant/context');
+    expect(currentTenant()).toBeNull();
+    vi.doUnmock('next/headers');
+    vi.resetModules();
   });
 });

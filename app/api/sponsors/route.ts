@@ -5,12 +5,13 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { sendMail } from '@/lib/mailer';
+import { getOperatorEmail } from '@/lib/config';
 import { handleApiError } from '@/lib/api-error';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { normalizePhone } from '@/lib/phone';
 
 // Los campos del formulario van directos al HTML de dos emails reales (a
-// grupolagrailla@gmail.com y al remitente) — sin escapar, cualquiera podía
+// administrador y al remitente) — sin escapar, cualquiera podía
 // meter HTML/enlaces en "Mensaje" y que llegara con apariencia manipulada.
 function esc(value: unknown): string {
   return String(value ?? '')
@@ -75,12 +76,18 @@ export async function POST(request: Request) {
       </div>
     `;
 
-    await sendMail({
-      subject: `Nueva solicitud de patrocinio: ${companyName}`,
-      html: adminHtml,
-      to: 'grupolagrailla@gmail.com',
-      replyTo: email,
-    });
+    // Sin destinatario configurado (cliente nuevo sin admin_email) la solicitud queda guardada y no se avisa a nadie más.
+    const operatorEmail = await getOperatorEmail();
+    if (operatorEmail) {
+      await sendMail({
+        subject: `Nueva solicitud de patrocinio: ${companyName}`,
+        html: adminHtml,
+        to: operatorEmail,
+        replyTo: email,
+      });
+    } else {
+      console.error('[sponsors] admin_email no está configurado: no se avisa de la solicitud', sponsorReq.id);
+    }
 
     const logoUrl = getFallbackBaseUrl() + '/brand/logo-black.png';
     const confirmHtml = `

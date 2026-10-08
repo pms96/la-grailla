@@ -4,14 +4,17 @@ import { prisma } from '@/lib/prisma';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { sendTicketsEmail } from '@/lib/tickets';
 import { sendMail } from '@/lib/mailer';
+import { getOperatorEmail } from '@/lib/config';
 import { escapeHtml as esc } from '@/lib/html-escape';
 
 /** Avisa al equipo cuando un pago se confirma sobre un pedido que ya fue cancelado/liberado — requiere intervención manual (el stock ya pudo venderse a otra persona). */
 async function alertPaidButInactiveOrder(kind: 'entradas' | 'tienda', orderId: string, status: string): Promise<void> {
   console.error(`[order-reconciliation] Pago confirmado para pedido de ${kind} ${orderId} pero su estado ya era ${status} — requiere revisión manual.`);
   try {
+    const to = await getOperatorEmail();
+    if (!to) return; // cliente sin admin_email: solo queda el log
     await sendMail({
-      to: 'grupolagrailla@gmail.com',
+      to,
       subject: `⚠️ Pago confirmado sobre pedido ya anulado (${orderId.slice(0, 8)})`,
       html:
         `<p>Se ha confirmado un pago de ${kind} para el pedido <strong>${esc(orderId)}</strong>, ` +

@@ -123,3 +123,25 @@ describe('clasificación de claves', () => {
     expect(SECRET_MASK.length).toBeGreaterThan(0);
   });
 });
+
+// Revisión de seguridad de M4: GCM con tag de longitud fija. Sin `authTagLength`, Node acepta un tag truncado (p. ej. 4 bytes)
+// y la autenticación queda reducida a 32 bits.
+describe('tag GCM de longitud fija', () => {
+  const v1 = 'enc:v1:hZDGzaOjqqvHbTtZ:QUcQvg83wpOVH7vEntKuqA==:ZBUf3qaqWD/w6IFf+6d/TlPVlWDONKgpIg==';
+
+  it('rechaza un enc:v1 con el tag truncado', () => {
+    const [prefix, iv, tag, ct] = [v1.slice(0, 7), ...v1.slice(7).split(':')];
+    const short = Buffer.from(tag, 'base64').subarray(0, 4).toString('base64');
+    expect(() => decryptSecret(`${prefix}${iv}:${short}:${ct}`)).toThrow(SecretDecryptionError);
+  });
+
+  it('rechaza un enc:v2 con el tag truncado y acepta el entero', () => {
+    // El proveedor `test-kid` lo registra el bloque de enc:v2 de arriba.
+    const dctx = { tenantId: 'tenant-a', configKey: 'stripe_secret_key' };
+    const sealed = encryptSecretV2('valor', { kid: 'test-kid', ...dctx });
+    expect(decryptSecret(sealed, dctx)).toBe('valor');
+    const parts = sealed.split(':'); // enc, v2, kid, iv, tag, ct
+    parts[4] = Buffer.from(parts[4], 'base64').subarray(0, 4).toString('base64');
+    expect(() => decryptSecret(parts.join(':'), dctx)).toThrow(SecretDecryptionError);
+  });
+});

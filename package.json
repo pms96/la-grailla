@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma migrate deploy && next build",
+    "build:platform": "next build",
     "postinstall": "prisma generate && node -e \"require('fs').copyFileSync('node_modules/pdfjs-dist/build/pdf.worker.min.mjs','public/pdf.worker.min.mjs')\"",
     "start": "next start",
     "lint": "next lint",

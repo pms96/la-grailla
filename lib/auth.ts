@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { rateLimit, getClientIpFromHeaderRecord } from '@/lib/rate-limit';
 import { currentTenant, requireTenant } from '@/lib/tenant/context';
 import { getInstallationSecret, isLegacyTenant } from '@/lib/tenant/installation-secret';
+import { sessionCookieName, SESSION_COOKIE_HOST } from '@/lib/tenant/session-cookie';
 import { isDevHost } from '@/lib/tenant/dev-host';
 import { isPlatformMode } from '@/lib/tenant/mode';
 
@@ -106,7 +107,12 @@ function tokenBelongsToCurrentTenant(tid: string | undefined): boolean {
 export function getAuthOptions(): NextAuthOptions {
   if (!isPlatformMode()) return { ...baseOptions, secret: process.env.NEXTAUTH_SECRET };
   const ctx = requireTenant();
-  return { ...baseOptions, secret: getInstallationSecret('session'), useSecureCookies: !isDevHost(ctx.host) };
+  const options: NextAuthOptions = { ...baseOptions, secret: getInstallationSecret('session'), useSecureCookies: !isDevHost(ctx.host) };
+  // Los clientes que no son legacy usan la cookie `__Host-` (ver lib/tenant/session-cookie.ts); el resto, el nombre por defecto.
+  if (sessionCookieName(ctx) === SESSION_COOKIE_HOST) {
+    options.cookies = { sessionToken: { name: SESSION_COOKIE_HOST, options: { httpOnly: true, sameSite: 'lax', path: '/', secure: true } } };
+  }
+  return options;
 }
 
 /**

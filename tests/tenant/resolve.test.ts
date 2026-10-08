@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateMasterKey, parseMasterKey, registryKeyForHost, registryKeyForSecrets } from '@grailla/contracts';
-import { L1_TTL_MS, MAX_STALE_SERVE_MS, NEGATIVE_TTL_MS, resetResolverStateForTests, resolveHost, setRegistryReaderForTests } from '@/lib/tenant/resolve';
+import {
+  L1_TTL_MS,
+  LOOKUP_BURST,
+  MAX_STALE_SERVE_MS,
+  MAX_TRACKED_HOSTS,
+  NEGATIVE_TTL_MS,
+  RETRY_BACKOFF_MS,
+  resetResolverStateForTests,
+  resolveHost,
+  setRegistryReaderForTests,
+} from '@/lib/tenant/resolve';
 import { FakeRegistry, makeSigner, publishTenant, type Signer } from '../helpers/registry';
 
 const A = '01HF7YAT00AAAAAAAAAAAAAAAA';
@@ -163,5 +173,107 @@ describe('caída o manipulación del registro: se sigue sirviendo lo último bue
     await pub({ seq: 2, status: 'SUSPENDED', epoch: 4, modules: [] });
     const r = await resolveHost('a.cliente.es', NOW + L1_TTL_MS * 2);
     expect(r).toMatchObject({ status: 'ok', ctx: { status: 'SUSPENDED', epoch: 4, modules: [] } });
+  });
+});
+
+describe('revisión de seguridad de M4: el registro no puede hacer servir el cliente equivocado', () => {
+  it('un dominio que pasa de un cliente a otro no se compara con el `seq` del anterior (el seq es por suscripción)', async () => {
+    await pub({ seq: 50 });
+    expect(await resolveHost('a.cliente.es', NOW)).toMatchObject({ status: 'ok', ctx: { tenantId: A } });
+    // El dominio se reasigna al cliente B, cuya suscripción empieza en 1.
+    await publishTenant(reg, signer, { tenantId: B, hosts: ['a.cliente.es'], master, seq: 3, now: NOW });
+    const r = await resolveHost('a.cliente.es', NOW + L1_TTL_MS * 2);
+    expect(r).toMatchObject({ status: 'ok', stale: false, ctx: { tenantId: B } });
+  });
+
+  it('si el cliente nuevo del dominio no se puede verificar por completo, NUNCA se sirve el contexto del anterior', async () => {
+    await pub({ seq: 50 });
+    await resolveHost('a.cliente.es', NOW);
+    // B toma el dominio pero sus secretos no están publicados todavía.
+    await publishTenant(reg, signer, { tenantId: B, hosts: ['a.cliente.es'], master, seq: 3, now: NOW, skipSecrets: true });
+    const r = await resolveHost('a.cliente.es', NOW + L1_TTL_MS * 2);
+    expect(r.status).toBe('unavailable');
+  });
+
+  it('tras pasar por not_found, el dominio vuelve a resolverse con otro cliente sin quedarse bloqueado', async () => {
+    await pub({ seq: 50 });
+    await resolveHost('a.cliente.es', NOW);
+    reg.data.delete(registryKeyForHost('a.cliente.es'));
+    expect((await resolveHost('a.cliente.es', NOW + L1_TTL_MS * 2)).status).toBe('not_found');
+    await publishTenant(reg, signer, { tenantId: B, hosts: ['a.cliente.es'], master, seq: 1, now: NOW });
+    const r = await resolveHost('a.cliente.es', NOW + L1_TTL_MS * 2 + NEGATIVE_TTL_MS * 2);
+    expect(r).toMatchObject({ status: 'ok', ctx: { tenantId: B } });
+  });
+
+  it('el replay sigue rechazándose para el MISMO cliente aunque cambie de dominio', async () => {
+    await pub({ seq: 9, hosts: ['a.cliente.es', 'b.cliente.es'], modules: ['tienda', 'entradas'] });
+    await resolveHost('a.cliente.es', NOW);
+    await pub({ seq: 4, hosts: ['b.cliente.es'], modules: [] }); // snapshot antiguo del mismo cliente bajo otro dominio
+    const r = await resolveHost('b.cliente.es', NOW);
+    expect(r.status).toBe('unavailable');
+  });
+});
+
+describe('revisión de seguridad de M4: modo degradado', () => {
+  it('con el registro caído se sirve lo último bueno y NO se reintenta en cada petición', async () => {
+    await pub();
+    await resolveHost('a.cliente.es', NOW);
+    reg.failWith = new Error('503 del registro');
+    reg.calls.length = 0;
+    const later = NOW + L1_TTL_MS * 2;
+    for (let i = 0; i < 10; i++) expect(await resolveHost('a.cliente.es', later + i * 100)).toMatchObject({ status: 'ok', stale: true });
+    expect(reg.calls.length).toBe(1);
+    // Pasado el backoff se vuelve a intentar una vez.
+    await resolveHost('a.cliente.es', later + RETRY_BACKOFF_MS * 2);
+    expect(reg.calls.length).toBe(2);
+  });
+
+  it('sin caché y con el registro caído tampoco se martillea: el fallo se recuerda unos segundos', async () => {
+    reg.failWith = new Error('caído');
+    for (let i = 0; i < 10; i++) expect((await resolveHost('a.cliente.es', NOW + i * 100)).status).toBe('unavailable');
+    expect(reg.calls.length).toBe(1);
+  });
+
+  it('servir obsoleto por una firma que no se puede verificar queda en el log (una suspensión no se aplicaría)', async () => {
+    await pub();
+    await resolveHost('a.cliente.es', NOW);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // Suspensión firmada con un kid que este despliegue no conoce (rotación mal desplegada).
+      const other = await makeSigner();
+      await publishTenant(reg, { ...other, kid: 'desconocida' }, { tenantId: A, hosts: ['a.cliente.es'], master, seq: 2, status: 'SUSPENDED', now: NOW });
+      const r = await resolveHost('a.cliente.es', NOW + L1_TTL_MS * 2);
+      expect(r).toMatchObject({ status: 'ok', stale: true, ctx: { status: 'ACTIVE' } });
+      expect(err.mock.calls.flat().join(' ')).toMatch(/unknown_kid/);
+    } finally {
+      err.mockRestore();
+    }
+  });
+});
+
+describe('revisión de seguridad de M4: hosts desconocidos', () => {
+  it('la caché negativa tiene tope: un dominio comodín no puede inflar la memoria', async () => {
+    let now = NOW;
+    let n = 0;
+    while (n < MAX_TRACKED_HOSTS + 500) {
+      for (let i = 0; i < LOOKUP_BURST && n < MAX_TRACKED_HOSTS + 500; i++, n++) await resolveHost(`h${n}.comodin.es`, now);
+      now += 6_000; // la cubeta se rellena entre ráfagas
+    }
+    const st = (globalThis as unknown as { __grailla_tenant_l1: { negative: Map<string, number> } }).__grailla_tenant_l1;
+    expect(st.negative.size).toBeLessThanOrEqual(MAX_TRACKED_HOSTS);
+  });
+
+  it('las búsquedas de hosts sin caché están limitadas: una ráfaga no agota la cuota del registro', async () => {
+    reg.calls.length = 0;
+    const results = await Promise.all(Array.from({ length: LOOKUP_BURST * 3 }, (_, i) => resolveHost(`x${i}.comodin.es`, NOW)));
+    expect(reg.calls.length).toBeLessThanOrEqual(LOOKUP_BURST);
+    expect(results.filter((r) => r.status === 'unavailable').length).toBeGreaterThanOrEqual(LOOKUP_BURST * 2);
+  });
+
+  it('un host real con caché no se ve afectado por la limitación', async () => {
+    await pub();
+    await resolveHost('a.cliente.es', NOW);
+    await Promise.all(Array.from({ length: LOOKUP_BURST * 2 }, (_, i) => resolveHost(`y${i}.comodin.es`, NOW)));
+    expect((await resolveHost('a.cliente.es', NOW + L1_TTL_MS * 2)).status).toBe('ok');
   });
 });

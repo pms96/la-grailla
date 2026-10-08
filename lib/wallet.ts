@@ -1,5 +1,5 @@
 import { getFallbackBaseUrl } from '@/lib/url';
-import { getConfig, getConfigs, setConfig } from '@/lib/config';
+import { getConfig, getConfigs, getOperatorEmail, setConfig } from '@/lib/config';
 import { APPLE_WWDR_CERT_PEM } from '@/lib/apple-wwdr-cert';
 import { sendMail } from '@/lib/mailer';
 
@@ -194,8 +194,10 @@ export async function alertAppleCertExpiringSoon(notAfter: Date, daysRemaining: 
       : `[wallet] El certificado de Apple Wallet caduca en ${daysRemaining} día(s) (${notAfterIso}) — requiere renovación.`
   );
   try {
+    const to = await getOperatorEmail();
+    if (!to) return; // cliente sin admin_email: solo queda el log
     const emailResult = await sendMail({
-      to: 'grupolagrailla@gmail.com',
+      to,
       subject: expired
         ? '⚠️ El certificado de Apple Wallet ha caducado'
         : `⚠️ El certificado de Apple Wallet caduca en ${daysRemaining} día(s)`,

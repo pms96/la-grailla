@@ -34,7 +34,9 @@ function fromRequestHeader(): TenantContext | null {
   let raw: string | null;
   try {
     raw = headers().get(CONTEXT_HEADER);
-  } catch {
+  } catch (err) {
+    // Una página estática que lee `headers()` lanza DynamicServerError para que Next la haga dinámica: no es "sin cliente".
+    if ((err as { digest?: unknown } | null)?.digest === 'DYNAMIC_SERVER_USAGE') throw err;
     return null; // fuera del ámbito de una petición
   }
   if (!raw) return null;

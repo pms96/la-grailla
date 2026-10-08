@@ -199,7 +199,7 @@ function decryptV1(storedValue: string): string {
   try {
     const [ivB64, authTagB64, ciphertextB64] = storedValue.slice(V1_PREFIX.length).split(':');
     const key = legacyKeyProvider.getKey({ tenantId: LEGACY_TENANT_ID, kid: LEGACY_KEY_ID });
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivB64, 'base64'));
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivB64, 'base64'), { authTagLength: 16 });
     decipher.setAuthTag(Buffer.from(authTagB64, 'base64'));
     return Buffer.concat([decipher.update(Buffer.from(ciphertextB64, 'base64')), decipher.final()]).toString('utf8');
   } catch (err) {
@@ -216,7 +216,7 @@ function decryptV2(storedValue: string, ctx: DecryptContext): string {
   try {
     const [kid, ivB64, authTagB64, ciphertextB64] = storedValue.slice(V2_PREFIX.length).split(':');
     const key = providerFor(kid).getKey({ tenantId, kid });
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivB64, 'base64'));
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivB64, 'base64'), { authTagLength: 16 });
     decipher.setAAD(Buffer.from(`${tenantId}|${ctx.configKey}`, 'utf8'));
     decipher.setAuthTag(Buffer.from(authTagB64, 'base64'));
     return Buffer.concat([decipher.update(Buffer.from(ciphertextB64, 'base64')), decipher.final()]).toString('utf8');
