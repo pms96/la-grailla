@@ -1,0 +1,38 @@
+{
+  "name": "control-panel",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3200",
+    "build": "prisma generate && next build",
+    "start": "next start -p 3200",
+    "postinstall": "prisma generate",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "prisma migrate deploy",
+    "operator:unlock": "tsx --require dotenv/config scripts/unlock-operator.ts",
+    "operator:create": "tsx --require dotenv/config scripts/create-operator.ts",
+    "dev:registry": "tsx scripts/dev-registry.ts",
+    "tenant:register": "tsx --require dotenv/config scripts/register-tenant.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "6.7.0",
+    "bcryptjs": "2.4.3",
+    "next": "14.2.35",
+    "qrcode": "1.5.4",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "2.4.6",
+    "@types/node": "20.6.2",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "dotenv": "16.5.0",
+    "prisma": "6.7.0",
+    "tsx": "4.20.3",
+    "typescript": "5.2.2",
+    "vitest": "4.1.10"
+  }
+}

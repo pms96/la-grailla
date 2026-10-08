@@ -1,0 +1,193 @@
+// BD de CONTROL del panel (solo el proveedor). No tiene nada que ver con las
+// BDs de los clientes: aquí vive qué clientes hay, qué módulos tienen, sus
+// dominios, y las URLs de sus BDs cifradas (enc:v2, nunca en claro).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("CONTROL_DATABASE_URL")
+  directUrl = env("CONTROL_DIRECT_URL")
+}
+
+enum OperatorRole {
+  VIEWER
+  OPERATOR
+  BILLING
+  SUPERADMIN
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_DELETION
+  DELETED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum ModuleSource {
+  MANUAL
+  KEY
+}
+
+enum DomainStatus {
+  PENDING
+  VERIFIED
+  RELEASED
+}
+
+model Operator {
+  id                 String            @id @default(cuid())
+  email              String            @unique
+  name               String
+  role               OperatorRole
+  passwordHash       String
+  mustChangePassword Boolean           @default(true)
+  // Secreto TOTP sellado (enc:v2) con AAD "operatorId|totp".
+  totpSecretEnc      String?
+  totpEnabledAt      DateTime?
+  // Último intervalo de 30 s aceptado: impide reutilizar un código.
+  totpLastStep       Int?
+  // SHA-256 de cada código de recuperación (de un solo uso).
+  recoveryCodeHashes String[]
+  failedLogins       Int               @default(0)
+  lockedUntil        DateTime?
+  disabledAt         DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  sessions           OperatorSession[]
+}
+
+model OperatorSession {
+  id            String    @id @default(cuid())
+  // SHA-256 del token de la cookie: un volcado de la BD no permite suplantar sesiones.
+  tokenHash     String    @unique
+  operatorId    String
+  operator      Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  // null = solo ha pasado la contraseña; todavía no puede usar el panel.
+  mfaVerifiedAt DateTime?
+  createdAt     DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
+  expiresAt     DateTime
+  ip            String?
+  userAgent     String?
+
+  @@index([operatorId])
+  @@index([expiresAt])
+}
+
+model Product {
+  key           String         @id
+  name          String
+  modules       ModuleDef[]
+  subscriptions Subscription[]
+}
+
+model ModuleDef {
+  productKey   String
+  product      Product @relation(fields: [productKey], references: [key])
+  key          String
+  name         String
+  isCore       Boolean @default(false)
+  monthlyAddon Boolean @default(false)
+  sortOrder    Int     @default(0)
+
+  @@id([productKey, key])
+}
+
+model Tenant {
+  // ULID inmutable: identidad del cliente. No se deriva del nombre ni del dominio.
+  id            String         @id
+  name          String
+  status        TenantStatus   @default(ACTIVE)
+  notes         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id              String               @id @default(cuid())
+  tenantId        String
+  tenant          Tenant               @relation(fields: [tenantId], references: [id])
+  productKey      String
+  product         Product              @relation(fields: [productKey], references: [key])
+  // Celda de despliegue: hoy una sola compartida.
+  cell            String               @default("shared-1")
+  status          SubscriptionStatus   @default(ACTIVE)
+  // Sube para invalidar de golpe sesiones y tokens de este cliente.
+  epoch           Int                  @default(0)
+  // Contador del snapshot publicado (anti-replay).
+  snapshotSeq     Int                  @default(0)
+  schemaVersion   String?
+  dbCluster       String               @default("neon-eu-1")
+  dbRegion        String?
+  // URLs de la BD del cliente, selladas (enc:v2). Nunca salen del panel en claro.
+  dbUrlPooledEnc  String
+  dbUrlDirectEnc  String
+  // Hash del registro publicado (sin seq/iat): detecta "cambios sin publicar".
+  lastPublishedHash String?
+  lastPublishedAt DateTime?
+  lastPublishError String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  modules         SubscriptionModule[]
+  domains         Domain[]
+
+  @@unique([tenantId, productKey])
+}
+
+model SubscriptionModule {
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  moduleKey      String
+  source         ModuleSource @default(MANUAL)
+  enabledAt      DateTime     @default(now())
+  enabledBy      String?
+
+  @@id([subscriptionId, moduleKey])
+}
+
+model Domain {
+  id                String       @id @default(cuid())
+  // Normalizado y único en TODO el sistema. Al liberarlo la fila queda como
+  // "lápida" (RELEASED) para que otro cliente no pueda reclamarlo de inmediato.
+  host              String       @unique
+  subscriptionId    String
+  subscription      Subscription @relation(fields: [subscriptionId], references: [id])
+  isPrimary         Boolean      @default(false)
+  status            DomainStatus @default(PENDING)
+  verificationToken String
+  verifiedAt        DateTime?
+  releasedAt        DateTime?
+  createdAt         DateTime     @default(now())
+
+  @@index([subscriptionId])
+}
+
+model AuditLog {
+  id            BigInt   @id @default(autoincrement())
+  at            DateTime @default(now())
+  operatorId    String?
+  operatorEmail String
+  action        String
+  targetType    String
+  targetId      String
+  tenantId      String?
+  ip            String?
+  userAgent     String?
+  meta          Json     @default("{}")
+  // Cadena de hashes: cada fila incluye el hash de la anterior, así borrar o
+  // editar una fila rompe la verificación de todas las siguientes.
+  prevHash      String
+  hash          String
+
+  @@index([tenantId, id])
+  @@index([operatorId, id])
+}

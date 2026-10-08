@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -13,6 +13,8 @@ export default defineConfig({
     // (igual que el resto del proyecto no tiene mocks de Prisma) — en serie
     // para que no compitan por el stock de las mismas ticketTypes de prueba.
     fileParallelism: false,
+    // Las apps de apps/ (panel de control) tienen su propio Prisma, tipos, BD y suite: se prueban aparte.
+    exclude: [...configDefaults.exclude, 'apps/**'],
   },
   resolve: {
     alias: {
