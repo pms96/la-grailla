@@ -17,6 +17,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': rootDir,
+      '@grailla/contracts': path.join(rootDir, 'packages/contracts/src'),
     },
   },
 });

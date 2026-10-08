@@ -1,18 +1,15 @@
 import { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
-import { PrismaAdapter } from '@next-auth/prisma-adapter';
-import type { PrismaClient } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import { rateLimit, getClientIpFromHeaderRecord } from '@/lib/rate-limit';
 
 export const authOptions: NextAuthOptions = {
-  // PrismaAdapter solo toca User/Account/Session/VerificationToken (ningún
-  // campo Decimal de por medio) — el cast es puro desajuste de tipos entre
-  // el cliente extendido (DATA-01) y la firma de esta librería, anterior a
-  // que Prisma tuviera client extensions; no oculta ninguna incompatibilidad
-  // real en tiempo de ejecución.
-  adapter: PrismaAdapter(prisma as unknown as PrismaClient),
+  // Sin adapter a propósito: la sesión es JWT y el único proveedor es
+  // Credentials, así que el adapter nunca se ejecutaba. Quitarlo evita que
+  // next-auth reciba un cliente Prisma fijo (el de una sola BD) cuando el
+  // cliente pase a resolverse por tenant. Las tablas Account/Session/
+  // VerificationToken del esquema quedan sin uso.
   providers: [
     CredentialsProvider({
       name: 'credentials',

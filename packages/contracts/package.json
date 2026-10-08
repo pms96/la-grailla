@@ -1,0 +1,11 @@
+{
+  "name": "@grailla/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Contrato versionado entre el panel de control y el front (registro, snapshot firmado, ids). Sin dependencias de Next ni de Prisma: se usa en edge, Node y en el panel.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "peerDependencies": {
+    "zod": "^3.25.0"
+  }
+}
