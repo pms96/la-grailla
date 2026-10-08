@@ -7,6 +7,7 @@ import { handleApiError } from '@/lib/api-error';
 import { allowSponsorAccess, getTokenFromRequest } from '@/lib/access-token';
 import { nextStatusAfterEdit } from '@/lib/sponsor-portal';
 import { ALLOWED_SPONSOR_MATERIAL_TYPES } from '@/lib/sponsor-uploads';
+import { isBlobUrlUnder } from '@/lib/blob-url';
 
 // El archivo ya se ha subido directamente del navegador a Vercel Blob (ver
 // upload-token/route.ts) — aquí solo se confirma y se persiste como
@@ -44,7 +45,9 @@ export async function POST(request: Request, { params }: { params: { sponsorId: 
     // El token de subida ya restringía la ruta a sponsors/{sponsorId}/ — esto
     // es una comprobación extra de que la URL confirmada es la que de verdad
     // se generó para este sponsor (evita que alguien cuele la URL de otro).
-    if (!body.url.includes(`/sponsors/${sponsorId}/`)) {
+    // Se parsea la URL: una subcadena en cualquier host o en el query string
+    // no vale (ver lib/blob-url.ts).
+    if (!isBlobUrlUnder(body.url, `sponsors/${sponsorId}/`)) {
       return NextResponse.json({ error: 'Archivo inválido' }, { status: 400 });
     }
 

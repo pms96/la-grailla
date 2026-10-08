@@ -47,7 +47,7 @@ describe('DELETE /api/admin/sponsors-portal/[id]/assets/[assetId]', () => {
 
   it('rechaza a quien no es admin', async () => {
     const asset = await prisma.sponsorAsset.create({
-      data: { sponsorId, url: 'https://blob.test/x.png', fileType: 'image/png', fileName: 'x.png', fileSize: 10 },
+      data: { sponsorId, url: 'https://test-store.public.blob.vercel-storage.com/x.png', fileType: 'image/png', fileName: 'x.png', fileSize: 10 },
     });
     sessionRole = null;
     const res = await deleteAsset(deleteRequest(), { params: { id: sponsorId, assetId: asset.id } });
@@ -64,12 +64,12 @@ describe('DELETE /api/admin/sponsors-portal/[id]/assets/[assetId]', () => {
   it('borra el archivo (fila + blob) que no es el vigente', async () => {
     delMock.mockClear();
     const asset = await prisma.sponsorAsset.create({
-      data: { sponsorId, url: 'https://blob.test/no-vigente.png', fileType: 'image/png', fileName: 'no-vigente.png', fileSize: 10 },
+      data: { sponsorId, url: 'https://test-store.public.blob.vercel-storage.com/no-vigente.png', fileType: 'image/png', fileName: 'no-vigente.png', fileSize: 10 },
     });
 
     const res = await deleteAsset(deleteRequest(), { params: { id: sponsorId, assetId: asset.id } });
     expect(res.status).toBe(200);
-    expect(delMock).toHaveBeenCalledWith('https://blob.test/no-vigente.png');
+    expect(delMock).toHaveBeenCalledWith('https://test-store.public.blob.vercel-storage.com/no-vigente.png');
 
     const found = await prisma.sponsorAsset.findUnique({ where: { id: asset.id } });
     expect(found).toBeNull();
@@ -77,10 +77,10 @@ describe('DELETE /api/admin/sponsors-portal/[id]/assets/[assetId]', () => {
 
   it('al borrar la imagen vigente, repunta automáticamente a la más reciente que quede', async () => {
     const older = await prisma.sponsorAsset.create({
-      data: { sponsorId, url: 'https://blob.test/older.png', fileType: 'image/png', fileName: 'older.png', fileSize: 10, uploadedAt: new Date(Date.now() - 60_000) },
+      data: { sponsorId, url: 'https://test-store.public.blob.vercel-storage.com/older.png', fileType: 'image/png', fileName: 'older.png', fileSize: 10, uploadedAt: new Date(Date.now() - 60_000) },
     });
     const current = await prisma.sponsorAsset.create({
-      data: { sponsorId, url: 'https://blob.test/current.png', fileType: 'image/png', fileName: 'current.png', fileSize: 10 },
+      data: { sponsorId, url: 'https://test-store.public.blob.vercel-storage.com/current.png', fileType: 'image/png', fileName: 'current.png', fileSize: 10 },
     });
     await prisma.sponsor.update({ where: { id: sponsorId }, data: { currentAssetId: current.id } });
 
@@ -96,7 +96,7 @@ describe('DELETE /api/admin/sponsors-portal/[id]/assets/[assetId]', () => {
 
   it('al borrar la única imagen vigente sin ninguna otra imagen, se queda sin vigente', async () => {
     const onlyOne = await prisma.sponsorAsset.create({
-      data: { sponsorId, url: 'https://blob.test/only.png', fileType: 'image/png', fileName: 'only.png', fileSize: 10 },
+      data: { sponsorId, url: 'https://test-store.public.blob.vercel-storage.com/only.png', fileType: 'image/png', fileName: 'only.png', fileSize: 10 },
     });
     await prisma.sponsor.update({ where: { id: sponsorId }, data: { currentAssetId: onlyOne.id } });
 

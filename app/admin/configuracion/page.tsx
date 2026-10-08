@@ -20,7 +20,7 @@ export default function ConfiguracionPage() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [testingGateway, setTestingGateway] = useState<'stripe' | 'sumup' | null>(null);
 
-  useEffect(() => {
+  const loadConfigs = () =>
     fetch('/api/admin/config')
       .then((r) => r.json())
       .then((d) => {
@@ -29,8 +29,10 @@ export default function ConfiguracionPage() {
         (d ?? []).forEach((c: AppConfig) => { vals[c?.key ?? ''] = c?.value ?? ''; });
         setValues(vals);
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .catch(() => {});
+
+  useEffect(() => {
+    loadConfigs().finally(() => setLoading(false));
   }, []);
 
   const updateValue = (key: string, value: string) => {
@@ -44,12 +46,16 @@ export default function ConfiguracionPage() {
         const existing = configs?.find((c) => c?.key === key);
         return { key, value, label: existing?.label ?? key, group: existing?.group ?? 'general' };
       });
-      await fetch('/api/admin/config', {
+      const res = await fetch('/api/admin/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ configs: configsToSave }),
       });
+      if (!res.ok) throw new Error('save failed');
       toast.success('Configuración guardada');
+      // Las credenciales son de solo escritura: tras guardar, el formulario vuelve
+      // a mostrar la máscara en vez de conservar el valor que se acaba de escribir.
+      await loadConfigs();
     } catch {
       toast.error('Error al guardar');
     } finally {

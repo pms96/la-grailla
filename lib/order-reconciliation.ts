@@ -1,3 +1,4 @@
+import { getFallbackBaseUrl } from '@/lib/url';
 import type { OrderStatus, ShopOrderStatus, TicketStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
@@ -54,7 +55,7 @@ export async function completeOrder(orderId: string, baseUrl?: string): Promise<
   }
 
   try {
-    await sendTicketsEmail(orderId, false, baseUrl ?? process.env.NEXTAUTH_URL);
+    await sendTicketsEmail(orderId, false, baseUrl ?? getFallbackBaseUrl());
   } catch (error) {
     console.error(
       `[completeOrder] Error enviando entradas del pedido ${orderId}:`,

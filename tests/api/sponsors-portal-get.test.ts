@@ -75,7 +75,7 @@ describe('GET /api/sponsors/portal/[sponsorId] — vídeo final condicionado al 
       data: {
         sponsorRequestId,
         status: 'APROBADO_PARA_VIDEO',
-        finalVideoUrl: 'https://blob.test/final.mp4',
+        finalVideoUrl: 'https://test-store.public.blob.vercel-storage.com/final.mp4',
         finalVideoFileName: 'final.mp4',
       },
     });
@@ -111,7 +111,7 @@ describe('GET /api/sponsors/portal/[sponsorId] — vídeo final condicionado al 
     const res = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
     const data = await res.json();
     expect(data.isPaid).toBe(true);
-    expect(data.finalVideo?.url).toBe('https://blob.test/final.mp4');
+    expect(data.finalVideo?.url).toBe('https://test-store.public.blob.vercel-storage.com/final.mp4');
     // El importe/fecha exactos del pago no son necesarios para el cliente.
     expect(data.paidAmount).toBeUndefined();
   });

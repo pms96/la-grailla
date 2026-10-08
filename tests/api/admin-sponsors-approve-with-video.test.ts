@@ -38,7 +38,7 @@ describe('POST /api/admin/sponsors-portal/[id]/approve-with-video', () => {
     });
     sponsorId = sponsor.id;
     await prisma.sponsorAsset.create({
-      data: { sponsorId, url: 'https://blob.test/referencia.mp4', fileType: 'video/mp4', fileName: 'referencia.mp4', fileSize: 300 },
+      data: { sponsorId, url: 'https://test-store.public.blob.vercel-storage.com/referencia.mp4', fileType: 'video/mp4', fileName: 'referencia.mp4', fileSize: 300 },
     });
   });
 
@@ -79,7 +79,7 @@ describe('POST /api/admin/sponsors-portal/[id]/approve-with-video', () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.status).toBe('APROBADO_PARA_VIDEO');
-    expect(data.finalVideoUrl).toBe('https://blob.test/referencia.mp4');
+    expect(data.finalVideoUrl).toBe('https://test-store.public.blob.vercel-storage.com/referencia.mp4');
     expect(data.finalVideoFileName).toBe('referencia.mp4');
   });
 

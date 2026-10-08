@@ -61,6 +61,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Política de migraciones (solo aditivas)
+        run: npm run check:migrations
+
       - name: Aplicar esquema de Prisma
         run: npx prisma migrate deploy
 

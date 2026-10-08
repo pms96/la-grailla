@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { isDeletableBlobUrl } from '@/lib/blob-url';
 
 // Elimina un material subido por el sponsor (logo, vídeo de referencia,
 // PDF...) — a diferencia del resto de SponsorAsset, que nunca se borran
@@ -39,7 +40,9 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
       await tx.sponsorAsset.delete({ where: { id: asset.id } });
     });
 
-    await del(asset.url).catch(() => {});
+    if (isDeletableBlobUrl(asset.url)) {
+      await del(asset.url).catch(() => {});
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

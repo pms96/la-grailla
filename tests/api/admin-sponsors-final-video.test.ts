@@ -120,7 +120,7 @@ describe('POST/DELETE /api/admin/sponsors-portal/[id]/final-video (confirmación
   it('rechaza a quien no es admin', async () => {
     sessionRole = null;
     const res = await uploadFinalVideo(
-      confirmRequest({ url: `https://blob.test/sponsors/${sponsorId}/final-video/final.mp4`, fileName: 'final.mp4', fileSize: 123 }),
+      confirmRequest({ url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/final-video/final.mp4`, fileName: 'final.mp4', fileSize: 123 }),
       { params: { id: sponsorId } }
     );
     expect(res.status).toBe(401);
@@ -129,7 +129,7 @@ describe('POST/DELETE /api/admin/sponsors-portal/[id]/final-video (confirmación
 
   it('rechaza una URL que no pertenece a este sponsor', async () => {
     const res = await uploadFinalVideo(
-      confirmRequest({ url: `https://blob.test/sponsors/otro-sponsor-id/final-video/final.mp4`, fileName: 'final.mp4', fileSize: 123 }),
+      confirmRequest({ url: `https://test-store.public.blob.vercel-storage.com/sponsors/otro-sponsor-id/final-video/final.mp4`, fileName: 'final.mp4', fileSize: 123 }),
       { params: { id: sponsorId } }
     );
     expect(res.status).toBe(400);
@@ -140,12 +140,12 @@ describe('POST/DELETE /api/admin/sponsors-portal/[id]/final-video (confirmación
   // vería el archivo mientras el admin todavía lo está revisando/subiendo.
   it('confirma el vídeo pero el portal público no lo expone hasta estar aprobado', async () => {
     const res = await uploadFinalVideo(
-      confirmRequest({ url: `https://blob.test/sponsors/${sponsorId}/final-video/final.mp4`, fileName: 'final.mp4', fileSize: 123 }),
+      confirmRequest({ url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/final-video/final.mp4`, fileName: 'final.mp4', fileSize: 123 }),
       { params: { id: sponsorId } }
     );
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data.finalVideoUrl).toContain('https://blob.test/');
+    expect(data.finalVideoUrl).toContain('https://test-store.public.blob.vercel-storage.com/');
     expect(data.finalVideoFileName).toBe('final.mp4');
 
     const token = signSponsorAccess(sponsorId, data.portalTokenVersion);
@@ -169,14 +169,14 @@ describe('POST/DELETE /api/admin/sponsors-portal/[id]/final-video (confirmación
     const token = signSponsorAccess(sponsorId, sponsor.portalTokenVersion);
     const portalRes = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
     const portalData = await portalRes.json();
-    expect(portalData.finalVideo?.url).toContain('https://blob.test/');
+    expect(portalData.finalVideo?.url).toContain('https://test-store.public.blob.vercel-storage.com/');
     expect(portalData.finalVideo?.fileName).toBe('final.mp4');
   });
 
   it('reemplazar el vídeo borra el blob anterior', async () => {
     delMock.mockClear();
     const res = await uploadFinalVideo(
-      confirmRequest({ url: `https://blob.test/sponsors/${sponsorId}/final-video/final-v2.mp4`, fileName: 'final-v2.mp4', fileSize: 456 }),
+      confirmRequest({ url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/final-video/final-v2.mp4`, fileName: 'final-v2.mp4', fileSize: 456 }),
       { params: { id: sponsorId } }
     );
     expect(res.status).toBe(200);

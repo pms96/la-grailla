@@ -5,6 +5,7 @@ import { put } from '@vercel/blob';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { sanitizeUploadFileName } from '@/lib/blob-url';
 
 const MAX_SIZE_BYTES = 5 * 1024 * 1024;
 
@@ -28,7 +29,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'La imagen no puede superar 5MB' }, { status: 400 });
     }
 
-    const blob = await put(`${prefix}/${crypto.randomUUID()}-${file.name}`, file, {
+    const blob = await put(`${prefix}/${crypto.randomUUID()}-${sanitizeUploadFileName(file.name)}`, file, {
       access: 'public',
       addRandomSuffix: false,
     });

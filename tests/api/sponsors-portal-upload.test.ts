@@ -145,7 +145,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo (confirmación tras subir a
 
   it('rechaza sin token', async () => {
     const res = await uploadLogo(
-      confirmRequest('http://localhost', { url: `https://blob.test/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
+      confirmRequest('http://localhost', { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
       { params: { sponsorId } }
     );
     expect(res.status).toBe(401);
@@ -153,7 +153,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo (confirmación tras subir a
 
   it('rechaza un tipo de archivo no permitido', async () => {
     const res = await uploadLogo(
-      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/malware.exe`, fileName: 'malware.exe', fileType: 'application/x-msdownload', fileSize: 100 }),
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/malware.exe`, fileName: 'malware.exe', fileType: 'application/x-msdownload', fileSize: 100 }),
       { params: { sponsorId } }
     );
     expect(res.status).toBe(400);
@@ -164,7 +164,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo (confirmación tras subir a
   // es pública) como si fuera su propio material.
   it('rechaza una URL que no pertenece a este sponsor', async () => {
     const res = await uploadLogo(
-      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/otro-sponsor-id/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/otro-sponsor-id/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
       { params: { sponsorId } }
     );
     expect(res.status).toBe(400);
@@ -172,7 +172,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo (confirmación tras subir a
 
   it('acepta un logo válido y lo deja como currentAsset', async () => {
     const res = await uploadLogo(
-      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
       { params: { sponsorId } }
     );
     expect(res.status).toBe(200);
@@ -189,7 +189,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo (confirmación tras subir a
   it('vuelve a poner en revisión un sponsor ya marcado como listo si se cambia el logo', async () => {
     await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'LISTO_PARA_GENERAR', guidedAnswers: { estilo: 'x' } } });
     const res = await uploadLogo(
-      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/logo-v2.png`, fileName: 'logo-v2.png', fileType: 'image/png', fileSize: 100 }),
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/logo-v2.png`, fileName: 'logo-v2.png', fileType: 'image/png', fileSize: 100 }),
       { params: { sponsorId } }
     );
     expect(res.status).toBe(200);
@@ -200,7 +200,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo (confirmación tras subir a
   it('rechaza confirmar un logo si la solicitud ya está aprobada o rechazada', async () => {
     await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'APROBADO_PARA_VIDEO' } });
     const res = await uploadLogo(
-      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
       { params: { sponsorId } }
     );
     expect(res.status).toBe(409);
@@ -239,11 +239,11 @@ describe('varios archivos coexisten (no se reemplazan)', () => {
 
   it('el GET devuelve todos los archivos subidos, no solo el último', async () => {
     await uploadLogo(
-      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
       { params: { sponsorId } }
     );
     await uploadLogo(
-      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/referencia.mp4`, fileName: 'referencia.mp4', fileType: 'video/mp4', fileSize: 200 }),
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/referencia.mp4`, fileName: 'referencia.mp4', fileType: 'video/mp4', fileSize: 200 }),
       { params: { sponsorId } }
     );
 
@@ -288,11 +288,11 @@ describe('currentAsset solo se actualiza con imágenes', () => {
 
   it('un vídeo subido tras la imagen no reemplaza currentAsset', async () => {
     await uploadLogo(
-      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
       { params: { sponsorId } }
     );
     await uploadLogo(
-      confirmRequest(`http://localhost?t=${token}`, { url: `https://blob.test/sponsors/${sponsorId}/referencia.mp4`, fileName: 'referencia.mp4', fileType: 'video/mp4', fileSize: 200 }),
+      confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/referencia.mp4`, fileName: 'referencia.mp4', fileType: 'video/mp4', fileSize: 200 }),
       { params: { sponsorId } }
     );
 
@@ -314,7 +314,7 @@ describe('currentAsset solo se actualiza con imágenes', () => {
     const videoToken = signSponsorAccess(sponsor.id, sponsor.portalTokenVersion);
 
     const res = await uploadLogo(
-      confirmRequest(`http://localhost?t=${videoToken}`, { url: `https://blob.test/sponsors/${sponsor.id}/referencia.mp4`, fileName: 'referencia.mp4', fileType: 'video/mp4', fileSize: 200 }),
+      confirmRequest(`http://localhost?t=${videoToken}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsor.id}/referencia.mp4`, fileName: 'referencia.mp4', fileType: 'video/mp4', fileSize: 200 }),
       { params: { sponsorId: sponsor.id } }
     );
     expect(res.status).toBe(200);

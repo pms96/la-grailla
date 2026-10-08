@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import type Stripe from 'stripe';
 import { Prisma } from '@prisma/client';
-import { getConfig } from '@/lib/config';
+import { getConfigOrThrow } from '@/lib/config';
 import { handleApiError } from '@/lib/api-error';
 import { resolveExpiredCheckout, resolvePaidCheckout } from '@/lib/order-reconciliation';
 import { getBaseUrl } from '@/lib/url';
@@ -17,8 +17,8 @@ export async function POST(request: Request) {
     }
 
     const [secretKey, webhookSecret] = await Promise.all([
-      getConfig('stripe_secret_key'),
-      getConfig('stripe_webhook_secret'),
+      getConfigOrThrow('stripe_secret_key'),
+      getConfigOrThrow('stripe_webhook_secret'),
     ]);
     if (!secretKey || !webhookSecret) {
       console.error('[POST /api/webhooks/stripe] Stripe no está configurado (falta secret key o webhook secret)');

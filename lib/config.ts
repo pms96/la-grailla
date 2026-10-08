@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { decryptSecret, encryptSecret, isSensitiveConfigKey } from '@/lib/secrets';
+import { SecretDecryptionError, decryptSecret, encryptSecret, isSensitiveConfigKey, shouldDecryptOnRead } from '@/lib/secrets';
 import { DEFAULT_SPONSOR_TIERS } from '@/lib/sponsor-tiers';
 
 const CONFIG_DEFAULTS: Record<string, string> = {
@@ -63,14 +63,44 @@ const CONFIG_DEFAULTS: Record<string, string> = {
   phomemo_confirm_every_chunks: '8',
 };
 
+// Una credencial cifrada que no se puede abrir NO debe confundirse con "sin
+// configurar": se registra con el nombre de la clave (nunca el valor) y, según
+// quién llame, o se degrada a '' (getConfig/getConfigs, para que una cert de
+// Wallet rota no impida enviar el email de entradas) o se propaga
+// (getConfigOrThrow, para cobros, donde un error claro vale más que un
+// "falta la clave" engañoso).
+function decryptConfigValue(key: string, raw: string, strict: boolean): string {
+  if (!shouldDecryptOnRead(key)) return raw;
+  try {
+    return decryptSecret(raw, { configKey: key });
+  } catch (err) {
+    if (!(err instanceof SecretDecryptionError)) throw err;
+    console.error(`[config] No se pudo descifrar "${key}": ${err.message}`);
+    if (strict) throw err;
+    return '';
+  }
+}
+
 export async function getConfig(key: string): Promise<string> {
   try {
     const config = await prisma.appConfig.findUnique({ where: { key } });
-    const raw = config?.value ?? CONFIG_DEFAULTS[key] ?? '';
-    return isSensitiveConfigKey(key) ? decryptSecret(raw) : raw;
+    return decryptConfigValue(key, config?.value ?? CONFIG_DEFAULTS[key] ?? '', false);
   } catch {
     return CONFIG_DEFAULTS[key] ?? '';
   }
+}
+
+// Igual que getConfig, pero un valor cifrado ilegible lanza SecretDecryptionError.
+// Los errores de BD siguen degradando al valor por defecto.
+export async function getConfigOrThrow(key: string): Promise<string> {
+  let raw: string;
+  try {
+    const config = await prisma.appConfig.findUnique({ where: { key } });
+    raw = config?.value ?? CONFIG_DEFAULTS[key] ?? '';
+  } catch {
+    return CONFIG_DEFAULTS[key] ?? '';
+  }
+  return decryptConfigValue(key, raw, true);
 }
 
 export async function getConfigs(keys: string[]): Promise<Record<string, string>> {
@@ -81,8 +111,7 @@ export async function getConfigs(keys: string[]): Promise<Record<string, string>
     const result: Record<string, string> = {};
     for (const k of keys) {
       const found = configs?.find((c) => c?.key === k);
-      const raw = found?.value ?? CONFIG_DEFAULTS[k] ?? '';
-      result[k] = isSensitiveConfigKey(k) ? decryptSecret(raw) : raw;
+      result[k] = decryptConfigValue(k, found?.value ?? CONFIG_DEFAULTS[k] ?? '', false);
     }
     return result;
   } catch {

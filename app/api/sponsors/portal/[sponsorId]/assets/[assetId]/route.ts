@@ -5,6 +5,7 @@ import { del } from '@vercel/blob';
 import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
 import { allowSponsorAccess, getTokenFromRequest } from '@/lib/access-token';
+import { isDeletableBlobUrl } from '@/lib/blob-url';
 
 // El sponsor puede eliminar sus propios materiales mientras el pipeline
 // siga abierto — mismo criterio que editar (logo/datos/creatividad): una
@@ -44,7 +45,9 @@ export async function DELETE(request: Request, { params }: { params: { sponsorId
       await tx.sponsorAsset.delete({ where: { id: asset.id } });
     });
 
-    await del(asset.url).catch(() => {});
+    if (isDeletableBlobUrl(asset.url)) {
+      await del(asset.url).catch(() => {});
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

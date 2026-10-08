@@ -55,7 +55,7 @@ async function createSponsorReadyToGenerate() {
     },
   });
   const asset = await prisma.sponsorAsset.create({
-    data: { sponsorId: sponsor.id, url: 'https://blob.test/logo.png', fileType: 'image/png', fileName: 'logo.png', fileSize: 100 },
+    data: { sponsorId: sponsor.id, url: 'https://test-store.public.blob.vercel-storage.com/logo.png', fileType: 'image/png', fileName: 'logo.png', fileSize: 100 },
   });
   await prisma.sponsor.update({ where: { id: sponsor.id }, data: { currentAssetId: asset.id } });
   return { requestId: request.id, sponsorId: sponsor.id };

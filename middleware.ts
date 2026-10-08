@@ -1,5 +1,6 @@
 import { withAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
+import { isCrossOriginMutation, isOriginCheckExempt } from '@/lib/origin-check';
 
 const STAFF_ROLES = ['ADMIN', 'TAQUILLA'];
 
@@ -30,6 +31,12 @@ export default withAuth(
   function middleware(req) {
     const token = req.nextauth?.token;
     const path = req.nextUrl?.pathname ?? '';
+
+    // CSRF: una petición que modifica datos y que el navegador marca como
+    // originada en otro sitio no llega a ningún handler (ver lib/origin-check.ts).
+    if (path.startsWith('/api/') && !isOriginCheckExempt(path) && isCrossOriginMutation(req.method, req.headers)) {
+      return NextResponse.json({ error: 'Origen no permitido' }, { status: 403 });
+    }
 
     // Admin routes
     if (path?.startsWith('/admin') && token?.role !== 'ADMIN') {
@@ -66,12 +73,7 @@ export default withAuth(
 );
 
 export const config = {
-  matcher: [
-    '/admin/:path*',
-    '/acceso/:path*',
-    '/api/admin/:path*',
-    '/api/taquilla/:path*',
-    '/api/scan',
-    '/api/access/:path*',
-  ],
+  // Todas las API pasan por aquí por la comprobación de origen; la autorización
+  // de staff sigue limitándose a sus prefijos (isStaffApiPath).
+  matcher: ['/admin/:path*', '/acceso/:path*', '/api/:path*'],
 };

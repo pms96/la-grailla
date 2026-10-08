@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
 
+import { getFallbackBaseUrl } from '@/lib/url';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
@@ -81,7 +82,7 @@ export async function POST(request: Request) {
       replyTo: email,
     });
 
-    const logoUrl = (process.env.NEXTAUTH_URL ?? '') + '/brand/logo-black.png';
+    const logoUrl = getFallbackBaseUrl() + '/brand/logo-black.png';
     const confirmHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #a855f7;">Solicitud Recibida</h2>

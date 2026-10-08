@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { isBlobUrlUnder, isDeletableBlobUrl } from '@/lib/blob-url';
 
 // El vídeo final ya producido (no el de referencia que sube el sponsor, ni
 // la propuesta generada por IA) — lo sube el admin a mano cuando está
@@ -31,7 +32,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     }
 
     const body = confirmSchema.parse(await request.json());
-    if (!body.url.includes(`/sponsors/${sponsor.id}/final-video/`)) {
+    if (!isBlobUrlUnder(body.url, `sponsors/${sponsor.id}/final-video/`)) {
       return NextResponse.json({ error: 'Archivo inválido' }, { status: 400 });
     }
 
@@ -46,7 +47,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
       },
     });
 
-    if (previousUrl) {
+    if (isDeletableBlobUrl(previousUrl)) {
       await del(previousUrl).catch(() => {});
     }
 
@@ -75,7 +76,9 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
       data: { finalVideoUrl: null, finalVideoFileName: null, finalVideoSize: null, finalVideoUploadedAt: null },
     });
 
-    await del(sponsor.finalVideoUrl).catch(() => {});
+    if (isDeletableBlobUrl(sponsor.finalVideoUrl)) {
+      await del(sponsor.finalVideoUrl).catch(() => {});
+    }
 
     return NextResponse.json(updated);
   } catch (error) {

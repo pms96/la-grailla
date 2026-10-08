@@ -48,7 +48,7 @@ describe('DELETE /api/sponsors/portal/[sponsorId]/assets/[assetId]', () => {
 
   it('rechaza sin token de acceso válido', async () => {
     const asset = await prisma.sponsorAsset.create({
-      data: { sponsorId, url: 'https://blob.test/sin-token.png', fileType: 'image/png', fileName: 'sin-token.png', fileSize: 10 },
+      data: { sponsorId, url: 'https://test-store.public.blob.vercel-storage.com/sin-token.png', fileType: 'image/png', fileName: 'sin-token.png', fileSize: 10 },
     });
     const res = await deleteAsset(deleteRequest(), { params: { sponsorId, assetId: asset.id } });
     expect(res.status).toBe(401);
@@ -60,12 +60,12 @@ describe('DELETE /api/sponsors/portal/[sponsorId]/assets/[assetId]', () => {
     const sponsor = await prisma.sponsor.findUniqueOrThrow({ where: { id: sponsorId } });
     const token = signSponsorAccess(sponsorId, sponsor.portalTokenVersion);
     const asset = await prisma.sponsorAsset.create({
-      data: { sponsorId, url: 'https://blob.test/con-token.png', fileType: 'image/png', fileName: 'con-token.png', fileSize: 10 },
+      data: { sponsorId, url: 'https://test-store.public.blob.vercel-storage.com/con-token.png', fileType: 'image/png', fileName: 'con-token.png', fileSize: 10 },
     });
 
     const res = await deleteAsset(deleteRequest(token), { params: { sponsorId, assetId: asset.id } });
     expect(res.status).toBe(200);
-    expect(delMock).toHaveBeenCalledWith('https://blob.test/con-token.png');
+    expect(delMock).toHaveBeenCalledWith('https://test-store.public.blob.vercel-storage.com/con-token.png');
 
     const found = await prisma.sponsorAsset.findUnique({ where: { id: asset.id } });
     expect(found).toBeNull();
@@ -83,7 +83,7 @@ describe('DELETE /api/sponsors/portal/[sponsorId]/assets/[assetId]', () => {
     });
     const otherSponsor = await prisma.sponsor.create({ data: { sponsorRequestId: otherRequest.id } });
     const otherAsset = await prisma.sponsorAsset.create({
-      data: { sponsorId: otherSponsor.id, url: 'https://blob.test/otro.png', fileType: 'image/png', fileName: 'otro.png', fileSize: 10 },
+      data: { sponsorId: otherSponsor.id, url: 'https://test-store.public.blob.vercel-storage.com/otro.png', fileType: 'image/png', fileName: 'otro.png', fileSize: 10 },
     });
 
     const sponsor = await prisma.sponsor.findUniqueOrThrow({ where: { id: sponsorId } });
@@ -101,7 +101,7 @@ describe('DELETE /api/sponsors/portal/[sponsorId]/assets/[assetId]', () => {
   it('rechaza borrar si la solicitud ya está cerrada (aprobada o rechazada)', async () => {
     const closedSponsor = await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'APROBADO_PARA_VIDEO' } });
     const asset = await prisma.sponsorAsset.create({
-      data: { sponsorId, url: 'https://blob.test/cerrado.png', fileType: 'image/png', fileName: 'cerrado.png', fileSize: 10 },
+      data: { sponsorId, url: 'https://test-store.public.blob.vercel-storage.com/cerrado.png', fileType: 'image/png', fileName: 'cerrado.png', fileSize: 10 },
     });
     const token = signSponsorAccess(sponsorId, closedSponsor.portalTokenVersion);
 

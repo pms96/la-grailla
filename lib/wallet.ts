@@ -1,3 +1,4 @@
+import { getFallbackBaseUrl } from '@/lib/url';
 import { getConfig, getConfigs, setConfig } from '@/lib/config';
 import { APPLE_WWDR_CERT_PEM } from '@/lib/apple-wwdr-cert';
 import { sendMail } from '@/lib/mailer';
@@ -64,7 +65,7 @@ export async function buildGoogleWalletSaveUrl(ticket: TicketPayload): Promise<s
   const classId = issuerId + '.event_' + ticket.eventId.replace(/[^A-Za-z0-9_.-]/g, '');
   const objectId = issuerId + '.tk_' + ticket.ticketId.replace(/[^A-Za-z0-9_.-]/g, '');
 
-  const appUrl = process.env.NEXTAUTH_URL ?? '';
+  const appUrl = getFallbackBaseUrl();
   // Wallet no admite CSS a medida (dos tonos, avatar circular, etc.) — esto es
   // la mejor aproximación con los campos nativos que expone Google: la foto
   // del cartel como heroImage (banner ancho, no circular) y hexBackgroundColor
@@ -126,7 +127,7 @@ export async function buildGoogleWalletSaveUrl(ticket: TicketPayload): Promise<s
 // función serverless (mismo motivo que llevó a embeber el certificado WWDR
 // como constante en vez de leerlo de disco).
 async function fetchLogoBuffer(): Promise<Buffer> {
-  const appUrl = process.env.NEXTAUTH_URL ?? '';
+  const appUrl = getFallbackBaseUrl();
   const res = await fetch(appUrl + '/brand/logo-white.png');
   return Buffer.from(await res.arrayBuffer());
 }
@@ -138,7 +139,7 @@ async function fetchLogoBuffer(): Promise<Buffer> {
 // foto real del evento (retrato, pensada para un cartel) recortaría fatal
 // en un formato tan ancho, así que de momento no varía por evento.
 async function fetchStripBuffer(): Promise<Buffer> {
-  const appUrl = process.env.NEXTAUTH_URL ?? '';
+  const appUrl = getFallbackBaseUrl();
   const res = await fetch(appUrl + '/brand/wallet-strip.png');
   return Buffer.from(await res.arrayBuffer());
 }

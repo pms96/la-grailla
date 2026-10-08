@@ -6,6 +6,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { StripeAdapter, SumUpAdapter } from '@/lib/payment-adapter';
 import { handleApiError } from '@/lib/api-error';
+import { getConfigOrThrow } from '@/lib/config';
+import { SECRET_MASK } from '@/lib/secrets';
 
 // Comprueba la credencial tal como está escrita AHORA MISMO en el formulario
 // de /admin/configuracion, antes de guardarla — un espacio invisible pegado
@@ -25,13 +27,15 @@ export async function POST(request: Request) {
     const body = testGatewaySchema.parse(await request.json());
 
     if (body.gateway === 'stripe') {
-      const secretKey = body.secretKey.trim();
+      // El formulario nunca recibe la clave real (ver GET /api/admin/config): si no la
+      // ha retocado llega la máscara, y se prueba la que hay guardada.
+      const secretKey = (body.secretKey === SECRET_MASK ? await getConfigOrThrow('stripe_secret_key') : body.secretKey).trim();
       if (!secretKey) return NextResponse.json({ ok: false, error: 'Falta la Secret Key' });
       const result = await new StripeAdapter(secretKey).testConnection();
       return NextResponse.json(result);
     }
 
-    const apiKey = body.apiKey.trim();
+    const apiKey = (body.apiKey === SECRET_MASK ? await getConfigOrThrow('sumup_api_key') : body.apiKey).trim();
     const merchantCode = body.merchantCode.trim();
     if (!apiKey || !merchantCode) return NextResponse.json({ ok: false, error: 'Falta la API Key o el Merchant Code' });
     const result = await new SumUpAdapter(apiKey, merchantCode).testConnection();

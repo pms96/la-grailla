@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
 
+import { getFallbackBaseUrl } from '@/lib/url';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateQRDataUrl } from '@/lib/qr';
@@ -29,7 +30,7 @@ export async function GET(
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
     }
 
-    const logoUrl = (process.env.NEXTAUTH_URL ?? '') + '/brand/logo-black.png';
+    const logoUrl = getFallbackBaseUrl() + '/brand/logo-black.png';
     const ticketHtmls: string[] = [];
     for (const ticket of (order.tickets ?? [])) {
       const qrDataUrl = await generateQRDataUrl(ticket?.qrCode ?? '');

@@ -1,6 +1,6 @@
 /* Payment Adapter Pattern — extensible payment gateway abstraction */
 import type Stripe from 'stripe';
-import { getConfig } from '@/lib/config';
+import { getConfig, getConfigOrThrow } from '@/lib/config';
 
 export interface PaymentSession {
   sessionId: string;
@@ -298,14 +298,14 @@ export async function getPaymentProviderByName(gateway: string): Promise<Payment
     // .trim(): una key guardada con un espacio/salto de línea invisible (copia
     // y pega desde el dashboard de la pasarela) rompe el header Authorization
     // y la pasarela responde 401 sin más contexto — nunca es un valor válido.
-    const secretKey = (await getConfig('stripe_secret_key')).trim();
+    const secretKey = (await getConfigOrThrow('stripe_secret_key')).trim();
     if (!secretKey) throw new Error('Stripe está activo pero falta stripe_secret_key en /admin/configuracion');
     return new StripeAdapter(secretKey);
   }
 
   if (gateway === 'sumup') {
     const [apiKey, merchantCode] = await Promise.all([
-      getConfig('sumup_api_key'),
+      getConfigOrThrow('sumup_api_key'),
       getConfig('sumup_merchant_code'),
     ]);
     const trimmedApiKey = apiKey.trim();

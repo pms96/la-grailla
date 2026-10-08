@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
-import { decryptSecret, encryptSecret, isSensitiveConfigKey } from '@/lib/secrets';
+import { SECRET_MASK, encryptSecret, isSensitiveConfigKey, isWriteOnlyConfigKey } from '@/lib/secrets';
 
 const updateConfigSchema = z.object({
   configs: z
@@ -28,12 +28,14 @@ export async function GET() {
   }
   try {
     const configs = await prisma.appConfig.findMany({ orderBy: { group: 'asc' } });
-    // El admin necesita ver/editar el valor real en el formulario, no el
-    // blob cifrado que hay en la base de datos.
-    const decrypted = (configs ?? []).map((c) =>
-      isSensitiveConfigKey(c.key) ? { ...c, value: decryptSecret(c.value) } : c
+    // Las credenciales son de solo escritura: el navegador recibe una máscara,
+    // nunca el valor (ni descifrado ni el blob cifrado). Así un guardado desde el
+    // formulario sin tocar el campo no puede reescribir la credencial, y un
+    // valor que no se pueda descifrar ya no se vuelve a guardar como vacío.
+    const masked = (configs ?? []).map((c) =>
+      isWriteOnlyConfigKey(c.key) && c.value ? { ...c, value: SECRET_MASK } : c
     );
-    return NextResponse.json(decrypted);
+    return NextResponse.json(masked);
   } catch (error) {
     return handleApiError(error, 'GET /api/admin/config');
   }
@@ -53,6 +55,9 @@ export async function PUT(request: Request) {
         // espacio o salto de línea invisible — eso rompe el header Authorization
         // en silencio y la pasarela responde 401 sin ninguna pista de por qué.
         const trimmedValue = (cfg.value ?? '').trim();
+        // La máscara que devuelve el GET significa "no se ha tocado": se conserva
+        // el valor guardado.
+        if (isWriteOnlyConfigKey(cfg.key) && trimmedValue === SECRET_MASK) continue;
         const value = isSensitiveConfigKey(cfg.key) ? encryptSecret(trimmedValue) : trimmedValue;
         await prisma.appConfig.upsert({
           where: { key: cfg.key },

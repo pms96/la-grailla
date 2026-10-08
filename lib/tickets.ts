@@ -1,3 +1,4 @@
+import { getFallbackBaseUrl } from '@/lib/url';
 import { prisma } from '@/lib/prisma';
 import { generateQRDataUrl } from '@/lib/qr';
 import { sendMail } from '@/lib/mailer';
@@ -22,7 +23,7 @@ export async function buildTicketsHtml(orderId: string): Promise<{ html: string;
   });
   if (!order) return null;
 
-  const logoUrl = (process.env.NEXTAUTH_URL ?? '') + '/brand/logo-black.png';
+  const logoUrl = getFallbackBaseUrl() + '/brand/logo-black.png';
   const eventDate = order.event?.date
     ? new Date(order.event.date).toLocaleDateString('es-ES', {
         weekday: 'long',
@@ -202,7 +203,7 @@ export async function sendTicketsEmail(
     return { success: false, error: 'pending_payment' };
   }
 
-  const appUrl = baseUrl ?? process.env.NEXTAUTH_URL ?? '';
+  const appUrl = baseUrl ?? getFallbackBaseUrl();
   const printUrl = appUrl + '/api/tickets/' + order.id + '/pdf-html?' + orderAccessQuery(order.id);
   const logoUrl = appUrl + '/brand/logo-black.png';
   const minorAuthUrl = order.event?.slug ? appUrl + '/api/events/' + order.event.slug + '/minor-authorization' : undefined;
