@@ -5,9 +5,15 @@ import { can } from '@/lib/permissions';
 import { getTenantDetail, recentAudit } from '@/lib/queries';
 import { verificationRecordName, verificationRecordValue } from '@/lib/services/domains';
 import { buildRoutingRecord } from '@/lib/services/snapshot';
+import { licenseStateOf } from '@/lib/services/license';
 import {
   addDomainAction,
   bumpEpochAction,
+  emergencyRevokeAction,
+  liftRevocationAction,
+  redeemKeyAction,
+  registerPaymentAction,
+  setLicenseAction,
   publishAction,
   releaseDomainAction,
   replaceDbAction,
@@ -18,9 +24,12 @@ import {
   verifyManualAction,
 } from '../../actions/tenants';
 import { ActionForm } from '../../_components/action-form';
-import { DomainStatusPill, Pill, PublishPill, TenantStatusPill, formatDate } from '../../_components/ui';
+import { DomainStatusPill, LicensePhasePill, Pill, PublishPill, TenantStatusPill, formatDate, formatDay } from '../../_components/ui';
 
 export const dynamic = 'force-dynamic';
+
+/** `yyyy-mm-dd` del día de Madrid (el formulario edita el día de cobertura tal como lo ve el operador, no el UTC). */
+const madridDay = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(d);
 
 export default async function TenantPage({ params }: { params: { id: string } }) {
   const { live } = await requireOperator('view');
@@ -30,6 +39,8 @@ export default async function TenantPage({ params }: { params: { id: string } })
   const { tenant, subscriptions } = detail;
   const audit = await recentAudit({ tenantId: tenant.id, take: 15 });
   const canWrite = can(role, 'tenants:write');
+  const canBill = can(role, 'billing:write');
+  const canRevoke = can(role, 'tenants:revoke');
 
   return (
     <main>
@@ -52,7 +63,14 @@ export default async function TenantPage({ params }: { params: { id: string } })
         </div>
       </div>
 
+      {tenant.emergencyRevokedAt && (
+        <p className="msg error" role="alert">
+          Acceso REVOCADO de emergencia desde el {formatDate(tenant.emergencyRevokedAt)}: la web de este cliente está cortada (los webhooks y crons siguen entrando).
+        </p>
+      )}
+
       {subscriptions.map(({ sub, pending }) => {
+        const license = licenseStateOf(sub);
         const enabled = new Set(sub.modules.map((m) => m.moduleKey));
         let preview: string | null = null;
         let previewError: string | null = null;
@@ -85,6 +103,65 @@ export default async function TenantPage({ params }: { params: { id: string } })
                 <details style={{ marginTop: '.75rem' }}>
                   <summary>Registro que se publicará (sin secretos)</summary>
                   <pre className="mono" style={{ overflowX: 'auto' }}>{preview}</pre>
+                </details>
+              )}
+            </div>
+
+            <div className="panel">
+              <div className="pagehead" style={{ marginBottom: '.5rem' }}>
+                <h2 style={{ margin: 0 }}>Licencia</h2>
+                <LicensePhasePill phase={license.phase} />
+              </div>
+              <dl className="kv">
+                <dt>Cubierto hasta</dt>
+                <dd>{sub.paidThrough ? formatDay(sub.paidThrough) : 'Sin caducidad'}</dd>
+                <dt>Plazos</dt>
+                <dd>
+                  {sub.graceDays} días de aviso · {sub.panelBlockedDays} con el panel bloqueado · bloqueo total a los {sub.graceDays + sub.panelBlockedDays} días
+                </dd>
+                {license.nextPhaseChangeAt && (
+                  <>
+                    <dt>Próximo cambio</dt>
+                    <dd>{formatDay(license.nextPhaseChangeAt)} → {license.schedule[0].phase === 'GRACE' ? 'aviso' : license.schedule[0].phase === 'PANEL_BLOCKED' ? 'panel bloqueado' : 'bloqueo total'}</dd>
+                  </>
+                )}
+              </dl>
+              <p className="muted" style={{ fontSize: '.85rem' }}>
+                La fase avanza sola en la web del cliente siempre que el panel refresque los snapshots a diario (<span className="mono">npm run snapshots:refresh</span>).
+              </p>
+              {canBill && (
+                <div className="grid2">
+                  <ActionForm action={registerPaymentAction.bind(null, tenant.id, sub.id)} submitLabel="Registrar pago">
+                    <label>
+                      Alargar la cobertura (días)
+                      <input name="days" type="number" min={1} max={1100} defaultValue={365} required />
+                    </label>
+                  </ActionForm>
+                  <ActionForm action={redeemKeyAction.bind(null, tenant.id, sub.id)} submitLabel="Canjear clave">
+                    <label>
+                      Clave de licencia
+                      <input name="code" type="text" autoComplete="off" spellCheck={false} placeholder="LGR-XXXXX-XXXXX-XXXXX-XXXXX" required />
+                    </label>
+                  </ActionForm>
+                </div>
+              )}
+              {canBill && (
+                <details style={{ marginTop: '.75rem' }}>
+                  <summary>Cambiar fecha y plazos</summary>
+                  <ActionForm action={setLicenseAction.bind(null, tenant.id, sub.id)} submitLabel="Guardar licencia" confirm="Si la fecha ya ha pasado, el cliente entrará en aviso o bloqueo en cuanto se publique. ¿Guardar?">
+                    <label>
+                      Cubierto hasta (vacío = sin caducidad)
+                      <input name="paidThrough" type="date" defaultValue={sub.paidThrough ? madridDay(sub.paidThrough) : ''} />
+                    </label>
+                    <label>
+                      Días de aviso
+                      <input name="graceDays" type="number" min={0} max={90} defaultValue={sub.graceDays} required />
+                    </label>
+                    <label>
+                      Días más con el panel bloqueado
+                      <input name="panelBlockedDays" type="number" min={0} max={180} defaultValue={sub.panelBlockedDays} required />
+                    </label>
+                  </ActionForm>
                 </details>
               )}
             </div>
@@ -221,6 +298,20 @@ export default async function TenantPage({ params }: { params: { id: string } })
           </section>
         );
       })}
+
+      {canRevoke && (
+        <div className="panel">
+          <h2>Emergencia</h2>
+          <p className="muted">
+            Corta la web de este cliente en unos segundos, sin publicar y aunque este panel falle después. No toca webhooks de pago ni crons.
+          </p>
+          {tenant.emergencyRevokedAt ? (
+            <ActionForm className="inline" action={liftRevocationAction.bind(null, tenant.id)} submitLabel="Levantar la revocación" tone="quiet" />
+          ) : (
+            <ActionForm className="inline" action={emergencyRevokeAction.bind(null, tenant.id)} submitLabel="Revocar acceso ahora" tone="danger" confirm="Esto corta la web de este cliente en segundos. ¿Seguro?" />
+          )}
+        </div>
+      )}
 
       <div className="panel">
         <h2>Actividad reciente</h2>

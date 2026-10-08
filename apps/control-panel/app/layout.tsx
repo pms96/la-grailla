@@ -23,6 +23,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <>
               <nav aria-label="Principal">
                 <Link href="/">Clientes</Link>
+                {can(full.operator.role, 'billing:write') && <Link href="/licenses">Licencias</Link>}
                 <Link href="/audit">Auditoría</Link>
                 {can(full.operator.role, 'operators:manage') && <Link href="/operators">Operadores</Link>}
               </nav>

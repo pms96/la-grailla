@@ -13,7 +13,9 @@ Contrato entre el panel de control (que escribe) y el front (que lee). Todo lo q
 - Cambios que rompen: se sube `CONTRACT_VERSION`. Un front que no la soporta rechaza el snapshot (`unsupported_contract`) y sigue con el último válido; nunca interpreta a ciegas.
 - Módulos desconocidos se ignoran (deny). Una fase de licencia desconocida invalida el registro entero.
 - `verifySnapshot` exige el `host` de la petición (el snapshot debe listar ese dominio) y, si se indica, el `product`. Sin ello una firma válida de un cliente serviría bajo el dominio de otro.
-- `seq` es por suscripción (tenant × producto). El lector debe **persistir** el último visto fuera de la instancia (no basta la memoria de una función serverless) y rechazar uno menor.
+- `seq` es por suscripción (tenant × producto), no por host. El lector rechaza uno menor que el último visto para esa suscripción (hoy en la memoria de la instancia; ver `docs/platform/m5-modulos-licencia.md` sobre por qué no se persiste en el mismo almacén).
+- `license.schedule` (opcional) lista los cambios de fase futuros; el lector solo los aplica con una lectura fresca de un snapshot no obsoleto, y nunca mejora la fase por sí solo.
+- `revoked:{tenantId}` en el almacén (`registryKeyForRevocation`) es la revocación de emergencia: su presencia corta al cliente.
 - `staleUntil` no invalida: un panel caído no debe apagar las webs. Un snapshot obsoleto solo se marca (`stale`); el corte de emergencia va por la clave de revocación del almacén y por rotar el `kid`.
 - La firma cubre `grailla-snapshot-v1\n{kid}\n{payload}`: el payload es el texto exacto que se firmó; no hay canonicalización de JSON.
 

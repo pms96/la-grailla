@@ -24,3 +24,12 @@ export function PublishPill({ pending, seq, error, hasPublished }: { pending: bo
   if (pending) return <Pill tone="warn">Cambios sin publicar</Pill>;
   return <Pill tone="ok">Al día · v{seq}</Pill>;
 }
+
+const PHASE_TONE = { ACTIVE: 'ok', GRACE: 'warn', PANEL_BLOCKED: 'bad', BLOCKED: 'bad' } as const;
+const PHASE_LABEL = { ACTIVE: 'Al día', GRACE: 'En gracia (aviso)', PANEL_BLOCKED: 'Panel bloqueado', BLOCKED: 'Bloqueado' } as const;
+export function LicensePhasePill({ phase }: { phase: keyof typeof PHASE_TONE }) {
+  return <Pill tone={PHASE_TONE[phase]}>{PHASE_LABEL[phase]}</Pill>;
+}
+
+const dayFmt = new Intl.DateTimeFormat('es-ES', { dateStyle: 'long', timeZone: 'Europe/Madrid' });
+export const formatDay = (d: Date | number | null | undefined) => (d === null || d === undefined ? '—' : dayFmt.format(d));

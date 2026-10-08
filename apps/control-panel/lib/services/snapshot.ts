@@ -3,6 +3,7 @@ import type { Domain, Prisma, Subscription, SubscriptionModule, Tenant } from '@
 import {
   CONTRACT_VERSION,
   RoutingRecordSchema,
+  licensePhase,
   registryKeyForHost,
   registryKeyForSecrets,
   signSecretsSnapshot,
@@ -20,7 +21,7 @@ import { ServiceError } from './errors';
 export type SubscriptionFull = Subscription & { tenant: Tenant; modules: SubscriptionModule[]; domains: Domain[] };
 
 /** Registro de enrutado que se publicará para una suscripción. Sin secretos. */
-export function buildRoutingRecord(sub: SubscriptionFull): RoutingRecord {
+export function buildRoutingRecord(sub: SubscriptionFull, now: number = Date.now()): RoutingRecord {
   const verified = sub.domains.filter((d) => d.status === 'VERIFIED');
   if (verified.length === 0) throw new ServiceError('no_verified_domain', 'No hay ningún dominio verificado: no se puede publicar');
   const primary = verified.find((d) => d.isPrimary) ?? verified[0];
@@ -31,8 +32,8 @@ export function buildRoutingRecord(sub: SubscriptionFull): RoutingRecord {
     cell: sub.cell,
     status,
     modules: sub.modules.map((m) => m.moduleKey).sort(),
-    // La licencia por fases se calcula en M5; hasta entonces todo cliente activo está en ACTIVE.
-    license: { phase: 'ACTIVE', nextPhaseChangeAt: null },
+    // Fase de licencia ahora + calendario de los cambios futuros: el front los aplica solo mientras el snapshot sea fresco.
+    license: licensePhase({ paidThrough: sub.paidThrough ? sub.paidThrough.getTime() : null, graceDays: sub.graceDays, panelBlockedDays: sub.panelBlockedDays }, now),
     primaryDomain: primary.host,
     domains: verified.map((d) => d.host).sort(),
     schemaVersion: sub.schemaVersion,
@@ -41,8 +42,11 @@ export function buildRoutingRecord(sub: SubscriptionFull): RoutingRecord {
 }
 
 /** Huella del registro (sin seq ni fechas): permite saber si hay cambios sin publicar. */
-export function recordHash(record: RoutingRecord): string {
-  return crypto.createHash('sha256').update(stableStringify(record)).digest('hex');
+export function recordHash(record: RoutingRecord, sub: Pick<Subscription, 'paidThrough' | 'graceDays' | 'panelBlockedDays'>): string {
+  // La fase y el calendario del registro dependen del reloj y cambian solos sin que nadie toque nada: lo que cuenta como «cambio»
+  // son los PLAZOS. Así «cambios sin publicar» no se enciende por el mero paso del tiempo.
+  const terms = { paidThrough: sub.paidThrough ? sub.paidThrough.getTime() : null, graceDays: sub.graceDays, panelBlockedDays: sub.panelBlockedDays };
+  return crypto.createHash('sha256').update(stableStringify({ ...record, license: terms })).digest('hex');
 }
 
 export async function loadSubscription(db: Prisma.TransactionClient | typeof prisma, id: string): Promise<SubscriptionFull> {
@@ -52,9 +56,9 @@ export async function loadSubscription(db: Prisma.TransactionClient | typeof pri
 }
 
 /** ¿Lo que hay publicado coincide con el estado actual? (null si aún no se puede construir) */
-export function pendingChanges(sub: SubscriptionFull): boolean {
+export function pendingChanges(sub: SubscriptionFull, now: number = Date.now()): boolean {
   try {
-    return recordHash(buildRoutingRecord(sub)) !== sub.lastPublishedHash;
+    return recordHash(buildRoutingRecord(sub, now), sub) !== sub.lastPublishedHash;
   } catch {
     return true;
   }
@@ -80,8 +84,8 @@ export async function publishSubscription(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${subscriptionId}))`;
       const sub = await loadSubscription(tx, subscriptionId);
-      const record = buildRoutingRecord(sub);
-      const hash = recordHash(record);
+      const record = buildRoutingRecord(sub, now);
+      const hash = recordHash(record, sub);
       const seq = sub.snapshotSeq + 1;
       const body = {
         contractVersion: CONTRACT_VERSION,

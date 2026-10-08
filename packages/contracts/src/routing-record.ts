@@ -25,6 +25,11 @@ export const RoutingRecordSchema = z
       phase: z.enum(LICENSE_PHASES),
       // Instante (ms epoch) en que la fase cambiará sola; null si no hay cambio previsto.
       nextPhaseChangeAt: z.number().int().nonnegative().nullable(),
+      // Cambios de fase programados (aditivo, opcional): el front los aplica solo con una lectura fresca del registro.
+      schedule: z
+        .array(z.object({ at: z.number().int().nonnegative(), phase: z.enum(LICENSE_PHASES) }))
+        .max(3)
+        .optional(),
     }),
     primaryDomain: host,
     domains: z.array(host).min(1).max(50),

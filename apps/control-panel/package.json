@@ -12,6 +12,7 @@
     "operator:unlock": "tsx --require dotenv/config scripts/unlock-operator.ts",
     "operator:create": "tsx --require dotenv/config scripts/create-operator.ts",
     "dev:registry": "tsx scripts/dev-registry.ts",
+    "snapshots:refresh": "tsx --require dotenv/config scripts/refresh-snapshots.ts",
     "tenant:register": "tsx --require dotenv/config scripts/register-tenant.ts"
   },
   "dependencies": {

@@ -107,6 +107,8 @@ model Tenant {
   name          String
   status        TenantStatus   @default(ACTIVE)
   notes         String?
+  // Revocación de emergencia: mientras no sea null, el front corta a este cliente en segundos (clave `revoked:{id}` del registro).
+  emergencyRevokedAt DateTime?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   subscriptions Subscription[]
@@ -126,6 +128,11 @@ model Subscription {
   // Contador del snapshot publicado (anti-replay).
   snapshotSeq     Int                  @default(0)
   schemaVersion   String?
+  // Licencia: la cobertura termina en paidThrough (null = sin caducidad); después, graceDays de aviso, panelBlockedDays con el
+  // panel bloqueado y, acumulado, bloqueo total (7 + 15 = 22 días por defecto).
+  paidThrough     DateTime?
+  graceDays       Int                  @default(7)
+  panelBlockedDays Int                 @default(15)
   dbCluster       String               @default("neon-eu-1")
   dbRegion        String?
   // URLs de la BD del cliente, selladas (enc:v2). Nunca salen del panel en claro.
@@ -190,4 +197,24 @@ model AuditLog {
 
   @@index([tenantId, id])
   @@index([operatorId, id])
+}
+
+// Código canjeable que amplía los derechos de una suscripción (módulos y/o vigencia). Solo se guarda el hash: el código en claro se
+// muestra una vez al crearlo.
+model LicenseKey {
+  id                       String    @id @default(cuid())
+  codeHash                 String    @unique
+  // Primeros caracteres, para reconocer una clave en la lista sin poder reconstruirla.
+  codePrefix               String
+  modules                  String[]
+  extendDays               Int       @default(0)
+  note                     String?
+  createdBy                String
+  createdAt                DateTime  @default(now())
+  expiresAt                DateTime?
+  redeemedAt               DateTime?
+  redeemedBySubscriptionId String?
+  redeemedBy               String?
+
+  @@index([redeemedAt])
 }

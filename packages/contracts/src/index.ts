@@ -2,6 +2,7 @@ export * from './ids';
 export * from './hosts';
 export * from './modules';
 export * from './routing-record';
+export * from './license';
 export * from './snapshot';
 export * from './secrets';
 export * from './secrets-snapshot';

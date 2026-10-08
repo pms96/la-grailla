@@ -11,6 +11,7 @@ export const uniq = () => `${Date.now().toString(36)}${(n++).toString(36)}`;
 
 /** Vacía todo salvo el catálogo y la auditoría (que es de solo inserción). */
 export async function resetControlDb() {
+  await prisma.licenseKey.deleteMany();
   await prisma.domain.deleteMany();
   await prisma.subscriptionModule.deleteMany();
   await prisma.subscription.deleteMany();

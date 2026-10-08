@@ -14,6 +14,7 @@ import { publishSubscription, republishIfPublished } from '@/lib/services/snapsh
 import { ServiceError } from '@/lib/services/errors';
 import type { ActingOperator } from '@/lib/actor';
 import { bumpEpoch, createTenant, replaceDatabaseUrls, setModules, setTenantStatus } from '@/lib/services/tenants';
+import { emergencyRevoke, liftEmergencyRevocation, redeemLicenseKey, registerPayment, setLicenseTerms } from '@/lib/services/license';
 import type { ActionState } from '../_components/action-form';
 import { str, toState } from './util';
 
@@ -135,5 +136,62 @@ export async function replaceDbAction(tenantId: string, subscriptionId: string, 
       actor
     );
     return 'URLs de la base de datos actualizadas (selladas).';
+  });
+}
+
+// ── Licencia ───────────────────────────────────────────────────────────────
+
+/** `yyyy-mm-dd` del formulario → el final de ese día en Madrid (23:59:59), para que «hasta el 30» incluya el día 30. */
+function endOfDayMadrid(value: string): Date | null {
+  if (!value) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new ServiceError('invalid_license', 'Fecha no válida');
+  const [y, m, d] = value.split('-').map(Number);
+  const check = new Date(Date.UTC(y, m - 1, d));
+  // `2026-02-31` no es una fecha: JavaScript la «arreglaría» al 3 de marzo sin avisar.
+  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== m - 1 || check.getUTCDate() !== d) throw new ServiceError('invalid_license', 'Fecha no válida');
+  const probe = new Date(`${value}T12:00:00Z`);
+  const offsetHours = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Madrid', timeZoneName: 'shortOffset' }).formatToParts(probe).find((p) => p.type === 'timeZoneName')?.value ?? 'GMT+1';
+  const hours = Number(offsetHours.replace('GMT', '') || 0);
+  return new Date(Date.parse(`${value}T23:59:59.000Z`) - hours * 3_600_000);
+}
+
+export async function setLicenseAction(tenantId: string, subscriptionId: string, _p: ActionState, fd: FormData) {
+  return run('billing:write', tenantId, async (actor) => {
+    await setLicenseTerms(
+      subscriptionId,
+      { paidThrough: endOfDayMadrid(str(fd, 'paidThrough')), graceDays: Number(str(fd, 'graceDays')), panelBlockedDays: Number(str(fd, 'panelBlockedDays')) },
+      actor
+    );
+    return applyNow(tenantId, actor, 'Licencia actualizada.');
+  });
+}
+
+export async function registerPaymentAction(tenantId: string, subscriptionId: string, _p: ActionState, fd: FormData) {
+  return run('billing:write', tenantId, async (actor) => {
+    const next = await registerPayment(subscriptionId, Number(str(fd, 'days')), actor);
+    return applyNow(tenantId, actor, `Pago registrado: cubierto hasta el ${new Intl.DateTimeFormat('es-ES', { dateStyle: 'long', timeZone: 'Europe/Madrid' }).format(next)}.`);
+  });
+}
+
+export async function redeemKeyAction(tenantId: string, subscriptionId: string, _p: ActionState, fd: FormData) {
+  return run('billing:write', tenantId, async (actor) => {
+    const r = await redeemLicenseKey(subscriptionId, str(fd, 'code'), actor);
+    const parts = [r.added.length ? `módulos activados: ${r.added.join(', ')}` : null, r.paidThrough ? `cubierto hasta el ${new Intl.DateTimeFormat('es-ES', { dateStyle: 'long', timeZone: 'Europe/Madrid' }).format(r.paidThrough)}` : null].filter(Boolean);
+    return applyNow(tenantId, actor, `Clave canjeada${parts.length ? ` (${parts.join('; ')})` : ''}.`);
+  });
+}
+
+/** Revocación de emergencia: corta al cliente en segundos, sin republicar. */
+export async function emergencyRevokeAction(tenantId: string, _p: ActionState) {
+  return run('tenants:revoke', tenantId, async (actor) => {
+    await emergencyRevoke(tenantId, actor);
+    return 'Acceso revocado. El front corta a este cliente en unos segundos (webhooks y crons siguen entrando).';
+  });
+}
+
+export async function liftRevocationAction(tenantId: string, _p: ActionState) {
+  return run('tenants:revoke', tenantId, async (actor) => {
+    await liftEmergencyRevocation(tenantId, actor);
+    return 'Revocación levantada. El cliente vuelve a servirse en unos segundos.';
   });
 }
