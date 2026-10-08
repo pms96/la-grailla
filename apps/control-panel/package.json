@@ -13,7 +13,12 @@
     "operator:create": "tsx --require dotenv/config scripts/create-operator.ts",
     "dev:registry": "tsx scripts/dev-registry.ts",
     "snapshots:refresh": "tsx --require dotenv/config scripts/refresh-snapshots.ts",
-    "tenant:register": "tsx --require dotenv/config scripts/register-tenant.ts"
+    "tenant:register": "tsx --require dotenv/config scripts/register-tenant.ts",
+    "tenant:provision": "tsx --require dotenv/config scripts/provision-tenant.ts",
+    "tenant:go-live": "tsx --require dotenv/config scripts/go-live.ts",
+    "migrate:tenants": "tsx --require dotenv/config scripts/migrate-tenants.ts",
+    "registry:export": "tsx --require dotenv/config scripts/registry-export.ts",
+    "registry:import": "tsx --require dotenv/config scripts/registry-import.ts"
   },
   "dependencies": {
     "@prisma/client": "6.7.0",

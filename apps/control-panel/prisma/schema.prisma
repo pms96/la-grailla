@@ -42,6 +42,14 @@ enum DomainStatus {
   RELEASED
 }
 
+enum MigrationRunStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+  // No se lanzó porque otro cliente falló antes (parada ante fallo).
+  SKIPPED
+}
+
 model Operator {
   id                 String            @id @default(cuid())
   email              String            @unique
@@ -146,6 +154,9 @@ model Subscription {
   updatedAt       DateTime             @updatedAt
   modules         SubscriptionModule[]
   domains         Domain[]
+  migrationRuns   MigrationRun[]
+  cronStates      CronState[]
+  health          TenantHealth?
 
   @@unique([tenantId, productKey])
 }
@@ -217,4 +228,64 @@ model LicenseKey {
   redeemedBy               String?
 
   @@index([redeemedAt])
+}
+
+// Una ejecución del runner de migraciones sobre la BD de UN cliente. Nunca guarda URLs ni credenciales.
+model MigrationRun {
+  id              String             @id @default(cuid())
+  subscriptionId  String
+  subscription    Subscription       @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  tenantId        String
+  status          MigrationRunStatus @default(RUNNING)
+  dryRun          Boolean            @default(false)
+  // Última migración aplicada ANTES y DESPUÉS (nombre de carpeta).
+  fromVersion     String?
+  toVersion       String?
+  // Las que esta ejecución debía aplicar (o aplicó).
+  pending         String[]
+  attempts        Int                @default(0)
+  error           String?
+  triggeredBy     String
+  startedAt       DateTime           @default(now())
+  finishedAt      DateTime?
+
+  @@index([subscriptionId, startedAt])
+  @@index([status])
+}
+
+// Estado de cada tarea periódica por cliente. `nextRunAt` hace que un cliente que falla se espacie solo (backoff) sin bloquear a los demás.
+model CronState {
+  subscriptionId      String
+  subscription        Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  job                 String
+  lastRunAt           DateTime?
+  lastSuccessAt       DateTime?
+  lastStatus          String?
+  lastHttp            Int?
+  lastDurationMs      Int?
+  lastError           String?
+  consecutiveFailures Int          @default(0)
+  nextRunAt           DateTime     @default(now())
+
+  @@id([subscriptionId, job])
+  @@index([job, nextRunAt])
+}
+
+// Última comprobación de salud del cliente (la rellena la tarea `health`).
+model TenantHealth {
+  subscriptionId  String       @id
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  checkedAt       DateTime
+  ok              Boolean
+  status          String
+  httpStatus      Int?
+  latencyMs       Int?
+  dbOk            Boolean?
+  schemaApplied   String?
+  schemaExpected  String?
+  schemaUpToDate  Boolean?
+  onboardingComplete Boolean?
+  onboardingMissing  String[]
+  version         String?
+  error           String?
 }

@@ -12,7 +12,7 @@ Cambiar `HKDF_INFO` o la sal del proveedor legacy · el nombre de la cookie de s
 
 - [ ] **Panel desplegado** (proyecto Vercel con *Root Directory* `apps/control-panel` y «Include source files outside of the Root Directory»), con su BD de control en Neon, claves propias (`SECRETS_KEYS` + `SECRETS_ACTIVE_KID` y `SNAPSHOT_SIGNING_KEY` + `SNAPSHOT_KID`) y una **regla de WAF / límite por IP en el login** (el panel solo limita por cuenta).
 - [ ] **Registro** (Upstash Redis, región UE): un token de escritura para el panel y, si el plan lo permite, uno de **solo lectura** para el front.
-- [ ] **Refresco diario de snapshots** programado: `npm run snapshots:refresh` en `apps/control-panel` (cron o workflow). Sin él la fase de licencia deja de avanzar a las 168 h (ver `m5-modulos-licencia.md`). Para La Grailla, al no caducar, es lo que además mantiene `staleUntil` fresco.
+- [ ] **Refresco diario de snapshots** programado: lo hace `.github/workflows/platform-crons.yml` (secrets `PANEL_URL` y `PANEL_CRON_SECRET`; ver `m7-operacion.md`), o `npm run snapshots:refresh` en `apps/control-panel` a mano. Sin él la fase de licencia deja de avanzar a las 168 h (ver `m5-modulos-licencia.md`). Para La Grailla, al no caducar, es lo que además mantiene `staleUntil` fresco.
 - [ ] **Copia / punto de restauración** de la BD de La Grailla en Neon justo antes del corte.
 - [ ] **Ventana sin eventos ni venta activa** (la sala de espera y los pagos en vuelo no deben cruzarse con el corte). Avisar al equipo.
 
@@ -43,7 +43,8 @@ Mismo repositorio. **Build Command: `npm run build:platform`**, región `fra1`. 
 | `LEGACY_TENANT_ID` | el del paso 1 |
 | `LEGACY_NEXTAUTH_SECRET` | **el valor actual de `NEXTAUTH_SECRET` de La Grailla, idéntico** |
 | `AUTH_TRUST_HOST` | `true` |
-| `CRON_SECRET` | el mismo que usan los workflows de GitHub |
+| `CRON_SECRET` | el mismo que usan los workflows de GitHub (solo lo acepta el cliente legacy) |
+| `PLATFORM_CRON_MASTER` | **M7.** El mismo valor que el panel: de él salen los secretos de cron de cada cliente |
 | `BLOB_READ_WRITE_TOKEN` | el mismo almacén |
 
 **No definir** `DATABASE_URL`, `DIRECT_URL`, `NEXTAUTH_SECRET` ni `NEXTAUTH_URL`.
@@ -75,7 +76,7 @@ Mover `www.lagrailla.es` de vuelta al proyecto antiguo. No hay nada que deshacer
 ## 6. Dos semanas de observación (criterio de salida de M5)
 
 - Sin incidencias de sesión, de pagos ni de crons; ningún `sirviendo obsoleto` sin explicación; el refresco diario corriendo sin fallos.
-- Solo entonces: dejar el proyecto antiguo en pausa (no borrarlo hasta las 4 semanas), y recién después se sacará `migrate deploy` del build (M7, cuando el runner de migraciones haya demostrado funcionar).
+- Solo entonces: dejar el proyecto antiguo en pausa (no borrarlo hasta las 4 semanas), y recién después se sacará `migrate deploy` del build del proyecto antiguo (`SKIP_MIGRATE_ON_BUILD=1`) y se retirarán los workflows `reconcile-payments.yml` y `cleanup-waiting-room.yml` en favor del disparador del panel (`m7-operacion.md`), una vez el runner de migraciones haya demostrado funcionar en un release real.
 
 ## Pendiente de medir en el entorno real
 

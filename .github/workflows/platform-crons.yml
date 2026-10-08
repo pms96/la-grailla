@@ -1,0 +1,65 @@
+name: Platform crons
+
+# Único disparador de las tareas periódicas del modo plataforma (M7). Llama al PANEL, que recorre los clientes y lanza cada tarea con el
+# secreto de cron DE ESE cliente (reconciliar pagos, limpiar la sala de espera, comprobar la salud). Sustituye a reconcile-payments.yml
+# y cleanup-waiting-room.yml (que llaman a un único dominio con un único secreto): cuando el proyecto `platform` sirva a La Grailla,
+# esos dos workflows se desactivan (ver docs/platform/m7-operacion.md). Mientras tanto no hacen daño: las tareas son idempotentes.
+#
+# Secrets del repositorio: PANEL_URL (https://control.ejemplo.com, sin barra final) y PANEL_CRON_SECRET (el mismo valor que el panel).
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'tenants (tareas por cliente) o snapshots-refresh (volver a publicar los registros)'
+        default: tenants
+        type: choice
+        options: [tenants, snapshots-refresh]
+
+concurrency:
+  group: platform-crons-${{ github.event.schedule || inputs.job }}
+  cancel-in-progress: false
+
+jobs:
+  tenants:
+    if: github.event.schedule == '*/5 * * * *' || (github.event_name == 'workflow_dispatch' && inputs.job == 'tenants')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Disparar las tareas de los clientes
+        env:
+          PANEL_URL: ${{ secrets.PANEL_URL }}
+          PANEL_CRON_SECRET: ${{ secrets.PANEL_CRON_SECRET }}
+        run: |
+          status=$(curl -s -o /tmp/response.json -w "%{http_code}" --max-time 90 \
+            -H "Authorization: Bearer ${PANEL_CRON_SECRET}" \
+            "${PANEL_URL}/api/cron/dispatch?job=tenants")
+          echo "HTTP $status"
+          cat /tmp/response.json
+          if [ "$status" -ge 400 ]; then
+            echo "::error::El disparador de tareas devolvió $status"
+            exit 1
+          fi
+
+  snapshots-refresh:
+    # Obligatorio a diario: sin él, la fase de licencia deja de avanzar a las 168 h (docs/platform/m5-modulos-licencia.md).
+    if: github.event.schedule == '17 4 * * *' || (github.event_name == 'workflow_dispatch' && inputs.job == 'snapshots-refresh')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Volver a publicar los registros
+        env:
+          PANEL_URL: ${{ secrets.PANEL_URL }}
+          PANEL_CRON_SECRET: ${{ secrets.PANEL_CRON_SECRET }}
+        run: |
+          status=$(curl -s -o /tmp/response.json -w "%{http_code}" --max-time 90 \
+            -H "Authorization: Bearer ${PANEL_CRON_SECRET}" \
+            "${PANEL_URL}/api/cron/dispatch?job=snapshots-refresh")
+          echo "HTTP $status"
+          cat /tmp/response.json
+          if [ "$status" -ge 400 ]; then
+            echo "::error::El refresco de snapshots devolvió $status"
+            exit 1
+          fi

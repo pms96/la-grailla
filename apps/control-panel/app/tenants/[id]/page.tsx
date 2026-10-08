@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireOperator } from '@/lib/guard';
 import { can } from '@/lib/permissions';
-import { getTenantDetail, recentAudit } from '@/lib/queries';
+import { getOperations, getTenantDetail, recentAudit } from '@/lib/queries';
 import { verificationRecordName, verificationRecordValue } from '@/lib/services/domains';
 import { buildRoutingRecord } from '@/lib/services/snapshot';
 import { licenseStateOf } from '@/lib/services/license';
@@ -38,6 +38,7 @@ export default async function TenantPage({ params }: { params: { id: string } })
   if (!detail) notFound();
   const { tenant, subscriptions } = detail;
   const audit = await recentAudit({ tenantId: tenant.id, take: 15 });
+  const ops = new Map(await Promise.all(subscriptions.map(async ({ sub }) => [sub.id, await getOperations(sub.id)] as const)));
   const canWrite = can(role, 'tenants:write');
   const canBill = can(role, 'billing:write');
   const canRevoke = can(role, 'tenants:revoke');
@@ -235,6 +236,59 @@ export default async function TenantPage({ params }: { params: { id: string } })
                 )}
               </div>
             </div>
+
+            {(() => {
+              const o = ops.get(sub.id)!;
+              return (
+                <div className="panel">
+                  <h2>Operación</h2>
+                  <dl className="kv">
+                    <dt>Salud</dt>
+                    <dd>
+                      {o.health ? (
+                        <>
+                          <Pill tone={o.health.ok ? 'ok' : o.health.status === 'degraded' ? 'warn' : 'bad'}>{o.health.status}</Pill>{' '}
+                          <span className="muted">
+                            {formatDate(o.health.checkedAt)}
+                            {o.health.latencyMs !== null && ` · ${o.health.latencyMs} ms`}
+                            {o.health.version && ` · v ${o.health.version}`}
+                          </span>
+                          {o.health.error && <div className="muted">{o.health.error}</div>}
+                        </>
+                      ) : (
+                        <span className="muted">sin comprobar</span>
+                      )}
+                    </dd>
+                    {o.crons.map((c) => (
+                      <div key={c.job} style={{ display: 'contents' }}>
+                        <dt>{c.job}</dt>
+                        <dd>
+                          <Pill tone={c.consecutiveFailures === 0 ? 'ok' : c.consecutiveFailures >= 3 ? 'bad' : 'warn'}>{c.lastStatus ?? 'pendiente'}</Pill>{' '}
+                          <span className="muted">
+                            último éxito {formatDate(c.lastSuccessAt)} · próxima {formatDate(c.nextRunAt)}
+                            {c.lastError && ` · ${c.lastError}`}
+                          </span>
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                  {o.runs.length > 0 && (
+                    <details style={{ marginTop: '.75rem' }}>
+                      <summary>Últimas migraciones</summary>
+                      <ul className="muted" style={{ margin: '.5rem 0 0', paddingLeft: '1.1rem' }}>
+                        {o.runs.map((r) => (
+                          <li key={r.id}>
+                            {formatDate(r.startedAt)} · <strong>{r.status.toLowerCase()}</strong>
+                            {r.dryRun ? ' (simulada)' : ''} · {r.fromVersion ?? '∅'} → {r.toVersion ?? '∅'}
+                            {r.error && <div>{r.error.split('\n')[0]}</div>}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              );
+            })()}
 
             <div className="panel">
               <h2>Dominios</h2>

@@ -1,14 +1,14 @@
 import type { OperatorRole } from '@prisma/client';
 
-export type Permission = 'view' | 'tenants:write' | 'publish' | 'domains:verify-manual' | 'database:write' | 'billing:write' | 'tenants:revoke' | 'operators:manage';
+export type Permission = 'view' | 'tenants:write' | 'publish' | 'domains:verify-manual' | 'database:write' | 'billing:write' | 'tenants:revoke' | 'operators:manage' | 'migrations:run';
 
 // Mínimo privilegio: lo que no está aquí no se puede hacer.
 const MATRIX: Record<OperatorRole, readonly Permission[]> = {
   VIEWER: ['view'],
-  OPERATOR: ['view', 'tenants:write', 'publish', 'tenants:revoke'],
+  OPERATOR: ['view', 'tenants:write', 'publish', 'tenants:revoke', 'migrations:run'],
   // Facturación publica: registrar un pago o canjear una clave debe llegar a la web del cliente sin esperar a otro operador.
   BILLING: ['view', 'billing:write', 'publish'],
-  SUPERADMIN: ['view', 'tenants:write', 'publish', 'domains:verify-manual', 'database:write', 'billing:write', 'tenants:revoke', 'operators:manage'],
+  SUPERADMIN: ['view', 'tenants:write', 'publish', 'domains:verify-manual', 'database:write', 'billing:write', 'tenants:revoke', 'operators:manage', 'migrations:run'],
 };
 
 export function can(role: OperatorRole, permission: Permission): boolean {

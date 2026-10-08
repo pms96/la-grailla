@@ -1,0 +1,142 @@
+# M7 · Listo para el cliente 2: operación
+
+Criterio de salida del hito: **dar de alta un cliente de prueba de punta a punta sin tocar código.** Se ha hecho en local con el front real en modo plataforma: un solo comando crea la BD, migra, siembra, verifica el dominio, publica y comprueba la salud; la web del cliente responde en su dominio y su administrador entra con la contraseña generada (ver «Verificado»).
+
+Lo que NO se ha podido probar aquí (necesita Vercel/Neon/GitHub reales) está al final.
+
+## Qué hay
+
+| Pieza | Dónde | Para qué |
+|---|---|---|
+| Runner de migraciones | `apps/control-panel/lib/services/migrations.ts` · `npm run migrate:tenants` | Aplica las migraciones del front a la BD de cada cliente, con parada ante fallo, `lock_timeout` y reintentos |
+| Alta por script, idempotente | `lib/services/provision.ts` · `npm run tenant:provision` / `tenant:go-live` | BD → registrar → migrar → sembrar → verificar dominio → publicar → comprobar salud |
+| Disparador de crons por cliente | `lib/services/crons.ts` · `GET /api/cron/dispatch` · `.github/workflows/platform-crons.yml` | Un solo disparador recorre los clientes con el secreto de cada uno |
+| Salud básica | front `GET /api/health` · panel `/health` y ficha del cliente | Última comprobación, esquema aplicado/declarado, tareas, onboarding |
+| Copia cifrada del registro | `lib/services/registry-export.ts` · `npm run registry:export` / `registry:import` | Segunda red de seguridad, fuera de la plataforma |
+| Puerta por versión de esquema | `lib/platform/min-schema.ts` + middleware | Un cliente atrasado ve mantenimiento **solo él** |
+| Build sin migrar | `scripts/build.js` · `SKIP_MIGRATE_ON_BUILD=1` | `migrate deploy` fuera del build, reversible |
+| Cola de reconciliación justa | migración `20261009090000_reconcile_queue` | Los pedidos atascados ya no bloquean a los nuevos |
+
+## Variables de entorno nuevas
+
+| Variable | Dónde | Valor |
+|---|---|---|
+| `PLATFORM_CRON_MASTER` | front **y** panel | 32 bytes base64url, **el mismo** en los dos. Distinto de cualquier otra clave. El secreto de cron de un cliente es `HMAC(maestro, tenantId)` |
+| `PANEL_CRON_SECRET` | panel **y** secret `PANEL_CRON_SECRET` del repo de GitHub | ≥ 24 caracteres aleatorios. Autentica al disparador frente al panel |
+| `PANEL_URL` | secret del repo de GitHub | URL del panel, sin barra final |
+| `REGISTRY_EXPORT_KEY` | donde se ejecute `registry:export` | 32 bytes base64url, **distinta de las demás**, guardada aparte del fichero |
+| `FRONT_PRISMA_DIR` | panel (opcional) | Carpeta `prisma/` del front; por defecto `../../prisma` |
+| `TENANT_URL_TEMPLATE` | panel (solo desarrollo) | p. ej. `http://{host}:57811`; por defecto `https://{host}` |
+| `CRON_BUDGET_MS` | panel (opcional) | Presupuesto de una invocación del disparador (40 000 por defecto; con el plan Hobby de Vercel, ~8 000) |
+| `SKIP_MIGRATE_ON_BUILD=1` | proyecto de Vercel del front (opcional) | El `build` no migra |
+
+## 1 · Dar de alta un cliente
+
+Requisitos: la BD del cliente ya creada (un proyecto de Neon por cliente, región UE) y sus dos URLs (pooled y directa) en variables de entorno **de tu shell** (nunca como argumento: quedarían en `ps` y en el historial). Los textos legales los aporta el cliente, en una carpeta con `aviso-legal.txt`, `privacidad.txt` y `cookies.txt`.
+
+```bash
+cd apps/control-panel
+BARPEPE_POOLED='postgresql://…' BARPEPE_DIRECT='postgresql://…' \
+npm run tenant:provision -- --name "Bar Pepe" --host www.barpepe.es --modules tienda,entradas \
+  --admin-email pepe@barpepe.es --legal-dir ./legales/barpepe \
+  --database-existing --pooled-env BARPEPE_POOLED --direct-env BARPEPE_DIRECT \
+  --domain dns --credentials-file ./credenciales-barpepe.txt --check-health
+```
+
+Cada paso es **idempotente**: si se corta, se repite el mismo comando y continúa (no crea un segundo cliente, no vuelve a migrar lo ya migrado, no cambia una contraseña ya creada, no republica si no hay cambios).
+
+| Paso | Qué hace |
+|---|---|
+| `database` | Con `--database-local` crea la BD en el Postgres local (solo desarrollo); con `--database-existing` usa la indicada |
+| `register` | Crea cliente, suscripción, módulos y dominio (o reutiliza si el dominio ya es de un cliente con ese nombre; si es de otro, falla) |
+| `migrate` | El mismo runner del lote (con linter) |
+| `seed` | `admin_email`, textos legales y el primer ADMIN con una contraseña aleatoria. Nunca siembra credenciales (rechaza claves de aspecto secreto) |
+| `onboarding` | Lee de **la BD del cliente** si están `admin_email` y los tres textos legales |
+| `domain` | `dns`: comprueba el TXT `_grailla-verify.<host>`; `manual`: lo da por verificado (SUPERADMIN); `pending`: lo deja pendiente y muestra el TXT que debe crear el cliente |
+| `publish` | Firma y publica el registro |
+| `health` | Con `--check-health`, llama al front real con el secreto del cliente |
+
+**Datos mínimos obligatorios para publicar:** `admin_email` y los tres textos legales. Sin ellos el alta se **rechaza antes de tocar nada**; con `--allow-incomplete` se da de alta pero no se verifica el dominio ni se publica (la web no existe para el público). Cuando el cliente los complete desde su panel (o tú desde la BD), `npm run tenant:go-live -- --subscription <id> --domain dns` vuelve a comprobarlos en su BD, verifica el dominio y publica.
+
+La contraseña inicial se muestra **una vez** (o se guarda en `--credentials-file` con permisos 0600, que no se sobrescribe). Entrégala al cliente por un canal seguro y bórrala; el cliente debe cambiarla al entrar.
+
+Para un cliente nuevo, el panel de administración del cliente muestra «Completa estos datos antes de publicar la web» mientras falte algo.
+
+## 2 · Migrar las BDs de los clientes
+
+**Orden obligatorio de un release con migración:** (1) CI verde (el linter solo admite migraciones aditivas), (2) `migrate:tenants --dry-run`, (3) `migrate:tenants` (con un cliente canario primero), (4) desplegar el front. Las migraciones son aditivas: el front anterior sigue funcionando con la BD nueva.
+
+```bash
+cd apps/control-panel
+npm run migrate:tenants -- --dry-run                       # qué haría, y el linter
+npm run migrate:tenants -- --canary <subscriptionId>       # el canario primero; si falla, nadie más
+npm run migrate:tenants                                    # todos (concurrencia 5)
+```
+
+- **Concurrencia** 5 (máx. 10). **Parada ante el primer fallo:** los clientes que no llegaron a lanzarse quedan `SKIPPED` y no se tocan (`--continue-on-failure` lo desactiva).
+- **`lock_timeout` de 3 s** durante la migración (se fija con `ALTER DATABASE … SET` y se restaura el valor anterior al terminar), con hasta 3 intentos y espera creciente si Postgres aborta la migración por un bloqueo. Esa migración se deshizo entera (Postgres la ejecuta como una sola transacción), así que se marca como revertida y se reintenta. Un fallo que **no** es de bloqueo no se reintenta: la migración fallida queda a la vista y la siguiente ejecución exige que una persona la resuelva (`prisma migrate resolve`).
+- **Linter:** las migraciones posteriores a la línea base deben ser aditivas; una destructiva solo se aplica con `--allow-destructive` (queda en la auditoría). Hazlo únicamente en un release «contract», tras un PITR y cuando ningún despliegue ejecute ya el código antiguo.
+- **Al terminar** actualiza `schemaVersion` del cliente y **republica** su registro: el front ya puede servirlo con el código que exige esa versión (`FRONT_MIN_SCHEMA`).
+- Cada ejecución queda en `MigrationRun` (sin URLs ni credenciales) y en la auditoría; se ven en la ficha del cliente y en `/health`.
+- No hay «down»: se corrige hacia delante y se hace PITR antes de cualquier «contract».
+- `CREATE INDEX CONCURRENTLY` no puede ir en una migración de Prisma (va en una transacción): se hace como paso aparte.
+- **Ventana sin venta online activa:** el runner no la conoce. Para cualquier migración que tome bloqueos largos, ejecútalo fuera de horas de venta.
+
+> **El runner no corre en CI.** Necesita `SECRETS_KEYS` (con la que se abren las URLs de BD de todos los clientes). Darle esa clave a GitHub Actions es una decisión de confianza que no he tomado por ti: ejecútalo desde una máquina de operación o, si lo decides, desde un runner con esos secretos.
+
+### Sacar `migrate deploy` del build (cuando toque)
+
+`npm run build` sigue migrando como hasta ahora. En el proyecto `platform` (`PLATFORM_MODE=on`) **nunca** migra. Para el proyecto actual de La Grailla, el interruptor es **`SKIP_MIGRATE_ON_BUILD=1`** en las variables de Vercel (quitarla lo revierte). Hazlo **solo cuando** el runner haya migrado a La Grailla en un release real y lleve las dos semanas de observación del corte. No lo hagas antes: si el runner falla ese día, el despliegue ya no arreglaría el esquema.
+
+### Puerta por versión de esquema (`FRONT_MIN_SCHEMA`)
+
+`lib/platform/min-schema.ts` guarda la migración más nueva que necesita el código de este build. **Se sube a mano, en el release que empieza a usar una columna o tabla nueva.** Si el `schemaVersion` del registro de un cliente es anterior (o desconocido), solo ese cliente recibe `503 Cliente en mantenimiento` (`Retry-After: 30`); `/api/health` sigue respondiendo. Un `schemaVersion` null cuenta como atrasado: **un cliente registrado sin versión de esquema no se sirve** (el preflight lo detecta). Los webhooks y crons de un cliente atrasado también reciben 503: los proveedores de pago reintentan, y un handler sobre un esquema que no conoce podría escribir mal.
+
+## 3 · Crons por cliente
+
+Un solo workflow (`platform-crons.yml`) llama cada 5 minutos a `GET {PANEL_URL}/api/cron/dispatch?job=tenants` y una vez al día (04:17 UTC) a `?job=snapshots-refresh`.
+
+- El panel recorre los clientes **publicados** (activos o suspendidos; un cliente suspendido sigue reconciliando sus cobros en vuelo) y llama a cada tarea con el secreto de **ese** cliente. No sigue redirecciones (el secreto va en una cabecera).
+- Tareas: `reconcile-payments` (5 min), `cleanup-waiting-room` (30 min), `health` (5 min).
+- Estado por cliente y tarea en `CronState`: un cliente que falla se **espacia solo** (backoff exponencial hasta 1 h) y no frena a los demás; no hay «cabeza de cola». La tarea de salud no se espacia.
+- **Presupuesto de tiempo** por invocación (`CRON_BUDGET_MS`): lo que no cabe queda para la siguiente, y se atiende primero lo que lleva más sin ejecutarse.
+- **`snapshots-refresh` es obligatorio a diario**: sin él la fase de licencia deja de avanzar a las 168 h. `/health` avisa si un registro lleva más de 36 h sin republicarse.
+
+**Retirar los workflows antiguos** (`reconcile-payments.yml`, `cleanup-waiting-room.yml`, que llaman a `www.lagrailla.es` con un único secreto) **cuando** el proyecto `platform` sirva La Grailla y el disparador nuevo lleve unos días sin errores. Mientras coexistan no hacen daño: las tareas son idempotentes (el cliente legacy acepta el `CRON_SECRET` global justo para esto).
+
+Si el panel está en el plan Hobby de Vercel (10 s por función), baja `CRON_BUDGET_MS` a ~8 000 o usa el plan Pro (60 s).
+
+## 4 · Salud
+
+- Front `GET /api/health`: público devuelve solo `{status}` (200/503). Con el secreto de cron del cliente devuelve el detalle: versión, BD (latencia), esquema aplicado/esperado/mínimo, onboarding. Se sirve también con el cliente suspendido, en mantenimiento o sin licencia.
+- Panel `/health`: una fila por cliente, lo que falla primero. Señala: no responde, BD caída, esquema atrasado, **deriva** (el registro declara una versión y la BD tiene otra), datos sin completar, tarea fallando 3 veces seguidas, última migración fallida, registro sin republicar 36 h, comprobación antigua (el disparador no corre).
+- No incluye todavía la salud «por empuje», uso y negocio ni cuotas: llegan con el umbral de 3 a 5 clientes.
+
+## 5 · Copia del registro
+
+```bash
+cd apps/control-panel
+REGISTRY_EXPORT_KEY=… npm run registry:export -- --out ./copias/registro-2026-10-09.json
+# …y para restaurar, sobre una BD de control VACÍA recién migrada:
+REGISTRY_EXPORT_KEY=… npm run registry:import -- --in ./copias/registro-2026-10-09.json
+npm run operator:create …         # los operadores no van en la copia
+npm run snapshots:refresh         # reconstruye el almacén replicado
+```
+
+AES-256-GCM. Incluye clientes, suscripciones, módulos, dominios, claves de licencia (solo hash) y auditoría; **no** operadores, sesiones ni TOTP, ni datos operativos. Las URLs de BD van selladas (`enc:v2`): para usarlas tras restaurar hace falta además `SECRETS_KEYS`. **Guarda el fichero, `REGISTRY_EXPORT_KEY` y `SECRETS_KEYS` en sitios distintos y fuera de la plataforma.** La restauración se niega si la BD no está vacía o si la cadena de hashes de la auditoría del fichero no verifica. El registro replicado (Upstash) se puede reconstruir entero desde la BD de control.
+
+Programar la copia (semanal, como mínimo) y subirla a un almacenamiento externo es decisión tuya: requiere dar a un runner la URL de la BD de control y las claves.
+
+## Verificado
+
+- 195 tests del panel (nuevos: runner, alta, crons, salud, copia) y 926 del front, `tsc` y lint limpios, `next build` del panel y del front en modo normal.
+- Runner contra Postgres reales: migración de cero con las 32 migraciones del repo, parada ante fallo, canarios, linter, bloqueo real con `lock_timeout` + recuperación, ejecución concurrente, ejecución abandonada.
+- **De punta a punta en local**: registro de desarrollo + front en modo plataforma (`c.localhost`) + `tenant:provision` con BD local nueva → web neutra del cliente, aviso legal con el texto sembrado, login del administrador con la contraseña generada y `/api/health` público mínimo; el disparador real (`/api/cron/dispatch`) ejecutó las tres tareas contra ese cliente con su secreto derivado.
+
+## No verificado / límites
+
+- Nada de esto se ha ejecutado contra **Vercel, Neon ni GitHub Actions**: el `ALTER DATABASE … SET lock_timeout` exige que el rol sea propietario de la BD (lo es en Neon, pero no está comprobado); el workflow de GitHub no se ha ejecutado; la creación de proyectos de Neon sigue siendo manual (`--database-existing`).
+- Un runner que muere entre `ALTER DATABASE SET lock_timeout` y su `RESET` deja el `lock_timeout` de 3 s en esa BD (véase la revisión); se comprueba con `SELECT setconfig FROM pg_db_role_setting`.
+- La **saga reanudable** con estado propio (`ProvisioningRun`), el borrado de tenant, el reconciliador de deriva y la salud por push siguen en el umbral de 3 a 5 clientes.
+- No se ha hecho la matriz de CI «front N contra esquema N-1/N+1» ni el «dry-run en rama de Neon»: el `--dry-run` actual solo lista y pasa el linter.
+- `next build` en modo plataforma y el aviso de onboarding del admin no se han visto renderizados con datos reales más allá del flujo local.
