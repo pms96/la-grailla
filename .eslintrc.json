@@ -1,3 +1,22 @@
 {
-  "extends": "next/core-web-vitals"
+  "extends": "next/core-web-vitals",
+  "rules": {
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "MemberExpression[object.object.name='process'][object.property.name='env'][property.name=/^(DATABASE_URL|DIRECT_URL|NEXTAUTH_SECRET|NEXTAUTH_URL)$/]",
+        "message": "Aislamiento por cliente: DATABASE_URL, DIRECT_URL, NEXTAUTH_SECRET y NEXTAUTH_URL son globales y en modo plataforma no existen. Usa prisma (lib/prisma), getInstallationSecret (lib/tenant/installation-secret) o getBaseUrl/getFallbackBaseUrl (lib/url)."
+      },
+      {
+        "selector": "Program > VariableDeclaration > VariableDeclarator[init.type='MemberExpression'][init.object.name='prisma']",
+        "message": "No captures un delegado de prisma en ámbito de módulo (const m = prisma.order): fijaría UN cliente para todos. Usa prisma.order dentro de la función que lo necesita."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["lib/auth.ts", "lib/url.ts", "lib/tenant/installation-secret.ts"],
+      "rules": { "no-restricted-syntax": "off" }
+    }
+  ]
 }

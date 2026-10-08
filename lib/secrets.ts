@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { defaultSecretTenantId, getInstallationSecret, secretWriteTarget } from '@/lib/tenant/installation-secret';
 
 /* Cifrado en reposo para credenciales guardadas en AppConfig (pasarelas de
  * pago, certificados de Wallet, claves de IA) — un dump o acceso no autorizado
@@ -86,14 +87,15 @@ export interface KeyProvider {
   getKey(ctx: KeyContext): Buffer;
 }
 
-// Clave histórica de la instalación única: HKDF de NEXTAUTH_SECRET.
+// Clave histórica de la instalación única: HKDF de NEXTAUTH_SECRET. En modo plataforma solo existe para el cliente legacy
+// (ver lib/tenant/installation-secret.ts); para cualquier otro, abrir un enc:v1 es un error.
 const legacyKeyProvider: KeyProvider = {
   getKey() {
-    const secret = process.env.NEXTAUTH_SECRET;
-    if (!secret) {
-      throw new SecretDecryptionError(
-        'NEXTAUTH_SECRET no está definido — es necesario para cifrar/descifrar credenciales'
-      );
+    let secret: string;
+    try {
+      secret = getInstallationSecret('config-v1');
+    } catch (err) {
+      throw new SecretDecryptionError(err instanceof Error ? err.message : 'no hay secreto para enc:v1', { cause: err });
     }
     return Buffer.from(crypto.hkdfSync('sha256', Buffer.from(secret, 'utf8'), Buffer.alloc(0), Buffer.from(HKDF_INFO_V1), 32));
   },
@@ -108,8 +110,35 @@ export function registerKeyProvider(kid: string, provider: KeyProvider): void {
   keyProviders.set(kid, provider);
 }
 
+let envProvidersRaw: string | null = null;
+
+/** Registra los maestros del servidor (SECRETS_KEYS = {kid: clave base64url}). Cada cliente usa una clave derivada con HKDF (salt = tenantId), igual que el panel. */
+function ensureEnvKeyProviders(): void {
+  const raw = process.env.SECRETS_KEYS ?? '';
+  if (envProvidersRaw === raw || !raw) return;
+  let parsed: Record<string, string>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, string>;
+  } catch {
+    throw new SecretDecryptionError('SECRETS_KEYS no es un JSON {kid: clave base64url} válido');
+  }
+  for (const [kid, text] of Object.entries(parsed)) {
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(kid)) throw new SecretDecryptionError('SECRETS_KEYS contiene un kid inválido');
+    const master = Buffer.from(text, 'base64url');
+    if (master.length !== 32) throw new SecretDecryptionError(`la clave maestra "${kid}" debe tener 32 bytes`);
+    keyProviders.set(kid, {
+      getKey: ({ tenantId, kid: k }) => Buffer.from(crypto.hkdfSync('sha256', master, Buffer.from(tenantId, 'utf8'), Buffer.from(`grailla-secrets-v2:${k}`, 'utf8'), 32)),
+    });
+  }
+  envProvidersRaw = raw;
+}
+
 function providerFor(kid: string): KeyProvider {
-  const provider = keyProviders.get(kid);
+  let provider = keyProviders.get(kid);
+  if (!provider) {
+    ensureEnvKeyProviders();
+    provider = keyProviders.get(kid);
+  }
   if (!provider) throw new SecretDecryptionError(`No hay proveedor de clave para kid="${kid}"`);
   return provider;
 }
@@ -118,8 +147,14 @@ function providerFor(kid: string): KeyProvider {
 
 // Vacío se guarda tal cual: cifrar "" no aporta secreto ninguno y complica
 // distinguir "sin configurar" de "valor cifrado" al leerlo.
-export function encryptSecret(plainValue: string): string {
+export function encryptSecret(plainValue: string, configKey?: string): string {
   if (!plainValue) return '';
+  const target = secretWriteTarget();
+  if (target.format === 'v2') {
+    // Un cliente nuevo (modo plataforma) escribe enc:v2: clave derivada de su tenantId y AAD con el nombre del campo.
+    if (!configKey) throw new SecretDecryptionError('Cifrar para un cliente nuevo exige indicar la clave de configuración (forma parte del AAD)');
+    return encryptSecretV2(plainValue, { kid: target.kid, tenantId: target.tenantId, configKey });
+  }
   const key = legacyKeyProvider.getKey({ tenantId: LEGACY_TENANT_ID, kid: LEGACY_KEY_ID });
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
@@ -177,7 +212,7 @@ function decryptV2(storedValue: string, ctx: DecryptContext): string {
   if (!ctx.configKey) {
     throw new SecretDecryptionError('Descifrar enc:v2 exige configKey (forma parte del AAD)');
   }
-  const tenantId = ctx.tenantId ?? LEGACY_TENANT_ID;
+  const tenantId = ctx.tenantId ?? defaultSecretTenantId();
   try {
     const [kid, ivB64, authTagB64, ciphertextB64] = storedValue.slice(V2_PREFIX.length).split(':');
     const key = providerFor(kid).getKey({ tenantId, kid });

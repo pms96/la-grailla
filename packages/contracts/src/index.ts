@@ -4,3 +4,5 @@ export * from './modules';
 export * from './routing-record';
 export * from './snapshot';
 export * from './secrets';
+export * from './secrets-snapshot';
+export * from './installation-secret';

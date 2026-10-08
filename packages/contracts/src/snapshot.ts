@@ -5,8 +5,9 @@ import { RoutingRecordSchema } from './routing-record';
 /** Versión del contrato que entiende este código. Sube solo con cambios que rompen. */
 export const CONTRACT_VERSION = 1;
 
-const DOMAIN_TAG = 'grailla-snapshot-v1';
-const KID_RE = /^[A-Za-z0-9_-]{1,32}$/;
+export const ROUTING_TAG = 'grailla-snapshot-v1';
+export const SECRETS_TAG = 'grailla-secrets-snapshot-v1';
+export const KID_RE = /^[A-Za-z0-9_-]{1,32}$/;
 
 export const SnapshotBodySchema = z.object({
   contractVersion: z.number().int().positive(),
@@ -45,7 +46,8 @@ export function fromBase64Url(text: string): Uint8Array {
 }
 
 const enc = new TextEncoder();
-const message = (kid: string, payload: string) => enc.encode(`${DOMAIN_TAG}\n${kid}\n${payload}`);
+// La etiqueta separa los "dominios" de firma: un snapshot de enrutado jamás verifica como snapshot de secretos.
+export const message = (tag: string, kid: string, payload: string) => enc.encode(`${tag}\n${kid}\n${payload}`);
 
 /* ---- claves ---- */
 
@@ -74,7 +76,7 @@ export async function signSnapshot(
   const valid = SnapshotBodySchema.parse(body); // nunca se firma un registro inválido
   const payload = JSON.stringify(valid);
   const key = await crypto.subtle.importKey('pkcs8', fromBase64Url(signer.privateKey), 'Ed25519', false, ['sign']);
-  const sig = new Uint8Array(await crypto.subtle.sign('Ed25519', key, message(signer.kid, payload)));
+  const sig = new Uint8Array(await crypto.subtle.sign('Ed25519', key, message(ROUTING_TAG, signer.kid, payload)));
   return { kid: signer.kid, payload, sig: toBase64Url(sig) };
 }
 
@@ -111,7 +113,7 @@ export async function verifySnapshot(input: unknown, opts: VerifyOptions): Promi
   let valid = false;
   try {
     const key = await crypto.subtle.importKey('raw', fromBase64Url(publicKey), 'Ed25519', false, ['verify']);
-    valid = await crypto.subtle.verify('Ed25519', key, fromBase64Url(sig), message(kid, payload));
+    valid = await crypto.subtle.verify('Ed25519', key, fromBase64Url(sig), message(ROUTING_TAG, kid, payload));
   } catch {
     valid = false;
   }

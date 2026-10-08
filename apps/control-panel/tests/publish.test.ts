@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { registryKeyForHost, verifySnapshot, RoutingRecordSchema } from '@grailla/contracts';
+import { DB_URL_POOLED_FIELD, parseMasterKey, openSecret, registryKeyForHost, registryKeyForSecrets, verifySecretsSnapshot, verifySnapshot, RoutingRecordSchema } from '@grailla/contracts';
 import { prisma } from '@/lib/db';
 import { ForbiddenError } from '@/lib/permissions';
 import type { RegistryStore } from '@/lib/registry/store';
 import { addDomain, releaseDomain, setPrimaryDomain, verifyDomainManually } from '@/lib/services/domains';
 import { loadSubscription, pendingChanges, publishSubscription, republishIfPublished } from '@/lib/services/snapshot';
 import { setModules, setTenantStatus } from '@/lib/services/tenants';
-import { freshStore, makeOperator, resetControlDb, signerPublicKey, tenantInput, uniq, rootCreateTenant } from './helpers';
+import { DB_URLS, freshStore, makeOperator, resetControlDb, signerPublicKey, tenantInput, uniq, rootCreateTenant } from './helpers';
 
 beforeEach(resetControlDb);
 
@@ -153,6 +153,48 @@ describe('publicar el registro', () => {
     const { subscription, store } = await verifiedTenant();
     const { actor: viewer } = await makeOperator('VIEWER');
     await expect(publishSubscription(subscription.id, viewer, store)).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+describe('registro de secretos', () => {
+  it('publica las URLs de BD selladas, firmadas y atadas al cliente y al producto', async () => {
+    const { actor, subscription, tenant, store } = await verifiedTenant();
+    await publishSubscription(subscription.id, actor, store);
+    const raw = await store.get(registryKeyForSecrets(tenant.id, 'grailla'));
+    expect(raw).not.toBeNull();
+    const keys = { stest: await signerPublicKey() };
+    const res = await verifySecretsSnapshot(JSON.parse(raw!), { keys, tenantId: tenant.id, product: 'grailla' });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(raw).not.toMatch(/postgres(ql)?:\/\//);
+    // El front las abre con la clave maestra y el mismo contexto (tenant + campo).
+    const masters = JSON.parse(process.env.SECRETS_KEYS!) as Record<string, string>;
+    const url = await openSecret(res.body.dbUrlPooledEnc, { tenantId: tenant.id, field: DB_URL_POOLED_FIELD }, parseMasterKey(masters[process.env.SECRETS_ACTIVE_KID!]));
+    expect(url).toBe(DB_URLS.dbUrlPooled);
+    expect(res.body.seq).toBe(1);
+  });
+
+  it('el secreto de un cliente no verifica como el de otro', async () => {
+    const a = await verifiedTenant();
+    const b = await verifiedTenant();
+    await publishSubscription(a.subscription.id, a.actor, a.store);
+    const raw = await a.store.get(registryKeyForSecrets(a.tenant.id, 'grailla'));
+    const keys = { stest: await signerPublicKey() };
+    expect(await verifySecretsSnapshot(JSON.parse(raw!), { keys, tenantId: b.tenant.id, product: 'grailla' })).toEqual({ ok: false, reason: 'tenant_mismatch' });
+  });
+
+  it('si falla el almacén al escribir los secretos no se publica ningún enrutado', async () => {
+    const { actor, subscription, domain, store } = await verifiedTenant();
+    const failSecrets: RegistryStore = {
+      put: async (k, v) => {
+        if (k.startsWith('s:')) throw new Error('registro caído');
+        return store.put(k, v);
+      },
+      del: (k) => store.del(k),
+      get: (k) => store.get(k),
+    };
+    await expect(publishSubscription(subscription.id, actor, failSecrets)).rejects.toMatchObject({ code: 'registry_unavailable' });
+    expect(await store.get(registryKeyForHost(domain.host))).toBeNull();
   });
 });
 

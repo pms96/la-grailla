@@ -58,7 +58,7 @@ export async function PUT(request: Request) {
         // La máscara que devuelve el GET significa "no se ha tocado": se conserva
         // el valor guardado.
         if (isWriteOnlyConfigKey(cfg.key) && trimmedValue === SECRET_MASK) continue;
-        const value = isSensitiveConfigKey(cfg.key) ? encryptSecret(trimmedValue) : trimmedValue;
+        const value = isSensitiveConfigKey(cfg.key) ? encryptSecret(trimmedValue, cfg.key) : trimmedValue;
         await prisma.appConfig.upsert({
           where: { key: cfg.key },
           update: { value },

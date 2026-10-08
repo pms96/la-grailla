@@ -14,6 +14,10 @@
  * URLs absolutas (ver getFallbackBaseUrl). Cuando un mismo despliegue sirva a
  * varios clientes, solo hay que cambiar aquí de dónde sale la base. */
 
+import { requireTenant } from '@/lib/tenant/context';
+import { isDevHost } from '@/lib/tenant/dev-host';
+import { isPlatformMode } from '@/lib/tenant/mode';
+
 const VALID_HOST = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:\d{1,5})?$/i;
 
 export function isValidHost(host: string): boolean {
@@ -23,10 +27,22 @@ export function isValidHost(host: string): boolean {
 // Base fija de la instalación, sin barra final. Para código sin request (un
 // cron, un job en background) o cuando la request no trae un host fiable.
 export function getFallbackBaseUrl(): string {
+  if (isPlatformMode()) return tenantBaseUrl();
   return (process.env.NEXTAUTH_URL ?? '').replace(/\/+$/, '');
 }
 
+/**
+ * Modo plataforma: la URL pública de un cliente es SIEMPRE su dominio principal verificado (viene del registro firmado),
+ * nunca de las cabeceras de la petición: un Host manipulado no puede llegar a un email con un enlace de acceso.
+ * En desarrollo local (`*.localhost`) se usa el host tal cual, con su puerto y sin https.
+ */
+function tenantBaseUrl(): string {
+  const ctx = requireTenant();
+  return isDevHost(ctx.host) ? `http://${ctx.host}` : `https://${ctx.primaryDomain}`;
+}
+
 export function getBaseUrl(request: Request): string {
+  if (isPlatformMode()) return tenantBaseUrl();
   const headers = request.headers;
   const host = (headers.get('x-forwarded-host') || headers.get('host') || '').split(',')[0].trim();
   if (host && isValidHost(host)) {

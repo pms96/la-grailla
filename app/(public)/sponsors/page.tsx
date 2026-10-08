@@ -4,7 +4,8 @@ import { Handshake, Building2, Users, Megaphone } from 'lucide-react';
 import { FadeIn, SlideIn } from '@/components/ui/animate';
 import SponsorForm from './_components/sponsor-form';
 
-export const revalidate = 60;
+// Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
+export const dynamic = 'force-dynamic';
 
 export const metadata = {
   title: 'Patrocinio | La Grailla',

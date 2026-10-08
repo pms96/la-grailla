@@ -1,6 +1,10 @@
 import type { MetadataRoute } from 'next';
+import { getFallbackBaseUrl } from '@/lib/url';
 
-const BASE = process.env.NEXTAUTH_URL?.replace(/\/$/, '') || 'https://www.lagrailla.es';
+export const dynamic = 'force-dynamic';
+
+// Modo normal: NEXTAUTH_URL o el dominio de La Grailla (como siempre). Modo plataforma: el dominio del cliente.
+const legacyBase = () => getFallbackBaseUrl() || 'https://www.lagrailla.es';
 
 export default function robots(): MetadataRoute.Robots {
   return {
@@ -22,6 +26,6 @@ export default function robots(): MetadataRoute.Robots {
         ],
       },
     ],
-    sitemap: `${BASE}/sitemap.xml`,
+    sitemap: `${legacyBase()}/sitemap.xml`,
   };
 }

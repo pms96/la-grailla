@@ -11,7 +11,8 @@ import { FadeIn, Stagger, StaggerItem } from '@/components/ui/animate';
 import { Container } from '@/components/layouts/container';
 import { ReloadButton } from '@/components/reload-button';
 
-export const revalidate = 60;
+// Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
+export const dynamic = 'force-dynamic';
 
 export const metadata = {
   title: 'Eventos | La Grailla',

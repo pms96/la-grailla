@@ -15,7 +15,8 @@ import { MobileBuyBar } from './_components/mobile-buy-bar';
 import { AgeWarningGate } from './_components/age-warning-gate';
 import { ReloadButton } from '@/components/reload-button';
 
-export const revalidate = 60;
+// Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
+export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: { params: { slug: string } }) {
   const event = await prisma.event.findUnique({ where: { slug: params?.slug } });

@@ -1,12 +1,7 @@
 import { PrismaClient } from '@prisma/client';
-
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
-
-const basePrisma = globalForPrisma.prisma ?? new PrismaClient();
-
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = basePrisma;
+import { requireTenant } from '@/lib/tenant/context';
+import { tenantClient } from '@/lib/tenant/db';
+import { isPlatformMode } from '@/lib/tenant/mode';
 
 // DATA-01: los 14 campos monetarios del esquema son Decimal(10,2) en Postgres
 // (evita el redondeo binario acumulativo de Float en sumas/aggregate a nivel
@@ -31,7 +26,8 @@ function toNullableNumber(value: { toNumber(): number } | null): number | null {
   return value === null ? null : value.toNumber();
 }
 
-export const prisma = basePrisma.$extends({
+export function extendPrisma(base: PrismaClient) {
+  return base.$extends({
   result: {
     ticketType: {
       price: { needs: { price: true }, compute: (m) => toNumber(m.price) },
@@ -71,6 +67,36 @@ export const prisma = basePrisma.$extends({
     sponsor: {
       paidAmount: { needs: { paidAmount: true }, compute: (m) => toNullableNumber(m.paidAmount) },
     },
+  },
+  });
+}
+
+type ExtendedPrisma = ReturnType<typeof extendPrisma>;
+
+const globalForPrisma = globalThis as unknown as { prisma: ExtendedPrisma | undefined };
+
+/**
+ * Qué cliente toca usar AHORA.
+ *  - Modo normal: el único cliente de siempre (BD de DATABASE_URL), creado la primera vez que se usa.
+ *  - Modo plataforma: el del cliente (tenant) de la petición. Sin contexto de cliente LANZA un error: nunca se
+ *    cae a DATABASE_URL, que en ese despliegue ni siquiera existe.
+ */
+function resolveClient(): ExtendedPrisma {
+  if (isPlatformMode()) return tenantClient(requireTenant(), extendPrisma);
+  return (globalForPrisma.prisma ??= extendPrisma(new PrismaClient()));
+}
+
+// `prisma` sigue exportándose como el cliente de siempre (mismos tipos, mismos ~95 imports), pero cada acceso
+// se resuelve contra el cliente de la petición en curso. No se capturan delegados en ámbito de módulo (`const m = prisma.order`):
+// eso fijaría un cliente para todos los clientes; el lint lo prohíbe.
+export const prisma: ExtendedPrisma = new Proxy({} as ExtendedPrisma, {
+  get(_target, prop) {
+    const client = resolveClient() as unknown as Record<string | symbol, unknown>;
+    const value = client[prop];
+    return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(client) : value;
+  },
+  has(_target, prop) {
+    return prop in (resolveClient() as object);
   },
 });
 

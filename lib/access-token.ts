@@ -1,15 +1,14 @@
 import crypto from 'crypto';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { getInstallationSecret } from '@/lib/tenant/installation-secret';
 
 const HKDF_INFO = 'la-grailla-access-token-v1';
 const TOKEN_BYTES = 16;
 
 function accessKey(): Buffer {
-  const secret = process.env.NEXTAUTH_SECRET;
-  if (!secret) {
-    throw new Error('NEXTAUTH_SECRET no está definido — necesario para firmar tokens de acceso');
-  }
+  // Modo normal: NEXTAUTH_SECRET (idéntico a siempre). Plataforma: el secreto de ESTE cliente.
+  const secret = getInstallationSecret('access');
   return Buffer.from(
     crypto.hkdfSync('sha256', Buffer.from(secret, 'utf8'), Buffer.alloc(0), Buffer.from(HKDF_INFO), 32)
   );

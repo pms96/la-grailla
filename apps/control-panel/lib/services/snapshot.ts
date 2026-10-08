@@ -4,6 +4,8 @@ import {
   CONTRACT_VERSION,
   RoutingRecordSchema,
   registryKeyForHost,
+  registryKeyForSecrets,
+  signSecretsSnapshot,
   signSnapshot,
   type RoutingRecord,
 } from '@grailla/contracts';
@@ -88,10 +90,20 @@ export async function publishSubscription(
         staleUntil: now + snapshotStaleHours() * 3_600_000,
         record,
       };
-      const envelope = JSON.stringify(await signSnapshot(body, snapshotSigner()));
+      const signer = snapshotSigner();
+      const envelope = JSON.stringify(await signSnapshot(body, signer));
+      // Las URLs de BD (selladas) van en otro registro, firmado con otra etiqueta. Mismo seq que el enrutado.
+      const secretsEnvelope = JSON.stringify(
+        await signSecretsSnapshot(
+          { contractVersion: CONTRACT_VERSION, seq, iat: now, tenantId: sub.tenantId, product: sub.productKey, dbUrlPooledEnc: sub.dbUrlPooledEnc, dbUrlDirectEnc: sub.dbUrlDirectEnc },
+          signer
+        )
+      );
       const hosts = record.domains;
       const released = sub.domains.filter((d) => d.status === 'RELEASED').map((d) => d.host);
       try {
+        // Primero los secretos: ningún enrutado debe apuntar a un cliente cuya conexión aún no está publicada.
+        await store.put(registryKeyForSecrets(sub.tenantId, sub.productKey), secretsEnvelope);
         for (const host of hosts) await store.put(registryKeyForHost(host), envelope);
         for (const host of released) await store.del(registryKeyForHost(host));
       } catch (err) {

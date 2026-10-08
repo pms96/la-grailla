@@ -1,4 +1,5 @@
-export const revalidate = 60;
+// Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
+export const dynamic = 'force-dynamic';
 
 import { getConfig } from '@/lib/config';
 import { Container } from '@/components/layouts/container';

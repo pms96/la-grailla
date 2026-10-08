@@ -122,7 +122,7 @@ export async function getConfigs(keys: string[]): Promise<Record<string, string>
 }
 
 export async function setConfig(key: string, value: string, label?: string, group?: string) {
-  const storedValue = isSensitiveConfigKey(key) ? encryptSecret(value) : value;
+  const storedValue = isSensitiveConfigKey(key) ? encryptSecret(value, key) : value;
   await prisma.appConfig.upsert({
     where: { key },
     update: { value: storedValue },

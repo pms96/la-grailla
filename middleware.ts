@@ -1,33 +1,14 @@
-import { withAuth } from 'next-auth/middleware';
-import { NextResponse } from 'next/server';
+import { withAuth, type NextRequestWithAuth } from 'next-auth/middleware';
+import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server';
 import { isCrossOriginMutation, isOriginCheckExempt } from '@/lib/origin-check';
+import { isAuthorizedStaffRequest } from '@/lib/staff-paths';
+import { isPlatformMode } from '@/lib/tenant/mode';
+import { platformMiddleware } from '@/lib/tenant/middleware';
 
-const STAFF_ROLES = ['ADMIN', 'TAQUILLA'];
+export { isStaffApiPath, isAuthorizedStaffRequest } from '@/lib/staff-paths';
 
-// Red de seguridad para las API de staff: cada route handler ya comprueba su
-// propia sesión/rol (algunas admiten TAQUILLA además de ADMIN, p.ej.
-// /api/admin/scans), así que aquí solo se exige "alguna sesión de staff" en
-// vez de replicar el rol exacto de cada endpoint — esto no sustituye esos
-// checks inline, solo evita que un endpoint nuevo que se olvide de
-// comprobar la sesión quede abierto por defecto.
-export function isStaffApiPath(path: string): boolean {
-  return (
-    path.startsWith('/api/admin') ||
-    path.startsWith('/api/taquilla') ||
-    path.startsWith('/api/scan') ||
-    path.startsWith('/api/access')
-  );
-}
-
-// Extraída como función pura (sin depender de withAuth/next-auth) para
-// poder testear la decisión de autorización sin tener que fabricar un JWT
-// firmado de verdad.
-export function isAuthorizedStaffRequest(path: string, role: string | undefined | null): boolean {
-  if (!isStaffApiPath(path)) return true;
-  return STAFF_ROLES.includes(role ?? '');
-}
-
-export default withAuth(
+// Modo normal (una sola instalación): exactamente el middleware de siempre.
+const legacyMiddleware = withAuth(
   function middleware(req) {
     const token = req.nextauth?.token;
     const path = req.nextUrl?.pathname ?? '';
@@ -72,8 +53,16 @@ export default withAuth(
   }
 );
 
+export default function middleware(req: NextRequest, event: NextFetchEvent) {
+  if (isPlatformMode()) return platformMiddleware(req);
+  // Modo normal: las páginas públicas no pasan por next-auth (como antes, cuando el matcher no las incluía).
+  const path = req.nextUrl.pathname;
+  if (!path.startsWith('/admin') && !path.startsWith('/acceso') && !path.startsWith('/api/')) return NextResponse.next();
+  return legacyMiddleware(req as NextRequestWithAuth, event);
+}
+
 export const config = {
-  // Todas las API pasan por aquí por la comprobación de origen; la autorización
-  // de staff sigue limitándose a sus prefijos (isStaffApiPath).
-  matcher: ['/admin/:path*', '/acceso/:path*', '/api/:path*'],
+  // En modo plataforma TODA ruta tiene que resolver su cliente; en modo normal el middleware deja pasar
+  // enseguida todo lo que no sea /admin, /acceso o /api (ver arriba).
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };

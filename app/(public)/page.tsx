@@ -11,7 +11,8 @@ import { Logo } from '@/components/logo';
 import { ReloadButton } from '@/components/reload-button';
 import Image from 'next/image';
 
-export const revalidate = 60;
+// Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
+export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
   let events: EventWithTicketTypes[] = [];

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { isLocalDatabaseUrl } from '@/scripts/is-local-database-url';
+import { runWithTenant, type TenantContext } from '@/lib/tenant/context';
 
 /* Arnés de dos bases de datos para los tests de aislamiento entre clientes.
  *
@@ -129,4 +130,30 @@ export async function disconnectTenantClients(): Promise<void> {
   await Promise.all([...clients.values()].map((c) => c.$disconnect()));
   clients.clear();
   ensured = null;
+}
+
+export const TEST_TENANT_IDS: Record<TenantSlot, string> = {
+  a: '01HF7YAT00AAAAAAAAAAAAAAAA',
+  b: '01HF7YAT00BBBBBBBBBBBBBBBB',
+};
+
+/** Contexto de cliente de pruebas: apunta a la BD de test del hueco indicado (`testDbUrl` solo funciona bajo Vitest). */
+export function testTenantContext(slot: TenantSlot, over: Partial<TenantContext> = {}): TenantContext {
+  return {
+    tenantId: TEST_TENANT_IDS[slot],
+    product: 'grailla',
+    host: `${slot}.cliente.test`,
+    primaryDomain: `${slot}.cliente.es`,
+    epoch: 0,
+    status: 'ACTIVE',
+    modules: ['nucleo'],
+    db: { pooledEnc: 'enc:v2:tk:AAAA:AAAA:AAAA', directEnc: 'enc:v2:tk:AAAA:AAAA:AAAA' },
+    testDbUrl: testDatabaseUrl(slot),
+    ...over,
+  };
+}
+
+/** Ejecuta `fn` como si la petición viniera del cliente A o B (el `prisma` global se resuelve a su BD). Requiere PLATFORM_MODE=on. */
+export function withTenantForTest<T>(slot: TenantSlot, fn: () => T, over: Partial<TenantContext> = {}): T {
+  return runWithTenant(testTenantContext(slot, over), fn);
 }
