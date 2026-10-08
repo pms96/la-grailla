@@ -1,7 +1,8 @@
 import { getToken } from 'next-auth/jwt';
 import { sessionCookieName } from './session-cookie';
 import { NextResponse, type NextRequest } from 'next/server';
-import { deriveInstallationSecret, parseMasterKey } from '@grailla/contracts';
+import { deriveInstallationSecret, effectiveLicensePhase, enabledModules, parseMasterKey, type LicensePhase } from '@grailla/contracts';
+import { isLicenseExempt, ownerEnabled, ownerOfPath } from '@/lib/modules/registry';
 import { isCrossOriginMutation, isOriginCheckExempt } from '@/lib/origin-check';
 import { isAuthorizedStaffRequest } from '@/lib/staff-paths';
 import { signContext } from './context-sign';
@@ -13,6 +14,8 @@ import { resolveHost } from './resolve';
 /* Middleware del modo plataforma (edge). Hace, por este orden, TODO lo que debe ocurrir antes de que un handler vea la petición:
  *   1. resolver el Host a un cliente (registro firmado) → 404 si no existe;
  *   2. cliente suspendido → 503 (salvo lo que nunca se corta: webhooks y crons);
+ *   2b. módulos y licencia (M5): una ruta sin dueño o de un módulo que el cliente no tiene → 404; fase PANEL_BLOCKED → sin /admin; fase
+ *      BLOCKED → solo la allowlist (lib/modules/registry.ts) y el aviso;
  *   3. comprobación de Origin en peticiones que modifican datos;
  *   4. sesión de staff con el secreto DE ESE cliente en /admin, /acceso y las API de staff;
  *   5. pasar el contexto a los handlers en una cabecera firmada (borrando antes cualquier cabecera interna que mande el cliente). */
@@ -20,6 +23,43 @@ import { resolveHost } from './resolve';
 /** Rutas que no se cortan aunque el cliente esté suspendido: un webhook de pago o un cron que no llega es dinero perdido. */
 export function isNeverBlockable(path: string): boolean {
   return path.startsWith('/api/webhooks/') || path.startsWith('/api/cron/');
+}
+
+/** Lo que es «el panel»: /admin, su API y las dos APIs de gestión de invitaciones (staff) que usa `/admin/invitaciones`. La taquilla y el escáner son venta/puerta y siguen. */
+function isPanelPath(path: string): boolean {
+  return (
+    path === '/admin' ||
+    path.startsWith('/admin/') ||
+    path.startsWith('/api/admin/') ||
+    path === '/api/invitations' ||
+    path.startsWith('/api/invitations/') ||
+    path === '/api/guest-lists' ||
+    path.startsWith('/api/guest-lists/')
+  );
+}
+
+export type Gate =
+  | { kind: 'not_found' }
+  | { kind: 'api'; status: number; error: string }
+  | { kind: 'notice'; status: number };
+
+/**
+ * Qué se corta por módulo y por licencia (null = pasa). Default-deny: una ruta sin dueño no existe. La allowlist (webhooks, crons,
+ * validación de entradas vendidas, lo que ya compró un comprador, reembolsos) no se corta por fase ni por módulo.
+ *   - PANEL_BLOCKED: sin /admin (ni su API); la web pública y las ventas siguen.
+ *   - BLOCKED: nada, salvo la allowlist y el login.
+ */
+export function gateByModuleAndLicense(path: string, method: string, modules: readonly string[], phase: LicensePhase): Gate | null {
+  if (isLicenseExempt(path, method)) return null;
+  const owner = ownerOfPath(path);
+  if (owner === null || !ownerEnabled(owner, enabledModules(modules))) return { kind: 'not_found' };
+  // robots.txt y sitemap.xml no son páginas: un 503 sin cuerpo HTML (para un buscador, «no disponible por ahora»).
+  const isApi = path.startsWith('/api/') || /\.(txt|xml)$/.test(path);
+  if (phase === 'BLOCKED') return isApi ? { kind: 'api', status: 503, error: 'Servicio no disponible' } : { kind: 'notice', status: 503 };
+  if (phase === 'PANEL_BLOCKED' && isPanelPath(path)) {
+    return isApi ? { kind: 'api', status: 402, error: 'Licencia vencida' } : { kind: 'notice', status: 402 };
+  }
+  return null;
 }
 
 const noStore = { 'Cache-Control': 'no-store' };
@@ -58,7 +98,18 @@ export async function platformMiddleware(req: NextRequest): Promise<NextResponse
   if (resolved.status === 'unavailable') return plain(503, 'Servicio no disponible temporalmente', { 'Retry-After': '5' });
   const ctx: TenantContext = { ...resolved.ctx, host: rawHost };
 
+  // Fase de licencia EFECTIVA ahora: avanza sola por el calendario del snapshot, pero solo con una lectura fresca (ver contrato).
+  const now = Date.now();
+  const phase = ctx.license ? effectiveLicensePhase(ctx.license, now, { fresh: !resolved.stale }) : 'ACTIVE';
+  // Con calendario, el próximo cambio es el siguiente que NO ha pasado (null si ya han pasado todos); sin él, el del snapshot.
+  ctx.license = { phase, nextPhaseChangeAt: ctx.license?.schedule ? (ctx.license.schedule.find((c) => c.at > now)?.at ?? null) : (ctx.license?.nextPhaseChangeAt ?? null) };
+
   if (ctx.status !== 'ACTIVE' && !isNeverBlockable(path)) return plain(503, 'Servicio suspendido');
+
+  const gate = gateByModuleAndLicense(path, req.method, ctx.modules, phase);
+  if (gate?.kind === 'not_found') return path.startsWith('/api/') ? NextResponse.json({ error: 'No encontrado' }, { status: 404, headers: noStore }) : plain(404, 'No encontrado');
+  // Sin la fase en el cuerpo: esta respuesta sale antes de autenticar y no debe contarle a un anónimo el estado de pago del cliente.
+  if (gate?.kind === 'api') return NextResponse.json({ error: gate.error }, { status: gate.status, headers: noStore });
 
   if (path.startsWith('/api/') && !isOriginCheckExempt(path) && isCrossOriginMutation(req.method, req.headers)) {
     return NextResponse.json({ error: 'Origen no permitido' }, { status: 403, headers: noStore });
@@ -83,6 +134,14 @@ export async function platformMiddleware(req: NextRequest): Promise<NextResponse
   const key = process.env.PLATFORM_CONTEXT_KEY;
   if (!key) return plain(503, 'Servicio no disponible temporalmente', { 'Retry-After': '5' });
   forwarded.set(CONTEXT_HEADER, await signContext(ctx, parseMasterKey(key)));
+
+  if (gate?.kind === 'notice') {
+    // El aviso es una página del propio front, con el contexto del cliente (necesita su dominio y su fase).
+    const url = req.nextUrl.clone();
+    url.pathname = '/licencia';
+    url.search = '';
+    return NextResponse.rewrite(url, { request: { headers: forwarded }, status: gate.status, headers: noStore });
+  }
 
   const res = NextResponse.next({ request: { headers: forwarded } });
   if (isPublicPage(path, req.method)) {

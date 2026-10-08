@@ -1,5 +1,6 @@
 import {
   registryKeyForHost,
+  registryKeyForRevocation,
   registryKeyForSecrets,
   normalizeHost,
   verifySecretsSnapshot,
@@ -18,7 +19,7 @@ import type { TenantContext } from './context-types';
  *   plano de control o del almacén no apaga las webs de los clientes. */
 
 export interface RegistryReader {
-  get(key: string): Promise<string | null>;
+  get(key: string, opts?: { timeoutMs?: number }): Promise<string | null>;
 }
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -31,13 +32,13 @@ export class UpstashReader implements RegistryReader {
     private readonly doFetch: FetchLike = fetch
   ) {}
 
-  async get(key: string): Promise<string | null> {
+  async get(key: string, opts?: { timeoutMs?: number }): Promise<string | null> {
     const res = await this.doFetch(this.url, {
       method: 'POST',
       headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(['GET', key]),
       cache: 'no-store',
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(opts?.timeoutMs ?? 3000),
     });
     if (!res.ok) throw new Error(`El registro respondió ${res.status}`);
     const json = (await res.json()) as { result?: unknown; error?: string };
@@ -82,13 +83,19 @@ export const MAX_TRACKED_HOSTS = 10_000;
 /** Lecturas al registro por instancia para hosts SIN caché (los desconocidos): ráfaga y recarga por segundo. */
 export const LOOKUP_BURST = 100;
 export const LOOKUP_REFILL_PER_SEC = 20;
+/** Cuánto se cachea la comprobación de revocación de emergencia: es lo que tarda en cortarse un cliente con el panel caído. */
+export const REVOCATION_TTL_MS = 5_000;
+/** La lectura de revocación espera menos que la del enrutado: con el almacén caído no puede sumar otros 3 s a la petición. */
+export const REVOCATION_READ_TIMEOUT_MS = 1_500;
+/** Tras un fallo de lectura de la revocación no se reintenta hasta pasado este tiempo (más que el TTL normal). */
+export const REVOCATION_FAILURE_BACKOFF_MS = 15_000;
 
 export type Resolution =
   | { status: 'ok'; ctx: Omit<TenantContext, 'host'>; stale: boolean }
   | { status: 'not_found' }
   | { status: 'unavailable'; reason: string };
 
-type Good = { ctx: Omit<TenantContext, 'host'>; secrets: SecretsSnapshotBody; fetchedAt: number; routingSeq: number; retryAt?: number };
+type Good = { ctx: Omit<TenantContext, 'host'>; secrets: SecretsSnapshotBody; fetchedAt: number; routingSeq: number; retryAt?: number; staleUntil: number };
 type State = {
   good: Map<string, Good>;
   negative: Map<string, number>;
@@ -98,6 +105,9 @@ type State = {
   lastRoutingSeq: Map<string, number>;
   lastSecretsSeq: Map<string, number>;
   bucket: { tokens: number; at: number };
+  /** Revocación de emergencia por cliente: último valor leído y cuándo. */
+  revocation: Map<string, { revoked: boolean; checkedAt: number }>;
+  revocationInflight: Map<string, Promise<boolean>>;
 };
 const g = globalThis as unknown as { __grailla_tenant_l1?: State };
 const state = (): State =>
@@ -109,6 +119,8 @@ const state = (): State =>
     lastRoutingSeq: new Map(),
     lastSecretsSeq: new Map(),
     bucket: { tokens: LOOKUP_BURST, at: 0 },
+    revocation: new Map(),
+    revocationInflight: new Map(),
   });
 
 /** Solo tests. */
@@ -147,6 +159,7 @@ function toContext(body: SnapshotBody, secrets: SecretsSnapshotBody): Omit<Tenan
     epoch: r.epoch,
     status: r.status,
     modules: r.modules,
+    license: r.license,
     db: { pooledEnc: secrets.dbUrlPooledEnc, directEnc: secrets.dbUrlDirectEnc },
   };
 }
@@ -205,20 +218,22 @@ async function fetchAndVerify(host: string, now: number): Promise<Resolution> {
     st.lastSecretsSeq.set(subscription, secrets.body.seq);
     st.failed.delete(host);
     const ctx = toContext(routing.body, secrets.body);
-    setBounded(st.good, host, { ctx, secrets: secrets.body, fetchedAt: now, routingSeq: routing.body.seq });
+    setBounded(st.good, host, { ctx, secrets: secrets.body, fetchedAt: now, routingSeq: routing.body.seq, staleUntil: routing.body.staleUntil });
     return { status: 'ok', ctx, stale: routing.stale };
   } catch (err) {
     return serveStale(err instanceof Error ? err.message : 'el registro no responde');
   }
 }
 
-export async function resolveHost(rawHost: string, now: number = Date.now()): Promise<Resolution> {
+async function resolveHostInner(rawHost: string, now: number): Promise<Resolution> {
   const host = normalizeHost(rawHost);
   if (!host) return { status: 'not_found' };
   const st = state();
 
   const hit = st.good.get(host);
-  if (hit && now - hit.fetchedAt < jitter(L1_TTL_MS)) return { status: 'ok', ctx: hit.ctx, stale: false };
+  // `stale` también en un acierto de caché: un snapshot que ya pasó su `staleUntil` no puede parecer fresco solo por estar en L1
+  // (la fase de licencia avanzaría y retrocedería según el momento del ciclo de 15 s).
+  if (hit && now - hit.fetchedAt < jitter(L1_TTL_MS)) return { status: 'ok', ctx: hit.ctx, stale: now > hit.staleUntil };
   // Modo degradado: si la última lectura falló, se sirve lo último bueno sin esperar a un registro que no responde.
   if (hit?.retryAt && now < hit.retryAt && now - hit.fetchedAt <= MAX_STALE_SERVE_MS) return { status: 'ok', ctx: hit.ctx, stale: true };
   const neg = st.negative.get(host);
@@ -241,4 +256,43 @@ export async function resolveHost(rawHost: string, now: number = Date.now()): Pr
     st.inflight.set(host, pending);
   }
   return pending;
+}
+
+/**
+ * ¿Hay una revocación de emergencia para este cliente? El panel la escribe en `revoked:{tenantId}` y corta el acceso en unos segundos
+ * sin depender de republicar ni de que el panel esté en pie. Solo puede RESTAR acceso, así que el valor no necesita firma: quien
+ * pudiera escribirlo en el almacén ya podría borrar los registros de enrutado. Si el almacén no responde se conserva el último valor
+ * conocido (y, sin ninguno, no se corta: una caída del almacén no debe apagar a todos los clientes).
+ */
+async function isRevoked(tenantId: string, now: number): Promise<boolean> {
+  const st = state();
+  const known = st.revocation.get(tenantId);
+  if (known && now - known.checkedAt < REVOCATION_TTL_MS) return known.revoked;
+  let pending = st.revocationInflight.get(tenantId);
+  if (!pending) {
+    pending = (async () => {
+      // `checkedAt` se mide al TERMINAR el intento: con un registro lento, medirlo al empezar acortaría la caché y lo repetiría antes.
+      const startedAt = Date.now();
+      const finishedAt = () => now + (Date.now() - startedAt);
+      try {
+        const value = await getRegistryReader().get(registryKeyForRevocation(tenantId), { timeoutMs: REVOCATION_READ_TIMEOUT_MS });
+        const revoked = value !== null;
+        setBounded(st.revocation, tenantId, { revoked, checkedAt: finishedAt() });
+        return revoked;
+      } catch {
+        // Tras un fallo se conserva lo último conocido y no se reintenta hasta pasado el backoff (no solo el TTL).
+        setBounded(st.revocation, tenantId, { revoked: known?.revoked ?? false, checkedAt: finishedAt() + REVOCATION_FAILURE_BACKOFF_MS - REVOCATION_TTL_MS });
+        return known?.revoked ?? false;
+      }
+    })().finally(() => st.revocationInflight.delete(tenantId));
+    st.revocationInflight.set(tenantId, pending);
+  }
+  return pending;
+}
+
+export async function resolveHost(rawHost: string, now: number = Date.now()): Promise<Resolution> {
+  const resolved = await resolveHostInner(rawHost, now);
+  if (resolved.status !== 'ok' || resolved.ctx.status !== 'ACTIVE') return resolved;
+  if (await isRevoked(resolved.ctx.tenantId, now)) return { ...resolved, ctx: { ...resolved.ctx, status: 'SUSPENDED' } };
+  return resolved;
 }

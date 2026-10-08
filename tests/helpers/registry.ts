@@ -41,6 +41,9 @@ export type PublishOptions = {
   /** clave maestra con la que sellar las URLs de BD (kid "tk") */
   master: Uint8Array;
   skipSecrets?: boolean;
+  license?: RoutingRecord['license'];
+  /** Horas hasta que el snapshot se considera obsoleto (por defecto 168, como en el panel). */
+  staleHours?: number;
   now?: number;
 };
 
@@ -55,14 +58,14 @@ export async function publishTenant(reg: FakeRegistry, signer: Signer, o: Publis
     cell: 'shared-1',
     status: o.status ?? 'ACTIVE',
     modules: o.modules ?? [],
-    license: { phase: 'ACTIVE', nextPhaseChangeAt: null },
+    license: o.license ?? { phase: 'ACTIVE', nextPhaseChangeAt: null },
     primaryDomain: o.hosts[0],
     domains: o.hosts,
     schemaVersion: null,
     epoch: o.epoch ?? 0,
   };
   const routing = JSON.stringify(
-    await signSnapshot({ contractVersion: o.contractVersion ?? CONTRACT_VERSION, seq, iat: now, staleUntil: now + 86_400_000, record }, signer)
+    await signSnapshot({ contractVersion: o.contractVersion ?? CONTRACT_VERSION, seq, iat: now, staleUntil: now + (o.staleHours ?? 168) * 3_600_000, record }, signer)
   );
   for (const host of o.hosts) reg.data.set(registryKeyForHost(host), routing);
   if (!o.skipSecrets) {

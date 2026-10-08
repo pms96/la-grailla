@@ -37,6 +37,8 @@ petición ──► middleware (edge) ──────────────
 | `AUTH_TRUST_HOST=true` | next-auth deduce host y protocolo de `x-forwarded-*` |
 | `LEGACY_TENANT_ID`, `LEGACY_NEXTAUTH_SECRET` | Cliente legacy (La Grailla) |
 | `PLATFORM_PRODUCT` | Producto que sirve el despliegue (por defecto `grailla`) |
+| `CRON_SECRET` | Global (los crons por cliente llegan en M7): el mismo valor que usan los workflows de GitHub |
+| `BLOB_READ_WRITE_TOKEN` | Almacén de Blob compartido: cada cliente sube bajo su prefijo `{tenantId}/` |
 
 **Comando de build del proyecto `platform`: `npm run build:platform`** (solo `next build`). El `build` normal ejecuta `prisma migrate deploy`, que exige `DATABASE_URL`/`DIRECT_URL`; sin sobrescribirlo alguien acabaría definiendo esas variables globales «para que compile».
 
@@ -82,8 +84,8 @@ Se revisó el aislamiento con mentalidad adversarial; cada hallazgo se verificó
 
 ## Pendiente (no es de M4)
 
-- **Licencia por fases, módulos desactivados, dominio no verificado y revocación de emergencia** (la clave `revoked:{tenantId}` con TTL de pocos segundos): M5. El middleware ya tiene el punto de enganche (`isNeverBlockable`, `ctx.modules`, `ctx.status`).
-- **`seq` persistente:** el anti-replay vive en la memoria de cada instancia; una instancia nueva acepta cualquier `seq` válido. Persistirlo (por cliente y producto) en el almacén hace falta antes del corte; el panel ya numera de forma monótona y **no debe reiniciarse**.
+- ~~Licencia por fases, módulos desactivados, dominio no verificado y revocación de emergencia~~: hecho en M5 (`m5-modulos-licencia.md`).
+- **`seq` persistente:** el anti-replay vive en la memoria de cada instancia (por cliente y producto); una instancia nueva acepta cualquier `seq` válido. Se decidió en M5 no persistirlo en el mismo almacén (no protege de quien lo controle): ver `m5-modulos-licencia.md`. El panel numera de forma monótona y **no debe reiniciarse**.
 - **Crons por cliente** (hoy `reconcile-payments` y `cleanup-waiting-room` son workflows de GitHub con la URL de La Grailla y un único `CRON_SECRET`): M7.
 - **Subidas a Blob desde el navegador** (`@vercel/blob/client`): el cliente elige la ruta; ya se validan contra la BD del cliente (ids cuid), pero llevarlas al prefijo `{tenantId}/` es de M6. Solo el `put` del servidor (`/api/admin/upload`) lo lleva ya.
 - **Branding:** los textos, colores y logos siguen siendo los de La Grailla para todos los clientes (M6).

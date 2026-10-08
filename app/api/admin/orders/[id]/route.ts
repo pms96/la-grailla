@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
 
+import { isFullAccessRestricted } from '@/lib/modules/runtime';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
@@ -56,6 +57,12 @@ export async function PATCH(
   }
   try {
     const body = updateOrderSchema.parse(await request.json());
+
+    // El middleware deja pasar este PATCH aunque la licencia esté vencida o falte el módulo, para no frenar un reembolso. Cancelar y
+    // reembolsar es dinero ya cobrado; completar un pedido, emitir entradas o cambiar el email del comprador no lo es.
+    if (body.action !== 'cancel' && body.action !== 'refund' && isFullAccessRestricted('entradas')) {
+      return NextResponse.json({ error: 'Licencia vencida o módulo no disponible' }, { status: 402 });
+    }
 
     if (body.action === 'cancel' || body.action === 'refund') {
       const mode = body.action === 'refund' ? 'REFUNDED' : 'CANCELLED';

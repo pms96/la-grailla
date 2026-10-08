@@ -1,6 +1,7 @@
 import PublicNav from '@/components/public-nav';
 import PublicFooter from '@/components/public-footer';
 import CookieBanner from '@/components/cookie-banner';
+import { getActiveModules } from '@/lib/modules/runtime';
 
 export default async function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -11,7 +12,7 @@ export default async function PublicLayout({ children }: { children: React.React
       >
         Saltar al contenido
       </a>
-      <PublicNav />
+      <PublicNav modules={getActiveModules()} />
       <main id="main-content" className="flex-1 pt-16">{children}</main>
       <PublicFooter />
       <CookieBanner />

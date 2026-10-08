@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { z } from 'zod';
-import { fromBase64Url, parseMasterKey } from '@grailla/contracts';
+import { LICENSE_PHASES, fromBase64Url, parseMasterKey } from '@grailla/contracts';
 import type { TenantContext } from './context-types';
 
 /* Verificación de la cabecera de contexto. SOLO Node (crypto síncrono: el cliente Prisma por tenant se tiene
@@ -16,6 +16,13 @@ const ContextSchema = z.object({
   epoch: z.number().int().nonnegative(),
   status: z.enum(['ACTIVE', 'SUSPENDED', 'PENDING_DELETION', 'DELETED']),
   modules: z.array(z.string().max(64)).max(64),
+  license: z
+    .object({
+      phase: z.enum(LICENSE_PHASES),
+      nextPhaseChangeAt: z.number().int().nonnegative().nullable(),
+      schedule: z.array(z.object({ at: z.number().int().nonnegative(), phase: z.enum(LICENSE_PHASES) })).max(3).optional(),
+    })
+    .optional(),
   db: z.object({ pooledEnc: z.string().max(2048), directEnc: z.string().max(2048) }),
 });
 

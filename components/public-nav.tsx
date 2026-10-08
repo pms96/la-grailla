@@ -8,17 +8,20 @@ import { Menu, X, Music, ShoppingBag, Handshake } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/logo';
 import { cn } from '@/lib/utils';
+import { isLinkVisible } from '@/lib/modules/registry';
+import type { ModuleKey } from '@grailla/contracts';
 
 // Curva de ease-out reforzada (equivalente a --ease-out en globals.css).
 const EASE_OUT: [number, number, number, number] = [0.23, 1, 0.32, 1];
 
-const links = [
+const allLinks = [
   { href: '/eventos', label: 'Eventos', icon: Music },
   { href: '/tienda', label: 'Tienda', icon: ShoppingBag },
   { href: '/sponsors', label: 'Patrocinio', icon: Handshake },
 ];
 
-export default function PublicNav() {
+export default function PublicNav({ modules }: { modules?: readonly ModuleKey[] } = {}) {
+  const links = allLinks.filter((l) => !modules || isLinkVisible(l.href, modules));
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const pathname = usePathname() ?? '';

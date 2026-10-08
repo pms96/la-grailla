@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
+    "platform:preflight": "tsx scripts/platform-preflight.ts",
     "check:migrations": "tsx scripts/migration-lint.ts"
   },
   "prisma": {

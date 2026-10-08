@@ -7,6 +7,8 @@ import { useSession, signOut } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/logo';
 import { cn } from '@/lib/utils';
+import { isLinkVisible } from '@/lib/modules/registry';
+import type { ModuleKey } from '@grailla/contracts';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ChangePasswordDialog } from '@/app/admin/_components/change-password-dialog';
 import {
@@ -101,12 +103,27 @@ function NavLink({
   );
 }
 
-export default function AdminShell({ children }: { children: React.ReactNode }) {
+type AdminShellProps = {
+  children: React.ReactNode;
+  /** Módulos activos del cliente (el servidor los decide). Sin ellos se muestra todo, como en una instalación única. */
+  modules?: readonly ModuleKey[];
+  /** Licencia vencida en periodo de gracia: se avisa en el panel. `panelBlockedAt` es cuándo se bloqueará. */
+  licenseGrace?: { panelBlockedAt: number | null } | null;
+};
+
+const dateFormat = new Intl.DateTimeFormat('es-ES', { dateStyle: 'long', timeZone: 'Europe/Madrid' });
+
+export default function AdminShell({ children, modules, licenseGrace }: AdminShellProps) {
   const { data: session } = useSession() || {};
   const pathname = usePathname() ?? '';
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const closeSidebar = () => setSidebarOpen(false);
+  // Un enlace solo aparece si el módulo dueño de su ruta está activo (la ruta, además, está cortada en el servidor).
+  const visibleGroups = navGroups
+    .map((g) => ({ ...g, items: modules ? g.items.filter((i) => isLinkVisible(i.href, modules)) : g.items }))
+    .filter((g) => g.items.length > 0);
+  const showScanner = !modules || isLinkVisible('/acceso', modules);
 
   return (
     <div className="min-h-screen flex">
@@ -128,7 +145,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           </div>
 
           <nav className="flex-1 p-3 space-y-4 overflow-y-auto">
-            {navGroups.map((group, gi) => (
+            {visibleGroups.map((group, gi) => (
               <div key={group.label ?? `g-${gi}`} className="space-y-1">
                 {group.label && (
                   <p className="px-2 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground/80">
@@ -140,13 +157,15 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                 ))}
               </div>
             ))}
-            <div className="pt-2 border-t border-border">
-              <Link href="/acceso" onClick={closeSidebar}>
-                <Button variant="ghost" className="w-full justify-start gap-2 text-sm" size="sm">
-                  <QrCode className="h-4 w-4" /> Escáner QR
-                </Button>
-              </Link>
-            </div>
+            {showScanner && (
+              <div className="pt-2 border-t border-border">
+                <Link href="/acceso" onClick={closeSidebar}>
+                  <Button variant="ghost" className="w-full justify-start gap-2 text-sm" size="sm">
+                    <QrCode className="h-4 w-4" /> Escáner QR
+                  </Button>
+                </Link>
+              </div>
+            )}
           </nav>
 
           <div className="p-3 border-t border-border">
@@ -189,6 +208,14 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
             <Logo variant="white" className="h-6" />
           </div>
         </header>
+        {licenseGrace && (
+          <div role="status" className="border-b border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-200 md:px-6 lg:px-8">
+            La licencia ha vencido.{' '}
+            {licenseGrace.panelBlockedAt
+              ? `Regulariza el pago antes del ${dateFormat.format(new Date(licenseGrace.panelBlockedAt))}: ese día se bloqueará el acceso a este panel.`
+              : 'Regulariza el pago para evitar el bloqueo del panel.'}
+          </div>
+        )}
         <main className="p-4 md:p-6 lg:p-8 max-w-[1200px]">
           {children}
         </main>

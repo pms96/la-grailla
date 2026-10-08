@@ -1,3 +1,4 @@
+import { getActiveModules } from '@/lib/modules/runtime';
 import Link from 'next/link';
 import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
 import { getConfigs } from '@/lib/config';
@@ -15,6 +16,8 @@ import Image from 'next/image';
 export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
+  // Cada sección de módulo solo aparece si el cliente lo tiene (en una instalación única, todos).
+  const modules = getActiveModules();
   let events: EventWithTicketTypes[] = [];
   let loadError = false;
   try {
@@ -167,6 +170,7 @@ export default async function HomePage() {
       </section>
 
       {/* Programación — sin card duplicada del destacado (ya vive en el hero) */}
+      {modules.includes('entradas') && (
       <section className="max-w-[1200px] mx-auto px-4 py-16 md:py-20">
         <SlideIn from="bottom">
           <div className="flex items-end justify-between gap-4 mb-10">
@@ -286,8 +290,10 @@ export default async function HomePage() {
           </FadeIn>
         )}
       </section>
+      )}
 
       {/* Merch — secundario, un solo riel, sin competir con el CTA de entradas */}
+      {modules.includes('tienda') && (
       <section className="border-y border-border/40 bg-muted/20">
         <div className="max-w-[1200px] mx-auto px-4 py-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-start gap-3">
@@ -306,8 +312,10 @@ export default async function HomePage() {
           </Link>
         </div>
       </section>
+      )}
 
       {/* Patrocinio — terciario */}
+      {modules.includes('sponsors') && (
       <section className="relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-r from-primary/10 via-transparent to-lima/10" />
         <div className="relative max-w-[1200px] mx-auto px-4 py-16 text-center">
@@ -332,6 +340,7 @@ export default async function HomePage() {
           </FadeIn>
         </div>
       </section>
+      )}
     </>
   );
 }

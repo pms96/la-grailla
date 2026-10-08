@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { generateMasterKey, parseMasterKey, registryKeyForHost, registryKeyForSecrets } from '@grailla/contracts';
+import { generateMasterKey, parseMasterKey, registryKeyForHost, registryKeyForRevocation, registryKeyForSecrets } from '@grailla/contracts';
 import {
   L1_TTL_MS,
   LOOKUP_BURST,
@@ -7,6 +7,7 @@ import {
   MAX_TRACKED_HOSTS,
   NEGATIVE_TTL_MS,
   RETRY_BACKOFF_MS,
+  REVOCATION_TTL_MS,
   resetResolverStateForTests,
   resolveHost,
   setRegistryReaderForTests,
@@ -82,7 +83,7 @@ describe('caché L1', () => {
     await pub();
     const results = await Promise.all(Array.from({ length: 25 }, () => resolveHost('a.cliente.es', NOW)));
     expect(results.every((r) => r.status === 'ok')).toBe(true);
-    expect(reg.calls).toHaveLength(2); // enrutado + secretos, una vez
+    expect(reg.calls.filter((k) => !k.startsWith('revoked:'))).toHaveLength(2); // enrutado + secretos, una vez
   });
 });
 
@@ -221,11 +222,12 @@ describe('revisión de seguridad de M4: modo degradado', () => {
     reg.failWith = new Error('503 del registro');
     reg.calls.length = 0;
     const later = NOW + L1_TTL_MS * 2;
+    const reads = () => reg.calls.filter((k) => !k.startsWith('revoked:')).length;
     for (let i = 0; i < 10; i++) expect(await resolveHost('a.cliente.es', later + i * 100)).toMatchObject({ status: 'ok', stale: true });
-    expect(reg.calls.length).toBe(1);
+    expect(reads()).toBe(1);
     // Pasado el backoff se vuelve a intentar una vez.
     await resolveHost('a.cliente.es', later + RETRY_BACKOFF_MS * 2);
-    expect(reg.calls.length).toBe(2);
+    expect(reads()).toBe(2);
   });
 
   it('sin caché y con el registro caído tampoco se martillea: el fallo se recuerda unos segundos', async () => {
@@ -275,5 +277,95 @@ describe('revisión de seguridad de M4: hosts desconocidos', () => {
     await resolveHost('a.cliente.es', NOW);
     await Promise.all(Array.from({ length: LOOKUP_BURST * 2 }, (_, i) => resolveHost(`y${i}.comodin.es`, NOW)));
     expect((await resolveHost('a.cliente.es', NOW + L1_TTL_MS * 2)).status).toBe('ok');
+  });
+});
+
+describe('revocación de emergencia (M5)', () => {
+  const revokedKey = registryKeyForRevocation(A);
+
+  it('una clave `revoked:{tenant}` suspende al cliente en cuanto caduca la comprobación (≤ 5 s), sin republicar', async () => {
+    await pub();
+    expect(await resolveHost('a.cliente.es', NOW)).toMatchObject({ ctx: { status: 'ACTIVE' } });
+    reg.data.set(revokedKey, '1');
+    // Dentro del TTL se sigue con lo conocido; pasado el TTL (mucho antes que los 15 s de la caché L1) se corta.
+    expect(await resolveHost('a.cliente.es', NOW + 1000)).toMatchObject({ ctx: { status: 'ACTIVE' } });
+    expect(await resolveHost('a.cliente.es', NOW + REVOCATION_TTL_MS + 1)).toMatchObject({ status: 'ok', ctx: { tenantId: A, status: 'SUSPENDED' } });
+  });
+
+  it('al borrar la clave el cliente vuelve a servirse', async () => {
+    await pub();
+    reg.data.set(revokedKey, '1');
+    expect(await resolveHost('a.cliente.es', NOW)).toMatchObject({ ctx: { status: 'SUSPENDED' } });
+    reg.data.delete(revokedKey);
+    expect(await resolveHost('a.cliente.es', NOW + REVOCATION_TTL_MS + 1)).toMatchObject({ ctx: { status: 'ACTIVE' } });
+  });
+
+  it('solo corta al cliente revocado: otro cliente con otro dominio sigue igual', async () => {
+    await pub();
+    await publishTenant(reg, signer, { tenantId: B, hosts: ['b.cliente.es'], master, now: NOW });
+    reg.data.set(revokedKey, '1');
+    expect((await resolveHost('a.cliente.es', NOW) as { ctx: { status: string } }).ctx.status).toBe('SUSPENDED');
+    expect((await resolveHost('b.cliente.es', NOW) as { ctx: { status: string } }).ctx.status).toBe('ACTIVE');
+  });
+
+  it('con el almacén caído no se corta a nadie por ello (se conserva lo último conocido)', async () => {
+    await pub();
+    await resolveHost('a.cliente.es', NOW);
+    reg.failWith = new Error('caído');
+    expect(await resolveHost('a.cliente.es', NOW + 60_000)).toMatchObject({ status: 'ok', ctx: { status: 'ACTIVE' } });
+    // ...pero una revocación ya conocida no se «olvida» porque el almacén falle.
+    reg.failWith = null;
+    reg.data.set(revokedKey, '1');
+    await resolveHost('a.cliente.es', NOW + 120_000);
+    reg.failWith = new Error('caído');
+    expect(await resolveHost('a.cliente.es', NOW + 130_000)).toMatchObject({ ctx: { status: 'SUSPENDED' } });
+  });
+
+  it('la comprobación cuesta una lectura por cliente cada 5 s, no una por petición', async () => {
+    await pub();
+    await resolveHost('a.cliente.es', NOW);
+    reg.calls.length = 0;
+    for (let i = 0; i < 20; i++) await resolveHost('a.cliente.es', NOW + 100 + i);
+    expect(reg.calls.filter((k) => k === revokedKey)).toHaveLength(0);
+    await resolveHost('a.cliente.es', NOW + REVOCATION_TTL_MS + 10);
+    expect(reg.calls.filter((k) => k === revokedKey)).toHaveLength(1);
+  });
+
+  it('el calendario de licencia del snapshot llega al contexto', async () => {
+    await pub();
+    const r = await resolveHost('a.cliente.es', NOW);
+    expect(r).toMatchObject({ status: 'ok', ctx: { license: { phase: 'ACTIVE', nextPhaseChangeAt: null } } });
+  });
+});
+
+describe('revisión de seguridad de M5', () => {
+  it('un snapshot que ya pasó su staleUntil sigue marcado como obsoleto también en los aciertos de L1 (la fase no «parpadea»)', async () => {
+    await pub({ staleHours: 1 });
+    const first = await resolveHost('a.cliente.es', NOW + 2 * 3_600_000); // lectura nueva de un snapshot de hace 2 h con staleUntil de 1 h
+    expect(first).toMatchObject({ status: 'ok', stale: true });
+    for (let i = 1; i <= 5; i++) {
+      expect(await resolveHost('a.cliente.es', NOW + 2 * 3_600_000 + i * 1000)).toMatchObject({ status: 'ok', stale: true }); // aciertos de L1
+    }
+  });
+
+  it('un snapshot vigente es fresco en el acierto de L1 y deja de serlo al pasar su staleUntil', async () => {
+    await pub({ staleHours: 1 });
+    expect(await resolveHost('a.cliente.es', NOW)).toMatchObject({ stale: false });
+    expect(await resolveHost('a.cliente.es', NOW + 5_000)).toMatchObject({ stale: false });
+  });
+
+  it('con el almacén caído, la comprobación de revocación no se repite en cada petición ni suma esperas', async () => {
+    await pub();
+    await resolveHost('a.cliente.es', NOW);
+    reg.failWith = new Error('caído');
+    reg.calls.length = 0;
+    const t = NOW + REVOCATION_TTL_MS + 100;
+    for (let i = 0; i < 20; i++) await resolveHost('a.cliente.es', t + i * 50);
+    expect(reg.calls.filter((k) => k.startsWith('revoked:'))).toHaveLength(1);
+    // y tampoco al cabo de otro TTL: el backoff tras un fallo es mayor que el TTL
+    await resolveHost('a.cliente.es', t + REVOCATION_TTL_MS + 500);
+    expect(reg.calls.filter((k) => k.startsWith('revoked:'))).toHaveLength(1);
+    await resolveHost('a.cliente.es', t + 20_000); // pasado el backoff se vuelve a intentar
+    expect(reg.calls.filter((k) => k.startsWith('revoked:'))).toHaveLength(2);
   });
 });

@@ -24,10 +24,10 @@ beforeEach(async () => {
   reg = new FakeRegistry();
   resetResolverStateForTests();
   setRegistryReaderForTests(reg);
-  await publishTenant(reg, signer, { tenantId: A, hosts: ['a.cliente.test'], master, modules: ['tienda'] });
-  await publishTenant(reg, signer, { tenantId: B, hosts: ['b.cliente.test'], master });
-  await publishTenant(reg, signer, { tenantId: C, hosts: ['c.cliente.test'], master, status: 'SUSPENDED' });
-  await publishTenant(reg, signer, { tenantId: env.LEGACY_TENANT_ID, hosts: ['legacy.cliente.test'], master });
+  await publishTenant(reg, signer, { tenantId: A, hosts: ['a.cliente.test'], master, modules: ['tienda', 'entradas'] });
+  await publishTenant(reg, signer, { tenantId: B, hosts: ['b.cliente.test'], master, modules: ['tienda', 'entradas'] });
+  await publishTenant(reg, signer, { tenantId: C, hosts: ['c.cliente.test'], master, status: 'SUSPENDED', modules: ['tienda', 'entradas'] });
+  await publishTenant(reg, signer, { tenantId: env.LEGACY_TENANT_ID, hosts: ['legacy.cliente.test'], master, modules: ['tienda', 'entradas'] });
 });
 afterEach(() => {
   env.restore();
@@ -62,7 +62,7 @@ describe('resolución del cliente', () => {
   it('pasa el contexto del cliente a los handlers en una cabecera firmada', async () => {
     const res = await platformMiddleware(req('a.cliente.test', '/eventos'));
     expect(res.headers.get('x-middleware-next')).toBe('1');
-    expect(forwardedCtx(res)).toMatchObject({ tenantId: A, product: 'grailla', host: 'a.cliente.test', primaryDomain: 'a.cliente.test', modules: ['tienda'] });
+    expect(forwardedCtx(res)).toMatchObject({ tenantId: A, product: 'grailla', host: 'a.cliente.test', primaryDomain: 'a.cliente.test', modules: ['tienda', 'entradas'] });
   });
 
   it('una cabecera de contexto que mande el cliente se descarta: manda el Host, no lo que diga la petición', async () => {
