@@ -31,7 +31,9 @@ async function main() {
     for (const w of r.warnings) console.log(`    aviso: ${w}`);
   }
   console.log(`\n${out.results.length} clientes · ${out.failed} fallidos · ${out.skipped} sin lanzar`);
-  if (out.failed) process.exitCode = 1;
+  const unsynced = out.results.filter((r) => r.republishFailed);
+  if (unsynced.length) console.error(`\n${unsynced.length} cliente(s) migrados pero SIN republicar: pueden quedar en mantenimiento hasta publicar (npm run snapshots:refresh).`);
+  if (out.failed || unsynced.length) process.exitCode = 1;
 }
 
 main()

@@ -11,6 +11,8 @@ export const HealthDetailSchema = z.object({
   status: z.enum(['ok', 'degraded', 'error']),
   version: z.string().max(64),
   platform: z.boolean(),
+  // El front sirve a este cliente (false = la puerta de esquema lo tiene en mantenimiento). Opcional por compatibilidad con fronts anteriores.
+  serving: z.boolean().optional(),
   tenantId: z.string().nullable(),
   db: z.object({ ok: z.boolean(), latencyMs: z.number() }),
   schema: z.object({ applied: z.string().nullable(), expected: z.string(), minRequired: z.string(), upToDate: z.boolean() }),
@@ -39,6 +41,7 @@ export async function probeTenantHealth(
   const d = parsed.data;
   const problems: string[] = [];
   if (!d.db.ok) problems.push('La base de datos no responde');
+  if (d.serving === false) problems.push('El front NO está sirviendo a este cliente (mantenimiento por esquema del registro atrasado): ejecuta el runner de migraciones o corrige la versión del registro');
   if (!d.schema.upToDate) problems.push(`Esquema atrasado: aplicado ${d.schema.applied ?? 'desconocido'}, el front exige ${d.schema.minRequired}`);
   if (target.declaredSchema !== undefined && d.schema.applied && migrationStamp(target.declaredSchema) !== migrationStamp(d.schema.applied)) {
     // El registro cree una versión y la BD tiene otra: el front decide con la del registro, así que conviene corregirlo.
@@ -59,7 +62,7 @@ export async function recordHealth(subscriptionId: string, probe: ProbeResult, n
     ? {
         ...base,
         ok: probe.detail.status !== 'error' && probe.problems.length === 0,
-        status: probe.problems.length ? 'degraded' : probe.detail.status,
+        status: probe.detail.serving === false ? 'blocked' : probe.problems.length ? 'degraded' : probe.detail.status,
         dbOk: probe.detail.db.ok,
         schemaApplied: probe.detail.schema.applied,
         schemaExpected: probe.detail.schema.expected,

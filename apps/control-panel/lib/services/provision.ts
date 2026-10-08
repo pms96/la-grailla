@@ -10,6 +10,7 @@ import { verifyDomainDns, verifyDomainManually, parseHostOrThrow, verificationRe
 import { ServiceError } from './errors';
 import { probeTenantHealth, recordHealth, type ProbeResult } from './health';
 import type { FetchLike } from './tenant-calls';
+import { redactUrls } from '../migrations/executor';
 import { runMigrationsForSubscription, type MigrationRunResult, type RunOptions } from './migrations';
 import { loadSubscription, pendingChanges, publishSubscription } from './snapshot';
 import { createTenant, DB_URL_DIRECT_FIELD } from './tenants';
@@ -53,6 +54,8 @@ export type ProvisionInput = {
 export type ProvisionDeps = {
   migrate?: RunOptions;
   healthFetch?: FetchLike;
+  /** Se invoca EN CUANTO se crea el usuario administrador, antes de los pasos que pueden fallar: la contraseña no se puede recuperar después. */
+  onCredentials?: (password: string) => void | Promise<void>;
   /** Comprobar la salud tras publicar (necesita PLATFORM_CRON_MASTER y que el front sea alcanzable). */
   checkHealth?: boolean;
   now?: () => number;
@@ -263,7 +266,7 @@ export async function provisionTenant(input: ProvisionInput, actor: ActingOperat
 
   const steps: StepResult[] = [];
   const result: ProvisionResult = { ok: false, tenantId: null, subscriptionId: null, host, steps, missing: missingBefore, published: false };
-  const step = (s: StepResult) => steps.push(s);
+  const step = (s: StepResult) => steps.push({ ...s, detail: s.detail === undefined ? undefined : redactUrls(s.detail) });
   const stop = (s: StepResult): ProvisionResult => {
     step(s);
     return result;
@@ -293,6 +296,11 @@ export async function provisionTenant(input: ProvisionInput, actor: ActingOperat
     }
     subscriptionId = existingDomain.subscriptionId;
     tenantId = existingDomain.subscription.tenantId;
+    // Repetir un alta con OTRA URL de BD no debe migrar y sembrar en silencio la antigua: se avisa (para cambiarla hay `replaceDatabaseUrls`).
+    const registered = await openField(existingDomain.subscription.dbUrlDirectEnc, { scope: tenantId, field: DB_URL_DIRECT_FIELD });
+    if (registered !== directUrl) {
+      throw new ServiceError('database_mismatch', 'El cliente ya está registrado con otra URL de BD. Si el primer intento llevaba una URL equivocada, corrígela desde el panel (Sustituir las URLs de conexión) y repite');
+    }
     step({ step: 'register', status: 'skipped', detail: 'El cliente ya estaba registrado' });
   } else {
     const created = await createTenant(
@@ -317,7 +325,10 @@ export async function provisionTenant(input: ProvisionInput, actor: ActingOperat
   const dbUrl = await openField(sub.dbUrlDirectEnc, { scope: tenantId, field: DB_URL_DIRECT_FIELD });
   try {
     const seeded = await seedTenantDb(dbUrl, { config, adminEmail: adminUserEmail, adminName: input.adminUser?.name?.trim() || 'Administrador' });
-    if (seeded.adminPassword) result.adminPassword = seeded.adminPassword;
+    if (seeded.adminPassword) {
+      result.adminPassword = seeded.adminPassword;
+      await deps.onCredentials?.(seeded.adminPassword);
+    }
     step({
       step: 'seed',
       status: seeded.configWritten.length || seeded.adminPassword ? 'done' : 'skipped',
@@ -327,7 +338,12 @@ export async function provisionTenant(input: ProvisionInput, actor: ActingOperat
     return stop({ step: 'seed', status: 'failed', detail: err instanceof Error ? err.message : String(err) });
   }
 
-  await goLiveSteps({ subscriptionId, tenantId, host, dbUrl, actor, domainMode: input.domain ?? 'pending', publish: input.publish !== false, deps, step, result });
+  try {
+    await goLiveSteps({ subscriptionId, tenantId, host, dbUrl, actor, domainMode: input.domain ?? 'pending', publish: input.publish !== false, deps, step, result });
+  } catch (err) {
+    // Un fallo aquí (registro caído, BD, permisos…) no debe perder lo ya hecho ni la contraseña creada: se devuelve como paso fallido.
+    step({ step: 'finish', status: 'failed', detail: err instanceof Error ? err.message : String(err) });
+  }
 
   result.ok = !steps.some((s) => s.status === 'failed') && result.published && (!deps.checkHealth || !!result.health?.reachable);
   return result;

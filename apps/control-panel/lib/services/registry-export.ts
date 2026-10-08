@@ -18,6 +18,8 @@ import { ServiceError } from './errors';
 
 export const EXPORT_FORMAT = 'grailla-registry-export';
 export const EXPORT_VERSION = 1;
+/** Al restaurar, el contador de snapshots salta este margen: los fronts rechazan un `seq` menor que el último visto (anti-replay) y la copia es anterior. */
+export const RESTORE_SEQ_MARGIN = 100_000;
 
 type Row = Record<string, unknown>;
 export type RegistryDump = {
@@ -155,7 +157,9 @@ export async function importRegistry(envelope: unknown, db: PrismaClient, key: B
       await tx.product.createMany({ data: dump.products as never, skipDuplicates: true });
       await tx.moduleDef.createMany({ data: dump.moduleDefs as never, skipDuplicates: true });
       await tx.tenant.createMany({ data: dump.tenants as never });
-      await tx.subscription.createMany({ data: dump.subscriptions as never });
+      await tx.subscription.createMany({
+        data: dump.subscriptions.map((sub) => ({ ...sub, snapshotSeq: (sub.snapshotSeq as number) + RESTORE_SEQ_MARGIN })) as never,
+      });
       await tx.subscriptionModule.createMany({ data: dump.subscriptionModules as never });
       await tx.domain.createMany({ data: dump.domains as never });
       await tx.licenseKey.createMany({ data: dump.licenseKeys as never });

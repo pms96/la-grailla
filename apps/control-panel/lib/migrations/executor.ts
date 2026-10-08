@@ -52,10 +52,18 @@ function prismaBin(): string {
   return req.resolve('prisma/build/index.js');
 }
 
+/** Solo lo que `prisma` necesita para arrancar: el resto del entorno del panel (SECRETS_KEYS, URLs de otras BD, PANEL_*) no se le pasa. */
+const CHILD_ENV_ALLOW = /^(PATH|HOME|USER|TMPDIR|TEMP|TMP|LANG|LC_[A-Z_]+|TZ|SHELL|SYSTEMROOT|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|SSL_CERT_DIR|HTTPS?_PROXY|NO_PROXY|http_proxy|https_proxy|no_proxy|PRISMA_[A-Z_]+)$/;
+export function childEnv(url: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env = {} as NodeJS.ProcessEnv;
+  for (const [k, v] of Object.entries(base)) if (v !== undefined && CHILD_ENV_ALLOW.test(k)) env[k] = v;
+  return Object.assign(env, { DATABASE_URL: url, DIRECT_URL: url, PRISMA_HIDE_UPDATE_MESSAGE: '1', CHECKPOINT_DISABLE: '1' });
+}
+
 function runPrisma(args: string[], url: string): Promise<{ code: number | null; output: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [prismaBin(), ...args], {
-      env: { ...process.env, DATABASE_URL: url, DIRECT_URL: url, PRISMA_HIDE_UPDATE_MESSAGE: '1', CHECKPOINT_DISABLE: '1' },
+      env: childEnv(url),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let output = '';
@@ -104,16 +112,26 @@ export const prismaExecutor: MigrationExecutor = {
         `SELECT setconfig FROM pg_db_role_setting WHERE setdatabase = (SELECT oid FROM pg_database WHERE datname = current_database()) AND setrole = 0`
       );
       const entry = prev[0]?.setconfig?.find((c) => c.startsWith('lock_timeout='));
-      await db.$executeRawUnsafe(`ALTER DATABASE ${quoteIdent(name)} SET lock_timeout = '${Math.max(1, Math.floor(ms))}ms'`);
-      return { db: name, previous: entry ? entry.slice('lock_timeout='.length) : null };
+      const mine = `${Math.max(1, Math.floor(ms))}ms`;
+      let previousValue = entry ? entry.slice('lock_timeout='.length) : null;
+      // Un valor igual al que vamos a poner es casi seguro el resto de un runner que murió antes de restaurar: «restaurarlo» lo haría
+      // permanente. Se trata como si no hubiera ninguno.
+      if (previousValue === mine) previousValue = null;
+      await db.$executeRawUnsafe(`ALTER DATABASE ${quoteIdent(name)} SET lock_timeout = '${mine}'`);
+      return { db: name, previous: previousValue };
     });
     try {
       return await fn();
     } finally {
-      await withClient(directUrl, async (db) => {
-        if (previous === null) await db.$executeRawUnsafe(`ALTER DATABASE ${quoteIdent(dbName)} RESET lock_timeout`);
-        else await db.$executeRawUnsafe(`ALTER DATABASE ${quoteIdent(dbName)} SET lock_timeout = '${previous.replace(/'/g, "''")}'`);
-      });
+      // Si restaurar falla NO se tapa el resultado de la migración (que ya se aplicó o falló por sus motivos): se avisa y se sigue.
+      try {
+        await withClient(directUrl, async (db) => {
+          if (previous === null) await db.$executeRawUnsafe(`ALTER DATABASE ${quoteIdent(dbName)} RESET lock_timeout`);
+          else await db.$executeRawUnsafe(`ALTER DATABASE ${quoteIdent(dbName)} SET lock_timeout = '${previous.replace(/'/g, "''")}'`);
+        });
+      } catch (err) {
+        console.error(`[migraciones] No se pudo restaurar lock_timeout en ${dbName}: ${redactUrls(err instanceof Error ? err.message : String(err))}. Comprueba pg_db_role_setting.`);
+      }
     }
   },
 };

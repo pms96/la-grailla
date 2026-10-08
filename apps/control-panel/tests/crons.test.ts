@@ -39,8 +39,12 @@ describe('nextRunDelay', () => {
   it('éxito: intervalo menos el margen', () => expect(nextRunDelay(job, 0)).toBe(job.intervalMs - DUE_GRACE_MS));
   it('fallos: backoff exponencial con tope', () => {
     expect(nextRunDelay(job, 1)).toBe(job.intervalMs);
-    expect(nextRunDelay(job, 3)).toBe(job.intervalMs * 4);
-    expect(nextRunDelay(job, 30)).toBe(MAX_BACKOFF_MS);
+    expect(nextRunDelay(job, 2)).toBe(job.intervalMs * 2);
+    expect(nextRunDelay(TENANT_JOBS['cleanup-waiting-room'], 30)).toBe(MAX_BACKOFF_MS);
+  });
+  it('un cobro pendiente (reconcile) nunca espera más de 15 min, aunque el cliente lleve horas fallando', () => {
+    expect(nextRunDelay(job, 30)).toBe(15 * 60_000);
+    expect(nextRunDelay(TENANT_JOBS['cleanup-waiting-room'], 30)).toBe(MAX_BACKOFF_MS);
   });
   it('la salud no se espacia aunque falle', () => expect(nextRunDelay(TENANT_JOBS.health, 7)).toBe(TENANT_JOBS.health.intervalMs - DUE_GRACE_MS));
 });
@@ -112,10 +116,10 @@ describe('dispatchTenantJobs', () => {
       clock += 10_000; // cada llamada «tarda» 10 s
       return new Response('{}', { status: 200 });
     };
-    const first = await dispatchTenantJobs({ jobs: ['reconcile-payments'], now: () => clock, budgetMs: 15_000, concurrency: 1, fetchImpl });
+    const first = await dispatchTenantJobs({ jobs: ['reconcile-payments'], now: () => clock, budgetMs: 15_000, callTimeoutMs: 1_000, concurrency: 1, fetchImpl });
     expect(first).toMatchObject({ due: 3, ran: 2, deferred: 1 });
     // La siguiente invocación atiende al que no llegó a correr (lastRunAt nulo va primero), no repite a los otros.
-    const second = await dispatchTenantJobs({ jobs: ['reconcile-payments'], now: () => clock, budgetMs: 60_000, concurrency: 1, fetchImpl });
+    const second = await dispatchTenantJobs({ jobs: ['reconcile-payments'], now: () => clock, budgetMs: 60_000, callTimeoutMs: 1_000, concurrency: 1, fetchImpl });
     expect(second.ran).toBe(1);
     const never = await prisma.cronState.count({ where: { job: 'reconcile-payments', lastRunAt: null } });
     expect(never).toBe(0);
@@ -151,6 +155,43 @@ describe('dispatchTenantJobs', () => {
 
     await dispatchTenantJobs({ jobs: ['health'], now: () => Date.now() + 10 * 60_000, fetchImpl: fakeFetch(() => ({ status: 503, body: { status: 'error' } })) });
     expect((await prisma.tenantHealth.findUniqueOrThrow({ where: { subscriptionId: t.subscription.id } })).status).toBe('unreachable');
+  });
+
+  it('NO lanza una llamada que podría acabar pasado el presupuesto (la función moriría sin anotar el estado)', async () => {
+    await publishedTenant();
+    const calls: Call[] = [];
+    // presupuesto 10 s y llamadas de hasta 20 s: ni siquiera cabe la primera.
+    const out = await dispatchTenantJobs({ jobs: ['reconcile-payments'], budgetMs: 10_000, callTimeoutMs: 20_000, fetchImpl: fakeFetch(() => ({ status: 200 }), calls) });
+    expect(out).toMatchObject({ due: 1, ran: 0, deferred: 1 });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('un cliente con salud «blocked» (la puerta de esquema lo corta) cuenta como que falla', async () => {
+    const t = await publishedTenant();
+    const detail = {
+      status: 'degraded', version: 'dev', platform: true, tenantId: t.tenant.id, serving: false,
+      db: { ok: true, latencyMs: 2 },
+      schema: { applied: '20261009090000_reconcile_queue', expected: '20261009090000_reconcile_queue', minRequired: '20261009090000_reconcile_queue', upToDate: true },
+      onboarding: { complete: true, missing: [] },
+    };
+    await dispatchTenantJobs({ jobs: ['health'], fetchImpl: fakeFetch(() => ({ status: 200, body: detail })) });
+    const h = await prisma.tenantHealth.findUniqueOrThrow({ where: { subscriptionId: t.subscription.id } });
+    expect(h).toMatchObject({ ok: false, status: 'blocked' });
+    expect(h.error).toMatch(/NO está sirviendo/);
+    const { healthOverview } = await import('@/lib/queries');
+    expect((await healthOverview()).find((r) => r.tenantId === t.tenant.id)!.level).toBe('bad');
+  });
+
+  it('en producción el secreto nunca viaja por http', async () => {
+    const { tenantUrl } = await import('@/lib/services/tenant-calls');
+    const saved = { env: process.env.NODE_ENV, tpl: process.env.TENANT_URL_TEMPLATE };
+    (process.env as Record<string, string>).NODE_ENV = 'production';
+    process.env.TENANT_URL_TEMPLATE = 'http://{host}:9999';
+    expect(() => tenantUrl('a.es', '/x')).toThrow(/https/);
+    process.env.TENANT_URL_TEMPLATE = 'https://{host}';
+    expect(tenantUrl('a.es', '/x')).toBe('https://a.es/x');
+    (process.env as Record<string, string>).NODE_ENV = saved.env!;
+    process.env.TENANT_URL_TEMPLATE = saved.tpl!;
   });
 
   it('rechaza una tarea desconocida', async () => {

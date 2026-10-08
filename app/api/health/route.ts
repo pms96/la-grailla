@@ -8,6 +8,7 @@ import { getOnboardingStatus, onboardingApplies } from '@/lib/onboarding';
 import { expectedSchema } from '@/lib/platform/expected-schema';
 import { FRONT_MIN_SCHEMA } from '@/lib/platform/min-schema';
 import { currentTenant } from '@/lib/tenant/context';
+import { gateBySchema } from '@/lib/tenant/middleware';
 import { isPlatformMode } from '@/lib/tenant/mode';
 
 /* Salud del front para ESTE cliente.
@@ -49,8 +50,13 @@ export async function GET(request: Request) {
   }
   const latencyMs = Date.now() - startedAt;
 
+  // ¿Está el front sirviendo a este cliente? Si la puerta de esquema lo corta, desde fuera NO debe verse «ok»: un monitor externo
+  // sobre esta ruta (la única que la puerta deja pasar) vería verde con el cliente entero en mantenimiento.
+  const serving = !isPlatformMode() || gateBySchema('/', currentTenant()?.schemaVersion) === null;
+
   if (!(await isAuthorized(request))) {
-    return dbOk ? NextResponse.json({ status: 'ok' }, { headers }) : NextResponse.json({ status: 'error' }, { status: 503, headers });
+    if (!dbOk) return NextResponse.json({ status: 'error' }, { status: 503, headers });
+    return serving ? NextResponse.json({ status: 'ok' }, { headers }) : NextResponse.json({ status: 'maintenance' }, { status: 503, headers });
   }
 
   const applied = dbOk ? await appliedSchema() : null;
@@ -66,7 +72,7 @@ export async function GET(request: Request) {
   }
   // El onboarding solo degrada a quien se le exige (cliente nuevo en modo plataforma); a La Grailla no.
   const onboardingPending = dbOk && onboardingApplies() && !onboarding.complete;
-  const status = !dbOk ? 'error' : !upToDate || onboardingPending ? 'degraded' : 'ok';
+  const status = !dbOk ? 'error' : !serving || !upToDate || onboardingPending ? 'degraded' : 'ok';
 
   return NextResponse.json(
     {
@@ -74,6 +80,7 @@ export async function GET(request: Request) {
       version: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || 'dev',
       platform: isPlatformMode(),
       tenantId: isPlatformMode() ? (currentTenant()?.tenantId ?? null) : null,
+      serving,
       db: { ok: dbOk, latencyMs },
       schema: { applied, expected: expectedSchema(), minRequired: FRONT_MIN_SCHEMA, upToDate },
       onboarding,

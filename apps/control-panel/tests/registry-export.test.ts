@@ -5,7 +5,7 @@ import { generateMasterKey, parseMasterKey } from '@grailla/contracts';
 import { verifyAuditChain } from '@/lib/audit';
 import { prisma } from '@/lib/db';
 import { verifyDomainManually } from '@/lib/services/domains';
-import { exportRegistry, importRegistry, openDump, verifyDumpAuditChain, readRegistry } from '@/lib/services/registry-export';
+import { RESTORE_SEQ_MARGIN, exportRegistry, importRegistry, openDump, verifyDumpAuditChain, readRegistry } from '@/lib/services/registry-export';
 import { publishSubscription } from '@/lib/services/snapshot';
 import { createLicenseKey } from '@/lib/services/license';
 import { freshStore, makeOperator, resetControlDb, rootCreateTenant } from './helpers';
@@ -59,7 +59,9 @@ describe('copia cifrada del registro', () => {
     const original = await readRegistry(prisma);
     const copy = await readRegistry(target);
     expect(copy.tenants).toEqual(original.tenants);
-    expect(copy.subscriptions).toEqual(original.subscriptions);
+    // El contador de snapshots salta un margen: los fronts rechazan un seq menor que el último visto, y la copia es anterior.
+    expect(copy.subscriptions).toEqual(original.subscriptions.map((sub) => ({ ...sub, snapshotSeq: (sub.snapshotSeq as number) + RESTORE_SEQ_MARGIN })));
+    expect((copy.subscriptions[0] as { snapshotSeq: number }).snapshotSeq).toBeGreaterThanOrEqual(RESTORE_SEQ_MARGIN);
     expect(copy.domains).toEqual(original.domains);
     expect(copy.licenseKeys).toEqual(original.licenseKeys);
     expect(copy.auditLog).toEqual(original.auditLog);

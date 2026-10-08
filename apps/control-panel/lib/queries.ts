@@ -84,6 +84,9 @@ export function assessSubscription(i: AssessInput, now: number = Date.now()): { 
   } else if (now - i.health.checkedAt.getTime() > HEALTH_STALE_MS) {
     problems.push('La última comprobación de salud es antigua: ¿el disparador de crons está corriendo?');
     raise('warn');
+  } else if (i.health.status === 'blocked') {
+    problems.push(i.health.error ?? 'El front no sirve a este cliente');
+    raise('bad');
   } else if (i.health.status === 'unreachable') {
     problems.push(`No responde: ${i.health.error ?? 'sin detalle'}`);
     raise('bad');

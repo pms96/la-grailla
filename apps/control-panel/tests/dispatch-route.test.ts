@@ -11,8 +11,10 @@ afterEach(() => {
 });
 
 describe('GET /api/cron/dispatch', () => {
-  it('sin PANEL_CRON_SECRET configurado responde 500 y no hace nada', async () => {
-    expect((await call('?job=tenants', `Bearer ${SECRET}`)).status).toBe(500);
+  it('sin PANEL_CRON_SECRET configurado responde igual que con uno equivocado (401): no revela la configuración', async () => {
+    const res = await call('?job=tenants', `Bearer ${SECRET}`);
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'No autorizado' });
   });
 
   it('sin cabecera o con un secreto distinto: 401', async () => {

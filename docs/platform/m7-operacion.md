@@ -58,7 +58,7 @@ Cada paso es **idempotente**: si se corta, se repite el mismo comando y continú
 
 **Datos mínimos obligatorios para publicar:** `admin_email` y los tres textos legales. Sin ellos el alta se **rechaza antes de tocar nada**; con `--allow-incomplete` se da de alta pero no se verifica el dominio ni se publica (la web no existe para el público). Cuando el cliente los complete desde su panel (o tú desde la BD), `npm run tenant:go-live -- --subscription <id> --domain dns` vuelve a comprobarlos en su BD, verifica el dominio y publica.
 
-La contraseña inicial se muestra **una vez** (o se guarda en `--credentials-file` con permisos 0600, que no se sobrescribe). Entrégala al cliente por un canal seguro y bórrala; el cliente debe cambiarla al entrar.
+La contraseña inicial se muestra **una vez, en cuanto se crea el usuario** (antes de los pasos que pueden fallar: si algo falla después, ya la tienes; repetir el comando no la vuelve a mostrar). Repetir un alta con **otra URL de BD** falla en voz alta (`database_mismatch`): para corregir una URL equivocada usa «Sustituir las URLs de conexión» en la ficha del cliente. Se muestra (o se guarda en `--credentials-file` con permisos 0600, que no se sobrescribe). Entrégala al cliente por un canal seguro y bórrala; el cliente debe cambiarla al entrar.
 
 Para un cliente nuevo, el panel de administración del cliente muestra «Completa estos datos antes de publicar la web» mientras falte algo.
 
@@ -75,8 +75,9 @@ npm run migrate:tenants                                    # todos (concurrencia
 
 - **Concurrencia** 5 (máx. 10). **Parada ante el primer fallo:** los clientes que no llegaron a lanzarse quedan `SKIPPED` y no se tocan (`--continue-on-failure` lo desactiva).
 - **`lock_timeout` de 3 s** durante la migración (se fija con `ALTER DATABASE … SET` y se restaura el valor anterior al terminar), con hasta 3 intentos y espera creciente si Postgres aborta la migración por un bloqueo. Esa migración se deshizo entera (Postgres la ejecuta como una sola transacción), así que se marca como revertida y se reintenta. Un fallo que **no** es de bloqueo no se reintenta: la migración fallida queda a la vista y la siguiente ejecución exige que una persona la resuelva (`prisma migrate resolve`).
-- **Linter:** las migraciones posteriores a la línea base deben ser aditivas; una destructiva solo se aplica con `--allow-destructive` (queda en la auditoría). Hazlo únicamente en un release «contract», tras un PITR y cuando ningún despliegue ejecute ya el código antiguo.
+- **Linter:** las migraciones posteriores a la línea base deben ser aditivas; una destructiva solo se aplica con `--allow-destructive` (queda en la auditoría), **aunque lleve el marcador `-- allow-destructive:`** (el marcador sirve para pasar la CI; aplicarla a todos los clientes exige además la bandera). `BEGIN/COMMIT` y `CONCURRENTLY` dentro de una migración **no se aplican nunca**: una transacción explícita rompería la garantía de que un aborto la deshace entera. Hazlo únicamente en un release «contract», tras un PITR y cuando ningún despliegue ejecute ya el código antiguo.
 - **Al terminar** actualiza `schemaVersion` del cliente y **republica** su registro: el front ya puede servirlo con el código que exige esa versión (`FRONT_MIN_SCHEMA`).
+- **Si la BD ya está al día pero el registro no** (alta sobre una BD ya migrada, o un runner que murió tras aplicar), el runner **sincroniza `schemaVersion` y republica** aunque no haya nada pendiente. Un `--dry-run` no lo hace. Si no puede republicar, `migrate:tenants` termina con error (el cliente podría quedar en mantenimiento).
 - Cada ejecución queda en `MigrationRun` (sin URLs ni credenciales) y en la auditoría; se ven en la ficha del cliente y en `/health`.
 - No hay «down»: se corrige hacia delante y se hace PITR antes de cualquier «contract».
 - `CREATE INDEX CONCURRENTLY` no puede ir en una migración de Prisma (va en una transacción): se hace como paso aparte.
@@ -90,14 +91,16 @@ npm run migrate:tenants                                    # todos (concurrencia
 
 ### Puerta por versión de esquema (`FRONT_MIN_SCHEMA`)
 
-`lib/platform/min-schema.ts` guarda la migración más nueva que necesita el código de este build. **Se sube a mano, en el release que empieza a usar una columna o tabla nueva.** Si el `schemaVersion` del registro de un cliente es anterior (o desconocido), solo ese cliente recibe `503 Cliente en mantenimiento` (`Retry-After: 30`); `/api/health` sigue respondiendo. Un `schemaVersion` null cuenta como atrasado: **un cliente registrado sin versión de esquema no se sirve** (el preflight lo detecta). Los webhooks y crons de un cliente atrasado también reciben 503: los proveedores de pago reintentan, y un handler sobre un esquema que no conoce podría escribir mal.
+`lib/platform/min-schema.ts` guarda la migración más nueva que necesita el código de este build. **Se sube a mano, en el release que empieza a usar una columna o tabla nueva.** Si el `schemaVersion` del registro de un cliente es anterior (o desconocido), solo ese cliente recibe `503 Cliente en mantenimiento` (`Retry-After: 30`); `/api/health` sigue respondiendo. Un `schemaVersion` null cuenta como atrasado: **un cliente registrado sin versión de esquema no se sirve** (el preflight lo detecta; y el alta y el runner lo rellenan solos). Desde fuera, `/api/health` público responde **503 `{status:"maintenance"}`** en ese caso (no «ok»), y el panel marca al cliente como «Falla». Los webhooks y crons de un cliente atrasado también reciben 503: los proveedores de pago reintentan, y un handler sobre un esquema que no conoce podría escribir mal.
 
 ## 3 · Crons por cliente
 
 Un solo workflow (`platform-crons.yml`) llama cada 5 minutos a `GET {PANEL_URL}/api/cron/dispatch?job=tenants` y una vez al día (04:17 UTC) a `?job=snapshots-refresh`.
 
 - El panel recorre los clientes **publicados** (activos o suspendidos; un cliente suspendido sigue reconciliando sus cobros en vuelo) y llama a cada tarea con el secreto de **ese** cliente. No sigue redirecciones (el secreto va en una cabecera).
-- Tareas: `reconcile-payments` (5 min), `cleanup-waiting-room` (30 min), `health` (5 min).
+- Tareas: `reconcile-payments` (5 min), `cleanup-waiting-room` (30 min), `health` (5 min). El backoff de `reconcile-payments` se queda en **15 min** como máximo (SumUp no tiene webhook: es lo que confirma un cobro); el de la limpieza, en 1 h.
+- No se lanza una llamada que pudiera acabar pasado el presupuesto (`CRON_BUDGET_MS` menos el tiempo máximo de la llamada, 20 s): con el plan Hobby (10 s) el disparador no llega a llamar a nadie; hace falta el plan Pro o dejar `CRON_BUDGET_MS` en ≥ 30 000.
+- Sin `PANEL_CRON_SECRET` el disparador responde 401, igual que con un secreto equivocado (no revela la configuración); el fallo se registra en el log del panel.
 - Estado por cliente y tarea en `CronState`: un cliente que falla se **espacia solo** (backoff exponencial hasta 1 h) y no frena a los demás; no hay «cabeza de cola». La tarea de salud no se espacia.
 - **Presupuesto de tiempo** por invocación (`CRON_BUDGET_MS`): lo que no cabe queda para la siguiente, y se atiende primero lo que lleva más sin ejecutarse.
 - **`snapshots-refresh` es obligatorio a diario**: sin él la fase de licencia deja de avanzar a las 168 h. `/health` avisa si un registro lleva más de 36 h sin republicarse.
@@ -123,13 +126,31 @@ npm run operator:create …         # los operadores no van en la copia
 npm run snapshots:refresh         # reconstruye el almacén replicado
 ```
 
-AES-256-GCM. Incluye clientes, suscripciones, módulos, dominios, claves de licencia (solo hash) y auditoría; **no** operadores, sesiones ni TOTP, ni datos operativos. Las URLs de BD van selladas (`enc:v2`): para usarlas tras restaurar hace falta además `SECRETS_KEYS`. **Guarda el fichero, `REGISTRY_EXPORT_KEY` y `SECRETS_KEYS` en sitios distintos y fuera de la plataforma.** La restauración se niega si la BD no está vacía o si la cadena de hashes de la auditoría del fichero no verifica. El registro replicado (Upstash) se puede reconstruir entero desde la BD de control.
+AES-256-GCM. Al restaurar, el contador `snapshotSeq` de cada suscripción **salta 100 000**: los fronts rechazan un `seq` menor que el último que vieron (anti-replay) y la copia es anterior; sin el salto, tras `snapshots:refresh` todos los clientes quedarían sirviendo datos obsoletos hasta caducar. Incluye clientes, suscripciones, módulos, dominios, claves de licencia (solo hash) y auditoría; **no** operadores, sesiones ni TOTP, ni datos operativos. Las URLs de BD van selladas (`enc:v2`): para usarlas tras restaurar hace falta además `SECRETS_KEYS`. **Guarda el fichero, `REGISTRY_EXPORT_KEY` y `SECRETS_KEYS` en sitios distintos y fuera de la plataforma.** La restauración se niega si la BD no está vacía o si la cadena de hashes de la auditoría del fichero no verifica. El registro replicado (Upstash) se puede reconstruir entero desde la BD de control.
 
 Programar la copia (semanal, como mínimo) y subirla a un almacenamiento externo es decisión tuya: requiere dar a un runner la URL de la BD de control y las claves.
 
+## Revisión independiente (aplicada)
+
+Un agente revisó M7 con mentalidad adversarial y verificó cada hallazgo; los reales se arreglaron con su test:
+
+| Gravedad | Hallazgo | Arreglo |
+|---|---|---|
+| Alto | El runner no sincronizaba el registro si no había migraciones pendientes: un cliente con la BD al día y `schemaVersion` null quedaba en mantenimiento y «ejecuta el runner» no lo arreglaba | Sincroniza y republica también sin pendientes |
+| Alto | Un cliente en mantenimiento por la puerta de esquema se veía «ok» desde fuera y solo «Atención» en el panel | `/api/health` público da 503 `maintenance`; el detalle trae `serving`; el panel lo marca «Falla» |
+| Medio | `lock_timeout` residual tras un crash se volvía permanente; un fallo al restaurarlo tapaba el resultado | Un valor igual al nuestro se trata como residuo; el fallo al restaurar solo avisa |
+| Medio | La contraseña inicial se perdía si un paso posterior lanzaba | Callback inmediato `onCredentials` y paso `finish` fallido en vez de excepción |
+| Medio | Repetir un alta con otra URL de BD usaba la antigua en silencio | `database_mismatch` |
+| Medio | El disparador pasaba del presupuesto con llamadas lentas y el backoff retrasaba hasta 1 h un cobro | Presupuesto descuenta el tiempo de la llamada; tope de 15 min para reconcile |
+| Medio | Restaurar el registro hacía retroceder `snapshotSeq` (los fronts lo rechazan como repetición) | Salto de 100 000 al importar |
+| Bajo | El marcador `allow-destructive` saltaba el linter del runner; `BEGIN/COMMIT`/`CONCURRENTLY` pasaban | La bandera es obligatoria aunque haya marcador; reglas duras sin escape |
+| Bajo | `migrate:tenants` salía con 0 si no se podía republicar; `prisma` heredaba todo el entorno del panel; `http://` admitido en producción; `err.message` sin filtrar URLs; 500 «Cron no configurado» sin autenticar | Salida con error; lista blanca de entorno; https obligatorio; filtrado; 401 |
+
+**No se arregló (decisión):** límite de tasa del `/api/health` público (WAF), y que sellar `reconcileCheckedAt` antes de verificar manda al final de la cola a un pedido aún sin pagar (con miles de carritos pendientes, un pago SumUp puede tardar varias pasadas; sigue siendo mejor que el orden anterior). Confirmado como bien resuelto: aislamiento del secreto de cron, no filtración en `/api/health`, no seguir redirecciones, comparaciones en tiempo constante, identificadores SQL, URLs fuera de argv/auditoría, cifrado de la copia y ausencia de cambios en modo normal.
+
 ## Verificado
 
-- 195 tests del panel (nuevos: runner, alta, crons, salud, copia) y 926 del front, `tsc` y lint limpios, `next build` del panel y del front en modo normal.
+- 210 tests del panel (nuevos: runner, alta, crons, salud, copia) y 927 del front, `tsc` y lint limpios, `next build` del panel y del front en modo normal.
 - Runner contra Postgres reales: migración de cero con las 32 migraciones del repo, parada ante fallo, canarios, linter, bloqueo real con `lock_timeout` + recuperación, ejecución concurrente, ejecución abandonada.
 - **De punta a punta en local**: registro de desarrollo + front en modo plataforma (`c.localhost`) + `tenant:provision` con BD local nueva → web neutra del cliente, aviso legal con el texto sembrado, login del administrador con la contraseña generada y `/api/health` público mínimo; el disparador real (`/api/cron/dispatch`) ejecutó las tres tareas contra ese cliente con su secreto derivado.
 

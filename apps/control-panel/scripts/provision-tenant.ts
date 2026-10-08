@@ -86,21 +86,24 @@ async function main() {
     dbRegion: arg('region') ?? null,
   };
 
-  const res = await provisionTenant(input, actor, { checkHealth: flag('check-health') });
+  const userLabel = input.adminUser?.email ?? adminEmail;
+  // En cuanto se crea el usuario (antes de que pueda fallar ningún paso posterior): la contraseña no se puede recuperar.
+  const onCredentials = (password: string) => {
+    if (credentialsFile) {
+      fs.writeFileSync(credentialsFile, `usuario: ${userLabel}\ncontraseña: ${password}\n`, { mode: 0o600, flag: 'wx' });
+      console.log(`Credenciales iniciales guardadas en ${credentialsFile} (permisos 0600). Entrégalas al cliente y bórralas.`);
+    } else {
+      console.log(`Usuario administrador: ${userLabel}`);
+      console.log(`Contraseña inicial (solo se muestra ahora): ${password}`);
+    }
+  };
+
+  const res = await provisionTenant(input, actor, { checkHealth: flag('check-health'), onCredentials });
   const icon = { done: '✓', skipped: '·', blocked: '…', failed: '✗' } as const;
   console.log(`Alta de ${name} (${res.host})`);
   for (const s of res.steps) console.log(`  ${icon[s.status]} ${s.step.padEnd(10)} ${s.detail ?? ''}`);
   if (res.tenantId) console.log(`\n  tenantId: ${res.tenantId}`);
   if (res.dnsRecord) console.log(`  DNS: crea el TXT ${res.dnsRecord.name} = ${res.dnsRecord.value}`);
-  if (res.adminPassword) {
-    if (credentialsFile) {
-      fs.writeFileSync(credentialsFile, `usuario: ${input.adminUser?.email ?? adminEmail}\ncontraseña: ${res.adminPassword}\n`, { mode: 0o600, flag: 'wx' });
-      console.log(`  Credenciales iniciales guardadas en ${credentialsFile} (permisos 0600). Entrégalas al cliente y bórralas.`);
-    } else {
-      console.log(`  Usuario administrador: ${input.adminUser?.email ?? adminEmail}`);
-      console.log(`  Contraseña inicial (solo se muestra ahora): ${res.adminPassword}`);
-    }
-  }
   if (!res.published) console.log('\n  La web NO está publicada todavía (ver los pasos pendientes).');
   if (res.steps.some((s) => s.status === 'failed')) process.exitCode = 1;
 }

@@ -13,10 +13,10 @@ import { callTenant, type FetchLike } from './tenant-calls';
  *    siguiente, y se atiende primero lo que lleva más tiempo sin ejecutarse (nunca-ejecutadas primero).
  *  - Sin estado en memoria: cualquier réplica del panel puede dispararlo. */
 
-export type TenantJob = { name: string; intervalMs: number; kind: 'cron' | 'health'; path?: string };
+export type TenantJob = { name: string; intervalMs: number; kind: 'cron' | 'health'; path?: string; maxBackoffMs?: number };
 
 export const TENANT_JOBS: Record<string, TenantJob> = {
-  'reconcile-payments': { name: 'reconcile-payments', intervalMs: 5 * 60_000, kind: 'cron', path: '/api/cron/reconcile-payments' },
+  'reconcile-payments': { name: 'reconcile-payments', intervalMs: 5 * 60_000, kind: 'cron', path: '/api/cron/reconcile-payments', maxBackoffMs: 15 * 60_000 },
   'cleanup-waiting-room': { name: 'cleanup-waiting-room', intervalMs: 30 * 60_000, kind: 'cron', path: '/api/cron/cleanup-waiting-room' },
   health: { name: 'health', intervalMs: 5 * 60_000, kind: 'health' },
 };
@@ -24,11 +24,14 @@ export const TENANT_JOBS: Record<string, TenantJob> = {
 /** Margen para que un disparador que llega unos segundos «antes» de lo previsto no salte una vuelta entera. */
 export const DUE_GRACE_MS = 60_000;
 export const MAX_BACKOFF_MS = 60 * 60_000;
+/** Tiempo máximo de una llamada a un cliente si no se indica otro. */
+export const DEFAULT_CALL_TIMEOUT_MS = 20_000;
 
 /** Próxima ejecución tras `failures` fallos seguidos (0 = éxito). La salud no se espacia: interesa verla caer y recuperarse. */
 export function nextRunDelay(job: TenantJob, failures: number): number {
   if (failures <= 0 || job.kind === 'health') return Math.max(0, job.intervalMs - DUE_GRACE_MS);
-  return Math.min(MAX_BACKOFF_MS, job.intervalMs * 2 ** (failures - 1));
+  // Un cobro SumUp sin webhook solo se confirma con esta tarea: su espera máxima es corta (15 min) aunque el cliente lleve horas fallando.
+  return Math.min(job.maxBackoffMs ?? MAX_BACKOFF_MS, job.intervalMs * 2 ** (failures - 1));
 }
 
 export type DispatchOptions = {
@@ -69,6 +72,7 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
   const started = now();
   const budgetMs = opts.budgetMs ?? 40_000;
   const concurrency = Math.min(10, Math.max(1, opts.concurrency ?? 5));
+  const callTimeoutMs = opts.callTimeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
   const jobs = (opts.jobs?.length ? opts.jobs : Object.keys(TENANT_JOBS)).map((j) => {
     const def = TENANT_JOBS[j];
     if (!def) throw new Error(`Tarea desconocida: ${j}`);
@@ -99,7 +103,7 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
     let error: string | null = null;
     let duration = 0;
     if (job.kind === 'health') {
-      const probe = await probeTenantHealth({ tenantId: target.tenantId, host: target.host, declaredSchema: target.schemaVersion }, { fetchImpl: opts.fetchImpl, timeoutMs: opts.callTimeoutMs });
+      const probe = await probeTenantHealth({ tenantId: target.tenantId, host: target.host, declaredSchema: target.schemaVersion }, { fetchImpl: opts.fetchImpl, timeoutMs: callTimeoutMs });
       await recordHealth(target.id, probe, new Date(now()));
       success = probe.reachable;
       http = probe.httpStatus;
@@ -142,7 +146,8 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
   await Promise.all(
     Array.from({ length: Math.min(concurrency, dueRows.length) }, async () => {
       while (next < dueRows.length) {
-        if (now() - started >= budgetMs) return; // sin presupuesto: lo que queda espera a la siguiente invocación
+        // No se lanza una llamada que podría acabar pasado el presupuesto (la función serverless moriría sin anotar el estado).
+        if (now() - started >= budgetMs - callTimeoutMs) return; // sin presupuesto: lo que queda espera a la siguiente invocación
         await runOne(dueRows[next++]);
       }
     })

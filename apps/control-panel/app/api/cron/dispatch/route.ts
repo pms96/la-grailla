@@ -24,7 +24,8 @@ function authorized(request: Request): boolean {
 }
 
 export async function GET(request: Request) {
-  if (!process.env.PANEL_CRON_SECRET) return NextResponse.json({ error: 'Cron no configurado' }, { status: 500 });
+  // Sin secreto configurado se responde igual que con uno equivocado: un anónimo no averigua el estado de la configuración.
+  if (!process.env.PANEL_CRON_SECRET) console.error('[GET /api/cron/dispatch] Falta PANEL_CRON_SECRET (o tiene menos de 24 caracteres)');
   if (!authorized(request)) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   const url = new URL(request.url);
   const job = url.searchParams.get('job');

@@ -86,6 +86,18 @@ describe('respuesta pública (sin secreto)', () => {
   });
 });
 
+describe('puerta de esquema', () => {
+  it('con el esquema del REGISTRO atrasado el público ve 503 «maintenance» (no «ok») y el detalle dice serving:false', async () => {
+    await fill('a');
+    const stale = { schemaVersion: '20200101000000_antigua' };
+    const pub = await withTenantForTest('a', () => route.GET(call(null)), stale);
+    expect(pub.status).toBe(503);
+    expect(await pub.json()).toEqual({ status: 'maintenance' });
+    const detail = await (await detailOf('a', stale)).json();
+    expect(detail).toMatchObject({ serving: false, status: 'degraded' });
+  });
+});
+
 describe('detalle (con el secreto de cron del cliente)', () => {
   it('forma EXACTA: status, version, platform, tenantId, db, schema y onboarding', async () => {
     await fill('a');
@@ -93,12 +105,13 @@ describe('detalle (con el secreto de cron del cliente)', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('no-store');
     const body = await res.json();
-    expect(Object.keys(body).sort()).toEqual(['db', 'onboarding', 'platform', 'schema', 'status', 'tenantId', 'version']);
+    expect(Object.keys(body).sort()).toEqual(['db', 'onboarding', 'platform', 'schema', 'serving', 'status', 'tenantId', 'version']);
     expect(body).toEqual({
       status: 'ok',
       version: 'abcdef1',
       platform: true,
       tenantId: TEST_TENANT_IDS.a,
+      serving: true,
       db: { ok: true, latencyMs: expect.any(Number) },
       schema: { applied: latestMigrationOnDisk(), expected: latestMigrationOnDisk(), minRequired: FRONT_MIN_SCHEMA, upToDate: true },
       onboarding: { complete: true, missing: [] },

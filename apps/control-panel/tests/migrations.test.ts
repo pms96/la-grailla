@@ -2,8 +2,13 @@ import fs from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '@/lib/db';
-import { runMigrationsForAll, runMigrationsForSubscription, listLocalMigrations, frontPrismaDir } from '@/lib/services/migrations';
+import { runMigrationsForAll, runMigrationsForSubscription, listLocalMigrations, frontPrismaDir, hardProblems } from '@/lib/services/migrations';
 import { createTenant } from '@/lib/services/tenants';
+import { childEnv } from '@/lib/migrations/executor';
+import { setRegistryStoreForTests } from '@/lib/registry/store';
+import type { RegistryStore } from '@/lib/registry/store';
+import { verifyDomainManually } from '@/lib/services/domains';
+import { publishSubscription } from '@/lib/services/snapshot';
 import { ForbiddenError } from '@/lib/permissions';
 import { freshStore, makeOperator, resetControlDb, tenantInput } from './helpers';
 import { createScratchDb, dropScratchDb, makeFixturePrismaDir, queryScratch } from './scratch-db';
@@ -201,6 +206,100 @@ describe('runner de migraciones — un cliente', () => {
     const after = (await prisma.subscription.findUnique({ where: { id: subscription.id } }))!;
     expect(after.snapshotSeq).toBeGreaterThan(seqBefore);
     expect(after.schemaVersion).toBe(M2);
+  });
+});
+
+describe('runner de migraciones — arreglos de la revisión', () => {
+  it('BD ya al día y registro sin versión: el runner SINCRONIZA el registro (si no, el cliente queda en mantenimiento)', async () => {
+    const dir = makeFixturePrismaDir(GOOD);
+    const store = freshStore();
+    const { actor, subscription } = await tenantOn(DBS[0]);
+    await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, republish: false });
+    const domain = await prisma.domain.findFirstOrThrow({ where: { subscriptionId: subscription.id } });
+    await verifyDomainManually(domain.id, actor);
+    await prisma.subscription.update({ where: { id: subscription.id }, data: { schemaVersion: null } });
+    await publishSubscription(subscription.id, actor, store);
+    const seq = (await prisma.subscription.findUniqueOrThrow({ where: { id: subscription.id } })).snapshotSeq;
+
+    const res = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir });
+    expect(res).toMatchObject({ status: 'SUCCEEDED', pending: [], republishFailed: false });
+    const after = await prisma.subscription.findUniqueOrThrow({ where: { id: subscription.id } });
+    expect(after.schemaVersion).toBe(M2);
+    expect(after.snapshotSeq).toBeGreaterThan(seq); // republicado con la versión nueva
+
+    // Ya sincronizado: otra pasada no vuelve a publicar.
+    await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir });
+    expect((await prisma.subscription.findUniqueOrThrow({ where: { id: subscription.id } })).snapshotSeq).toBe(after.snapshotSeq);
+  });
+
+  it('un dry-run NO sincroniza el registro', async () => {
+    const dir = makeFixturePrismaDir(GOOD);
+    const { actor, subscription } = await tenantOn(DBS[0]);
+    await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, republish: false });
+    await prisma.subscription.update({ where: { id: subscription.id }, data: { schemaVersion: null } });
+    await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, dryRun: true });
+    expect((await prisma.subscription.findUniqueOrThrow({ where: { id: subscription.id } })).schemaVersion).toBeNull();
+  });
+
+  it('si no se puede republicar, el resultado lo marca (el script sale con error)', async () => {
+    const dir = makeFixturePrismaDir(GOOD);
+    const { actor, subscription } = await tenantOn(DBS[0]);
+    const domain = await prisma.domain.findFirstOrThrow({ where: { subscriptionId: subscription.id } });
+    await verifyDomainManually(domain.id, actor);
+    await publishSubscription(subscription.id, actor, freshStore());
+    const failing: RegistryStore = { put: async () => { throw new Error('registro caído'); }, get: async () => null, del: async () => {} } as unknown as RegistryStore;
+    setRegistryStoreForTests(failing);
+    const res = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir });
+    expect(res.status).toBe('SUCCEEDED');
+    expect(res.republishFailed).toBe(true);
+    expect(res.warnings.join()).toMatch(/no se pudo republicar/);
+  });
+
+  it('el marcador `-- allow-destructive:` NO basta para aplicar una destructiva a todos los clientes: hace falta la bandera', async () => {
+    const dir = makeFixturePrismaDir({ ...GOOD, '20270101000200_borra': '-- allow-destructive: revisada en el PR\nALTER TABLE "demo" DROP COLUMN "nota";' });
+    const { actor, subscription } = await tenantOn(DBS[0]);
+    const blocked = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, republish: false });
+    expect(blocked.status).toBe('FAILED');
+    expect(blocked.error).toMatch(/drop-column/);
+    expect((await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, allowDestructive: true, republish: false })).status).toBe('SUCCEEDED');
+  });
+
+  it('transacciones explícitas y CONCURRENTLY nunca se aplican, ni con allowDestructive', async () => {
+    expect(hardProblems('BEGIN;\nCREATE TABLE a (id int);\nCOMMIT;')[0]).toMatch(/explicit-tx/);
+    expect(hardProblems('CREATE INDEX CONCURRENTLY i ON a (id);')[0]).toMatch(/concurrently/);
+    expect(hardProblems('-- BEGIN en un comentario\nCREATE TABLE a (id int);')).toEqual([]);
+    expect(hardProblems('CREATE TABLE "begin_log" (id int);')).toEqual([]);
+
+    const dir = makeFixturePrismaDir({ '20270101000000_tx': 'BEGIN;\nCREATE TABLE "demo" ("id" INTEGER);\nCOMMIT;' });
+    const { actor, subscription } = await tenantOn(DBS[0]);
+    const res = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, allowDestructive: true, republish: false });
+    expect(res.status).toBe('FAILED');
+    expect(res.error).toMatch(/explicit-tx/);
+    expect(await queryScratch(DBS[0], `SELECT 1 FROM information_schema.tables WHERE table_name = 'demo'`)).toHaveLength(0);
+  });
+
+  it('un lock_timeout residual de un runner que murió NO se vuelve permanente', async () => {
+    const dir = makeFixturePrismaDir(GOOD);
+    const { actor, subscription } = await tenantOn(DBS[0]);
+    // Como si un runner anterior hubiera muerto entre el ALTER y el RESET:
+    await queryScratch(DBS[0], `ALTER DATABASE "${DBS[0]}" SET lock_timeout = '3000ms'`);
+    const res = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, republish: false, lockTimeoutMs: 3000 });
+    expect(res.status).toBe('SUCCEEDED');
+    expect(await queryScratch(DBS[0], `SELECT 1 FROM pg_db_role_setting WHERE setdatabase = (SELECT oid FROM pg_database WHERE datname = current_database()) AND setconfig::text LIKE '%lock_timeout%'`)).toHaveLength(0);
+  });
+
+  it('un lock_timeout propio de la BD (distinto del nuestro) se restaura al terminar', async () => {
+    const dir = makeFixturePrismaDir(GOOD);
+    const { actor, subscription } = await tenantOn(DBS[1]);
+    await queryScratch(DBS[1], `ALTER DATABASE "${DBS[1]}" SET lock_timeout = '9000ms'`);
+    await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, republish: false });
+    const rows = await queryScratch<{ setconfig: string[] }>(DBS[1], `SELECT setconfig FROM pg_db_role_setting WHERE setdatabase = (SELECT oid FROM pg_database WHERE datname = current_database())`);
+    expect(rows[0].setconfig).toContain('lock_timeout=9000ms');
+  });
+
+  it('el proceso de prisma NO hereda las claves del panel (solo una lista blanca)', () => {
+    const env = childEnv('postgresql://u:p@h/db', { PATH: '/bin', HOME: '/h', SECRETS_KEYS: '{"m":"x"}', CONTROL_DATABASE_URL: 'postgresql://control', PANEL_CRON_SECRET: 's', PLATFORM_CRON_MASTER: 'm', SNAPSHOT_SIGNING_KEY: 'k', PRISMA_ENGINES_MIRROR: 'https://mirror', HTTPS_PROXY: 'http://p' } as unknown as NodeJS.ProcessEnv);
+    expect(Object.keys(env).sort()).toEqual(['CHECKPOINT_DISABLE', 'DATABASE_URL', 'DIRECT_URL', 'HOME', 'HTTPS_PROXY', 'PATH', 'PRISMA_ENGINES_MIRROR', 'PRISMA_HIDE_UPDATE_MESSAGE']);
   });
 });
 

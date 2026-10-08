@@ -6,6 +6,7 @@ import { ForbiddenError } from '@/lib/permissions';
 import { listLocalMigrations, frontPrismaDir } from '@/lib/services/migrations';
 import { goLiveTenant, localDatabaseName, provisionTenant, type ProvisionInput } from '@/lib/services/provision';
 import { generateMasterKey } from '@grailla/contracts';
+import { setRegistryStoreForTests } from '@/lib/registry/store';
 import { freshStore, makeOperator, resetControlDb, signerPublicKey, uniq } from './helpers';
 import { dropScratchDb, queryScratch, scratchDbExists } from './scratch-db';
 
@@ -188,5 +189,53 @@ describe('alta de cliente de punta a punta', () => {
     expect(res.steps.at(-1)).toMatchObject({ step: 'health', status: 'done' });
     expect(calls[0]).toMatch(/\/api\/health Bearer /);
     expect((await prisma.tenantHealth.findUniqueOrThrow({ where: { subscriptionId: res.subscriptionId! } })).ok).toBe(true);
+  }, 120_000);
+
+  it('la contraseña inicial se entrega EN CUANTO se crea, aunque un paso posterior falle (registro caído)', async () => {
+    freshStore();
+    setRegistryStoreForTests({ put: async () => { throw new Error('registro caído postgresql://u:p@x/y'); }, get: async () => null, del: async () => {} } as never);
+    const { actor } = await makeOperator('SUPERADMIN');
+    const inp = input();
+    const given: string[] = [];
+    const res = await provisionTenant(inp, actor, { onCredentials: (p) => void given.push(p) });
+    expect(given).toHaveLength(1);
+    expect(given[0]).toBe(res.adminPassword);
+    expect(res.ok).toBe(false);
+    expect(res.steps.at(-1)).toMatchObject({ step: 'finish', status: 'failed' });
+    // Ninguna cadena de conexión llega al informe, ni siquiera dentro de un mensaje de error de otro componente.
+    expect(JSON.stringify(res.steps)).not.toContain('u:p@x');
+    expect(JSON.stringify(res.steps)).toContain('[oculto]');
+
+    // Repetir (con el registro ya sano) termina, y NO vuelve a crear ni a mostrar otra contraseña.
+    freshStore();
+    const again = await provisionTenant(inp, actor, { onCredentials: (p) => void given.push(p) });
+    expect(again).toMatchObject({ ok: true, published: true });
+    expect(given).toHaveLength(1);
+  }, 120_000);
+
+  it('repetir el alta con OTRA URL de BD falla en voz alta en vez de migrar y sembrar la antigua', async () => {
+    freshStore();
+    const { actor } = await makeOperator('SUPERADMIN');
+    const inp = input();
+    await provisionTenant(inp, actor);
+    const other = { ...inp, database: { mode: 'existing' as const, pooledUrl: 'postgresql://x:y@localhost:5432/otra', directUrl: 'postgresql://x:y@localhost:5432/otra' } };
+    await expect(provisionTenant(other, actor)).rejects.toThrow(/otra URL de BD/);
+    expect(await prisma.tenant.count()).toBe(1);
+  }, 120_000);
+
+  it('una BD ya migrada dada de alta sin versión de esquema queda con la versión correcta (no en mantenimiento)', async () => {
+    freshStore();
+    const { actor } = await makeOperator('SUPERADMIN');
+    const first = input();
+    await provisionTenant(first, actor, {}); // deja la BD local creada y migrada
+    // Mismo servidor, BD ya migrada, cliente NUEVO con --database-existing y sin schemaVersion:
+    const url = (await import('./scratch-db')).scratchUrl((first.database as { name: string }).name);
+    const second = input({ database: { mode: 'existing', pooledUrl: url, directUrl: url } });
+    const res = await provisionTenant(second, actor);
+    expect(res.steps.find((s) => s.step === 'migrate')).toMatchObject({ status: 'skipped' });
+    const sub = await prisma.subscription.findUniqueOrThrow({ where: { id: res.subscriptionId! } });
+    const local = listLocalMigrations(frontPrismaDir());
+    expect(sub.schemaVersion).toBe(local[local.length - 1]);
+    expect(res.published).toBe(true);
   }, 120_000);
 });

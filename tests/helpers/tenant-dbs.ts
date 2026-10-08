@@ -147,6 +147,8 @@ export function testTenantContext(slot: TenantSlot, over: Partial<TenantContext>
     epoch: 0,
     status: 'ACTIVE',
     modules: ['nucleo'],
+    // Un cliente de pruebas está «al día»: sin esto la puerta de esquema (schemaVersion desconocido = no se sirve) lo cortaría.
+    schemaVersion: '99991231235959_pruebas',
     db: { pooledEnc: 'enc:v2:tk:AAAA:AAAA:AAAA', directEnc: 'enc:v2:tk:AAAA:AAAA:AAAA' },
     testDbUrl: testDatabaseUrl(slot),
     ...over,

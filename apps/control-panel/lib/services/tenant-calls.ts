@@ -22,6 +22,8 @@ export function cronMaster(): Uint8Array {
 export function tenantUrl(host: string, pathAndQuery: string): string {
   const template = process.env.TENANT_URL_TEMPLATE || 'https://{host}';
   if (!template.includes('{host}')) throw new Error('TENANT_URL_TEMPLATE debe contener {host}');
+  // El secreto del cliente viaja en una cabecera: en producción, jamás en claro.
+  if (process.env.NODE_ENV === 'production' && !template.startsWith('https://')) throw new Error('En producción TENANT_URL_TEMPLATE debe ser https://');
   return `${template.replace('{host}', host)}${pathAndQuery}`;
 }
 

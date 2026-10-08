@@ -31,6 +31,17 @@ export const MIGRATION_MAX_ATTEMPTS = 3;
 /** Una ejecución «en curso» más vieja que esto se da por abandonada (el proceso murió). */
 export const RUN_STALE_MS = 30 * 60_000;
 
+const ALLOW_MARKER_LINE = /^[ \t]*--[ \t]*allow-destructive:.*$/gim;
+
+/** Sentencias que el runner nunca aplica (ni con `allowDestructive`). */
+export function hardProblems(rawSql: string): string[] {
+  const sql = rawSql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const out: string[] = [];
+  if (/^\s*(BEGIN|COMMIT|ROLLBACK|END|START\s+TRANSACTION|SAVEPOINT|RELEASE)\b/im.test(sql)) out.push('[explicit-tx] control de transacción dentro de la migración: no se puede garantizar que un aborto la deshaga entera');
+  if (/\bCONCURRENTLY\b/i.test(sql)) out.push('[concurrently] CREATE/DROP INDEX CONCURRENTLY no puede ir en una migración (se hace como paso aparte)');
+  return out;
+}
+
 export function frontPrismaDir(): string {
   return path.resolve(process.env.FRONT_PRISMA_DIR || path.join(process.cwd(), '..', '..', 'prisma'));
 }
@@ -69,12 +80,14 @@ export type MigrationRunResult = {
   attempts: number;
   error: string | null;
   warnings: string[];
+  /** La migración terminó pero el registro no se pudo republicar: el cliente puede quedar en mantenimiento hasta publicar. */
+  republishFailed: boolean;
 };
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const last = (names: string[]) => [...names].sort().pop() ?? null;
 
-function toResult(run: MigrationRun, warnings: string[] = []): MigrationRunResult {
+function toResult(run: MigrationRun, warnings: string[] = [], republishFailed = false): MigrationRunResult {
   return {
     runId: run.id,
     subscriptionId: run.subscriptionId,
@@ -87,6 +100,7 @@ function toResult(run: MigrationRun, warnings: string[] = []): MigrationRunResul
     attempts: run.attempts,
     error: run.error,
     warnings,
+    republishFailed,
   };
 }
 
@@ -129,6 +143,19 @@ export async function runMigrationsForSubscription(subscriptionId: string, actor
   const run = await reserveRun(subscriptionId, sub.tenantId, dryRun, actor);
   const warnings: string[] = [];
 
+  /** Guarda la versión de esquema de la BD en el registro y, si ya estaba publicado, lo republica. Devuelve true si la republicación falló. */
+  const syncRegistry = async (version: string | null): Promise<boolean> => {
+    await prisma.subscription.update({ where: { id: subscriptionId }, data: { schemaVersion: version } });
+    if (opts.republish === false || !sub.lastPublishedAt) return false;
+    try {
+      await publishSubscription(subscriptionId, actor);
+      return false;
+    } catch (err) {
+      warnings.push(`Migrado, pero no se pudo republicar el registro: ${err instanceof Error ? redactUrls(err.message) : String(err)}`);
+      return true;
+    }
+  };
+
   const fail = async (error: string, extra: Parameters<typeof finish>[1] = {}) => {
     const done = await finish(run.id, { status: 'FAILED', error: redactUrls(error).slice(0, 1500), ...extra });
     await audit(done);
@@ -161,21 +188,32 @@ export async function runMigrationsForSubscription(subscriptionId: string, actor
       return await fail(`Hay migraciones fallidas sin resolver (${before.failed.join(', ')}): una persona debe revisarlas y marcarlas con \`prisma migrate resolve\` antes de seguir`, { fromVersion, pending });
     }
 
+    // Reglas que NO se saltan ni con `allowDestructive` ni con el marcador del linter: una transacción explícita rompería la garantía de
+    // «la migración abortada se deshizo entera» (y con ella el reintento automático), y CONCURRENTLY no puede ir en una transacción.
+    const migrationsDir = path.join(prismaDir, 'migrations');
+    const sqlOf = (name: string) => {
+      const file = path.join(migrationsDir, name, 'migration.sql');
+      return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+    };
+    const hard = pending.flatMap((name) => hardProblems(sqlOf(name)).map((p) => `${name}: ${p}`));
+    if (hard.length) return await fail(`Migraciones pendientes que el runner no aplica (no se aplica nada):\n${hard.join('\n')}`, { fromVersion, pending });
+
     if (!opts.allowDestructive) {
-      const dir = path.join(prismaDir, 'migrations');
+      // El marcador `-- allow-destructive:` vale para pasar la CI de una migración revisada, pero aplicarla a TODOS los clientes exige
+      // además la bandera explícita de quien ejecuta el runner: por eso se ignora aquí.
       const problems = pending
         .filter((name) => name > BASELINE_MIGRATION)
-        .flatMap((name) => {
-          const file = path.join(dir, name, 'migration.sql');
-          return fs.existsSync(file) ? lintMigrationSql(fs.readFileSync(file, 'utf8')).map((f) => `${name}: [${f.rule}] ${f.message}`) : [];
-        });
+        .flatMap((name) => lintMigrationSql(sqlOf(name).replace(ALLOW_MARKER_LINE, '')).map((f) => `${name}: [${f.rule}] ${f.message}`));
       if (problems.length) return await fail(`El linter rechaza migraciones pendientes (no se aplica nada):\n${problems.join('\n')}`, { fromVersion, pending });
     }
 
     if (dryRun || pending.length === 0) {
       const done = await finish(run.id, { status: 'SUCCEEDED', fromVersion, toVersion: fromVersion, pending, attempts: 0 });
       await audit(done);
-      return toResult(done, warnings);
+      // La BD puede estar al día y el registro no (alta sobre una BD ya migrada, o un runner que murió tras aplicar): se sincroniza.
+      // Sin esto el front seguiría mostrando mantenimiento a un cliente cuya BD está perfecta y «ejecuta el runner» no arreglaría nada.
+      const syncFailed = !dryRun && fromVersion !== null && sub.schemaVersion !== fromVersion ? await syncRegistry(fromVersion) : false;
+      return toResult(done, warnings, syncFailed);
     }
 
     // Aplicar con lock_timeout y reintentos solo si lo que falló fue el bloqueo (la migración se deshizo entera).
@@ -209,17 +247,8 @@ export async function runMigrationsForSubscription(subscriptionId: string, actor
     if (missing.length) return await fail(`Tras migrar siguen sin aplicarse: ${missing.join(', ')}`, { fromVersion, pending, attempts });
     const toVersion = last(after.applied);
     const done = await finish(run.id, { status: 'SUCCEEDED', fromVersion, toVersion, pending, attempts });
-    await prisma.subscription.update({ where: { id: subscriptionId }, data: { schemaVersion: toVersion } });
     await audit(done);
-
-    if (opts.republish !== false && sub.lastPublishedAt) {
-      try {
-        await publishSubscription(subscriptionId, actor);
-      } catch (err) {
-        warnings.push(`Migrado, pero no se pudo republicar el registro: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-    return toResult(done, warnings);
+    return toResult(done, warnings, await syncRegistry(toVersion));
   } catch (err) {
     return await fail(err instanceof Error ? err.message : String(err));
   }
