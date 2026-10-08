@@ -24,6 +24,7 @@ import { FadeIn, Stagger, StaggerItem } from '@/components/ui/animate';
 import { EventTicket, TICKET_BARCODE_BG } from '@/components/event-ticket';
 import { Logo } from '@/components/logo';
 import QRCode from 'qrcode';
+import { useBrand } from '@/components/brand-provider';
 
 type OrderWithTickets = Prisma.OrderGetPayload<{
   include: { event: true; tickets: { include: { ticketType: true } } };
@@ -41,6 +42,7 @@ export default function ConfirmationClient({
   orderId: string;
   accessToken?: string;
 }) {
+  const { contactEmail } = useBrand();
   const [order, setOrder] = useState<OrderState>(null);
   const [loading, setLoading] = useState(true);
   const [fetchFailed, setFetchFailed] = useState(false);
@@ -152,10 +154,15 @@ export default function ConfirmationClient({
                 : (
                   <>
                     Puede que el enlace haya caducado o que el pago no se haya completado. Si ya pagaste, revisa el email
-                    del QR o escribe a{' '}
-                    <a href="mailto:grupolagrailla@gmail.com" className="text-primary underline-offset-2 hover:underline">
-                      grupolagrailla@gmail.com
-                    </a>
+                    del QR
+                    {contactEmail && (
+                      <>
+                        {' '}o escribe a{' '}
+                        <a href={`mailto:${contactEmail}`} className="text-primary underline-offset-2 hover:underline">
+                          {contactEmail}
+                        </a>
+                      </>
+                    )}
                     .
                   </>
                 )}
@@ -208,11 +215,13 @@ export default function ConfirmationClient({
                   <Ticket className="h-4 w-4" /> Ver eventos
                 </Link>
               </Button>
-              <Button variant="ghost" asChild className="gap-2">
-                <a href="mailto:grupolagrailla@gmail.com">
-                  <Mail className="h-4 w-4" /> Contactar
-                </a>
-              </Button>
+              {contactEmail && (
+                <Button variant="ghost" asChild className="gap-2">
+                  <a href={`mailto:${contactEmail}`}>
+                    <Mail className="h-4 w-4" /> Contactar
+                  </a>
+                </Button>
+              )}
             </div>
           )}
         </div>

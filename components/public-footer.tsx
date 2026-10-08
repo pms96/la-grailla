@@ -1,11 +1,15 @@
 import Link from 'next/link';
 import { Logo } from '@/components/logo';
 import { getConfigs } from '@/lib/config';
+import { getBrand } from '@/lib/brand/brand';
 import { isLinkVisible } from '@/lib/modules/registry';
 import { getActiveModules } from '@/lib/modules/runtime';
 
-export default async function PublicFooter() {
-  const copy = await getConfigs(['footer_tagline', 'footer_copyright']);
+export default async function PublicFooter({ contact = false }: { contact?: boolean } = {}) {
+  const [copy, brand] = await Promise.all([getConfigs(['footer_tagline', 'footer_copyright']), getBrand()]);
+  // Los textos del pie son editables en Configuración → Contenido; sin ellos, el eslogan de la marca y un © con la razón social.
+  const tagline = copy.footer_tagline || brand.tagline;
+  const copyright = copy.footer_copyright || `© ${new Date().getFullYear()} ${brand.legalName}`;
   const modules = getActiveModules();
   const show = (href: string) => isLinkVisible(href, modules);
 
@@ -15,9 +19,9 @@ export default async function PublicFooter() {
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           {/* Brand */}
           <div className="flex flex-col items-center md:items-start gap-2">
-            <Logo variant="white" className="h-6" />
+            <Logo className="h-6" />
             <p className="text-sm text-muted-foreground text-center md:text-left">
-              {copy.footer_tagline}
+              {tagline}
             </p>
           </div>
 
@@ -27,6 +31,7 @@ export default async function PublicFooter() {
               {show('/eventos') && <Link href="/eventos" className="text-muted-foreground hover:text-primary transition-colors">Eventos</Link>}
               {show('/tienda') && <Link href="/tienda" className="text-muted-foreground hover:text-primary transition-colors">Tienda</Link>}
               {show('/sponsors') && <Link href="/sponsors" className="text-muted-foreground hover:text-primary transition-colors">Patrocinio</Link>}
+              {contact && <Link href="/#contacto" className="text-muted-foreground hover:text-primary transition-colors">Contacto</Link>}
             </div>
             <div className="flex gap-4 text-xs text-muted-foreground/80">
               <Link href="/legal/aviso-legal" className="hover:text-primary transition-colors">Aviso legal</Link>
@@ -37,7 +42,7 @@ export default async function PublicFooter() {
 
           {/* Copy */}
           <p className="text-xs text-muted-foreground">
-            <span suppressHydrationWarning>{copy.footer_copyright}</span>
+            <span suppressHydrationWarning>{copyright}</span>
           </p>
         </div>
       </div>

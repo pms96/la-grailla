@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { User, UserRole } from '@prisma/client';
+import { useBrand } from '@/components/brand-provider';
 import { useSession } from 'next-auth/react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,6 +24,9 @@ type UserFormState = {
 
 export default function UsuariosPage() {
   const { data: session } = useSession() || {};
+  // El rol de taquilla pertenece al módulo Entradas: sin él, un solo rol (administrador).
+  const { modules } = useBrand();
+  const hasTaquilla = modules.includes('entradas');
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -46,7 +50,7 @@ export default function UsuariosPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: '', email: '', password: '', role: 'TAQUILLA' });
+    setForm({ name: '', email: '', password: '', role: hasTaquilla ? 'TAQUILLA' : 'ADMIN' });
     setDialogOpen(true);
   };
 
@@ -135,7 +139,7 @@ export default function UsuariosPage() {
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="ADMIN">Admin</SelectItem>
-                    <SelectItem value="TAQUILLA">Taquilla / RRPP</SelectItem>
+                    {(hasTaquilla || form?.role === 'TAQUILLA') && <SelectItem value="TAQUILLA">Taquilla / RRPP</SelectItem>}
                     <SelectItem value="USER">Usuario</SelectItem>
                   </SelectContent>
                 </Select>

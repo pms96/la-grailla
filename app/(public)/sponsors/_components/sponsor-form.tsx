@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CheckCircle, Loader2, Send } from 'lucide-react';
 import { toast } from 'sonner';
+import { useBrand } from '@/components/brand-provider';
 
 type FormState = {
   companyName: string;
@@ -36,6 +37,7 @@ function validateField(key: keyof FormState, value: string): string | undefined 
 }
 
 export default function SponsorForm() {
+  const { name: brandName } = useBrand();
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState<FormState>({
@@ -200,7 +202,7 @@ export default function SponsorForm() {
           <Label htmlFor="sponsor-consent" className="text-xs font-normal text-muted-foreground leading-snug cursor-pointer">
             He leído y acepto la{' '}
             <Link href="/legal/privacidad" target="_blank" className="underline">política de privacidad</Link>
-            {' '}de La Grailla para el tratamiento de estos datos. *
+            {' '}de {brandName} para el tratamiento de estos datos. *
           </Label>
         </div>
         {consentTouched && !consentAccepted && (

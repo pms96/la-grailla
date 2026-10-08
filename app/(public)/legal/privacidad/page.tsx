@@ -2,14 +2,16 @@
 export const dynamic = 'force-dynamic';
 
 import { getConfig } from '@/lib/config';
+import { getBrand } from '@/lib/brand/brand';
 import { Container } from '@/components/layouts/container';
 
 export const metadata = {
-  title: 'Política de privacidad | La Grailla',
+  title: 'Política de privacidad',
 };
 
 export default async function PrivacidadPage() {
-  const text = await getConfig('privacy_policy');
+  const [text, brand] = await Promise.all([getConfig('privacy_policy'), getBrand()]);
+  const mailto = brand.contactEmail;
 
   return (
     <Container className="py-16">
@@ -20,14 +22,16 @@ export default async function PrivacidadPage() {
         ) : (
           <div className="space-y-4 text-muted-foreground leading-relaxed">
             <p>
-              En La Grailla tratamos tus datos personales (nombre, email, datos de compra) únicamente para gestionar tus
+              En {brand.name} tratamos tus datos personales (nombre, email, datos de compra) únicamente para gestionar tus
               entradas, pedidos y comunicaciones relacionadas con el evento. No vendemos ni compartimos tus datos con
               terceros con fines comerciales.
             </p>
-            <p>
-              Si tienes cualquier duda sobre el tratamiento de tus datos, escríbenos a{' '}
-              <span suppressHydrationWarning>grupolagrailla@gmail.com</span>.
-            </p>
+            {mailto && (
+              <p>
+                Si tienes cualquier duda sobre el tratamiento de tus datos, escríbenos a{' '}
+                <span suppressHydrationWarning>{mailto}</span>.
+              </p>
+            )}
           </div>
         )}
       </div>

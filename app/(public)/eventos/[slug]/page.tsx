@@ -20,9 +20,9 @@ export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: { params: { slug: string } }) {
   const event = await prisma.event.findUnique({ where: { slug: params?.slug } });
-  if (!event) return { title: 'Evento | La Grailla' };
+  if (!event) return { title: 'Evento' };
   return {
-    title: `${event.name} | La Grailla`,
+    title: event.name,
     description: `${event.name} en ${event.venue}, ${event.city}. Compra tus entradas online.`,
     openGraph: event.imageUrl ? { images: [{ url: event.imageUrl }] } : undefined,
   };

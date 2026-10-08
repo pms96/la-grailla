@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Mail, Copy, Loader2, MessageCircle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { buildWhatsAppLink } from '@/lib/phone';
+import { useBrand } from '@/components/brand-provider';
 
 type Props = {
   portalUrl: string;
@@ -35,6 +36,7 @@ export function SponsorInviteDelivery({
   resending,
   regenerating,
 }: Props) {
+  const { name: brandName } = useBrand();
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(portalUrl);
@@ -46,7 +48,7 @@ export function SponsorInviteDelivery({
 
   const whatsappUrl = buildWhatsAppLink(
     phone,
-    `Hola ${contactName}, aquí tienes el acceso a tu portal de sponsor de La Grailla: ${portalUrl}`
+    `Hola ${contactName}, aquí tienes el acceso a tu portal de sponsor de ${brandName}: ${portalUrl}`
   );
 
   return (

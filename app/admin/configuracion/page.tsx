@@ -12,8 +12,15 @@ import { PageHeader } from '@/components/layouts/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ConfigField } from '@/app/admin/_components/config-field';
 import { SponsorTiersConfig } from '@/app/admin/_components/sponsor-tiers-config';
+import { useBrand } from '@/components/brand-provider';
+import { ownerEnabled } from '@/lib/modules/registry';
 
 export default function ConfiguracionPage() {
+  const { contactFormEnabled, modules } = useBrand();
+  // Cada módulo trae sus pestañas: Pagos (Tienda o Entradas), Wallets, Impresora y Seguridad (Entradas), Sponsors y Vídeo IA (Sponsors).
+  // El resto (contenido, redes, email, legal, general) es del núcleo. La API de configuración no distingue: esto solo adapta la pantalla.
+  const has = (m: Parameters<typeof ownerEnabled>[0]) => ownerEnabled(m, modules);
+  const showPayment = has('tienda') || has('entradas');
   const [configs, setConfigs] = useState<AppConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -100,72 +107,76 @@ export default function ConfiguracionPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue="payment">
+      <Tabs defaultValue={showPayment ? 'payment' : 'content'}>
         <TabsList className="flex-wrap h-auto">
-          <TabsTrigger value="payment" className="gap-2"><CreditCard className="h-3.5 w-3.5" /> Pagos</TabsTrigger>
+          {showPayment && <TabsTrigger value="payment" className="gap-2"><CreditCard className="h-3.5 w-3.5" /> Pagos</TabsTrigger>}
           <TabsTrigger value="content" className="gap-2"><Sparkles className="h-3.5 w-3.5" /> Contenido</TabsTrigger>
           <TabsTrigger value="social" className="gap-2"><Globe className="h-3.5 w-3.5" /> Redes sociales</TabsTrigger>
           <TabsTrigger value="smtp" className="gap-2"><Send className="h-3.5 w-3.5" /> Email</TabsTrigger>
-          <TabsTrigger value="wallet" className="gap-2"><Wallet className="h-3.5 w-3.5" /> Wallets</TabsTrigger>
-          <TabsTrigger value="printer" className="gap-2"><Printer className="h-3.5 w-3.5" /> Impresora</TabsTrigger>
-          <TabsTrigger value="sponsors" className="gap-2"><Handshake className="h-3.5 w-3.5" /> Sponsors</TabsTrigger>
-          <TabsTrigger value="abacus" className="gap-2"><Clapperboard className="h-3.5 w-3.5" /> Vídeo IA</TabsTrigger>
-          <TabsTrigger value="security" className="gap-2"><ShieldAlert className="h-3.5 w-3.5" /> Seguridad</TabsTrigger>
+          {has('wallets') && <TabsTrigger value="wallet" className="gap-2"><Wallet className="h-3.5 w-3.5" /> Wallets</TabsTrigger>}
+          {has('entradas') && <TabsTrigger value="printer" className="gap-2"><Printer className="h-3.5 w-3.5" /> Impresora</TabsTrigger>}
+          {has('sponsors') && <TabsTrigger value="sponsors" className="gap-2"><Handshake className="h-3.5 w-3.5" /> Sponsors</TabsTrigger>}
+          {has('sponsors') && <TabsTrigger value="abacus" className="gap-2"><Clapperboard className="h-3.5 w-3.5" /> Vídeo IA</TabsTrigger>}
+          {has('entradas') && <TabsTrigger value="security" className="gap-2"><ShieldAlert className="h-3.5 w-3.5" /> Seguridad</TabsTrigger>}
           <TabsTrigger value="legal" className="gap-2"><FileText className="h-3.5 w-3.5" /> Legal</TabsTrigger>
           <TabsTrigger value="general" className="gap-2"><Mail className="h-3.5 w-3.5" /> General</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="payment">
-          <Card><CardContent className="p-6 space-y-4">
-            <div>
-              <Label>Pasarela de pago activa</Label>
-              <Select value={values?.payment_gateway ?? 'mock'} onValueChange={(v: string) => updateValue('payment_gateway', v)}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="mock">Desactivada (modo prueba)</SelectItem>
-                  <SelectItem value="stripe">Stripe</SelectItem>
-                  <SelectItem value="sumup">SumUp</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+        {showPayment && (
+  
+            <TabsContent value="payment">
+            <Card><CardContent className="p-6 space-y-4">
+              <div>
+                <Label>Pasarela de pago activa</Label>
+                <Select value={values?.payment_gateway ?? 'mock'} onValueChange={(v: string) => updateValue('payment_gateway', v)}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mock">Desactivada (modo prueba)</SelectItem>
+                    <SelectItem value="stripe">Stripe</SelectItem>
+                    <SelectItem value="sumup">SumUp</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+  
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <h4 className="font-semibold text-sm">Stripe</h4>
+                <ConfigField label="Publishable Key" value={values?.stripe_publishable_key ?? ''} onChange={(v) => updateValue('stripe_publishable_key', v)} placeholder="pk_..." />
+                <ConfigField label="Secret Key" type="password" value={values?.stripe_secret_key ?? ''} onChange={(v) => updateValue('stripe_secret_key', v)} placeholder="sk_..." />
+                <ConfigField
+                  label="Webhook Secret"
+                  type="password"
+                  value={values?.stripe_webhook_secret ?? ''}
+                  onChange={(v) => updateValue('stripe_webhook_secret', v)}
+                  placeholder="whsec_..."
+                  description="En Stripe Dashboard → Developers → Webhooks, crea un endpoint apuntando a /api/webhooks/stripe escuchando checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed y checkout.session.expired. Copia aquí el 'Signing secret' que te da Stripe al crearlo."
+                />
+                <Button type="button" variant="outline" size="sm" className="gap-2" disabled={testingGateway === 'stripe'} onClick={() => testGateway('stripe')}>
+                  {testingGateway === 'stripe' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                  Probar conexión con Stripe
+                </Button>
+              </div>
+  
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <h4 className="font-semibold text-sm">SumUp</h4>
+                <ConfigField label="API Key" type="password" value={values?.sumup_api_key ?? ''} onChange={(v) => updateValue('sumup_api_key', v)} />
+                <ConfigField
+                  label="Merchant Code"
+                  value={values?.sumup_merchant_code ?? ''}
+                  onChange={(v) => updateValue('sumup_merchant_code', v)}
+                  placeholder="MC..."
+                  description="Lo encuentras en tu cuenta de SumUp, en Ajustes → Datos de la cuenta. Es obligatorio para crear cobros, la API key sola no basta."
+                />
+                <Button type="button" variant="outline" size="sm" className="gap-2" disabled={testingGateway === 'sumup'} onClick={() => testGateway('sumup')}>
+                  {testingGateway === 'sumup' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                  Probar conexión con SumUp
+                </Button>
+              </div>
+  
+              <ConfigField label="Comisión por entrada (%)" type="number" value={values?.commission_percentage ?? '0'} onChange={(v) => updateValue('commission_percentage', v)} />
+            </CardContent></Card>
+          </TabsContent>
 
-            <div className="rounded-lg border border-border p-4 space-y-4">
-              <h4 className="font-semibold text-sm">Stripe</h4>
-              <ConfigField label="Publishable Key" value={values?.stripe_publishable_key ?? ''} onChange={(v) => updateValue('stripe_publishable_key', v)} placeholder="pk_..." />
-              <ConfigField label="Secret Key" type="password" value={values?.stripe_secret_key ?? ''} onChange={(v) => updateValue('stripe_secret_key', v)} placeholder="sk_..." />
-              <ConfigField
-                label="Webhook Secret"
-                type="password"
-                value={values?.stripe_webhook_secret ?? ''}
-                onChange={(v) => updateValue('stripe_webhook_secret', v)}
-                placeholder="whsec_..."
-                description="En Stripe Dashboard → Developers → Webhooks, crea un endpoint apuntando a /api/webhooks/stripe escuchando checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed y checkout.session.expired. Copia aquí el 'Signing secret' que te da Stripe al crearlo."
-              />
-              <Button type="button" variant="outline" size="sm" className="gap-2" disabled={testingGateway === 'stripe'} onClick={() => testGateway('stripe')}>
-                {testingGateway === 'stripe' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-                Probar conexión con Stripe
-              </Button>
-            </div>
-
-            <div className="rounded-lg border border-border p-4 space-y-4">
-              <h4 className="font-semibold text-sm">SumUp</h4>
-              <ConfigField label="API Key" type="password" value={values?.sumup_api_key ?? ''} onChange={(v) => updateValue('sumup_api_key', v)} />
-              <ConfigField
-                label="Merchant Code"
-                value={values?.sumup_merchant_code ?? ''}
-                onChange={(v) => updateValue('sumup_merchant_code', v)}
-                placeholder="MC..."
-                description="Lo encuentras en tu cuenta de SumUp, en Ajustes → Datos de la cuenta. Es obligatorio para crear cobros, la API key sola no basta."
-              />
-              <Button type="button" variant="outline" size="sm" className="gap-2" disabled={testingGateway === 'sumup'} onClick={() => testGateway('sumup')}>
-                {testingGateway === 'sumup' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-                Probar conexión con SumUp
-              </Button>
-            </div>
-
-            <ConfigField label="Comisión por entrada (%)" type="number" value={values?.commission_percentage ?? '0'} onChange={(v) => updateValue('commission_percentage', v)} />
-          </CardContent></Card>
-        </TabsContent>
+        )}
 
         <TabsContent value="content">
           <Card><CardContent className="p-6 space-y-4">
@@ -179,8 +190,31 @@ export default function ConfiguracionPage() {
               />
               <ConfigField label="Subtítulo principal" value={values?.home_hero_subtitle_1 ?? ''} onChange={(v) => updateValue('home_hero_subtitle_1', v)} />
               <ConfigField label="Subtítulo secundario" value={values?.home_hero_subtitle_2 ?? ''} onChange={(v) => updateValue('home_hero_subtitle_2', v)} />
+              <ConfigField label="Subtítulo de «más fechas»" value={values?.home_events_more_subtitle ?? ''} onChange={(v) => updateValue('home_events_more_subtitle', v)} description="Bajo el título de la lista de próximos eventos." />
+              <ConfigField label="Título de la tienda" value={values?.home_shop_title ?? ''} onChange={(v) => updateValue('home_shop_title', v)} />
+              <ConfigField label="Subtítulo de la tienda" value={values?.home_shop_subtitle ?? ''} onChange={(v) => updateValue('home_shop_subtitle', v)} />
               <ConfigField label="Título del CTA de sponsors" value={values?.home_sponsors_cta_title ?? ''} onChange={(v) => updateValue('home_sponsors_cta_title', v)} />
               <ConfigField label="Subtítulo del CTA de sponsors" value={values?.home_sponsors_cta_subtitle ?? ''} onChange={(v) => updateValue('home_sponsors_cta_subtitle', v)} />
+            </div>
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <h4 className="font-semibold text-sm">Sobre nosotros</h4>
+              <p className="text-xs text-muted-foreground">Una sección con tu presentación. Si dejas el texto vacío, no se muestra.</p>
+              <ConfigField label="Título" value={values?.home_about_title ?? ''} onChange={(v) => updateValue('home_about_title', v)} placeholder="Por defecto: «Sobre» y tu nombre" />
+              <ConfigField label="Texto" type="textarea" rows={5} value={values?.home_about_text ?? ''} onChange={(v) => updateValue('home_about_text', v)} />
+            </div>
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <h4 className="font-semibold text-sm">Contacto</h4>
+              <div>
+                <Label>Formulario de contacto en la portada</Label>
+                <Select value={values?.contact_form_enabled ?? String(contactFormEnabled)} onValueChange={(v: string) => updateValue('contact_form_enabled', v)}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true">Mostrar</SelectItem>
+                    <SelectItem value="false">Ocultar</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">Los mensajes llegan a «Mensajes» en este panel y se avisa al email de administración.</p>
+              </div>
             </div>
             <div className="rounded-lg border border-border p-4 space-y-4">
               <h4 className="font-semibold text-sm">Footer</h4>
@@ -192,8 +226,8 @@ export default function ConfiguracionPage() {
 
         <TabsContent value="social">
           <Card><CardContent className="p-6 space-y-4">
-            <ConfigField label="Instagram" value={values?.social_instagram ?? ''} onChange={(v) => updateValue('social_instagram', v)} placeholder="https://instagram.com/lagrailla" />
-            <ConfigField label="TikTok" value={values?.social_tiktok ?? ''} onChange={(v) => updateValue('social_tiktok', v)} placeholder="https://tiktok.com/@lagrailla" />
+            <ConfigField label="Instagram" value={values?.social_instagram ?? ''} onChange={(v) => updateValue('social_instagram', v)} placeholder="https://instagram.com/tu-cuenta" />
+            <ConfigField label="TikTok" value={values?.social_tiktok ?? ''} onChange={(v) => updateValue('social_tiktok', v)} placeholder="https://tiktok.com/@tu-cuenta" />
             <ConfigField label="Twitter/X" value={values?.social_twitter ?? ''} onChange={(v) => updateValue('social_twitter', v)} />
             <ConfigField label="Facebook" value={values?.social_facebook ?? ''} onChange={(v) => updateValue('social_facebook', v)} />
           </CardContent></Card>
@@ -228,201 +262,221 @@ export default function ConfiguracionPage() {
                 </Select>
               </div>
               <ConfigField label="Email remitente" value={values?.smtp_from_email ?? ''} onChange={(v) => updateValue('smtp_from_email', v)} placeholder="entradas@tudominio.com" />
-              <ConfigField label="Nombre remitente" value={values?.smtp_from_name ?? ''} onChange={(v) => updateValue('smtp_from_name', v)} placeholder="La Grailla" />
+              <ConfigField label="Nombre remitente" value={values?.smtp_from_name ?? ''} onChange={(v) => updateValue('smtp_from_name', v)} placeholder="Nombre de tu negocio" />
             </div>
           </CardContent></Card>
         </TabsContent>
 
-        <TabsContent value="wallet">
-          <Card><CardContent className="p-6 space-y-6">
-            <p className="text-sm text-muted-foreground">Los botones de Apple Wallet y Google Wallet solo aparecen en las entradas cuando estas credenciales están completas. Requieren una cuenta de desarrollador de Apple y un emisor de Google Wallet.</p>
-            <div className="rounded-lg border border-border p-4 space-y-4">
-              <h4 className="font-semibold text-sm">Google Wallet</h4>
-              <ConfigField label="Issuer ID" value={values?.google_wallet_issuer_id ?? ''} onChange={(v) => updateValue('google_wallet_issuer_id', v)} placeholder="3388000000022..." />
-              <ConfigField label="Service Account JSON" type="textarea" rows={5} value={values?.google_wallet_service_account ?? ''} onChange={(v) => updateValue('google_wallet_service_account', v)} placeholder='{"client_email": "...", "private_key": "..."}' />
-            </div>
-            <div className="rounded-lg border border-border p-4 space-y-4">
-              <h4 className="font-semibold text-sm">Apple Wallet</h4>
-              <div>
-                <Label>Activar Apple Wallet</Label>
-                <Select value={values?.apple_wallet_enabled ?? 'false'} onValueChange={(v: string) => updateValue('apple_wallet_enabled', v)}>
+        {has('wallets') && (
+  
+            <TabsContent value="wallet">
+            <Card><CardContent className="p-6 space-y-6">
+              <p className="text-sm text-muted-foreground">Los botones de Apple Wallet y Google Wallet solo aparecen en las entradas cuando estas credenciales están completas. Requieren una cuenta de desarrollador de Apple y un emisor de Google Wallet.</p>
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <h4 className="font-semibold text-sm">Google Wallet</h4>
+                <ConfigField label="Issuer ID" value={values?.google_wallet_issuer_id ?? ''} onChange={(v) => updateValue('google_wallet_issuer_id', v)} placeholder="3388000000022..." />
+                <ConfigField label="Service Account JSON" type="textarea" rows={5} value={values?.google_wallet_service_account ?? ''} onChange={(v) => updateValue('google_wallet_service_account', v)} placeholder='{"client_email": "...", "private_key": "..."}' />
+              </div>
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <h4 className="font-semibold text-sm">Apple Wallet</h4>
+                <div>
+                  <Label>Activar Apple Wallet</Label>
+                  <Select value={values?.apple_wallet_enabled ?? 'false'} onValueChange={(v: string) => updateValue('apple_wallet_enabled', v)}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="false">Desactivado</SelectItem>
+                      <SelectItem value="true">Activado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <ConfigField label="Pass Type ID" value={values?.apple_wallet_pass_type_id ?? ''} onChange={(v) => updateValue('apple_wallet_pass_type_id', v)} placeholder="pass.com.tuempresa.entrada" />
+                  <ConfigField label="Team ID" value={values?.apple_wallet_team_id ?? ''} onChange={(v) => updateValue('apple_wallet_team_id', v)} />
+                  <ConfigField label="Contraseña del certificado" type="password" value={values?.apple_wallet_cert_password ?? ''} onChange={(v) => updateValue('apple_wallet_cert_password', v)} />
+                </div>
+                <ConfigField label="Certificado .p12 (en base64)" type="textarea" rows={4} value={values?.apple_wallet_cert_p12_base64 ?? ''} onChange={(v) => updateValue('apple_wallet_cert_p12_base64', v)} />
+              </div>
+            </CardContent></Card>
+          </TabsContent>
+
+        )}
+
+        {has('entradas') && (
+  
+            <TabsContent value="printer">
+            <Card><CardContent className="p-6 space-y-6">
+              <p className="text-sm text-muted-foreground">
+                Ajustes del ticket térmico Bluetooth (Phomemo M04S) que usa taquilla. La impresión pasa
+                directamente del navegador a la impresora — si en un dispositivo concreto sale con ruido,
+                lenta o incompleta, prueba a ajustar estos valores sin necesidad de tocar código.
+              </p>
+  
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <h4 className="font-semibold text-sm">Impresión Bluetooth</h4>
+                <div>
+                  <Label>Impresión directa por Bluetooth en taquilla</Label>
+                  <Select value={values?.phomemo_printer_enabled ?? 'true'} onValueChange={(v: string) => updateValue('phomemo_printer_enabled', v)}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="true">Activada</SelectItem>
+                      <SelectItem value="false">Desactivada (siempre PDF)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Si la desactivas aquí, ninguna taquilla intentará conectar con la Phomemo — cada
+                    venta genera directamente el PDF para guardar o imprimir en otro sitio. Cada
+                    tablet puede además desactivarla solo para sí misma desde el propio panel de
+                    Taquilla, sin tocar esto.
+                  </p>
+                </div>
+              </div>
+  
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <h4 className="font-semibold text-sm">Modo de escritura Bluetooth</h4>
+                <Select value={values?.phomemo_write_mode ?? 'auto'} onValueChange={(v: string) => updateValue('phomemo_write_mode', v)}>
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="false">Desactivado</SelectItem>
-                    <SelectItem value="true">Activado</SelectItem>
+                    <SelectItem value="auto">Auto (rápido, con confirmaciones intercaladas)</SelectItem>
+                    <SelectItem value="with_response">Siempre confirmado (el más fiable, pero puede tardar tanto que la impresora corte el ticket a medias)</SelectItem>
+                    <SelectItem value="without_response">Siempre sin confirmación (rápido, sin red de seguridad)</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <ConfigField label="Pass Type ID" value={values?.apple_wallet_pass_type_id ?? ''} onChange={(v) => updateValue('apple_wallet_pass_type_id', v)} placeholder="pass.com.lagrailla.entrada" />
-                <ConfigField label="Team ID" value={values?.apple_wallet_team_id ?? ''} onChange={(v) => updateValue('apple_wallet_team_id', v)} />
-                <ConfigField label="Contraseña del certificado" type="password" value={values?.apple_wallet_cert_password ?? ''} onChange={(v) => updateValue('apple_wallet_cert_password', v)} />
-              </div>
-              <ConfigField label="Certificado .p12 (en base64)" type="textarea" rows={4} value={values?.apple_wallet_cert_p12_base64 ?? ''} onChange={(v) => updateValue('apple_wallet_cert_p12_base64', v)} />
-            </div>
-          </CardContent></Card>
-        </TabsContent>
-
-        <TabsContent value="printer">
-          <Card><CardContent className="p-6 space-y-6">
-            <p className="text-sm text-muted-foreground">
-              Ajustes del ticket térmico Bluetooth (Phomemo M04S) que usa taquilla. La impresión pasa
-              directamente del navegador a la impresora — si en un dispositivo concreto sale con ruido,
-              lenta o incompleta, prueba a ajustar estos valores sin necesidad de tocar código.
-            </p>
-
-            <div className="rounded-lg border border-border p-4 space-y-4">
-              <h4 className="font-semibold text-sm">Impresión Bluetooth</h4>
-              <div>
-                <Label>Impresión directa por Bluetooth en taquilla</Label>
-                <Select value={values?.phomemo_printer_enabled ?? 'true'} onValueChange={(v: string) => updateValue('phomemo_printer_enabled', v)}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="true">Activada</SelectItem>
-                    <SelectItem value="false">Desactivada (siempre PDF)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Si la desactivas aquí, ninguna taquilla intentará conectar con la Phomemo — cada
-                  venta genera directamente el PDF para guardar o imprimir en otro sitio. Cada
-                  tablet puede además desactivarla solo para sí misma desde el propio panel de
-                  Taquilla, sin tocar esto.
+                <p className="text-xs text-muted-foreground">
+                  &quot;Auto&quot; manda la mayoría del ticket rápido y sin confirmar, pero intercala una
+                  confirmación real cada pocos bloques (ver &quot;Confirmar cada&quot; abajo) para comprobar que
+                  la impresora sigue el ritmo sin perder nada por el camino — en la práctica es el más
+                  fiable y el más rápido a la vez. &quot;Siempre confirmado&quot; solo hace falta si un
+                  dispositivo concreto sigue dando problemas con Auto: confirma cada bloque uno a uno, lo
+                  que en pruebas reales ha llegado a tardar más de un minuto y ha hecho que la propia
+                  impresora corte el ticket antes de terminar.
                 </p>
               </div>
-            </div>
+  
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <h4 className="font-semibold text-sm">Velocidad de envío</h4>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <ConfigField
+                    label="Tamaño de bloque (bytes)"
+                    type="number"
+                    value={values?.phomemo_raster_chunk_size ?? '256'}
+                    onChange={(v) => updateValue('phomemo_raster_chunk_size', v)}
+                    description="En cuántos bytes se trocea la imagen del ticket antes de mandarla. 256 es el valor probado en hardware real."
+                  />
+                  <ConfigField
+                    label="Pausa entre bloques (ms)"
+                    type="number"
+                    value={values?.phomemo_chunk_delay_ms ?? '20'}
+                    onChange={(v) => updateValue('phomemo_chunk_delay_ms', v)}
+                    description="Solo se aplica a los bloques rápidos (sin confirmar) — los bloques de confirmación ya marcan el ritmo por sí solos."
+                  />
+                  <ConfigField
+                    label="Confirmar cada (bloques)"
+                    type="number"
+                    value={values?.phomemo_confirm_every_chunks ?? '8'}
+                    onChange={(v) => updateValue('phomemo_confirm_every_chunks', v)}
+                    description="Solo en modo Auto: cada cuántos bloques se manda uno confirmado de verdad. Súbelo para ir más rápido, bájalo si sigue saliendo con ruido. 0 desactiva las confirmaciones intercaladas."
+                  />
+                  <ConfigField
+                    label="Pausa entre comandos (ms)"
+                    type="number"
+                    value={values?.phomemo_command_delay_ms ?? '30'}
+                    onChange={(v) => updateValue('phomemo_command_delay_ms', v)}
+                    description="Antes de mandar cada comando de configuración (densidad, calor…) a la impresora."
+                  />
+                  <ConfigField
+                    label="Pausa tras la imagen (ms)"
+                    type="number"
+                    value={values?.phomemo_after_raster_delay_ms ?? '300'}
+                    onChange={(v) => updateValue('phomemo_after_raster_delay_ms', v)}
+                  />
+                  <ConfigField
+                    label="Pausa tras el avance de papel (ms)"
+                    type="number"
+                    value={values?.phomemo_after_feed_delay_ms ?? '500'}
+                    onChange={(v) => updateValue('phomemo_after_feed_delay_ms', v)}
+                  />
+                </div>
+              </div>
+  
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <h4 className="font-semibold text-sm">Impresión</h4>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <ConfigField
+                    label="Densidad de tinta (1-8)"
+                    type="number"
+                    value={values?.phomemo_density ?? '6'}
+                    onChange={(v) => updateValue('phomemo_density', v)}
+                    description="Más alto = más oscuro. Súbelo si el ticket sale muy claro, bájalo si sale manchado."
+                  />
+                  <ConfigField
+                    label="Avance de papel al terminar"
+                    type="number"
+                    value={values?.phomemo_feed ?? '32'}
+                    onChange={(v) => updateValue('phomemo_feed', v)}
+                    description="32 ≈ 2-3 mm de margen tras cortar el ticket."
+                  />
+                </div>
+              </div>
+            </CardContent></Card>
+          </TabsContent>
 
-            <div className="rounded-lg border border-border p-4 space-y-4">
-              <h4 className="font-semibold text-sm">Modo de escritura Bluetooth</h4>
-              <Select value={values?.phomemo_write_mode ?? 'auto'} onValueChange={(v: string) => updateValue('phomemo_write_mode', v)}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">Auto (rápido, con confirmaciones intercaladas)</SelectItem>
-                  <SelectItem value="with_response">Siempre confirmado (el más fiable, pero puede tardar tanto que la impresora corte el ticket a medias)</SelectItem>
-                  <SelectItem value="without_response">Siempre sin confirmación (rápido, sin red de seguridad)</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                &quot;Auto&quot; manda la mayoría del ticket rápido y sin confirmar, pero intercala una
-                confirmación real cada pocos bloques (ver &quot;Confirmar cada&quot; abajo) para comprobar que
-                la impresora sigue el ritmo sin perder nada por el camino — en la práctica es el más
-                fiable y el más rápido a la vez. &quot;Siempre confirmado&quot; solo hace falta si un
-                dispositivo concreto sigue dando problemas con Auto: confirma cada bloque uno a uno, lo
-                que en pruebas reales ha llegado a tardar más de un minuto y ha hecho que la propia
-                impresora corte el ticket antes de terminar.
+        )}
+
+        {has('sponsors') && (
+  
+            <TabsContent value="sponsors">
+            <Card><CardContent className="p-6 space-y-6">
+              <SponsorTiersConfig value={values?.sponsor_tiers ?? ''} onChange={(v) => updateValue('sponsor_tiers', v)} />
+              <div className="pt-4 border-t border-border">
+                <ConfigField
+                  label="Mensaje de pago pendiente"
+                  type="textarea"
+                  rows={3}
+                  value={values?.sponsor_payment_pending_message ?? ''}
+                  onChange={(v) => updateValue('sponsor_payment_pending_message', v)}
+                  description="Lo ve el sponsor en su portal, en el paso de pago, mientras no lo hayamos marcado como pagado — se le añade automáticamente el importe de su tipo de patrocinio."
+                />
+              </div>
+            </CardContent></Card>
+          </TabsContent>
+
+        )}
+
+        {has('sponsors') && (
+  
+            <TabsContent value="abacus">
+            <Card><CardContent className="p-6 space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Se usa en el Portal de Sponsors (`/admin/sponsors-portal`) para generar el prompt de
+                vídeo ES/EN a partir del logo y las respuestas del sponsor. Sin API key, ese botón usa
+                un texto de ejemplo (modo mock) — útil para probar el flujo sin gastar generaciones reales.
               </p>
-            </div>
-
-            <div className="rounded-lg border border-border p-4 space-y-4">
-              <h4 className="font-semibold text-sm">Velocidad de envío</h4>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <ConfigField
-                  label="Tamaño de bloque (bytes)"
-                  type="number"
-                  value={values?.phomemo_raster_chunk_size ?? '256'}
-                  onChange={(v) => updateValue('phomemo_raster_chunk_size', v)}
-                  description="En cuántos bytes se trocea la imagen del ticket antes de mandarla. 256 es el valor probado en hardware real."
-                />
-                <ConfigField
-                  label="Pausa entre bloques (ms)"
-                  type="number"
-                  value={values?.phomemo_chunk_delay_ms ?? '20'}
-                  onChange={(v) => updateValue('phomemo_chunk_delay_ms', v)}
-                  description="Solo se aplica a los bloques rápidos (sin confirmar) — los bloques de confirmación ya marcan el ritmo por sí solos."
-                />
-                <ConfigField
-                  label="Confirmar cada (bloques)"
-                  type="number"
-                  value={values?.phomemo_confirm_every_chunks ?? '8'}
-                  onChange={(v) => updateValue('phomemo_confirm_every_chunks', v)}
-                  description="Solo en modo Auto: cada cuántos bloques se manda uno confirmado de verdad. Súbelo para ir más rápido, bájalo si sigue saliendo con ruido. 0 desactiva las confirmaciones intercaladas."
-                />
-                <ConfigField
-                  label="Pausa entre comandos (ms)"
-                  type="number"
-                  value={values?.phomemo_command_delay_ms ?? '30'}
-                  onChange={(v) => updateValue('phomemo_command_delay_ms', v)}
-                  description="Antes de mandar cada comando de configuración (densidad, calor…) a la impresora."
-                />
-                <ConfigField
-                  label="Pausa tras la imagen (ms)"
-                  type="number"
-                  value={values?.phomemo_after_raster_delay_ms ?? '300'}
-                  onChange={(v) => updateValue('phomemo_after_raster_delay_ms', v)}
-                />
-                <ConfigField
-                  label="Pausa tras el avance de papel (ms)"
-                  type="number"
-                  value={values?.phomemo_after_feed_delay_ms ?? '500'}
-                  onChange={(v) => updateValue('phomemo_after_feed_delay_ms', v)}
-                />
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border p-4 space-y-4">
-              <h4 className="font-semibold text-sm">Impresión</h4>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <ConfigField
-                  label="Densidad de tinta (1-8)"
-                  type="number"
-                  value={values?.phomemo_density ?? '6'}
-                  onChange={(v) => updateValue('phomemo_density', v)}
-                  description="Más alto = más oscuro. Súbelo si el ticket sale muy claro, bájalo si sale manchado."
-                />
-                <ConfigField
-                  label="Avance de papel al terminar"
-                  type="number"
-                  value={values?.phomemo_feed ?? '32'}
-                  onChange={(v) => updateValue('phomemo_feed', v)}
-                  description="32 ≈ 2-3 mm de margen tras cortar el ticket."
-                />
-              </div>
-            </div>
-          </CardContent></Card>
-        </TabsContent>
-
-        <TabsContent value="sponsors">
-          <Card><CardContent className="p-6 space-y-6">
-            <SponsorTiersConfig value={values?.sponsor_tiers ?? ''} onChange={(v) => updateValue('sponsor_tiers', v)} />
-            <div className="pt-4 border-t border-border">
               <ConfigField
-                label="Mensaje de pago pendiente"
-                type="textarea"
-                rows={3}
-                value={values?.sponsor_payment_pending_message ?? ''}
-                onChange={(v) => updateValue('sponsor_payment_pending_message', v)}
-                description="Lo ve el sponsor en su portal, en el paso de pago, mientras no lo hayamos marcado como pagado — se le añade automáticamente el importe de su tipo de patrocinio."
+                label="API Key de Abacus.AI"
+                type="password"
+                value={values?.abacus_ai_api_key ?? ''}
+                onChange={(v) => updateValue('abacus_ai_api_key', v)}
+                description="La API key de tu cuenta de Abacus.AI (RouteLLM — https://abacus.ai/app/route-llm-apis)."
               />
-            </div>
-          </CardContent></Card>
-        </TabsContent>
+            </CardContent></Card>
+          </TabsContent>
 
-        <TabsContent value="abacus">
-          <Card><CardContent className="p-6 space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Se usa en el Portal de Sponsors (`/admin/sponsors-portal`) para generar el prompt de
-              vídeo ES/EN a partir del logo y las respuestas del sponsor. Sin API key, ese botón usa
-              un texto de ejemplo (modo mock) — útil para probar el flujo sin gastar generaciones reales.
-            </p>
-            <ConfigField
-              label="API Key de Abacus.AI"
-              type="password"
-              value={values?.abacus_ai_api_key ?? ''}
-              onChange={(v) => updateValue('abacus_ai_api_key', v)}
-              description="La API key de tu cuenta de Abacus.AI (RouteLLM — https://abacus.ai/app/route-llm-apis)."
-            />
-          </CardContent></Card>
-        </TabsContent>
+        )}
 
-        <TabsContent value="security">
-          <Card><CardContent className="p-6 space-y-4">
-            <p className="text-sm text-muted-foreground">Límite anti-abuso de compras por IP. Se aplica de forma global a todos los eventos, para evitar bots o compras masivas automatizadas.</p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <ConfigField label="Máx. pedidos por IP" type="number" value={values?.orders_rate_limit_per_ip ?? '10'} onChange={(v) => updateValue('orders_rate_limit_per_ip', v)} />
-              <ConfigField label="Ventana de tiempo (segundos)" type="number" value={values?.orders_rate_limit_window_seconds ?? '60'} onChange={(v) => updateValue('orders_rate_limit_window_seconds', v)} />
-            </div>
-            <p className="text-xs text-muted-foreground">Con los valores por defecto, una misma IP no puede crear más de 10 pedidos cada 60 segundos. Si el lanzamiento espera mucho tráfico legítimo desde la misma red (wifi compartido, datos móviles), sube estos valores.</p>
-          </CardContent></Card>
-        </TabsContent>
+        {has('entradas') && (
+  
+            <TabsContent value="security">
+            <Card><CardContent className="p-6 space-y-4">
+              <p className="text-sm text-muted-foreground">Límite anti-abuso de compras por IP. Se aplica de forma global a todos los eventos, para evitar bots o compras masivas automatizadas.</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ConfigField label="Máx. pedidos por IP" type="number" value={values?.orders_rate_limit_per_ip ?? '10'} onChange={(v) => updateValue('orders_rate_limit_per_ip', v)} />
+                <ConfigField label="Ventana de tiempo (segundos)" type="number" value={values?.orders_rate_limit_window_seconds ?? '60'} onChange={(v) => updateValue('orders_rate_limit_window_seconds', v)} />
+              </div>
+              <p className="text-xs text-muted-foreground">Con los valores por defecto, una misma IP no puede crear más de 10 pedidos cada 60 segundos. Si el lanzamiento espera mucho tráfico legítimo desde la misma red (wifi compartido, datos móviles), sube estos valores.</p>
+            </CardContent></Card>
+          </TabsContent>
+
+        )}
 
         <TabsContent value="legal">
           <Card><CardContent className="p-6 space-y-4">

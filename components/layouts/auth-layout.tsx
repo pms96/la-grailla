@@ -35,7 +35,7 @@ export function AuthLayout({
       >
         <CardHeader className="text-center">
           <div className="flex justify-center mb-2">
-            <Logo variant="white" className="h-10" priority />
+            <Logo className="h-10" priority />
           </div>
           <CardTitle className="font-display text-2xl tracking-tight">{title}</CardTitle>
           {description && (

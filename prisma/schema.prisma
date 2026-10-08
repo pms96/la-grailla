@@ -626,6 +626,51 @@ model Invitation {
   @@index([listId])
 }
 
+// ---------------------------------------------------------------------------
+// Bandeja de contacto (núcleo): mensajes del formulario de la web pública y las
+// respuestas que se les dan desde el admin. Es del núcleo: la tienen todos los
+// clientes, con o sin módulos. No guarda la IP (la limitación de ritmo va por
+// hash en RateLimitBucket y caduca); el consentimiento sí se registra.
+// ---------------------------------------------------------------------------
+
+enum ContactStatus {
+  NEW
+  ANSWERED
+  ARCHIVED
+}
+
+model ContactMessage {
+  id        String         @id @default(cuid())
+  name      String
+  email     String
+  phone     String?
+  subject   String?
+  message   String         @db.Text
+  status    ContactStatus  @default(NEW)
+  // Evidencia del consentimiento RGPD marcado en el formulario.
+  consentAt DateTime?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  replies   ContactReply[]
+
+  @@index([status, createdAt])
+  @@index([email])
+}
+
+model ContactReply {
+  id         String         @id @default(cuid())
+  messageId  String
+  body       String         @db.Text
+  // Quién respondió (el email del usuario del admin en ese momento; sin FK para no bloquear el borrado de usuarios).
+  sentBy     String?
+  emailSent  Boolean        @default(false)
+  emailError String?
+  createdAt  DateTime       @default(now())
+  message    ContactMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId, createdAt])
+}
+
 model AppConfig {
   id    String  @id @default(cuid())
   key   String  @unique

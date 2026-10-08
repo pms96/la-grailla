@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { Menu, X, Music, ShoppingBag, Handshake } from 'lucide-react';
+import { Menu, X, Music, ShoppingBag, Handshake, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/logo';
+import { useBrand } from '@/components/brand-provider';
 import { cn } from '@/lib/utils';
 import { isLinkVisible } from '@/lib/modules/registry';
 import type { ModuleKey } from '@grailla/contracts';
@@ -20,8 +21,9 @@ const allLinks = [
   { href: '/sponsors', label: 'Patrocinio', icon: Handshake },
 ];
 
-export default function PublicNav({ modules }: { modules?: readonly ModuleKey[] } = {}) {
-  const links = allLinks.filter((l) => !modules || isLinkVisible(l.href, modules));
+export default function PublicNav({ modules, sticker, contact }: { modules?: readonly ModuleKey[]; sticker?: string; contact?: boolean } = {}) {
+  const { name } = useBrand();
+  const links = [...allLinks.filter((l) => !modules || isLinkVisible(l.href, modules)), ...(contact ? [{ href: '/#contacto', label: 'Contacto', icon: Mail }] : [])];
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const pathname = usePathname() ?? '';
@@ -45,11 +47,13 @@ export default function PublicNav({ modules }: { modules?: readonly ModuleKey[] 
       <div className="max-w-[1200px] mx-auto flex items-center justify-between px-4 h-16">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2 group">
-          <Logo variant="white" className="h-8 sm:h-9" priority />
-          <span className="sr-only">La Grailla</span>
-          <span className="hidden sm:inline-flex brand-sticker text-xs text-lima border-lima/60 shadow-lima/30 py-0.5 px-2">
-            GOOD VIBES
-          </span>
+          <Logo className="h-8 sm:h-9" priority />
+          <span className="sr-only">{name}</span>
+          {sticker && (
+            <span className="hidden sm:inline-flex brand-sticker text-xs text-lima border-lima/60 shadow-lima/30 py-0.5 px-2">
+              {sticker}
+            </span>
+          )}
         </Link>
 
         {/* Desktop */}

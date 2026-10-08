@@ -6,7 +6,8 @@ import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
 import { allowSponsorAccess, getTokenFromRequest } from '@/lib/access-token';
 import { nextStatusAfterEdit } from '@/lib/sponsor-portal';
-import { ALLOWED_SPONSOR_MATERIAL_TYPES } from '@/lib/sponsor-uploads';
+import { ALLOWED_SPONSOR_MATERIAL_TYPES, sponsorBlobPrefix } from '@/lib/sponsor-uploads';
+import { tenantBlobPrefix } from '@/lib/tenant/blob';
 import { isBlobUrlUnder } from '@/lib/blob-url';
 
 // El archivo ya se ha subido directamente del navegador a Vercel Blob (ver
@@ -47,7 +48,7 @@ export async function POST(request: Request, { params }: { params: { sponsorId: 
     // se generó para este sponsor (evita que alguien cuele la URL de otro).
     // Se parsea la URL: una subcadena en cualquier host o en el query string
     // no vale (ver lib/blob-url.ts).
-    if (!isBlobUrlUnder(body.url, `sponsors/${sponsorId}/`)) {
+    if (!isBlobUrlUnder(body.url, sponsorBlobPrefix(tenantBlobPrefix(), sponsorId))) {
       return NextResponse.json({ error: 'Archivo inválido' }, { status: 400 });
     }
 

@@ -1,4 +1,5 @@
 import { getConfigs } from '@/lib/config';
+import { getBrand } from '@/lib/brand/brand';
 
 // Cualquier dato de un tercero (nombre de comprador, mensaje de un
 // formulario) que acabe interpolado en el HTML de un email debe pasar por
@@ -33,6 +34,9 @@ export async function getSmtpSettings() {
     'smtp_from_email',
     'smtp_from_name',
   ]);
+  // Sin nombre de remitente configurado, el de la marca del cliente (nunca el de otro).
+  // Sin comillas ni saltos de línea: el nombre va entre comillas en la cabecera From.
+  const fromName = (cfg.smtp_from_name || (await getBrand().then((b) => b.name).catch(() => ''))).replace(/["\r\n]/g, '');
   return {
     enabled: cfg.smtp_enabled === 'true',
     host: cfg.smtp_host,
@@ -41,7 +45,7 @@ export async function getSmtpSettings() {
     password: cfg.smtp_password,
     secure: cfg.smtp_secure === 'true',
     fromEmail: cfg.smtp_from_email,
-    fromName: cfg.smtp_from_name || 'La Grailla',
+    fromName,
   };
 }
 

@@ -1,13 +1,16 @@
 import ExcelJS from 'exceljs';
 import type { GastosExportData } from '@/lib/gastos/gastos-data';
+import { getBrand } from '@/lib/brand/brand';
 
-const MORADO = 'FF3D2FD5';
 const GRIS_CLARO = 'FFF2F2F7';
 const MONEY_FMT = '#,##0.00 €';
 
 export async function buildGastosExcel(data: GastosExportData): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'La Grailla';
+  const brand = await getBrand();
+  workbook.creator = brand.name;
+  // Color de las cabeceras: el principal de la marca del cliente (ARGB).
+  const MORADO = `FF${brand.colors.primary.slice(1).toUpperCase()}`;
   workbook.created = new Date();
 
   const sheet = workbook.addWorksheet('Gastos', { views: [{ state: 'frozen', ySplit: 1 }] });

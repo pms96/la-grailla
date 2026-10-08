@@ -6,7 +6,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
-import { ALLOWED_FINAL_VIDEO_TYPES, MAX_FINAL_VIDEO_SIZE } from '@/lib/sponsor-uploads';
+import { ALLOWED_FINAL_VIDEO_TYPES, MAX_FINAL_VIDEO_SIZE, sponsorFinalVideoBlobPrefix } from '@/lib/sponsor-uploads';
+import { tenantBlobPrefix } from '@/lib/tenant/blob';
 
 // Emite el token con el que el admin sube el vídeo final DIRECTAMENTE a
 // Vercel Blob desde el navegador — igual que en sponsors/portal/.../logo,
@@ -28,7 +29,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
       body,
       request,
       onBeforeGenerateToken: async (pathname) => {
-        if (!pathname.startsWith(`sponsors/${sponsor.id}/final-video/`)) {
+        if (!pathname.startsWith(sponsorFinalVideoBlobPrefix(tenantBlobPrefix(), sponsor.id)) || pathname.split('/').includes('..')) {
           throw new Error('Ruta de archivo no permitida');
         }
         return {

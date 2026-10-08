@@ -8,6 +8,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { isBlobUrlUnder, isDeletableBlobUrl } from '@/lib/blob-url';
+import { sponsorFinalVideoBlobPrefix } from '@/lib/sponsor-uploads';
+import { tenantBlobPrefix } from '@/lib/tenant/blob';
 
 // El vídeo final ya producido (no el de referencia que sube el sponsor, ni
 // la propuesta generada por IA) — lo sube el admin a mano cuando está
@@ -32,7 +34,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     }
 
     const body = confirmSchema.parse(await request.json());
-    if (!isBlobUrlUnder(body.url, `sponsors/${sponsor.id}/final-video/`)) {
+    if (!isBlobUrlUnder(body.url, sponsorFinalVideoBlobPrefix(tenantBlobPrefix(), sponsor.id))) {
       return NextResponse.json({ error: 'Archivo inválido' }, { status: 400 });
     }
 

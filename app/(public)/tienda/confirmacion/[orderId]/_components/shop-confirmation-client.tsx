@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle, Clock, Package, XCircle, Loader2 } from 'lucide-react';
 import { ReceiptPrinter, usePrintSequence } from '@/components/receipt-printer';
+import { useBrand } from '@/components/brand-provider';
 
 type ShopOrderView = {
   id: string;
@@ -146,6 +147,7 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
 
 /** Recibo imprimiéndose con los artículos y el envío del pedido de tienda. */
 function ShopReceiptPrinter({ order }: { order: ShopOrderView }) {
+  const { name } = useBrand();
   const stage = usePrintSequence(true);
   const shortCode = order.id.slice(0, 8).toUpperCase();
 
@@ -163,7 +165,7 @@ function ShopReceiptPrinter({ order }: { order: ShopOrderView }) {
       <ReceiptPrinter.Output>
         <ReceiptPrinter.Paper>
           <header className="text-center">
-            <p className="text-xs tracking-[0.2em] text-black/45">LA GRAILLA · RECIBO</p>
+            <p className="text-xs tracking-[0.2em] text-black/45">{name.toUpperCase()} · RECIBO</p>
             <h3 className="mt-1 font-display text-base font-bold leading-tight text-black">
               Pedido #{shortCode}
             </h3>

@@ -3,14 +3,15 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Handshake, Building2, Users, Megaphone } from 'lucide-react';
 import { FadeIn, SlideIn } from '@/components/ui/animate';
 import SponsorForm from './_components/sponsor-form';
+import { getBrand } from '@/lib/brand/brand';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
 
-export const metadata = {
-  title: 'Patrocinio | La Grailla',
-  description: 'Tu marca en la mejor caseta de la feria. Llega a miles de asistentes y sé parte de La Grailla.',
-};
+export async function generateMetadata() {
+  const { name } = await getBrand();
+  return { title: 'Patrocinio', description: `Tu marca en ${name}. Llega a miles de asistentes y sé parte del evento.` };
+}
 
 export default function SponsorsPage() {
   return (

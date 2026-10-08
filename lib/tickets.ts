@@ -7,6 +7,8 @@ import { buildTicketsPdf } from '@/lib/ticket-pdf';
 import { buildMinorAuthorizationPdf } from '@/lib/minor-authorization-pdf';
 import { getWalletAvailability, buildApplePass } from '@/lib/wallet';
 import { escapeHtml as esc } from '@/lib/html-escape';
+import { getBrand, type Brand } from '@/lib/brand/brand';
+import { brandLogoHtml } from '@/lib/brand/email';
 
 // DATA-01: derivado del propio `prisma` (extendido — totalAmount/commission
 // son number, no Decimal), no de `Prisma.OrderGetPayload<...>` (que describe
@@ -23,7 +25,8 @@ export async function buildTicketsHtml(orderId: string): Promise<{ html: string;
   });
   if (!order) return null;
 
-  const logoUrl = getFallbackBaseUrl() + '/brand/logo-black.png';
+  const brand = await getBrand();
+  const logoHtml = brandLogoHtml(brand, undefined, 32);
   const eventDate = order.event?.date
     ? new Date(order.event.date).toLocaleDateString('es-ES', {
         weekday: 'long',
@@ -39,7 +42,7 @@ export async function buildTicketsHtml(orderId: string): Promise<{ html: string;
     const qrDataUrl = await generateQRDataUrl(ticket?.qrCode ?? '');
     parts.push(
       '<div style="page-break-after: always; padding: 40px; font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">' +
-        '<div style="text-align:center;margin-bottom:30px;"><img src="' + logoUrl + '" alt="La Grailla" height="32" style="height:32px;width:auto;" />' +
+        '<div style="text-align:center;margin-bottom:30px;">' + logoHtml +
         '<p style="color:#666;margin:5px 0;">Entrada Digital</p></div>' +
         '<div style="background:#f9fafb;border-radius:12px;padding:24px;margin-bottom:20px;">' +
         '<h2 style="margin:0 0 8px;color:#1a1a1a;">' + esc(order.event?.name) + '</h2>' +
@@ -50,7 +53,7 @@ export async function buildTicketsHtml(orderId: string): Promise<{ html: string;
         '<div style="text-align:center;margin:30px 0;">' +
         '<img src="' + qrDataUrl + '" width="250" height="250" style="border:2px solid #e5e7eb;border-radius:8px;" />' +
         '<p style="font-family:monospace;font-size:12px;color:#999;margin-top:8px;">' + esc(ticket?.qrCode) + '</p></div>' +
-        '<div style="background:#f3f0ff;border-radius:8px;padding:16px;">' +
+        '<div style="background:' + brand.colors.emailTint + ';border-radius:8px;padding:16px;">' +
         '<p style="margin:4px 0;"><strong>Titular:</strong> ' + esc(ticket?.holderName) + '</p>' +
         '<p style="margin:4px 0;"><strong>Tipo:</strong> ' + esc(ticket?.ticketType?.name ?? 'General') + '</p>' +
         '<p style="margin:4px 0;"><strong>ID:</strong> ' + esc(ticket?.id?.slice(0, 8)) + '</p></div>' +
@@ -76,7 +79,8 @@ function buildWalletLinksHtml(
   tickets: OrderWithTickets['tickets'],
   appUrl: string,
   orderId: string,
-  wallet: { google: boolean; apple: boolean }
+  wallet: { google: boolean; apple: boolean },
+  brand: Brand
 ): string {
   if ((!wallet.google && !wallet.apple) || !tickets?.length) return '';
   const tokenQs = orderAccessQuery(orderId);
@@ -106,8 +110,8 @@ function buildWalletLinksHtml(
     })
     .join('');
   return (
-    '<div style="background:#f3f0ff;border-radius:8px;padding:14px;margin:18px 0;">' +
-    '<p style="margin:0 0 8px;font-size:13px;color:#4c3d99;"><strong>Añade tus entradas a Wallet</strong> — las tendrás siempre a mano, incluso sin conexión.</p>' +
+    '<div style="background:' + brand.colors.emailTint + ';border-radius:8px;padding:14px;margin:18px 0;">' +
+    '<p style="margin:0 0 8px;font-size:13px;color:#333;"><strong>Añade tus entradas a Wallet</strong> — las tendrás siempre a mano, incluso sin conexión.</p>' +
     rows +
     '</div>'
   );
@@ -116,7 +120,8 @@ function buildWalletLinksHtml(
 function buildEmailHtml(
   order: OrderWithTickets,
   printUrl: string,
-  logoUrl: string,
+  brand: Brand,
+  appUrl: string,
   minorAuthUrl?: string,
   walletLinksHtml?: string
 ): string {
@@ -134,23 +139,23 @@ function buildEmailHtml(
   const cta =
     '<p style="text-align:center;margin:28px 0;"><a href="' +
     printUrl +
-    '" style="background:#a855f7;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;">Ver e imprimir mis entradas</a></p>';
+    '" style="background:' + brand.colors.emailAccent + ';color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;">Ver e imprimir mis entradas</a></p>';
 
   const minorAuthNotice =
     order.event?.minorAuthorizationEnabled && minorAuthUrl
       ? '<div style="background:#fff8e6;border-radius:8px;padding:14px;margin:18px 0;border:1px solid #f0d98c;">' +
         '<p style="margin:0;font-size:13px;color:#7a5c00;"><strong>Asistentes de 16 y 17 anos:</strong> deben presentar en taquilla la autorizacion firmada por su padre/madre/tutor. Va adjunta en PDF.</p>' +
-        '<p style="margin:6px 0 0;"><a href="' + minorAuthUrl + '" style="color:#a855f7;">Descargar autorizacion de menores (PDF)</a></p>' +
+        '<p style="margin:6px 0 0;"><a href="' + minorAuthUrl + '" style="color:' + brand.colors.emailAccent + ';">Descargar autorizacion de menores (PDF)</a></p>' +
         '</div>'
       : '';
 
   return (
     '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;">' +
-    '<img src="' + logoUrl + '" alt="La Grailla" height="32" style="height:32px;width:auto;margin:0 0 4px;" />' +
+    brandLogoHtml(brand, appUrl, 32, 'margin:0 0 4px;') +
     '<p style="color:#888;margin:0 0 24px;">Confirmacion de compra</p>' +
     '<p>Hola ' + esc(order.buyerName) + ',</p>' +
     '<p>Tu compra se ha completado correctamente. Aqui tienes los detalles:</p>' +
-    '<div style="background:#f6f4ff;border-radius:10px;padding:18px;margin:18px 0;">' +
+    '<div style="background:' + brand.colors.emailTint + ';border-radius:10px;padding:18px;margin:18px 0;">' +
     '<p style="margin:4px 0;"><strong>Evento:</strong> ' + esc(order.event?.name) + '</p>' +
     '<p style="margin:4px 0;"><strong>Fecha:</strong> ' + esc(eventDate) + '</p>' +
     '<p style="margin:4px 0;"><strong>Lugar:</strong> ' + esc(order.event?.venue) + ' - ' + esc(order.event?.city) + '</p>' +
@@ -205,10 +210,10 @@ export async function sendTicketsEmail(
 
   const appUrl = baseUrl ?? getFallbackBaseUrl();
   const printUrl = appUrl + '/api/tickets/' + order.id + '/pdf-html?' + orderAccessQuery(order.id);
-  const logoUrl = appUrl + '/brand/logo-black.png';
+  const brand = await getBrand();
   const minorAuthUrl = order.event?.slug ? appUrl + '/api/events/' + order.event.slug + '/minor-authorization' : undefined;
   const wallet = await getWalletAvailability();
-  const walletLinksHtml = buildWalletLinksHtml(order.tickets ?? [], appUrl, order.id, wallet);
+  const walletLinksHtml = buildWalletLinksHtml(order.tickets ?? [], appUrl, order.id, wallet, brand);
 
   let pdfBytes: Uint8Array | null = null;
   try {
@@ -287,8 +292,8 @@ export async function sendTicketsEmail(
 
   const result = await sendMail({
     to: order.buyerEmail,
-    subject: 'Tus entradas para ' + (order.event?.name ?? 'La Grailla'),
-    html: buildEmailHtml(order, printUrl, logoUrl, minorAuthUrl, walletLinksHtml),
+    subject: 'Tus entradas para ' + (order.event?.name ?? brand.name),
+    html: buildEmailHtml(order, printUrl, brand, appUrl, minorAuthUrl, walletLinksHtml),
     attachments: attachments.length ? attachments : undefined,
   });
 

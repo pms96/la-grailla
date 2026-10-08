@@ -6,7 +6,8 @@ import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
 import { allowSponsorAccess, getTokenFromRequest } from '@/lib/access-token';
 import { rateLimit } from '@/lib/rate-limit';
-import { ALLOWED_SPONSOR_MATERIAL_TYPES, MAX_SPONSOR_MATERIAL_SIZE } from '@/lib/sponsor-uploads';
+import { ALLOWED_SPONSOR_MATERIAL_TYPES, MAX_SPONSOR_MATERIAL_SIZE, sponsorBlobPrefix } from '@/lib/sponsor-uploads';
+import { tenantBlobPrefix } from '@/lib/tenant/blob';
 
 // Emite el token con el que el navegador sube el archivo DIRECTAMENTE a
 // Vercel Blob, sin pasar el binario por esta función — necesario porque las
@@ -43,9 +44,9 @@ export async function POST(request: Request, { params }: { params: { sponsorId: 
       request,
       onBeforeGenerateToken: async (pathname) => {
         // El propio pathname lo elige el cliente antes de pedir el token —
-        // se restringe aquí a la carpeta de ESTE sponsor (mismo criterio
-        // IDOR que allowSponsorAccess de arriba).
-        if (!pathname.startsWith(`sponsors/${sponsorId}/`)) {
+        // se restringe aquí a la carpeta de ESTE sponsor de ESTE cliente (mismo
+        // criterio IDOR que allowSponsorAccess de arriba).
+        if (!pathname.startsWith(sponsorBlobPrefix(tenantBlobPrefix(), sponsorId)) || pathname.split('/').includes('..')) {
           throw new Error('Ruta de archivo no permitida');
         }
         return {

@@ -11,9 +11,17 @@ type ImageUploadFieldProps = {
   onChange: (url: string) => void;
   prefix: string;
   className?: string;
+  /** `contain` para logos (no recortar); `cover` para fotos. */
+  fit?: 'cover' | 'contain';
+  /** Fondo de la vista previa (un logo claro se ve sobre uno oscuro). */
+  previewClassName?: string;
+  /** Tipos de fichero admitidos por el selector (por defecto, cualquier imagen). */
+  accept?: string;
+  /** Nombre del campo para lectores de pantalla («Cambiar logo para fondos oscuros»). */
+  label?: string;
 };
 
-export function ImageUploadField({ value, onChange, prefix, className }: ImageUploadFieldProps) {
+export function ImageUploadField({ value, onChange, prefix, className, fit = 'cover', previewClassName, accept = 'image/*', label }: ImageUploadFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -41,9 +49,9 @@ export function ImageUploadField({ value, onChange, prefix, className }: ImageUp
 
   return (
     <div className={className}>
-      <div className="relative aspect-square w-28 rounded-md overflow-hidden bg-muted border border-border">
+      <div className={`relative aspect-square w-28 rounded-md overflow-hidden border border-border ${previewClassName ?? 'bg-muted'}`}>
         {value ? (
-          <Image src={value} alt="" fill className="object-cover" />
+          <Image src={value} alt="" fill className={fit === 'contain' ? 'object-contain p-2' : 'object-cover'} />
         ) : (
           <div className="flex h-full items-center justify-center text-muted-foreground">
             <ImageOff className="h-6 w-6" />
@@ -64,18 +72,18 @@ export function ImageUploadField({ value, onChange, prefix, className }: ImageUp
           disabled={uploading}
           onClick={() => inputRef.current?.click()}
         >
-          <Upload className="h-3.5 w-3.5" /> {value ? 'Cambiar' : 'Subir imagen'}
+          <Upload className="h-3.5 w-3.5" /> {value ? 'Cambiar' : 'Subir imagen'}{label && <span className="sr-only"> {label}</span>}
         </Button>
         {value && (
           <Button type="button" variant="ghost" size="sm" className="gap-2 text-muted-foreground" onClick={() => onChange('')}>
-            <X className="h-3.5 w-3.5" /> Quitar
+            <X className="h-3.5 w-3.5" /> Quitar{label && <span className="sr-only"> {label}</span>}
           </Button>
         )}
       </div>
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept={accept}
         className="hidden"
         onChange={(e) => handleFile(e.target.files?.[0])}
       />

@@ -6,21 +6,30 @@ import { EVENT_GRACE_PERIOD_MS } from '@/lib/active-event';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, MapPin, ArrowRight, Ticket, Sparkles, Music, ShoppingBag, Handshake, WifiOff } from 'lucide-react';
+import { Calendar, MapPin, ArrowRight, Music, ShoppingBag, Handshake, WifiOff } from 'lucide-react';
 import { FadeIn, SlideIn, Stagger, StaggerItem } from '@/components/ui/animate';
-import { Logo } from '@/components/logo';
 import { ReloadButton } from '@/components/reload-button';
-import Image from 'next/image';
+import { getBrand } from '@/lib/brand/brand';
+import { ContactForm } from '@/components/contact-form';
+import { HeroFeria } from './_home/hero-feria';
+import { HeroEditorial } from './_home/hero-editorial';
+import type { HeroProps } from './_home/hero';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
 
+/** Sin el módulo Entradas no hay eventos que cargar (ni error). */
+class SkipEvents extends Error {}
+
 export default async function HomePage() {
   // Cada sección de módulo solo aparece si el cliente lo tiene (en una instalación única, todos).
   const modules = getActiveModules();
+  const brand = await getBrand();
+  const hasEntradas = modules.includes('entradas');
   let events: EventWithTicketTypes[] = [];
   let loadError = false;
   try {
+    if (!hasEntradas) throw new SkipEvents();
     events = await prisma.event.findMany({
       // No anunciar como "próxima noche" un evento cuya fecha ya pasó (más el
       // margen de gracia nocturno) — sin este filtro, un PUBLISHED que nadie
@@ -31,14 +40,22 @@ export default async function HomePage() {
       take: 6,
     });
   } catch (error) {
-    console.error('[HomePage] Error al cargar eventos:', error);
-    loadError = true;
+    if (!(error instanceof SkipEvents)) {
+      console.error('[HomePage] Error al cargar eventos:', error);
+      loadError = true;
+    }
   }
 
   const copy = await getConfigs([
     'home_hero_badge_fallback',
     'home_hero_subtitle_1',
     'home_hero_subtitle_2',
+    'home_events_more_subtitle',
+    'home_shop_title',
+    'home_shop_subtitle',
+    'home_about_title',
+    'home_about_text',
+    'contact_form_enabled',
     'home_sponsors_cta_title',
     'home_sponsors_cta_subtitle',
   ]);
@@ -53,121 +70,38 @@ export default async function HomePage() {
       })
     : '';
   const featuredPrice = featured?.ticketTypes?.[0]?.price;
-  const featuredHref = featured ? `/eventos/${featured.slug}` : '/eventos';
-  const buyHref = featured ? `/eventos/${featured.slug}/comprar` : '/eventos';
+
+  const primaryCta: HeroProps['primaryCta'] = hasEntradas
+    ? { href: '/eventos', label: 'Ver eventos', icon: 'ticket' }
+    : modules.includes('tienda')
+      ? { href: '/tienda', label: 'Ir a la tienda', icon: 'shop' }
+      : copy.contact_form_enabled === 'true'
+        ? { href: '#contacto', label: 'Contacta con nosotros', icon: 'mail' }
+        : null;
+  const hero: HeroProps = {
+    brandName: brand.name,
+    featured: featured
+      ? {
+          name: featured.name,
+          slug: featured.slug,
+          imageUrl: featured.imageUrl ?? null,
+          dateLabel: featuredDate,
+          place: [featured.venue, featured.city].filter(Boolean).join(', '),
+          fromPrice: featuredPrice ?? null,
+        }
+      : null,
+    badge: copy.home_hero_badge_fallback,
+    title: copy.home_hero_subtitle_1 || brand.tagline || brand.name,
+    subtitle: copy.home_hero_subtitle_2,
+    primaryCta,
+    stickerImage: brand.stickerImage,
+  };
+  const Hero = brand.template === 'editorial' ? HeroEditorial : HeroFeria;
 
   return (
     <>
-      {/* Hero = cartel de la próxima noche (o marca si aún no hay fecha) */}
-      <section className="relative overflow-hidden min-h-[85vh] flex items-end md:items-center">
-        {featured?.imageUrl ? (
-          <>
-            {/* img nativo: las URLs de cartel pueden ser externas / uploads sin domain allowlist */}
-            <img
-              src={featured.imageUrl}
-              alt=""
-              aria-hidden
-              className="absolute inset-0 h-full w-full object-cover"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-background/30" />
-            <div className="absolute inset-0 bg-gradient-to-r from-background/90 via-background/40 to-transparent" />
-          </>
-        ) : (
-          <>
-            <div className="absolute inset-0 hero-gradient" />
-            <div className="absolute inset-0 texture-noise" />
-            <div className="absolute top-20 right-10 w-32 h-32 rounded-full bg-lima/10 blur-3xl" />
-            <div className="absolute bottom-20 left-10 w-40 h-40 rounded-full bg-neon-pink/8 blur-3xl" />
-          </>
-        )}
-
-        {!featured && (
-          <Image
-            src="/brand/sticker-wordmark.png"
-            alt=""
-            width={441}
-            height={254}
-            aria-hidden
-            className="hidden lg:block absolute top-24 right-[8%] w-40 h-auto rotate-[8deg] drop-shadow-2xl select-none pointer-events-none"
-          />
-        )}
-
-        <div className="relative max-w-[1200px] mx-auto px-4 py-24 md:py-32 w-full">
-          <FadeIn>
-            <div className="mb-6">
-              <Logo variant="white" className="h-8 sm:h-9" priority />
-              <span className="sr-only">La Grailla</span>
-            </div>
-
-            {featured ? (
-              <>
-                <div className="inline-flex brand-sticker text-sm text-lima border-lima/60 shadow-lima/30 mb-5 gap-1.5">
-                  <Sparkles className="h-4 w-4" /> PRÓXIMA NOCHE
-                </div>
-                <h1 className="font-display text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight leading-[0.92] max-w-3xl mb-5">
-                  {featured.name}
-                </h1>
-                <div className="flex flex-wrap gap-3 mb-8 text-sm text-muted-foreground">
-                  {featuredDate && (
-                    <Badge variant="secondary" className="gap-1.5 font-normal">
-                      <Calendar className="h-3.5 w-3.5" />
-                      <span className="font-mono text-xs capitalize">{featuredDate}</span>
-                    </Badge>
-                  )}
-                  <Badge variant="secondary" className="gap-1.5 font-normal">
-                    <MapPin className="h-3.5 w-3.5" />
-                    {[featured.venue, featured.city].filter(Boolean).join(', ')}
-                  </Badge>
-                  {featuredPrice != null && (
-                    <Badge variant="secondary" className="text-primary font-semibold">
-                      Desde {featuredPrice.toFixed(2)}€
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-4">
-                  <Link href={buyHref}>
-                    <Button
-                      size="lg"
-                      className="gap-2 text-base font-display font-semibold px-8 h-12 rounded-full shadow-lg shadow-primary/25"
-                    >
-                      <Ticket className="h-5 w-5" />
-                      Comprar entradas
-                    </Button>
-                  </Link>
-                  <Link
-                    href={featuredHref}
-                    className="text-sm font-display font-semibold text-muted-foreground hover:text-foreground transition-colors underline-offset-4 hover:underline"
-                  >
-                    Ver ficha
-                  </Link>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="inline-flex brand-sticker text-sm text-lima border-lima/60 shadow-lima/30 mb-8 gap-1.5">
-                  <Sparkles className="h-4 w-4" />
-                  {copy.home_hero_badge_fallback}
-                </div>
-                <h1 className="mb-6 font-display text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight max-w-2xl leading-[0.95]">
-                  {copy.home_hero_subtitle_1}
-                </h1>
-                <p className="text-base md:text-lg text-muted-foreground/70 max-w-xl mb-10">
-                  {copy.home_hero_subtitle_2}
-                </p>
-                <Link href="/eventos">
-                  <Button
-                    size="lg"
-                    className="gap-2 text-base font-display font-semibold px-8 h-12 rounded-full shadow-lg shadow-primary/25"
-                  >
-                    <Ticket className="h-5 w-5" />
-                    Ver eventos
-                  </Button>
-                </Link>
-              </>
-            )}
-          </FadeIn>
-        </div>
-      </section>
+      {/* Hero: la plantilla del cliente (Apariencia → plantilla) */}
+      <Hero {...hero} />
 
       {/* Programación — sin card duplicada del destacado (ya vive en el hero) */}
       {modules.includes('entradas') && (
@@ -179,7 +113,7 @@ export default async function HomePage() {
                 {featured ? 'Más fechas' : 'Próximos eventos'}
               </h2>
               <p className="text-muted-foreground mt-2 text-lg">
-                {featured ? 'Otras noches de La Grailla' : 'Compra tus entradas online'}
+                {featured ? copy.home_events_more_subtitle || `Otras fechas de ${brand.name}` : 'Compra tus entradas online'}
               </p>
             </div>
             {(events?.length ?? 0) > 0 && !loadError && (
@@ -301,8 +235,8 @@ export default async function HomePage() {
               <ShoppingBag className="h-5 w-5 text-primary" aria-hidden />
             </div>
             <div>
-              <h2 className="font-display font-bold text-lg tracking-tight">Merch oficial</h2>
-              <p className="text-sm text-muted-foreground">Lleva La Grailla contigo. Bajo pedido.</p>
+              <h2 className="font-display font-bold text-lg tracking-tight">{copy.home_shop_title || 'Tienda'}</h2>
+              <p className="text-sm text-muted-foreground">{copy.home_shop_subtitle || `Lleva ${brand.name} contigo.`}</p>
             </div>
           </div>
           <Link href="/tienda">
@@ -312,6 +246,20 @@ export default async function HomePage() {
           </Link>
         </div>
       </section>
+      )}
+
+      {/* Sobre nosotros — sección del núcleo; solo aparece si el cliente ha escrito el texto (Configuración → Contenido) */}
+      {copy.home_about_text && (
+        <section id="sobre-nosotros" className="max-w-[1200px] mx-auto px-4 py-16 md:py-20">
+          <FadeIn>
+            <div className="grid gap-8 md:grid-cols-12">
+              <h2 className="md:col-span-4 font-display text-3xl md:text-4xl font-bold tracking-tight text-balance">
+                {copy.home_about_title || `Sobre ${brand.name}`}
+              </h2>
+              <p className="md:col-span-8 max-w-prose whitespace-pre-line text-lg text-muted-foreground">{copy.home_about_text}</p>
+            </div>
+          </FadeIn>
+        </section>
       )}
 
       {/* Patrocinio — terciario */}
@@ -324,10 +272,10 @@ export default async function HomePage() {
               <Handshake className="h-4 w-4" aria-hidden />
               <span className="text-xs font-display font-semibold uppercase tracking-wide">Marcas</span>
             </div>
-            <h2 className="font-display text-2xl md:text-3xl font-bold mb-3">{copy.home_sponsors_cta_title}</h2>
-            <p className="text-muted-foreground text-base mb-6 max-w-xl mx-auto">
-              {copy.home_sponsors_cta_subtitle}
-            </p>
+            <h2 className="font-display text-2xl md:text-3xl font-bold mb-3">{copy.home_sponsors_cta_title || '¿Quieres patrocinar nuestros eventos?'}</h2>
+            {copy.home_sponsors_cta_subtitle && (
+              <p className="text-muted-foreground text-base mb-6 max-w-xl mx-auto">{copy.home_sponsors_cta_subtitle}</p>
+            )}
             <Link href="/sponsors">
               <Button
                 size="lg"
@@ -340,6 +288,21 @@ export default async function HomePage() {
           </FadeIn>
         </div>
       </section>
+      )}
+
+      {/* Contacto — sección del núcleo (formulario → bandeja de mensajes). Se activa en Configuración → Contenido. */}
+      {copy.contact_form_enabled === 'true' && (
+        <section id="contacto" className="border-t border-border/40 scroll-mt-20">
+          <div className="max-w-[1200px] mx-auto px-4 py-16 md:py-20 grid gap-10 md:grid-cols-12">
+            <div className="md:col-span-4">
+              <h2 className="font-display text-3xl md:text-4xl font-bold tracking-tight text-balance">Contacto</h2>
+              <p className="mt-3 text-muted-foreground">Cuéntanos qué necesitas y te respondemos por email.</p>
+            </div>
+            <div className="md:col-span-8 max-w-2xl">
+              <ContactForm />
+            </div>
+          </div>
+        </section>
       )}
     </>
   );

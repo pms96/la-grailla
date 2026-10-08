@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { headers } from 'next/headers';
-import { isPlatformMode } from './mode';
+import { isPlatformMode, legacyTenantId } from './mode';
 import { platformContextKey, verifyContext } from './context-verify';
 import { CONTEXT_HEADER, type TenantContext } from './context-types';
 
@@ -57,3 +57,14 @@ export function requireTenant(): TenantContext {
 
 /** ¿Hay que aplicar el aislamiento por cliente? (modo plataforma) */
 export const tenantIsolationOn = isPlatformMode;
+
+/**
+ * ¿Esta petición es de La Grailla? Instalación única: siempre. Modo plataforma: solo el cliente `legacy`. Decide de dónde salen los valores
+ * por defecto de marca (los de La Grailla o los neutros): un cliente nuevo nunca hereda la identidad, el correo ni los textos de otro.
+ */
+export function isLegacyTenant(): boolean {
+  if (!isPlatformMode()) return true;
+  const legacy = legacyTenantId();
+  const ctx = currentTenant();
+  return !!legacy && !!ctx && ctx.tenantId === legacy;
+}

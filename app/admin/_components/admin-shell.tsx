@@ -14,7 +14,7 @@ import { ChangePasswordDialog } from '@/app/admin/_components/change-password-di
 import {
   LayoutDashboard, Calendar, Ticket, Users, ShoppingBag, Package,
   BarChart3, Handshake, Settings, LogOut, Menu, X, QrCode, KeyRound, Receipt, Moon,
-  UserPlus, ScanLine, Gauge, ShoppingCart, Wallet, Coins,
+  UserPlus, ScanLine, Gauge, ShoppingCart, Wallet, Coins, Palette, MessageSquare,
 } from 'lucide-react';
 
 type NavItem = {
@@ -73,7 +73,9 @@ const navGroups: NavGroup[] = [
     label: 'Sistema',
     items: [
       { href: '/admin/sponsors', label: 'Sponsors', icon: Handshake },
+      { href: '/admin/mensajes', label: 'Mensajes', icon: MessageSquare },
       { href: '/admin/usuarios', label: 'Usuarios', icon: Users },
+      { href: '/admin/apariencia', label: 'Apariencia', icon: Palette },
       { href: '/admin/configuracion', label: 'Configuración', icon: Settings },
     ],
   },
@@ -135,7 +137,7 @@ export default function AdminShell({ children, modules, licenseGrace }: AdminShe
           <div className="p-4 border-b border-border">
             <div className="flex items-center justify-between">
               <Link href="/admin" className="flex items-center gap-2">
-                <Logo variant="white" className="h-7" />
+                <Logo className="h-7" />
               </Link>
               <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={closeSidebar}>
                 <X className="h-4 w-4" />
@@ -205,7 +207,7 @@ export default function AdminShell({ children, modules, licenseGrace }: AdminShe
             <Button variant="ghost" size="icon-sm" onClick={() => setSidebarOpen(true)}>
               <Menu className="h-5 w-5" />
             </Button>
-            <Logo variant="white" className="h-6" />
+            <Logo className="h-6" />
           </div>
         </header>
         {licenseGrace && (

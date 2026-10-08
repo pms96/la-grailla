@@ -41,7 +41,7 @@ export async function GET(request: Request, { params }: { params: { ticketId: st
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
         'Content-Type': 'application/vnd.apple.pkpass',
-        'Content-Disposition': 'attachment; filename="entrada-la-grailla.pkpass"',
+        'Content-Disposition': 'attachment; filename="entrada.pkpass"',
       },
     });
   } catch (error) {

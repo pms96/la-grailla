@@ -9,6 +9,8 @@ import { getOperatorEmail } from '@/lib/config';
 import { handleApiError } from '@/lib/api-error';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { normalizePhone } from '@/lib/phone';
+import { getBrand } from '@/lib/brand/brand';
+import { brandLogoHtml } from '@/lib/brand/email';
 
 // Los campos del formulario van directos al HTML de dos emails reales (a
 // administrador y al remitente) — sin escapar, cualquiera podía
@@ -89,19 +91,20 @@ export async function POST(request: Request) {
       console.error('[sponsors] admin_email no está configurado: no se avisa de la solicitud', sponsorReq.id);
     }
 
-    const logoUrl = getFallbackBaseUrl() + '/brand/logo-black.png';
+    const brand = await getBrand();
+    const logoHtml = brandLogoHtml(brand, getFallbackBaseUrl(), 24);
     const confirmHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #a855f7;">Solicitud Recibida</h2>
+        <h2 style="color: ${brand.colors.emailAccent};">Solicitud Recibida</h2>
         <p>Hola ${esc(contactName)},</p>
-        <p>Hemos recibido tu solicitud de patrocinio para <strong>La Grailla</strong>.</p>
+        <p>Hemos recibido tu solicitud de patrocinio para <strong>${esc(brand.name)}</strong>.</p>
         <p>Nos pondremos en contacto contigo lo antes posible.</p>
-        <p style="margin-top: 30px;"><img src="${logoUrl}" alt="La Grailla" height="24" style="height:24px;width:auto;" /></p>
+        <p style="margin-top: 30px;">${logoHtml}</p>
       </div>
     `;
 
     const confirmResult = await sendMail({
-      subject: 'Solicitud de patrocinio recibida - La Grailla',
+      subject: `Solicitud de patrocinio recibida - ${brand.name}`,
       html: confirmHtml,
       to: email,
     });

@@ -1,8 +1,8 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import type { prisma } from '@/lib/prisma';
-import { readFile } from 'fs/promises';
-import path from 'path';
 import { generateQRDataUrl } from '@/lib/qr';
+import { getBrand } from '@/lib/brand/brand';
+import { drawBrandWordmark, embedBrandLogo, pdfColor } from '@/lib/brand/pdf';
 
 // DATA-01: derivado del propio cliente extendido (totalAmount/commission son
 // number, no Decimal) — ver la misma nota en lib/tickets.ts.
@@ -31,9 +31,8 @@ export async function buildTicketsPdf(order: OrderForPdf): Promise<Uint8Array> {
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-  const logoBytes = await readFile(path.join(process.cwd(), 'public', 'brand', 'logo-black.png'));
-  const logoImage = await pdf.embedPng(new Uint8Array(logoBytes));
-  const logoAspect = logoImage.height / logoImage.width;
+  const brand = await getBrand();
+  const logoImage = await embedBrandLogo(pdf, brand);
 
   const eventDate = order.event?.date
     ? new Date(order.event.date).toLocaleDateString('es-ES', {
@@ -66,8 +65,12 @@ export async function buildTicketsPdf(order: OrderForPdf): Promise<Uint8Array> {
     };
 
     const logoHeight = 26;
-    const logoWidth = logoHeight / logoAspect;
-    page.drawImage(logoImage, { x: margin, y: y - logoHeight, width: logoWidth, height: logoHeight });
+    if (logoImage) {
+      const logoWidth = logoHeight / (logoImage.height / logoImage.width);
+      page.drawImage(logoImage, { x: margin, y: y - logoHeight, width: logoWidth, height: logoHeight });
+    } else {
+      drawBrandWordmark(page, fontBold, brand, { x: margin, y: y - logoHeight + 6, size: 20 });
+    }
     y -= logoHeight + 10;
     draw('Entrada digital', { size: 11, color: rgb(0.4, 0.4, 0.4) });
     y -= 12;
@@ -115,8 +118,6 @@ const MM_TO_PT = 72 / 25.4;
 export const TAQUILLA_TICKET_WIDTH_PT = 105 * MM_TO_PT;
 export const TAQUILLA_TICKET_HEIGHT_PT = 70 * MM_TO_PT;
 
-// Brand lima #C5E63A — mismo tono que bg-lima en la entrada digital.
-const LIMA = rgb(197 / 255, 230 / 255, 58 / 255);
 const INK = rgb(0.024, 0.024, 0.035);
 const WHITE = rgb(1, 1, 1);
 
@@ -320,9 +321,10 @@ export async function buildTicketsPdfForRoll(order: OrderForPdf): Promise<Uint8A
   const fontMonoBold = await pdf.embedFont(StandardFonts.CourierBold);
 
   const eventDateShort = shortEventDate(order.event?.date);
-  const logoBytes = await readFile(path.join(process.cwd(), 'public', 'brand', 'logo-black.png'));
-  const logoImage = await pdf.embedPng(new Uint8Array(logoBytes));
-  const logoAspect = logoImage.height / logoImage.width;
+  const brand = await getBrand();
+  const logoImage = await embedBrandLogo(pdf, brand);
+  // Fondo de la entrada física: el color de acento de la marca (el lima de La Grailla).
+  const ACCENT = pdfColor(brand.colors.accent);
 
   const width = TAQUILLA_TICKET_WIDTH_PT;
   const height = TAQUILLA_TICKET_HEIGHT_PT;
@@ -334,7 +336,7 @@ export async function buildTicketsPdfForRoll(order: OrderForPdf): Promise<Uint8A
 
   for (const ticket of order.tickets ?? []) {
     const page = pdf.addPage([width, height]);
-    page.drawRectangle({ x: 0, y: 0, width, height, color: LIMA });
+    page.drawRectangle({ x: 0, y: 0, width, height, color: ACCENT });
     page.drawSvgPath(
       `M ${stubX - notch} 0 L ${stubX} ${notch} L ${stubX + notch} 0 Z`,
       { color: WHITE, y: height }
@@ -359,13 +361,18 @@ export async function buildTicketsPdfForRoll(order: OrderForPdf): Promise<Uint8A
     let y = height - pad;
 
     const logoHeight = 22;
-    const logoWidth = logoHeight / logoAspect;
-    page.drawImage(logoImage, {
-      x: bodyLeft,
-      y: y - logoHeight,
-      width: logoWidth,
-      height: logoHeight,
-    });
+    let logoWidth: number;
+    if (logoImage) {
+      logoWidth = logoHeight / (logoImage.height / logoImage.width);
+      page.drawImage(logoImage, {
+        x: bodyLeft,
+        y: y - logoHeight,
+        width: logoWidth,
+        height: logoHeight,
+      });
+    } else {
+      logoWidth = drawBrandWordmark(page, fontBold, brand, { x: bodyLeft, y: y - logoHeight + 5, size: 16 });
+    }
 
     const city = pdfSafe((order.event?.city ?? '').toUpperCase());
     if (city) {

@@ -2,14 +2,16 @@
 export const dynamic = 'force-dynamic';
 
 import { getConfig } from '@/lib/config';
+import { getBrand } from '@/lib/brand/brand';
 import { Container } from '@/components/layouts/container';
 
 export const metadata = {
-  title: 'Política de cookies | La Grailla',
+  title: 'Política de cookies',
 };
 
 export default async function CookiesPolicyPage() {
-  const text = await getConfig('cookies_policy');
+  const [text, brand] = await Promise.all([getConfig('cookies_policy'), getBrand()]);
+  const mailto = brand.contactEmail;
 
   return (
     <Container className="py-16">
@@ -20,7 +22,7 @@ export default async function CookiesPolicyPage() {
         ) : (
           <div className="space-y-4 text-muted-foreground leading-relaxed">
             <p>
-              En La Grailla utilizamos cookies propias estrictamente necesarias para que la web funcione: mantener tu
+              En {brand.name} utilizamos cookies propias estrictamente necesarias para que la web funcione: mantener tu
               sesión iniciada, recordar el contenido de tu carrito y guardar tus preferencias de privacidad.
             </p>
             <p>
@@ -29,8 +31,8 @@ export default async function CookiesPolicyPage() {
             </p>
             <p>
               Puedes borrar las cookies en cualquier momento desde la configuración de tu navegador. Si tienes cualquier
-              duda sobre el tratamiento de tus datos, escríbenos a{' '}
-              <span suppressHydrationWarning>grupolagrailla@gmail.com</span>.
+              duda sobre el tratamiento de tus datos{mailto ? <>, escríbenos a{' '}
+              <span suppressHydrationWarning>{mailto}</span></> : ''}.
             </p>
           </div>
         )}

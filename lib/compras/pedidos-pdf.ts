@@ -2,6 +2,8 @@ import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont } from 'pdf
 import { precioFinalUnidad, precioTrasDescuento } from '@/lib/compras/calculadora';
 import { PEDIDO_STATUS_LABEL } from '@/lib/compras/constantes';
 import type { PedidosParaExport, PedidoParaExport, PedidosExportOptions } from '@/lib/compras/pedidos-data';
+import { getBrand } from '@/lib/brand/brand';
+import { pdfBrandName, pdfColor } from '@/lib/brand/pdf';
 
 const PAGE_SIZE: [number, number] = [595.28, 841.89]; // A4 vertical
 const MARGIN = 48;
@@ -74,7 +76,9 @@ export async function buildPedidosPdf(data: PedidosParaExport, opts: PedidosExpo
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const morado = rgb(0.24, 0.18, 0.84);
+  const brand = await getBrand();
+  const brandName = pdfBrandName(brand);
+  const morado = pdfColor(brand.colors.primary);
   const gris = rgb(0.4, 0.4, 0.4);
   const negro = rgb(0.1, 0.1, 0.1);
   const tableWidth = COLUMNAS.reduce((sum, c) => sum + c.width, 0);
@@ -110,7 +114,7 @@ export async function buildPedidosPdf(data: PedidosParaExport, opts: PedidosExpo
       newPage();
     }
 
-    page.drawText('La Grailla — Pedido a proveedor', { x: MARGIN, y, size: 12, font, color: gris });
+    page.drawText(`${brandName} — Pedido a proveedor`, { x: MARGIN, y, size: 12, font, color: gris });
     y -= 22;
     page.drawText(pedido.proveedor.nombre, { x: MARGIN, y, size: 20, font: fontBold, color: morado });
     y -= 24;

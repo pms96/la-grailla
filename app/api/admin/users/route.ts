@@ -7,6 +7,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import bcrypt from 'bcryptjs';
 import { handleApiError } from '@/lib/api-error';
+import { isModuleEnabled } from '@/lib/modules/runtime';
 
 const createUserSchema = z.object({
   email: z.string().min(1, 'email_is_required').email('invalid_email'),
@@ -38,6 +39,10 @@ export async function POST(request: Request) {
   }
   try {
     const { email, password, name, role } = createUserSchema.parse(await request.json());
+    // TAQUILLA (venta en puerta) es un rol del módulo Entradas: sin él, los usuarios del panel tienen un solo rol.
+    if (role === 'TAQUILLA' && !isModuleEnabled('entradas')) {
+      return NextResponse.json({ error: 'El rol de taquilla requiere el módulo de venta de entradas' }, { status: 400 });
+    }
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
       return NextResponse.json({ error: 'El email ya está registrado' }, { status: 409 });

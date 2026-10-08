@@ -1,8 +1,8 @@
 import ExcelJS from 'exceljs';
 import type { Temporada } from '@prisma/client';
 import type { FilaPlanificador } from '@/lib/compras/planificador-data';
+import { getBrand } from '@/lib/brand/brand';
 
-const MORADO = 'FF3D2FD5';
 const GRIS_CLARO = 'FFF2F2F7';
 
 export async function buildPlanificadorExcel(
@@ -11,7 +11,10 @@ export async function buildPlanificadorExcel(
   filas: FilaPlanificador[]
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'La Grailla';
+  const brand = await getBrand();
+  workbook.creator = brand.name;
+  // Color de las cabeceras: el principal de la marca del cliente (ARGB).
+  const MORADO = `FF${brand.colors.primary.slice(1).toUpperCase()}`;
   workbook.created = new Date();
 
   const proveedores = Array.from(

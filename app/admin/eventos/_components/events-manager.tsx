@@ -18,7 +18,8 @@ import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
 import { ConfirmDeleteDialog } from '@/app/admin/_components/confirm-delete-dialog';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 import { hasEventEnded } from '@/lib/active-event';
-import { DEFAULT_MINOR_AUTHORIZATION_TEXT } from '@/lib/minor-authorization-text';
+import { defaultMinorAuthorizationText } from '@/lib/minor-authorization-text';
+import { useBrand } from '@/components/brand-provider';
 import { DEFAULT_ONLINE_SALES_CLOSED_LABEL, DEFAULT_ONLINE_SALES_CLOSED_MESSAGE } from '@/lib/online-sales-closed';
 
 type EventWithCount = Event & { _count?: { tickets: number }; temporada?: { id: string; nombre: string } | null };
@@ -59,6 +60,7 @@ const DEFAULT_WAITING_ROOM_SLOTS = 20;
 const DEFAULT_WAITING_ROOM_WINDOW_MINUTES = 5;
 
 export default function EventsManager() {
+  const { organizer } = useBrand();
   const [events, setEvents] = useState<EventWithCount[]>([]);
   const [temporadas, setTemporadas] = useState<Temporada[]>([]);
   const [verArchivados, setVerArchivados] = useState(false);
@@ -358,7 +360,7 @@ export default function EventsManager() {
                     onCheckedChange={(v: boolean) => {
                       updateField('minorAuthorizationEnabled', v);
                       if (v && !form?.minorAuthorizationText) {
-                        updateField('minorAuthorizationText', DEFAULT_MINOR_AUTHORIZATION_TEXT);
+                        updateField('minorAuthorizationText', defaultMinorAuthorizationText(organizer));
                       }
                     }}
                   />

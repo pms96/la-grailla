@@ -1,6 +1,8 @@
 import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont } from 'pdf-lib';
 import { precioFinalUnidad } from '@/lib/compras/calculadora';
 import type { ArticuloConPrecios } from '@/lib/compras/articulos-excel';
+import { getBrand } from '@/lib/brand/brand';
+import { pdfBrandName, pdfColor } from '@/lib/brand/pdf';
 
 const PAGE_SIZE: [number, number] = [841.89, 595.28]; // A4 apaisado
 const MARGIN = 36;
@@ -32,7 +34,9 @@ export async function buildArticulosPdf(articulos: ArticuloConPrecios[]): Promis
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const morado = rgb(0.24, 0.18, 0.84);
+  const brand = await getBrand();
+  const brandName = pdfBrandName(brand);
+  const morado = pdfColor(brand.colors.primary);
   const gris = rgb(0.4, 0.4, 0.4);
   const negro = rgb(0.1, 0.1, 0.1);
   const tableWidth = COLUMNAS.reduce((sum, c) => sum + c.width, 0);
@@ -54,7 +58,7 @@ export async function buildArticulosPdf(articulos: ArticuloConPrecios[]): Promis
     page = pdf.addPage(PAGE_SIZE);
     y = page.getSize().height - MARGIN;
     if (withTitle) {
-      page.drawText('La Grailla — Catálogo de artículos', { x: MARGIN, y, size: 16, font: fontBold, color: morado });
+      page.drawText(`${brandName} — Catálogo de artículos`, { x: MARGIN, y, size: 16, font: fontBold, color: morado });
       y -= 22;
       page.drawText(`Generado el ${new Date().toLocaleDateString('es-ES')}`, { x: MARGIN, y, size: 9, font, color: gris });
       y -= 18;

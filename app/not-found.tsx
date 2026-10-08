@@ -1,8 +1,11 @@
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Ticket, Music } from 'lucide-react';
+import { Ticket, Music, Home } from 'lucide-react';
+import { getActiveModules } from '@/lib/modules/runtime';
 
 export default function NotFound() {
+  // Sin el módulo Entradas, /eventos tampoco existe: se vuelve al inicio.
+  const hasEntradas = getActiveModules().includes('entradas');
   return (
     <div className="relative min-h-screen flex items-center justify-center overflow-hidden">
       <div className="absolute inset-0 hero-gradient" />
@@ -19,10 +22,10 @@ export default function NotFound() {
         <p className="text-lg text-muted-foreground mb-10">
           La página que buscas no está aquí — puede que el enlace haya caducado o esté mal escrito.
         </p>
-        <Link href="/eventos">
+        <Link href={hasEntradas ? '/eventos' : '/'}>
           <Button size="lg" className="gap-2 font-display font-semibold px-8 h-12 rounded-full shadow-lg shadow-primary/25">
-            <Ticket className="h-5 w-5" />
-            Ver Eventos
+            {hasEntradas ? <Ticket className="h-5 w-5" /> : <Home className="h-5 w-5" />}
+            {hasEntradas ? 'Ver Eventos' : 'Volver al inicio'}
           </Button>
         </Link>
       </div>

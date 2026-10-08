@@ -23,12 +23,17 @@ const rules: Rule[] = [
   { prefix: '/admin', owner: 'nucleo', exact: true },
   { prefix: '/admin/configuracion', owner: 'nucleo' },
   { prefix: '/admin/usuarios', owner: 'nucleo' },
+  { prefix: '/admin/apariencia', owner: 'nucleo' },
+  { prefix: '/admin/mensajes', owner: 'nucleo' },
   { prefix: '/api/auth', owner: 'nucleo' },
   { prefix: '/api/signup', owner: 'nucleo' },
   { prefix: '/api/cron', owner: 'nucleo' },
   { prefix: '/api/webhooks', owner: 'nucleo' },
   { prefix: '/api/admin/config', owner: 'nucleo' },
   { prefix: '/api/admin/users', owner: 'nucleo' },
+  { prefix: '/api/admin/theme', owner: 'nucleo' },
+  { prefix: '/api/admin/contact', owner: 'nucleo' },
+  { prefix: '/api/contact', owner: 'nucleo' },
   { prefix: '/api/admin/change-password', owner: 'nucleo' },
   { prefix: '/api/admin/upload', owner: 'nucleo' },
 
@@ -69,6 +74,7 @@ const rules: Rule[] = [
   { prefix: '/api/shop', owner: 'tienda' },
   { prefix: '/api/admin/products', owner: 'tienda' },
   { prefix: '/api/admin/shop-orders', owner: 'tienda' },
+  { prefix: '/api/admin/shop-stats', owner: 'tienda' },
 
   // ── Contabilidad ──────────────────────────────────────────────────────────
   { prefix: '/admin/compras', owner: 'contabilidad' },

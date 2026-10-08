@@ -2,14 +2,15 @@ import { ShoppingBag } from 'lucide-react';
 import { Container } from '@/components/layouts/container';
 import { FadeIn } from '@/components/ui/animate';
 import ShopGrid from './_components/shop-grid';
+import { getBrand } from '@/lib/brand/brand';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
 
-export const metadata = {
-  title: 'Tienda | La Grailla',
-  description: 'Merch oficial de La Grailla. Lleva la caseta de feria contigo — bajo pedido.',
-};
+export async function generateMetadata() {
+  const { name } = await getBrand();
+  return { title: 'Tienda', description: `Tienda oficial de ${name}.` };
+}
 
 export default function TiendaPage() {
   return (

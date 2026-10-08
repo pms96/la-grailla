@@ -2,14 +2,16 @@
 export const dynamic = 'force-dynamic';
 
 import { getConfig } from '@/lib/config';
+import { getBrand } from '@/lib/brand/brand';
 import { Container } from '@/components/layouts/container';
 
 export const metadata = {
-  title: 'Aviso legal | La Grailla',
+  title: 'Aviso legal',
 };
 
 export default async function AvisoLegalPage() {
-  const text = await getConfig('legal_notice');
+  const [text, brand] = await Promise.all([getConfig('legal_notice'), getBrand()]);
+  const mailto = brand.contactEmail;
 
   return (
     <Container className="py-16">
@@ -20,8 +22,13 @@ export default async function AvisoLegalPage() {
         ) : (
           <div className="space-y-4 text-muted-foreground leading-relaxed">
             <p>
-              Este sitio es operado por Grupo La Grailla. Para cualquier consulta sobre estas condiciones, escríbenos a{' '}
-              <span suppressHydrationWarning>grupolagrailla@gmail.com</span>.
+              Este sitio es operado por {brand.legalName}.
+              {mailto && (
+                <>
+                  {' '}Para cualquier consulta sobre estas condiciones, escríbenos a{' '}
+                  <span suppressHydrationWarning>{mailto}</span>.
+                </>
+              )}
             </p>
           </div>
         )}

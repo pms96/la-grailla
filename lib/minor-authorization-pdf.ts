@@ -1,5 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import { resolveMinorAuthorizationText } from '@/lib/minor-authorization-text';
+import { getBrand } from '@/lib/brand/brand';
+import { pdfColor } from '@/lib/brand/pdf';
 
 export type EventForMinorAuthorizationPdf = {
   name: string;
@@ -103,6 +105,7 @@ export async function buildMinorAuthorizationPdf(event: EventForMinorAuthorizati
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const brand = await getBrand();
 
   const page = pdf.addPage([595.28, 841.89]); // A4
   const { width, height } = page.getSize();
@@ -134,7 +137,7 @@ export async function buildMinorAuthorizationPdf(event: EventForMinorAuthorizati
     : '';
 
   // Cabecera
-  draw('La Grailla', { size: 22, bold: true, color: rgb(0.55, 0.2, 0.85) });
+  draw(brand.name, { size: 22, bold: true, color: pdfColor(brand.colors.emailAccent) });
   draw('Autorizacion de menores', { size: 11, color: rgb(0.4, 0.4, 0.4) });
   y -= 10;
 
@@ -182,7 +185,7 @@ export async function buildMinorAuthorizationPdf(event: EventForMinorAuthorizati
   y -= 10;
 
   // Texto legal editable por evento
-  const legalLines = wrapParagraphs(resolveMinorAuthorizationText(event), font, 9, contentWidth, 40);
+  const legalLines = wrapParagraphs(resolveMinorAuthorizationText(event, brand.organizer), font, 9, contentWidth, 40);
   for (const line of legalLines) {
     if (line === '') {
       y -= 6;

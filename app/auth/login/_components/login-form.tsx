@@ -61,7 +61,7 @@ export default function LoginForm() {
           type="email"
           value={email}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e?.target?.value ?? '')}
-          placeholder="admin@lagrailla.com"
+          placeholder="tu@email.com"
           className="mt-1"
           autoComplete="email"
         />

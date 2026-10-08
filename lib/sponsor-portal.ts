@@ -2,6 +2,7 @@ import { prisma, type SponsorRecord } from '@/lib/prisma';
 import { sendMail, escapeHtml, type SendMailResult } from '@/lib/mailer';
 import { signSponsorAccess } from '@/lib/access-token';
 import type { SponsorEmailType, SponsorPortalStatus, SponsorRequest } from '@prisma/client';
+import { getBrand } from '@/lib/brand/brand';
 // Alias local — el resto de este archivo ya se refería al tipo como `Sponsor`.
 type Sponsor = SponsorRecord;
 
@@ -29,17 +30,18 @@ const STATUS_NOTIFY_MESSAGES: Record<string, string> = {
 
 function copyForType(
   type: SponsorEmailType,
-  { contactName, companyName, portalUrl, status }: { contactName: string; companyName: string; portalUrl: string; status?: SponsorPortalStatus }
+  { contactName, companyName, portalUrl, status, brandName }: { contactName: string; companyName: string; portalUrl: string; status?: SponsorPortalStatus; brandName: string }
 ): { subject: string; html: string } {
   const greeting = `<p>Hola ${escapeHtml(contactName || companyName)},</p>`;
+  const brand = escapeHtml(brandName);
 
   switch (type) {
     case 'PORTAL_INVITE':
       return {
-        subject: 'Acceso a tu portal de patrocinador — La Grailla',
+        subject: `Acceso a tu portal de patrocinador — ${brandName}`,
         html: `
           ${greeting}
-          <p>¡Buenas noticias! ${escapeHtml(companyName)} ha sido aceptado como patrocinador de La Grailla.</p>
+          <p>¡Buenas noticias! ${escapeHtml(companyName)} ha sido aceptado como patrocinador de ${brand}.</p>
           <p>Ya puedes acceder a tu portal privado para subir tu logo y contarnos cómo quieres que sea
             el vídeo de tu marca en pantalla LED:</p>
           <p><a href="${portalUrl}">${portalUrl}</a></p>
@@ -50,10 +52,10 @@ function copyForType(
       };
     case 'PORTAL_INVITE_RESEND':
       return {
-        subject: 'Aquí tienes de nuevo tu acceso al portal — La Grailla',
+        subject: `Aquí tienes de nuevo tu acceso al portal — ${brandName}`,
         html: `
           ${greeting}
-          <p>Nos has pedido que te reenviemos el acceso a tu portal de patrocinador de La Grailla —
+          <p>Nos has pedido que te reenviemos el acceso a tu portal de patrocinador de ${brand} —
             aquí lo tienes de nuevo:</p>
           <p><a href="${portalUrl}">${portalUrl}</a></p>
           <p>Si no habías perdido el enlace anterior, puedes ignorar este correo — sigue siendo el mismo portal.</p>
@@ -61,19 +63,19 @@ function copyForType(
       };
     case 'REJECTION':
       return {
-        subject: 'Sobre tu solicitud de patrocinio — La Grailla',
+        subject: `Sobre tu solicitud de patrocinio — ${brandName}`,
         html: `
           ${greeting}
-          <p>Gracias por el interés de ${escapeHtml(companyName)} en patrocinar La Grailla.</p>
+          <p>Gracias por el interés de ${escapeHtml(companyName)} en patrocinar ${brand}.</p>
           <p>Esta vez no hemos podido seguir adelante con la solicitud. Si quieres más detalles o
             te gustaría intentarlo en una futura edición, escríbenos y lo hablamos.</p>
         `,
       };
     case 'STATUS_NOTIFY':
     default: {
-      const message = (status && STATUS_NOTIFY_MESSAGES[status]) ?? 'Hay novedades sobre tu patrocinio en La Grailla.';
+      const message = (status && STATUS_NOTIFY_MESSAGES[status]) ?? `Hay novedades sobre tu patrocinio en ${brand}.`;
       return {
-        subject: 'Novedades sobre tu patrocinio — La Grailla',
+        subject: `Novedades sobre tu patrocinio — ${brandName}`,
         html: `
           ${greeting}
           <p>${message}</p>
@@ -104,7 +106,9 @@ async function sendSponsorLifecycleEmail(
   }: { sponsor: Sponsor; sponsorRequest: Omit<SponsorRequest, 'email'> & { email: string }; baseUrl: string; sentById?: string | null }
 ): Promise<SendMailResult> {
   const portalUrl = buildSponsorPortalUrl(baseUrl, sponsor.id, sponsor.portalTokenVersion);
+  const { name: brandName } = await getBrand();
   const { subject, html } = copyForType(type, {
+    brandName,
     contactName: sponsorRequest.contactName,
     companyName: sponsorRequest.companyName,
     portalUrl,

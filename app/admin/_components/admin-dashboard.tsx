@@ -11,6 +11,7 @@ import { SkeletonPulse } from '@/components/ui/animate';
 import { toast } from 'sonner';
 import { CapacityBar } from '@/components/admin/capacity-bar';
 import { isEventTonight } from '@/lib/active-event';
+import { useBrand } from '@/components/brand-provider';
 
 type DashboardEvent = Pick<Event, 'id' | 'name' | 'maxCapacity' | 'currentCount' | 'date' | 'status'> & {
   soldCount: number;
@@ -30,6 +31,7 @@ type DashboardStats = {
 type MargenTemporada = { nombre: string; margen: number; nEventosEnlazados: number };
 
 export default function AdminDashboard() {
+  const { name: brandName } = useBrand();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [margenTemporada, setMargenTemporada] = useState<MargenTemporada | null>(null);
   const [loading, setLoading] = useState(true);
@@ -119,7 +121,7 @@ export default function AdminDashboard() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Resumen operativo de La Grailla</p>
+          <p className="text-muted-foreground mt-1">Resumen operativo de {brandName}</p>
         </div>
         <Button variant="outline" size="sm" className="gap-2 shrink-0" asChild>
           <Link href="/admin/estadisticas">

@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { isModuleEnabled } from '@/lib/modules/runtime';
 
 const updateUserSchema = z.object({
   role: z.enum(['ADMIN', 'TAQUILLA', 'USER']).optional(),
@@ -24,6 +25,13 @@ export async function PUT(
   }
   try {
     const body = updateUserSchema.parse(await request.json());
+    // Asignar TAQUILLA exige el módulo Entradas; dejarlo como está (editar el nombre o la contraseña de quien ya lo es) no.
+    if (body?.role === 'TAQUILLA' && !isModuleEnabled('entradas')) {
+      const current = await prisma.user.findUnique({ where: { id: params?.id }, select: { role: true } });
+      if (current?.role !== 'TAQUILLA') {
+        return NextResponse.json({ error: 'El rol de taquilla requiere el módulo de venta de entradas' }, { status: 400 });
+      }
+    }
 
     // Sin este guard, un admin podría quitarse a sí mismo el rol ADMIN (o
     // borrarse, en el DELETE de abajo) y quedarse fuera del panel sin nadie

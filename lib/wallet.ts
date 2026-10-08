@@ -2,6 +2,9 @@ import { getFallbackBaseUrl } from '@/lib/url';
 import { getConfig, getConfigs, getOperatorEmail, setConfig } from '@/lib/config';
 import { APPLE_WWDR_CERT_PEM } from '@/lib/apple-wwdr-cert';
 import { sendMail } from '@/lib/mailer';
+import { absoluteBrandUrl, getBrand } from '@/lib/brand/brand';
+import { hexToRgb } from '@/lib/brand/theme';
+import { fetchLimited } from '@/lib/brand/pdf';
 
 export type WalletAvailability = { google: boolean; apple: boolean };
 
@@ -65,7 +68,8 @@ export async function buildGoogleWalletSaveUrl(ticket: TicketPayload): Promise<s
   const classId = issuerId + '.event_' + ticket.eventId.replace(/[^A-Za-z0-9_.-]/g, '');
   const objectId = issuerId + '.tk_' + ticket.ticketId.replace(/[^A-Za-z0-9_.-]/g, '');
 
-  const appUrl = getFallbackBaseUrl();
+  const brand = await getBrand();
+  const logoUrl = absoluteBrandUrl(brand.logoOnDark ?? brand.logoOnLight);
   // Wallet no admite CSS a medida (dos tonos, avatar circular, etc.) — esto es
   // la mejor aproximación con los campos nativos que expone Google: la foto
   // del cartel como heroImage (banner ancho, no circular) y hexBackgroundColor
@@ -73,13 +77,13 @@ export async function buildGoogleWalletSaveUrl(ticket: TicketPayload): Promise<s
   // admite un color de fondo, no dos zonas distintas.
   const eventTicketClass: Record<string, unknown> = {
     id: classId,
-    issuerName: 'La Grailla',
+    issuerName: brand.name,
     reviewStatus: 'UNDER_REVIEW',
-    hexBackgroundColor: '#1F1A22',
-    logo: {
-      sourceUri: { uri: appUrl + '/brand/logo-white.png' },
-      contentDescription: { defaultValue: { language: 'es-ES', value: 'La Grailla' } },
-    },
+    // La Grailla conserva su oscuro de siempre; el resto de clientes, el fondo oscuro de su propia marca.
+    hexBackgroundColor: brand.theme === null ? '#1F1A22' : brand.colors.surfaceDark,
+    ...(logoUrl
+      ? { logo: { sourceUri: { uri: logoUrl }, contentDescription: { defaultValue: { language: 'es-ES', value: brand.name } } } }
+      : {}),
     eventName: { defaultValue: { language: 'es-ES', value: ticket.eventName } },
     venue: {
       name: { defaultValue: { language: 'es-ES', value: ticket.venue } },
@@ -101,7 +105,7 @@ export async function buildGoogleWalletSaveUrl(ticket: TicketPayload): Promise<s
     ticketHolderName: ticket.holderName,
     ticketType: { defaultValue: { language: 'es-ES', value: ticket.ticketTypeName } },
     barcode: { type: 'QR_CODE', value: ticket.qrCode, alternateText: ticket.qrCode },
-    hexBackgroundColor: '#a855f7',
+    hexBackgroundColor: brand.colors.emailAccent,
   };
 
   const jwtLib = (await import('jsonwebtoken')) as typeof import('jsonwebtoken') & {
@@ -126,10 +130,10 @@ export async function buildGoogleWalletSaveUrl(ticket: TicketPayload): Promise<s
 // para no depender de que Next.js incluya `public/` en el bundle de la
 // función serverless (mismo motivo que llevó a embeber el certificado WWDR
 // como constante en vez de leerlo de disco).
-async function fetchLogoBuffer(): Promise<Buffer> {
-  const appUrl = getFallbackBaseUrl();
-  const res = await fetch(appUrl + '/brand/logo-white.png');
-  return Buffer.from(await res.arrayBuffer());
+async function fetchLogoBuffer(logoUrl: string): Promise<Buffer> {
+  const bytes = await fetchLimited(logoUrl);
+  if (!bytes) throw new Error('No se pudo descargar el logo (error, demasiado grande o no disponible)');
+  return Buffer.from(bytes);
 }
 
 // Banda decorativa estática de marca (glow morado/lima sobre azul marino
@@ -138,10 +142,10 @@ async function fetchLogoBuffer(): Promise<Buffer> {
 // cuando no hay imagen "strip". Se usa la misma para todas las entradas: la
 // foto real del evento (retrato, pensada para un cartel) recortaría fatal
 // en un formato tan ancho, así que de momento no varía por evento.
-async function fetchStripBuffer(): Promise<Buffer> {
-  const appUrl = getFallbackBaseUrl();
-  const res = await fetch(appUrl + '/brand/wallet-strip.png');
-  return Buffer.from(await res.arrayBuffer());
+async function fetchStripBuffer(): Promise<Buffer | null> {
+  // La banda es un recurso de La Grailla (/brand/wallet-strip.png); el resto de clientes la dejan vacía (la imagen «strip» del pase es opcional).
+  const res = await fetch(getFallbackBaseUrl() + '/brand/wallet-strip.png');
+  return res.ok ? Buffer.from(await res.arrayBuffer()) : null;
 }
 
 // passkit-generator firma el .pkpass con node-forge y espera el certificado
@@ -242,22 +246,30 @@ export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | nu
       void alertAppleCertExpiringSoon(notAfter, daysRemaining);
     }
 
-    const iconBuffer = await fetchLogoBuffer();
-    const stripBuffer = await fetchStripBuffer();
+    // El icono es obligatorio en un pase de Apple: sin logo de marca no se puede generar (se avisa y no hay pase).
+    const brand = await getBrand();
+    const logoUrl = absoluteBrandUrl(brand.logoOnDark ?? brand.logoOnLight);
+    if (!logoUrl) {
+      console.error('[wallet] Apple Wallet: el cliente no tiene logo en Apariencia; no se puede generar el pase.');
+      return null;
+    }
+    const iconBuffer = await fetchLogoBuffer(logoUrl);
+    const stripBuffer = brand.theme === null ? await fetchStripBuffer() : null;
+    const rgbOf = (hex: string) => `rgb(${hexToRgb(hex).join(',')})`;
 
     const passJson = {
       formatVersion: 1,
       passTypeIdentifier: cfg.apple_wallet_pass_type_id,
       teamIdentifier: cfg.apple_wallet_team_id,
-      organizationName: 'La Grailla',
+      organizationName: brand.name,
       description: 'Entrada ' + ticket.eventName,
       serialNumber: ticket.ticketId,
       // Azul Marino Profundo + Verde Lima como labelColor: la misma pareja de
       // marca morado/lima que el resto del producto, en vez de los tonos
       // genéricos anteriores que no remitían a La Grailla.
       foregroundColor: 'rgb(255,255,255)',
-      backgroundColor: 'rgb(11,11,20)',
-      labelColor: 'rgb(197,230,58)',
+      backgroundColor: brand.theme === null ? 'rgb(11,11,20)' : rgbOf(brand.colors.surfaceDark),
+      labelColor: brand.theme === null ? 'rgb(197,230,58)' : rgbOf(brand.colors.accent),
       eventTicket: {},
     };
 
@@ -267,8 +279,7 @@ export async function buildApplePass(ticket: TicketPayload): Promise<Buffer | nu
         'icon.png': iconBuffer,
         'icon@2x.png': iconBuffer,
         'logo.png': iconBuffer,
-        'strip.png': stripBuffer,
-        'strip@2x.png': stripBuffer,
+        ...(stripBuffer ? { 'strip.png': stripBuffer, 'strip@2x.png': stripBuffer } : {}),
       },
       {
         wwdr: Buffer.from(APPLE_WWDR_CERT_PEM),

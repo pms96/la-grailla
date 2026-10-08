@@ -7,6 +7,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { SECRET_MASK, encryptSecret, isSensitiveConfigKey, isWriteOnlyConfigKey } from '@/lib/secrets';
+import { THEME_CONFIG_KEY } from '@/lib/brand/brand';
 
 const updateConfigSchema = z.object({
   configs: z
@@ -50,6 +51,8 @@ export async function PUT(request: Request) {
     const body = updateConfigSchema.parse(await request.json());
     const updates = body.configs;
     for (const cfg of updates) {
+      // El tema de marca solo se escribe por /api/admin/theme (valida los colores y las imágenes); aquí es de solo lectura.
+      if (cfg?.key === THEME_CONFIG_KEY) continue;
       if (cfg?.key) {
         // Copiar una API key desde el dashboard de la pasarela suele arrastrar un
         // espacio o salto de línea invisible — eso rompe el header Authorization

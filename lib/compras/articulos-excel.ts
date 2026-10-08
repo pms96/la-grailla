@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import type { prisma } from '@/lib/prisma';
 import { precioFinalUnidad } from '@/lib/compras/calculadora';
+import { getBrand } from '@/lib/brand/brand';
 
 // DATA-01: derivado del cliente extendido (ivaPercent/precioSinIva/
 // descuentoPercent son number, no Decimal) — ver la misma nota en
@@ -13,11 +14,13 @@ export type ArticuloConPrecios = NonNullable<
   >
 >;
 
-const MORADO = 'FF3D2FD5';
 
 export async function buildArticulosExcel(articulos: ArticuloConPrecios[]): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'La Grailla';
+  const brand = await getBrand();
+  workbook.creator = brand.name;
+  // Color de las cabeceras: el principal de la marca del cliente (ARGB).
+  const MORADO = `FF${brand.colors.primary.slice(1).toUpperCase()}`;
   workbook.created = new Date();
 
   const proveedores = Array.from(

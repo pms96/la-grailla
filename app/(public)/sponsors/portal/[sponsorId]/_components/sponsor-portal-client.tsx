@@ -19,6 +19,7 @@ import { cn, parseJsonSafe } from '@/lib/utils';
 import { SPONSOR_GUIDED_QUESTIONS, CUSTOM_OPTION_LABEL, type GuidedQuestion } from '@/lib/sponsor-guided-questions';
 import { SponsorAssetList, type SponsorAssetItem } from '@/components/sponsor-asset-list';
 import { findSponsorTier, type SponsorTier } from '@/lib/sponsor-tiers';
+import { useBrand } from '@/components/brand-provider';
 
 function GuidedQuestionField({ question, value, onChange }: { question: GuidedQuestion; value: string; onChange: (v: string) => void }) {
   // El useState debe llamarse siempre, en el mismo orden, sin importar el
@@ -151,6 +152,7 @@ function SponsorStepper({ status }: { status: string }) {
 }
 
 export default function SponsorPortalClient({ sponsorId, accessToken }: { sponsorId: string; accessToken: string }) {
+  const { name: brandName, contactEmail, blobPrefix } = useBrand();
   const [sponsor, setSponsor] = useState<SponsorData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -251,7 +253,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
       // serverless de Vercel cortan cualquier payload de más de ~4.5MB con
       // un 413 en texto plano, rompiendo cualquier vídeo real por pequeño
       // que fuera el límite que anunciábamos nosotros mismos.
-      const blob = await upload(`sponsors/${sponsorId}/${crypto.randomUUID()}-${file.name}`, file, {
+      const blob = await upload(`${blobPrefix}sponsors/${sponsorId}/${crypto.randomUUID()}-${file.name}`, file, {
         access: 'public',
         handleUploadUrl: `/api/sponsors/portal/${sponsorId}/logo/upload-token${tokenQs}`,
       });
@@ -327,7 +329,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
       });
       const data = await parseJsonSafe<SponsorData>(res);
       if (!res.ok) throw new Error(data?.error ?? 'No se pudo guardar');
-      toast.success('Guardado — el equipo de La Grailla revisará tus materiales');
+      toast.success(`Guardado — el equipo de ${brandName} revisará tus materiales`);
       setSponsor(data);
       if (data?.assets?.length || sponsor?.assets?.length) setEditing(false);
     } catch (e) {
@@ -352,8 +354,14 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
         <SearchX className="h-12 w-12 text-muted-foreground mx-auto" />
         <h1 className="font-display text-xl font-bold">No hemos encontrado tu portal</h1>
         <p className="text-sm text-muted-foreground">
-          Revisa que el enlace sea el que recibiste por email, o escríbenos a{' '}
-          <a href="mailto:grupolagrailla@gmail.com" className="underline">grupolagrailla@gmail.com</a>.
+          Revisa que el enlace sea el que recibiste por email
+          {contactEmail && (
+            <>
+              , o escríbenos a{' '}
+              <a href={`mailto:${contactEmail}`} className="underline">{contactEmail}</a>
+            </>
+          )}
+          .
         </p>
       </div>
     );
@@ -377,7 +385,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
       ? 'Pago confirmado — tu vídeo está en producción.'
       : 'Ya estamos preparando tu vídeo — confirma el pago más abajo para poder enviártelo en cuanto esté listo.',
     APROBADO_PARA_VIDEO: sponsor.isPaid
-      ? 'Tu vídeo ha sido aprobado y está en producción. ¡Gracias por confiar en La Grailla!'
+      ? 'Tu vídeo ha sido aprobado y está en producción. ¡Gracias por confiar en nosotros!'
       : 'Tu vídeo está listo — confirma el pago más abajo para poder verlo.',
     RECHAZADO: 'Nos pondremos en contacto contigo sobre tu solicitud de patrocinio.',
   };
@@ -459,7 +467,7 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
                   <Label htmlFor="datos-consent" className="text-xs font-normal text-muted-foreground leading-snug cursor-pointer">
                     He leído y acepto la{' '}
                     <Link href="/legal/privacidad" target="_blank" className="underline">política de privacidad</Link>
-                    {' '}de La Grailla para el tratamiento de estos datos.
+                    {' '}de {brandName} para el tratamiento de estos datos.
                   </Label>
                 </div>
               )}

@@ -10,15 +10,18 @@ import { Calendar, MapPin, Music, Ticket, WifiOff } from 'lucide-react';
 import { FadeIn, Stagger, StaggerItem } from '@/components/ui/animate';
 import { Container } from '@/components/layouts/container';
 import { ReloadButton } from '@/components/reload-button';
+import { getBrand } from '@/lib/brand/brand';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
 
-export const metadata = {
-  title: 'Eventos | La Grailla',
-  description:
-    'Todas las noches, todas las fiestas de La Grailla. Descubre los próximos eventos y compra tus entradas online.',
-};
+export async function generateMetadata() {
+  const { name } = await getBrand();
+  return {
+    title: 'Eventos',
+    description: `Descubre los próximos eventos de ${name} y compra tus entradas online.`,
+  };
+}
 
 export default async function EventosPage() {
   let events: EventWithTicketTypes[] = [];

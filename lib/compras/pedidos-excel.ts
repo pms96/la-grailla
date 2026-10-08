@@ -2,8 +2,8 @@ import ExcelJS from 'exceljs';
 import { precioFinalUnidad, precioTrasDescuento } from '@/lib/compras/calculadora';
 import { PEDIDO_STATUS_LABEL } from '@/lib/compras/constantes';
 import type { PedidosParaExport, PedidosExportOptions } from '@/lib/compras/pedidos-data';
+import { getBrand } from '@/lib/brand/brand';
 
-const MORADO = 'FF3D2FD5';
 const GRIS_CLARO = 'FFF2F2F7';
 const MONEY_FMT = '#,##0.00 €';
 const PERCENT_FMT = '0.##"%"';
@@ -63,7 +63,10 @@ export async function buildPedidosExcel(data: PedidosParaExport, opts: PedidosEx
     formatoProveedorPorClave.get(`${l.articuloId}_${proveedorId}`) ?? '—';
 
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'La Grailla';
+  const brand = await getBrand();
+  workbook.creator = brand.name;
+  // Color de las cabeceras: el principal de la marca del cliente (ARGB).
+  const MORADO = `FF${brand.colors.primary.slice(1).toUpperCase()}`;
   workbook.created = new Date();
 
   const totalConIvaPedido = (p: PedidosParaExport['pedidos'][number]) =>

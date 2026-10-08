@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { SecretDecryptionError, decryptSecret, encryptSecret, isSensitiveConfigKey, shouldDecryptOnRead } from '@/lib/secrets';
 import { DEFAULT_SPONSOR_TIERS } from '@/lib/sponsor-tiers';
+import { isLegacyTenant } from '@/lib/tenant/context';
 import { isPlatformMode } from '@/lib/tenant/mode';
 
 const CONFIG_DEFAULTS: Record<string, string> = {
@@ -45,6 +46,12 @@ const CONFIG_DEFAULTS: Record<string, string> = {
   home_hero_badge_fallback: 'GOOD VIBES DE FERIA',
   home_hero_subtitle_1: 'Caseta de feria, noches de DJ y las mejores vibras de Torremolinos.',
   home_hero_subtitle_2: '¿Te vienes? Compra tus entradas online y asegura tu plaza. 🎉',
+  home_events_more_subtitle: 'Otras noches de La Grailla',
+  home_shop_title: 'Merch oficial',
+  home_shop_subtitle: 'Lleva La Grailla contigo. Bajo pedido.',
+  home_about_title: '',
+  home_about_text: '',
+  contact_form_enabled: 'true',
   home_sponsors_cta_title: '¿Quieres patrocinar nuestros eventos?',
   home_sponsors_cta_subtitle: 'Llega a miles de asistentes. Tu marca en la mejor feria de la costa.',
   footer_tagline: 'Caseta de feria · Eventos · Good Vibes 💜',
@@ -67,17 +74,33 @@ const CONFIG_DEFAULTS: Record<string, string> = {
 /** Dirección fija de La Grailla: el destinatario de los avisos de operación en la instalación única. */
 const LEGACY_OPERATOR_EMAIL = 'grupolagrailla@gmail.com';
 
-/** Claves cuyo valor por defecto es un dato de La Grailla que NO debe heredar otro cliente en modo plataforma. */
-const TENANT_NEUTRAL_KEYS = new Set(['admin_email']);
+/** Claves cuyo valor por defecto es un dato de La Grailla (marca, textos, correo): otro cliente en modo plataforma parte de vacío, nunca de esto. */
+const LEGACY_SEED_KEYS = new Set([
+  'admin_email',
+  'smtp_from_name',
+  'home_hero_badge_fallback',
+  'home_hero_subtitle_1',
+  'home_hero_subtitle_2',
+  'home_events_more_subtitle',
+  'home_shop_title',
+  'home_shop_subtitle',
+  'home_sponsors_cta_title',
+  'home_sponsors_cta_subtitle',
+  'footer_tagline',
+  'footer_copyright',
+]);
 
 function configDefault(key: string): string {
-  if (isPlatformMode() && TENANT_NEUTRAL_KEYS.has(key)) return '';
+  if (LEGACY_SEED_KEYS.has(key) && !isLegacyTenant()) return '';
+  // El formulario de contacto es del núcleo y viene encendido; La Grailla lo activa cuando quiera (ya tiene su correo de contacto publicado).
+  if (key === 'contact_form_enabled') return isLegacyTenant() ? 'false' : 'true';
   return CONFIG_DEFAULTS[key] ?? '';
 }
 
 /** Destinatario de los avisos de operación (solicitudes de patrocinio, pagos sobre pedidos anulados, certificados).
- *  Instalación única: La Grailla, como siempre. Modo plataforma: el `admin_email` DEL CLIENTE, y vacío si no lo
- *  configuró (quien llama no envía): un aviso con datos personales nunca puede salir hacia otro cliente. */
+ *  Instalación única: La Grailla, como siempre. Modo plataforma: el `admin_email` DEL CLIENTE (el cliente legacy, el suyo o el de
+ *  La Grailla si no guardó ninguno) y vacío si un cliente nuevo no lo configuró (quien llama no envía): un aviso con datos
+ *  personales nunca puede salir hacia otro cliente. */
 export async function getOperatorEmail(): Promise<string> {
   if (!isPlatformMode()) return LEGACY_OPERATOR_EMAIL;
   return (await getConfig('admin_email')).trim();

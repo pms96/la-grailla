@@ -7,6 +7,8 @@ import { generateQRDataUrl } from '@/lib/qr';
 import { handleApiError } from '@/lib/api-error';
 import { allowOrderAccess, getTokenFromRequest } from '@/lib/access-token';
 import { escapeHtml as esc } from '@/lib/html-escape';
+import { getBrand } from '@/lib/brand/brand';
+import { brandLogoHtml } from '@/lib/brand/email';
 
 export async function GET(
   request: Request,
@@ -30,7 +32,8 @@ export async function GET(
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
     }
 
-    const logoUrl = getFallbackBaseUrl() + '/brand/logo-black.png';
+    const brand = await getBrand();
+    const logoHtml = brandLogoHtml(brand, getFallbackBaseUrl(), 32);
     const ticketHtmls: string[] = [];
     for (const ticket of (order.tickets ?? [])) {
       const qrDataUrl = await generateQRDataUrl(ticket?.qrCode ?? '');
@@ -41,7 +44,7 @@ export async function GET(
       ticketHtmls.push(`
         <div style="page-break-after: always; padding: 40px; font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <div style="text-align: center; margin-bottom: 30px;">
-            <img src="${logoUrl}" alt="La Grailla" height="32" style="height:32px;width:auto;" />
+            ${logoHtml}
             <p style="color: #666; margin: 5px 0;">Entrada Digital</p>
           </div>
           <div style="background: #f9fafb; border-radius: 12px; padding: 24px; margin-bottom: 20px;">
@@ -54,7 +57,7 @@ export async function GET(
             <img src="${qrDataUrl}" width="250" height="250" style="border: 2px solid #e5e7eb; border-radius: 8px;" />
             <p style="font-family: monospace; font-size: 12px; color: #999; margin-top: 8px;">${esc(ticket?.qrCode)}</p>
           </div>
-          <div style="background: #f3f0ff; border-radius: 8px; padding: 16px;">
+          <div style="background: ${brand.colors.emailTint}; border-radius: 8px; padding: 16px;">
             <p style="margin: 4px 0;"><strong>Titular:</strong> ${esc(ticket?.holderName)}</p>
             <p style="margin: 4px 0;"><strong>Tipo:</strong> ${esc(ticket?.ticketType?.name ?? 'General')}</p>
             <p style="margin: 4px 0;"><strong>ID:</strong> ${esc(ticket?.id?.slice(0, 8))}</p>

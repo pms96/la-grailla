@@ -22,6 +22,7 @@ import { SponsorInviteDelivery } from '../_components/sponsor-invite-delivery';
 import { SponsorAssetList } from '@/components/sponsor-asset-list';
 import { parseJsonSafe } from '@/lib/utils';
 import { findSponsorTier, type SponsorTier } from '@/lib/sponsor-tiers';
+import { useBrand } from '@/components/brand-provider';
 
 const LEAD_STATUS_LABELS: Record<string, string> = {
   PENDING: 'Pendiente', CONTACTED: 'Contactado', ACCEPTED: 'Aceptado', REJECTED: 'Rechazado',
@@ -83,6 +84,7 @@ type Detail = {
 };
 
 export default function SponsorDetailPage({ params }: { params: { id: string } }) {
+  const { blobPrefix } = useBrand();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(true);
   const [temporadas, setTemporadas] = useState<Temporada[]>([]);
@@ -222,7 +224,7 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
       // Sube directamente del navegador a Vercel Blob — el binario nunca
       // pasa por nuestro servidor, así que no choca con el límite de
       // payload (~4.5MB) de las funciones serverless de Vercel.
-      const blob = await upload(`sponsors/${detail.sponsor.id}/final-video/${crypto.randomUUID()}-${file.name}`, file, {
+      const blob = await upload(`${blobPrefix}sponsors/${detail.sponsor.id}/final-video/${crypto.randomUUID()}-${file.name}`, file, {
         access: 'public',
         handleUploadUrl: `/api/admin/sponsors-portal/${detail.sponsor.id}/final-video/upload-token`,
       });

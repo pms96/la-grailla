@@ -27,3 +27,10 @@ export const ALLOWED_FINAL_VIDEO_TYPES = new Set([
   'video/mpeg',
 ]);
 export const MAX_FINAL_VIDEO_SIZE = 200 * 1024 * 1024;
+
+/* Rutas de Blob de un sponsor. En modo plataforma el almacén es compartido y cada cliente sube bajo `{tenantId}/`: el prefijo lo pone el
+ * servidor (tenantBlobPrefix) y el navegador lo recibe en el contexto de marca (`useBrand().blobPrefix`); aquí se exige que la ruta que
+ * elige el navegador lo lleve, para que un archivo de un cliente nunca quede en la carpeta de otro. En una instalación única el prefijo
+ * es vacío y las rutas son las de siempre (`sponsors/{id}/…`). */
+export const sponsorBlobPrefix = (prefix: string, sponsorId: string) => `${prefix}sponsors/${sponsorId}/`;
+export const sponsorFinalVideoBlobPrefix = (prefix: string, sponsorId: string) => `${prefix}sponsors/${sponsorId}/final-video/`;
