@@ -15,3 +15,10 @@ export function normalizeHost(input: string): string | null {
 export function isNormalizedHost(input: string): boolean {
   return normalizeHost(input) === input;
 }
+
+/** Clave bajo la que el panel publica (y el front lee) el snapshot de un dominio. */
+export function registryKeyForHost(host: string): string {
+  const normalized = normalizeHost(host);
+  if (!normalized) throw new Error('dominio no válido para el registro');
+  return `h:${normalized}`;
+}

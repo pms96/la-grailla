@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { normalizeHost } from './hosts';
 import { RoutingRecordSchema } from './routing-record';
 
 /** Versión del contrato que entiende este código. Sube solo con cambios que rompen. */
@@ -9,7 +10,8 @@ const KID_RE = /^[A-Za-z0-9_-]{1,32}$/;
 
 export const SnapshotBodySchema = z.object({
   contractVersion: z.number().int().positive(),
-  // Contador creciente por tenant: el lector rechaza snapshots más viejos que el último visto (replay).
+  // Contador creciente por suscripción (tenant × producto): el lector rechaza snapshots más viejos que el
+  // último visto para esa misma pareja (replay). Debe persistirlo fuera de la instancia (no vale la memoria de una lambda).
   seq: z.number().int().nonnegative(),
   iat: z.number().int().nonnegative(),
   // Pasado este instante el snapshot sigue siendo válido pero "obsoleto": nunca empeora por sí solo la licencia.
@@ -76,7 +78,7 @@ export async function signSnapshot(
   return { kid: signer.kid, payload, sig: toBase64Url(sig) };
 }
 
-export type VerifyFailure = 'malformed' | 'unknown_kid' | 'bad_signature' | 'unsupported_contract' | 'replay';
+export type VerifyFailure = 'malformed' | 'unknown_kid' | 'bad_signature' | 'unsupported_contract' | 'replay' | 'host_mismatch' | 'product_mismatch';
 export type VerifyResult =
   | { ok: true; body: SnapshotBody; stale: boolean }
   | { ok: false; reason: VerifyFailure };
@@ -85,7 +87,15 @@ export type VerifyOptions = {
   /** kid → clave pública raw en base64url. Varias a la vez permiten rotar. */
   keys: Record<string, string>;
   now: number;
-  /** Último `seq` aceptado para este tenant; uno menor se rechaza como repetición. */
+  /**
+   * Host con el que llegó la petición. OBLIGATORIO: una firma válida no basta, el snapshot tiene que
+   * ser de ESTE dominio. Sin esto, quien pudiera escribir en el almacén copiaría el snapshot firmado
+   * del cliente A bajo el dominio de otro y el front lo serviría.
+   */
+  host: string;
+  /** Producto que sirve este despliegue (p. ej. "grailla"). Si se indica, el snapshot debe ser de ese producto. */
+  product?: string;
+  /** Último `seq` aceptado para este tenant y producto; uno menor se rechaza como repetición. */
   lastSeq?: number | null;
   supportedContractVersion?: number;
 };
@@ -118,6 +128,9 @@ export async function verifySnapshot(input: unknown, opts: VerifyOptions): Promi
 
   const supported = opts.supportedContractVersion ?? CONTRACT_VERSION;
   if (body.data.contractVersion > supported) return { ok: false, reason: 'unsupported_contract' };
+  const host = normalizeHost(opts.host);
+  if (!host || !body.data.record.domains.includes(host)) return { ok: false, reason: 'host_mismatch' };
+  if (opts.product !== undefined && body.data.record.product !== opts.product) return { ok: false, reason: 'product_mismatch' };
   if (opts.lastSeq != null && body.data.seq < opts.lastSeq) return { ok: false, reason: 'replay' };
 
   return { ok: true, body: body.data, stale: opts.now > body.data.staleUntil };

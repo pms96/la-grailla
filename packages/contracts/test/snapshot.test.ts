@@ -14,6 +14,7 @@ import {
 } from '../src';
 
 const NOW = 1_800_000_000_000;
+const HOST = 'www.cliente.es';
 const TENANT = '01HF7YAT00ABCDEFGHJKMNPQRS';
 
 function record(over: Partial<RoutingRecord> = {}): RoutingRecord {
@@ -77,14 +78,14 @@ describe('RoutingRecordSchema', () => {
 describe('snapshot firmado', () => {
   it('firma y verifica de ida y vuelta', async () => {
     const env = await signSnapshot(body(), { kid: 'k1', privateKey: priv });
-    const res = await verifySnapshot(env, { keys: { k1: pub }, now: NOW });
+    const res = await verifySnapshot(env, { keys: { k1: pub }, host: HOST, now: NOW });
     expect(res).toMatchObject({ ok: true, stale: false });
     if (res.ok) expect(res.body.record.tenantId).toBe(TENANT);
   });
 
   it('el JSON puede viajar por la red (Redis, Edge Config) sin perder validez', async () => {
     const env = await signSnapshot(body(), { kid: 'k1', privateKey: priv });
-    const res = await verifySnapshot(JSON.parse(JSON.stringify(env)), { keys: { k1: pub }, now: NOW });
+    const res = await verifySnapshot(JSON.parse(JSON.stringify(env)), { keys: { k1: pub }, host: HOST, now: NOW });
     expect(res.ok).toBe(true);
   });
 
@@ -92,13 +93,13 @@ describe('snapshot firmado', () => {
     const env = await signSnapshot(body(), { kid: 'k1', privateKey: priv });
     const tampered = { ...env, payload: env.payload.replace('"epoch":0', '"epoch":1') };
     expect(tampered.payload).not.toBe(env.payload);
-    expect(await verifySnapshot(tampered, { keys: { k1: pub }, now: NOW })).toEqual({ ok: false, reason: 'bad_signature' });
+    expect(await verifySnapshot(tampered, { keys: { k1: pub }, host: HOST, now: NOW })).toEqual({ ok: false, reason: 'bad_signature' });
   });
 
   it('rechaza cambiar el kid (está dentro de lo firmado)', async () => {
     const other = await generateSigningKeyPair();
     const env = await signSnapshot(body(), { kid: 'k1', privateKey: priv });
-    const res = await verifySnapshot({ ...env, kid: 'k2' }, { keys: { k1: pub, k2: pub }, now: NOW });
+    const res = await verifySnapshot({ ...env, kid: 'k2' }, { keys: { k1: pub, k2: pub }, host: HOST, now: NOW });
     expect(res).toEqual({ ok: false, reason: 'bad_signature' });
     expect(other.publicKey).not.toBe(pub);
   });
@@ -106,15 +107,15 @@ describe('snapshot firmado', () => {
   it('rechaza una firma hecha con otra clave y un kid desconocido', async () => {
     const other = await generateSigningKeyPair();
     const env = await signSnapshot(body(), { kid: 'k1', privateKey: other.privateKey });
-    expect(await verifySnapshot(env, { keys: { k1: pub }, now: NOW })).toEqual({ ok: false, reason: 'bad_signature' });
-    expect(await verifySnapshot(env, { keys: { otra: pub }, now: NOW })).toEqual({ ok: false, reason: 'unknown_kid' });
-    expect(await verifySnapshot(env, { keys: {}, now: NOW })).toEqual({ ok: false, reason: 'unknown_kid' });
+    expect(await verifySnapshot(env, { keys: { k1: pub }, host: HOST, now: NOW })).toEqual({ ok: false, reason: 'bad_signature' });
+    expect(await verifySnapshot(env, { keys: { otra: pub }, host: HOST, now: NOW })).toEqual({ ok: false, reason: 'unknown_kid' });
+    expect(await verifySnapshot(env, { keys: {}, host: HOST, now: NOW })).toEqual({ ok: false, reason: 'unknown_kid' });
   });
 
   it('un kid como "__proto__" o "constructor" no se resuelve por la cadena de prototipos', async () => {
     const env = await signSnapshot(body(), { kid: 'k1', privateKey: priv });
     for (const kid of ['constructor', 'toString', '__proto__']) {
-      expect(await verifySnapshot({ ...env, kid }, { keys: {}, now: NOW })).toEqual({ ok: false, reason: 'unknown_kid' });
+      expect(await verifySnapshot({ ...env, kid }, { keys: {}, host: HOST, now: NOW })).toEqual({ ok: false, reason: 'unknown_kid' });
     }
   });
 
@@ -123,30 +124,30 @@ describe('snapshot firmado', () => {
     const oldEnv = await signSnapshot(body(), { kid: 'k1', privateKey: priv });
     const newEnv = await signSnapshot(body({ seq: 6 }), { kid: 'k2', privateKey: next.privateKey });
     const keys = { k1: pub, k2: next.publicKey };
-    expect((await verifySnapshot(oldEnv, { keys, now: NOW })).ok).toBe(true);
-    expect((await verifySnapshot(newEnv, { keys, now: NOW })).ok).toBe(true);
+    expect((await verifySnapshot(oldEnv, { keys, host: HOST, now: NOW })).ok).toBe(true);
+    expect((await verifySnapshot(newEnv, { keys, host: HOST, now: NOW })).ok).toBe(true);
   });
 
   it('marca como obsoleto (no como inválido) un snapshot pasado su staleUntil', async () => {
     const env = await signSnapshot(body(), { kid: 'k1', privateKey: priv });
-    const res = await verifySnapshot(env, { keys: { k1: pub }, now: NOW + 86_400_001 });
+    const res = await verifySnapshot(env, { keys: { k1: pub }, host: HOST, now: NOW + 86_400_001 });
     expect(res).toMatchObject({ ok: true, stale: true });
   });
 
   it('rechaza un snapshot más viejo que el último visto (replay) y acepta el mismo seq', async () => {
     const env = await signSnapshot(body({ seq: 5 }), { kid: 'k1', privateKey: priv });
-    expect(await verifySnapshot(env, { keys: { k1: pub }, now: NOW, lastSeq: 6 })).toEqual({ ok: false, reason: 'replay' });
-    expect((await verifySnapshot(env, { keys: { k1: pub }, now: NOW, lastSeq: 5 })).ok).toBe(true);
+    expect(await verifySnapshot(env, { keys: { k1: pub }, host: HOST, now: NOW, lastSeq: 6 })).toEqual({ ok: false, reason: 'replay' });
+    expect((await verifySnapshot(env, { keys: { k1: pub }, host: HOST, now: NOW, lastSeq: 5 })).ok).toBe(true);
   });
 
   it('rechaza un contrato más nuevo que el soportado', async () => {
     const env = await signSnapshot(body({ contractVersion: CONTRACT_VERSION + 1 }), { kid: 'k1', privateKey: priv });
-    expect(await verifySnapshot(env, { keys: { k1: pub }, now: NOW })).toEqual({ ok: false, reason: 'unsupported_contract' });
-    expect((await verifySnapshot(env, { keys: { k1: pub }, now: NOW, supportedContractVersion: CONTRACT_VERSION + 1 })).ok).toBe(true);
+    expect(await verifySnapshot(env, { keys: { k1: pub }, host: HOST, now: NOW })).toEqual({ ok: false, reason: 'unsupported_contract' });
+    expect((await verifySnapshot(env, { keys: { k1: pub }, host: HOST, now: NOW, supportedContractVersion: CONTRACT_VERSION + 1 })).ok).toBe(true);
   });
 
   it.each([null, undefined, 'texto', 42, {}, { kid: 'k1' }, { kid: 'k1', payload: '{}', sig: 'x' }])('entrada mal formada %j → malformed', async (input) => {
-    expect(await verifySnapshot(input, { keys: { k1: pub }, now: NOW })).toEqual({ ok: false, reason: 'malformed' });
+    expect(await verifySnapshot(input, { keys: { k1: pub }, host: HOST, now: NOW })).toEqual({ ok: false, reason: 'malformed' });
   });
 
   it('firmado válido pero con un registro inválido dentro → malformed (firma de un payload que no cumple el contrato)', async () => {
@@ -155,7 +156,7 @@ describe('snapshot firmado', () => {
     const key = await crypto.subtle.importKey('pkcs8', fromBase64Url(priv), 'Ed25519', false, ['sign']);
     const msg = new TextEncoder().encode(`grailla-snapshot-v1\nk1\n${payload}`);
     const sig = toBase64Url(new Uint8Array(await crypto.subtle.sign('Ed25519', key, msg)));
-    expect(await verifySnapshot({ kid: 'k1', payload, sig }, { keys: { k1: pub }, now: NOW })).toEqual({ ok: false, reason: 'malformed' });
+    expect(await verifySnapshot({ kid: 'k1', payload, sig }, { keys: { k1: pub }, host: HOST, now: NOW })).toEqual({ ok: false, reason: 'malformed' });
   });
 
   it('signSnapshot se niega a firmar un registro inválido', async () => {
@@ -175,6 +176,28 @@ describe('snapshot firmado', () => {
 // Vector congelado: una clave fija produce SIEMPRE la misma firma (Ed25519 es
 // determinista). Si este test falla, cambió el formato del mensaje firmado o
 // la serialización, y los snapshots ya publicados dejarían de verificar.
+describe('atado al host y al producto', () => {
+  it('rechaza el snapshot de un cliente servido bajo el dominio de otro (copia en el almacén)', async () => {
+    const env = await signSnapshot(body(), { kid: 'k1', privateKey: priv });
+    const keys = { k1: pub };
+    expect((await verifySnapshot(env, { keys, host: 'cliente.es', now: NOW })).ok).toBe(true); // otro dominio del MISMO cliente
+    expect(await verifySnapshot(env, { keys, host: 'otro-cliente.es', now: NOW })).toEqual({ ok: false, reason: 'host_mismatch' });
+    expect(await verifySnapshot(env, { keys, host: '', now: NOW })).toEqual({ ok: false, reason: 'host_mismatch' });
+  });
+
+  it('el host se normaliza antes de comparar', async () => {
+    const env = await signSnapshot(body(), { kid: 'k1', privateKey: priv });
+    expect((await verifySnapshot(env, { keys: { k1: pub }, host: 'WWW.Cliente.ES:443', now: NOW })).ok).toBe(true);
+  });
+
+  it('si se indica el producto, debe coincidir', async () => {
+    const env = await signSnapshot(body(), { kid: 'k1', privateKey: priv });
+    const keys = { k1: pub };
+    expect((await verifySnapshot(env, { keys, host: HOST, product: 'grailla', now: NOW })).ok).toBe(true);
+    expect(await verifySnapshot(env, { keys, host: HOST, product: 'otro', now: NOW })).toEqual({ ok: false, reason: 'product_mismatch' });
+  });
+});
+
 describe('vector dorado', () => {
   const SEED_PKCS8 = toBase64Url(
     new Uint8Array([
@@ -189,7 +212,7 @@ describe('vector dorado', () => {
       '{"contractVersion":1,"seq":5,"iat":1800000000000,"staleUntil":1800086400000,"record":{"tenantId":"01HF7YAT00ABCDEFGHJKMNPQRS","product":"grailla","cell":"shared-1","status":"ACTIVE","modules":["tienda","entradas"],"license":{"phase":"ACTIVE","nextPhaseChangeAt":null},"primaryDomain":"www.cliente.es","domains":["www.cliente.es","cliente.es"],"schemaVersion":"20260930110333_add_ingreso_model","epoch":0}}'
     );
     expect(env.sig).toBe('sulTb8i2e4p8-6IVfI2Z3saQO8ZzPsb7AzXUdAduv8hq8lTHfCT-sM4w4wKHAUw0wH1-sy5wfPWwwiGeDaAFDQ');
-    const res = await verifySnapshot(env, { keys: { golden: await publicKeyOf(SEED_PKCS8) }, now: NOW });
+    const res = await verifySnapshot(env, { keys: { golden: await publicKeyOf(SEED_PKCS8) }, host: HOST, now: NOW });
     expect(res.ok).toBe(true);
   });
 });
