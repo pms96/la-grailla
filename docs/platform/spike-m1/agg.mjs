@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+const runs = fs.readFileSync(0,'utf8').trim().split('\n').map(JSON.parse);
+const q=(a,p)=>{const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor(p*s.length))]};
+const j=runs[0];
+const firstCold = runs.map(r=>r.rows[0].first);
+const firstNext = runs.flatMap(r=>r.rows.slice(1).map(x=>x.first));
+const ctor = runs.flatMap(r=>r.rows.map(x=>x.ctor));
+const fixed = runs.map(r=>+(r.rows[0].rss - r.baseRss).toFixed(1));
+const marginal = runs.map(r=>+((r.rows.at(-1).rss - r.rows[0].rss)/(r.N-1)).toFixed(1));
+const peak = runs.map(r=>r.peakRss);
+console.log(`${j.dir.padEnd(14)} N=${j.N} runs=${runs.length}\n  1er cliente (carga motor+1ª query) ms: ${firstCold.join(', ')}\n  RSS coste fijo 1er cliente MB: ${fixed.join(', ')}\n  RSS marginal por cliente extra MB: ${marginal.join(', ')}\n  1ª query de cliente nº2..N (frío por tenant) ms p50=${q(firstNext,.5)} p95=${q(firstNext,.95)} max=${Math.max(...firstNext)}\n  ctor ms p50=${q(ctor,.5)} p95=${q(ctor,.95)}\n  pico RSS MB: ${peak.join(', ')}  | tras $disconnect: ${runs.map(r=>r.afterDisconnectRss).join(', ')}`);

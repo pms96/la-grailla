@@ -1,0 +1,1 @@
+{"name":"d-next","private":true,"scripts":{"dev":"next dev -p 3111","build":"next build","start":"next start -p 3111"},"dependencies":{"@noble/ed25519":"^2.3.0","@prisma/client":"6.7.0","next":"14.2.35","next-auth":"4.24.11","prisma":"6.7.0","react":"18.2.0","react-dom":"18.2.0"}}
