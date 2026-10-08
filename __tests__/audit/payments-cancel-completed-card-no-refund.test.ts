@@ -10,7 +10,7 @@
 // en la pasarela) o se dispare el reembolso automáticamente también en modo CANCELLED.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@/lib/prisma';
-import { invalidateOrder } from '@/lib/order-reconciliation';
+import { invalidateOrder } from '@/lib/reconciliation/entradas';
 import { createTestEvent, createTicketType, cleanupTestEvent } from '../../tests/helpers/fixtures';
 
 describe('AUDIT — cancelar un pedido pagado con tarjeta no debe saltarse el reembolso', () => {

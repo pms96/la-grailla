@@ -7,7 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
-import { invalidateOrder, completeOrder } from '@/lib/order-reconciliation';
+import { invalidateOrder, completeOrder } from '@/lib/reconciliation/entradas';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
 

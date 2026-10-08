@@ -3,7 +3,7 @@
 // caducado "firma" el pase sin ningún error: se descubre cuando el comprador
 // intenta añadirlo a Apple Wallet y falla, el peor momento posible para
 // enterarse. Se añade una alerta por email con 30 días de margen, reutilizando
-// el patrón de alertPaidButInactiveOrder (lib/order-reconciliation.ts).
+// el patrón de alertPaidButInactiveOrder (lib/reconciliation/shared.ts).
 //
 // alertAppleCertExpiringSoon se exporta para poder testear el dedup sin tener
 // que generar un .p12 real cada vez.

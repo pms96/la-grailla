@@ -121,4 +121,47 @@ describe('GET /api/cron/reconcile-payments', () => {
     const tt = await prisma.ticketType.findUnique({ where: { id: ticketType.id } });
     expect(tt?.soldCount).toBe(0);
   });
+
+  // M6: el estado de cobro normalizado permite liberar sin esperar 24 h lo que ya no se puede pagar (EXPIRED) y SOLO eso.
+  it('libera enseguida un pedido cuya sesión de pago ya ha CADUCADO (no hace falta esperar 24 h)', async () => {
+    await prisma.ticketType.update({ where: { id: ticketType.id }, data: { soldCount: 0 } });
+    const paymentId = `chk-expired-${Date.now()}`;
+    const order = await createOrderAt(event.id, ticketType.id, paymentId, new Date(Date.now() - 5 * 60_000));
+    await prisma.ticketType.update({ where: { id: ticketType.id }, data: { soldCount: { increment: 1 } } });
+    vi.stubGlobal('fetch', mockSumUpFetch({ [paymentId]: 'EXPIRED' }));
+
+    const json = await (await reconcilePayments(cronRequest(TEST_SECRET))).json();
+    expect(json.released).toBeGreaterThanOrEqual(1);
+    expect((await prisma.order.findUnique({ where: { id: order.id } }))?.status).toBe('CANCELLED');
+    expect((await prisma.ticketType.findUnique({ where: { id: ticketType.id } }))?.soldCount).toBe(0);
+  });
+
+  it.each(['FAILED', 'UNKNOWN_STATUS'])('NO libera un pedido reciente cuya pasarela dice %s (puede reintentarse)', async (status) => {
+    const paymentId = `chk-${status}-${Date.now()}`;
+    const order = await createOrderAt(event.id, ticketType.id, paymentId, new Date(Date.now() - 5 * 60_000));
+    vi.stubGlobal('fetch', mockSumUpFetch({ [paymentId]: status }));
+
+    await reconcilePayments(cronRequest(TEST_SECRET));
+    expect((await prisma.order.findUnique({ where: { id: order.id } }))?.status).toBe('PENDING');
+  });
+
+  it('en la tienda también: caducado libera el stock y el pedido; fallido no', async () => {
+    const product = await prisma.product.create({ data: { name: 'Cron', slug: `cron-${Date.now()}`, price: 10, variants: { create: { size: 'M', color: '', stock: 4 } } } });
+    const mk = async (paymentId: string) =>
+      prisma.shopOrder.update({
+        where: { id: (await prisma.shopOrder.create({ data: { buyerName: 'C', buyerEmail: 'c@example.com', shippingAddress: 'x', shippingCity: 'x', shippingZip: '1', totalAmount: 10, paymentProvider: 'sumup', paymentId, status: 'PENDING', items: { create: { productId: product.id, quantity: 1, unitPrice: 10, size: 'M', color: '' } } } })).id },
+        data: { createdAt: new Date(Date.now() - 5 * 60_000) },
+      });
+    const expired = await mk(`shop-exp-${Date.now()}`);
+    const failed = await mk(`shop-fail-${Date.now()}`);
+    vi.stubGlobal('fetch', mockSumUpFetch({ [expired.paymentId!]: 'EXPIRED', [failed.paymentId!]: 'FAILED' }));
+    try {
+      await reconcilePayments(cronRequest(TEST_SECRET));
+      expect((await prisma.shopOrder.findUnique({ where: { id: expired.id } }))?.status).toBe('CANCELLED');
+      expect((await prisma.shopOrder.findUnique({ where: { id: failed.id } }))?.status).toBe('PENDING');
+    } finally {
+      await prisma.shopOrder.deleteMany({ where: { id: { in: [expired.id, failed.id] } } });
+      await prisma.product.delete({ where: { id: product.id } });
+    }
+  });
 });

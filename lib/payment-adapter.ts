@@ -8,11 +8,76 @@ export interface PaymentSession {
   provider: string;
 }
 
+/** Estado de un cobro según la pasarela, normalizado. `success` de PaymentResult equivale a `status === 'PAID'`. */
+export type PaymentStatus = 'PAID' | 'PENDING' | 'FAILED' | 'EXPIRED' | 'REFUNDED' | 'UNKNOWN';
+
 export interface PaymentResult {
   success: boolean;
   paymentId: string;
   provider: string;
   error?: string;
+  /** Estado rico del cobro. Ausente = el adaptador solo sabe decir pagado / no pagado. */
+  status?: PaymentStatus;
+  /** Importe y moneda que la pasarela dice haber cobrado (para poder contrastarlo con el pedido). */
+  amount?: number;
+  currency?: string;
+}
+
+/** Lo que un proveedor sabe hacer. Quien lo usa pregunta aquí en vez de comparar nombres de proveedor. */
+export interface ProviderCapabilities {
+  /** Avisa por webhook firmado (implementa `parseWebhook`). Sin webhook, el cron de reconciliación es la red de seguridad. */
+  webhooks: boolean;
+  /** Página de pago alojada por la pasarela (redirección). */
+  hostedCheckout: boolean;
+  refunds: boolean;
+  partialRefunds: boolean;
+  /** Acepta una clave de idempotencia en el reembolso: un reintento no duplica el dinero devuelto. */
+  idempotentRefunds: boolean;
+  /** Cobro presencial con el móvil o un lector (Tap to Pay). Aún sin implementar en ningún adaptador. */
+  inPerson: boolean;
+}
+
+/** Lo que significa un webhook ya verificado, igual para todos los proveedores. */
+export type WebhookEvent =
+  | { kind: 'payment_succeeded'; eventId: string; orderId: string }
+  | { kind: 'payment_expired'; eventId: string; orderId: string }
+  | { kind: 'ignored'; eventId?: string };
+
+/** Un webhook que se rechaza (firma inválida, proveedor sin configurar…) con el código HTTP que corresponde. */
+export class WebhookRejected extends Error {
+  constructor(
+    public readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = 'WebhookRejected';
+  }
+}
+
+/** Falta una credencial del proveedor en la configuración del cliente (no es un fallo de la pasarela). */
+export class ProviderNotConfiguredError extends Error {
+  constructor(
+    message: string,
+    public readonly provider: string
+  ) {
+    super(message);
+    this.name = 'ProviderNotConfiguredError';
+  }
+}
+
+/** Cobro presencial (Tap to Pay): declarado para el producto de cobro en persona; ningún adaptador lo implementa todavía. */
+export interface InPersonPaymentParams {
+  amount: number;
+  currency: string;
+  description: string;
+  orderId: string;
+  metadata?: Record<string, string>;
+}
+export interface InPersonPayment {
+  paymentId: string;
+  provider: string;
+  /** Lo que necesita la app del dispositivo para iniciar el cobro (token de conexión, intención de pago…). */
+  clientSecret?: string;
 }
 
 export interface RefundResult {
@@ -28,6 +93,14 @@ export interface ConnectionTestResult {
 
 export interface PaymentProvider {
   name: string;
+  capabilities: ProviderCapabilities;
+  /**
+   * Verifica la firma de un webhook y lo traduce a un evento neutro. Lanza `WebhookRejected` si no es válido. Solo existe si
+   * `capabilities.webhooks`. El cuerpo se pasa en crudo: la firma se calcula sobre los bytes exactos que envió la pasarela.
+   */
+  parseWebhook?(rawBody: string, headers: Headers): Promise<WebhookEvent>;
+  /** Solo si `capabilities.inPerson`. */
+  createInPersonPayment?(params: InPersonPaymentParams): Promise<InPersonPayment>;
   // Comprobación de solo lectura, sin crear ningún cobro ni sesión de pago —
   // pensada para "probar conexión" desde /admin/configuracion ANTES de
   // guardar la credencial, que es cuando de verdad importa detectar una
@@ -54,12 +127,64 @@ export interface PaymentProvider {
 }
 
 /* Stripe adapter stub */
+/** Normaliza el estado de una sesión de Checkout de Stripe. */
+export function mapStripeSessionStatus(session: { payment_status?: string | null; status?: string | null }): PaymentStatus {
+  if (session.payment_status === 'paid') return 'PAID';
+  if (session.status === 'expired') return 'EXPIRED';
+  if (session.payment_status === 'unpaid' || session.payment_status === 'no_payment_required') return 'PENDING';
+  return 'UNKNOWN';
+}
+
 export class StripeAdapter implements PaymentProvider {
   name = 'stripe';
+  capabilities: ProviderCapabilities = { webhooks: true, hostedCheckout: true, refunds: true, partialRefunds: true, idempotentRefunds: true, inPerson: false };
   private secretKey: string;
+  // Carga perezosa: crear un cobro no exige el secreto del webhook, y si está guardado pero ilegible el error aparece al recibir
+  // un webhook (donde se necesita), no al cobrar.
+  private loadWebhookSecret: () => Promise<string>;
 
-  constructor(secretKey: string) {
+  constructor(secretKey: string, loadWebhookSecret: () => Promise<string> = async () => '') {
     this.secretKey = secretKey;
+    this.loadWebhookSecret = loadWebhookSecret;
+  }
+
+  async parseWebhook(rawBody: string, headers: Headers): Promise<WebhookEvent> {
+    const signature = headers.get('stripe-signature');
+    if (!signature) throw new WebhookRejected(400, 'Falta la cabecera stripe-signature');
+    const webhookSecret = await this.loadWebhookSecret();
+    if (!this.secretKey || !webhookSecret) {
+      console.error('[webhook stripe] Stripe no está configurado (falta secret key o webhook secret)');
+      throw new WebhookRejected(400, 'Stripe no está configurado');
+    }
+
+    const Stripe = (await import('stripe')).default;
+    const stripe = new Stripe(this.secretKey, { apiVersion: '2024-04-10' as Stripe.LatestApiVersion });
+    let event: Stripe.Event;
+    try {
+      event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+    } catch (err) {
+      console.error('[webhook stripe] Firma inválida:', err instanceof Error ? err.message : err);
+      throw new WebhookRejected(400, 'Firma inválida');
+    }
+
+    switch (event.type) {
+      case 'checkout.session.completed':
+      case 'checkout.session.async_payment_succeeded': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const orderId = session.metadata?.orderId;
+        if (orderId && session.payment_status === 'paid') return { kind: 'payment_succeeded', eventId: event.id, orderId };
+        return { kind: 'ignored', eventId: event.id };
+      }
+      case 'checkout.session.expired':
+      case 'checkout.session.async_payment_failed': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const orderId = session.metadata?.orderId;
+        if (orderId) return { kind: 'payment_expired', eventId: event.id, orderId };
+        return { kind: 'ignored', eventId: event.id };
+      }
+      default:
+        return { kind: 'ignored', eventId: event.id };
+    }
   }
 
   // stripe.balance.retrieve() es la comprobación estándar que recomienda la
@@ -125,10 +250,14 @@ export class StripeAdapter implements PaymentProvider {
     const stripe = new Stripe(this.secretKey, { apiVersion: '2024-04-10' as Stripe.LatestApiVersion });
     try {
       const session = await stripe.checkout.sessions.retrieve(paymentId);
+      const status = mapStripeSessionStatus(session);
       return {
-        success: session.payment_status === 'paid',
+        success: status === 'PAID',
         paymentId: session.id,
         provider: 'stripe',
+        status,
+        ...(session.amount_total != null ? { amount: session.amount_total / 100 } : {}),
+        ...(session.currency ? { currency: session.currency.toUpperCase() } : {}),
       };
     } catch (err) {
       return { success: false, paymentId, provider: 'stripe', error: err instanceof Error ? err.message : String(err) };
@@ -159,8 +288,26 @@ export class StripeAdapter implements PaymentProvider {
  * La API de SumUp exige `merchant_code` en el body (la API key sola no identifica la cuenta de cobro),
  * y solo devuelve una página de pago real si se pide `hosted_checkout.enabled: true` — sin eso, el
  * endpoint solo crea un recurso de checkout sin URL a la que redirigir al comprador. */
+/** Normaliza el estado de un checkout de SumUp (PENDING, FAILED, PAID; cualquier otro, desconocido). */
+export function mapSumUpStatus(status: unknown): PaymentStatus {
+  switch (status) {
+    case 'PAID':
+      return 'PAID';
+    case 'PENDING':
+      return 'PENDING';
+    case 'FAILED':
+      return 'FAILED';
+    case 'EXPIRED':
+      return 'EXPIRED';
+    default:
+      return 'UNKNOWN';
+  }
+}
+
 export class SumUpAdapter implements PaymentProvider {
   name = 'sumup';
+  // Sin webhook (se confirma al volver del checkout o por el cron) y sin clave de idempotencia en el reembolso.
+  capabilities: ProviderCapabilities = { webhooks: false, hostedCheckout: true, refunds: true, partialRefunds: false, idempotentRefunds: false, inPerson: false };
   private apiKey: string;
   private merchantCode: string;
 
@@ -233,11 +380,15 @@ export class SumUpAdapter implements PaymentProvider {
       headers: { 'Authorization': `Bearer ${this.apiKey}` },
     });
     const data = await response.json();
+    const status: PaymentStatus = response.ok ? mapSumUpStatus(data?.status) : 'UNKNOWN';
     return {
       success: response.ok && data?.status === 'PAID',
       paymentId,
       provider: 'sumup',
       error: response.ok ? undefined : (data?.message || `SumUp devolvió ${response.status}`),
+      status,
+      ...(response.ok && typeof data?.amount === 'number' ? { amount: data.amount } : {}),
+      ...(response.ok && typeof data?.currency === 'string' ? { currency: data.currency } : {}),
     };
   }
 
@@ -259,6 +410,7 @@ export class SumUpAdapter implements PaymentProvider {
 /* Mock adapter for testing / fallback when no gateway is configured */
 export class MockPaymentAdapter implements PaymentProvider {
   name = 'mock';
+  capabilities: ProviderCapabilities = { webhooks: false, hostedCheckout: true, refunds: true, partialRefunds: true, idempotentRefunds: true, inPerson: false };
 
   async testConnection(): Promise<ConnectionTestResult> {
     return { ok: true };
@@ -281,7 +433,7 @@ export class MockPaymentAdapter implements PaymentProvider {
   }
 
   async verifyPayment(paymentId: string): Promise<PaymentResult> {
-    return { success: true, paymentId, provider: 'mock' };
+    return { success: true, paymentId, provider: 'mock', status: 'PAID' };
   }
 
   async refund(): Promise<RefundResult> {
@@ -299,8 +451,8 @@ export async function getPaymentProviderByName(gateway: string): Promise<Payment
     // y pega desde el dashboard de la pasarela) rompe el header Authorization
     // y la pasarela responde 401 sin más contexto — nunca es un valor válido.
     const secretKey = (await getConfigOrThrow('stripe_secret_key')).trim();
-    if (!secretKey) throw new Error('Stripe está activo pero falta stripe_secret_key en /admin/configuracion');
-    return new StripeAdapter(secretKey);
+    if (!secretKey) throw new ProviderNotConfiguredError('Stripe está activo pero falta stripe_secret_key en /admin/configuracion', 'stripe');
+    return new StripeAdapter(secretKey, async () => (await getConfigOrThrow('stripe_webhook_secret')).trim());
   }
 
   if (gateway === 'sumup') {
@@ -311,7 +463,7 @@ export async function getPaymentProviderByName(gateway: string): Promise<Payment
     const trimmedApiKey = apiKey.trim();
     const trimmedMerchantCode = merchantCode.trim();
     if (!trimmedApiKey || !trimmedMerchantCode) {
-      throw new Error('SumUp está activo pero falta sumup_api_key o sumup_merchant_code en /admin/configuracion');
+      throw new ProviderNotConfiguredError('SumUp está activo pero falta sumup_api_key o sumup_merchant_code en /admin/configuracion', 'sumup');
     }
     return new SumUpAdapter(trimmedApiKey, trimmedMerchantCode);
   }

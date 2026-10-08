@@ -18,7 +18,7 @@
 // compare-and-swap y soldCount se decremente solo una vez.
 import { describe, it, expect } from 'vitest';
 import { prisma } from '@/lib/prisma';
-import { invalidateOrder } from '@/lib/order-reconciliation';
+import { invalidateOrder } from '@/lib/reconciliation/entradas';
 import { createTestEvent, createTicketType, cleanupTestEvent } from '../../tests/helpers/fixtures';
 
 describe('AUDIT — dos invalidateOrder concurrentes sobre el mismo pedido no deben decrementar soldCount por duplicado', () => {

@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { POST as createShopOrder } from '@/app/api/shop/orders/route';
 import { getAndSetConfig, restoreConfig } from '../helpers/fixtures';
 import { syncProductVariants } from '@/lib/product-stock';
-import { releaseExpiredShopOrder } from '@/lib/order-reconciliation';
+import { releaseExpiredShopOrder } from '@/lib/reconciliation/tienda';
 
 function shopRequest(body: unknown, ip: string) {
   return new Request('http://localhost/api/shop/orders', {

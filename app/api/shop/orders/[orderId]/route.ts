@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
-import { completeShopOrder } from '@/lib/order-reconciliation';
+import { completeShopOrder } from '@/lib/reconciliation/tienda';
 import { handleApiError } from '@/lib/api-error';
 import { allowShopOrderAccess, getTokenFromRequest } from '@/lib/access-token';
 

@@ -3,12 +3,8 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
-import {
-  completeOrder,
-  completeShopOrder,
-  releaseExpiredOrder,
-  releaseExpiredShopOrder,
-} from '@/lib/order-reconciliation';
+import { completeOrder, releaseExpiredOrder } from '@/lib/reconciliation/entradas';
+import { completeShopOrder, releaseExpiredShopOrder } from '@/lib/reconciliation/tienda';
 import { handleApiError } from '@/lib/api-error';
 import { timingSafeEqualString } from '@/lib/secrets';
 
@@ -97,6 +93,10 @@ export async function GET(request: Request) {
         if (result.success) {
           await completeOrder(order.id);
           completed += 1;
+        } else if (result.status === 'EXPIRED') {
+          // Una sesión de pago caducada ya no se puede pagar: se libera el aforo sin esperar a las 24 h.
+          await releaseExpiredOrder(order.id);
+          released += 1;
         } else {
           stillPending += 1;
         }
@@ -138,6 +138,10 @@ export async function GET(request: Request) {
         if (result.success) {
           await completeShopOrder(order.id);
           completed += 1;
+        } else if (result.status === 'EXPIRED') {
+          // Una sesión de pago caducada ya no se puede pagar: se libera el aforo sin esperar a las 24 h.
+          await releaseExpiredShopOrder(order.id);
+          released += 1;
         } else {
           stillPending += 1;
         }

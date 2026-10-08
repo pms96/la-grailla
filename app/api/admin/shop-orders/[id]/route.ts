@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
-import { invalidateShopOrder } from '@/lib/order-reconciliation';
+import { invalidateShopOrder } from '@/lib/reconciliation/tienda';
 
 const updateShopOrderSchema = z.object({
   status: z.enum(['PENDING', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED']).optional(),

@@ -8,9 +8,10 @@ import { getPaymentProvider } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { handleApiError } from '@/lib/api-error';
-import { completeShopOrder } from '@/lib/order-reconciliation';
+import { completeShopOrder } from '@/lib/reconciliation/tienda';
 import { reserveShopStock, releaseShopStock } from '@/lib/product-stock';
 import { shopOrderAccessQuery, signShopOrderAccess } from '@/lib/access-token';
+import { getBrand } from '@/lib/brand/brand';
 
 const createShopOrderSchema = z.object({
   buyerName: z.string().min(1),
@@ -167,12 +168,13 @@ export async function POST(request: Request) {
     try {
       const baseUrl = getBaseUrl(request);
       const paymentProvider = await getPaymentProvider();
+      const brand = await getBrand();
       provider = paymentProvider.name;
       if (paymentProvider.name !== 'mock' && createdOrder.totalAmount > 0) {
         const session = await paymentProvider.createCheckoutSession({
           amount: createdOrder.totalAmount,
           currency: 'EUR',
-          description: 'Pedido tienda La Grailla',
+          description: `Pedido tienda ${brand.name}`,
           orderId: createdOrder.id,
           successUrl: baseUrl + '/tienda/confirmacion/' + createdOrder.id + '?' + shopOrderAccessQuery(createdOrder.id),
           cancelUrl: baseUrl + '/tienda',
