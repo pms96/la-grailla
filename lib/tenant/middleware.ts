@@ -1,9 +1,10 @@
 import { getToken } from 'next-auth/jwt';
 import { sessionCookieName } from './session-cookie';
 import { NextResponse, type NextRequest } from 'next/server';
-import { deriveInstallationSecret, effectiveLicensePhase, enabledModules, parseMasterKey, type LicensePhase } from '@grailla/contracts';
+import { deriveInstallationSecret, effectiveLicensePhase, enabledModules, isSchemaAtLeast, parseMasterKey, type LicensePhase } from '@grailla/contracts';
 import { isLicenseExempt, ownerEnabled, ownerOfPath } from '@/lib/modules/registry';
 import { isCrossOriginMutation, isOriginCheckExempt } from '@/lib/origin-check';
+import { FRONT_MIN_SCHEMA } from '@/lib/platform/min-schema';
 import { isAuthorizedStaffRequest } from '@/lib/staff-paths';
 import { signContext } from './context-sign';
 import { CONTEXT_HEADER, type TenantContext } from './context-types';
@@ -14,15 +15,29 @@ import { resolveHost } from './resolve';
 /* Middleware del modo plataforma (edge). Hace, por este orden, TODO lo que debe ocurrir antes de que un handler vea la petición:
  *   1. resolver el Host a un cliente (registro firmado) → 404 si no existe;
  *   2. cliente suspendido → 503 (salvo lo que nunca se corta: webhooks y crons);
+ *   2a. puerta de esquema (M7): un cliente cuya BD está por detrás de lo que exige este build recibe «en mantenimiento» (503), solo él;
  *   2b. módulos y licencia (M5): una ruta sin dueño o de un módulo que el cliente no tiene → 404; fase PANEL_BLOCKED → sin /admin; fase
  *      BLOCKED → solo la allowlist (lib/modules/registry.ts) y el aviso;
  *   3. comprobación de Origin en peticiones que modifican datos;
  *   4. sesión de staff con el secreto DE ESE cliente en /admin, /acceso y las API de staff;
  *   5. pasar el contexto a los handlers en una cabecera firmada (borrando antes cualquier cabecera interna que mande el cliente). */
 
-/** Rutas que no se cortan aunque el cliente esté suspendido: un webhook de pago o un cron que no llega es dinero perdido. */
+/** Rutas que no se cortan aunque el cliente esté suspendido: un webhook de pago o un cron que no llega es dinero perdido; la salud, para que el panel pueda ver el estado. */
 export function isNeverBlockable(path: string): boolean {
-  return path.startsWith('/api/webhooks/') || path.startsWith('/api/cron/');
+  return path.startsWith('/api/webhooks/') || path.startsWith('/api/cron/') || path === '/api/health';
+}
+
+export type SchemaGate = { kind: 'api' | 'plain'; status: 503; message: string };
+
+/**
+ * Puerta de esquema (pura): ¿se puede servir esta ruta a un cliente cuya BD está en `schemaVersion`, con un front que exige `min`?
+ * Devuelve null si se sirve. Un `schemaVersion` desconocido (null) cuenta como atrasado: ante la duda, no se sirve. `/api/health` se
+ * sirve siempre: es lo que permite al panel ver QUÉ le falta a ese cliente.
+ */
+export function gateBySchema(path: string, schemaVersion: string | null | undefined, min: string = FRONT_MIN_SCHEMA): SchemaGate | null {
+  if (path === '/api/health') return null;
+  if (isSchemaAtLeast(schemaVersion, min)) return null;
+  return { kind: path.startsWith('/api/') ? 'api' : 'plain', status: 503, message: 'Cliente en mantenimiento' };
 }
 
 /** Lo que es «el panel»: /admin, su API y las dos APIs de gestión de invitaciones (staff) que usa `/admin/invitaciones`. La taquilla y el escáner son venta/puerta y siguen. */
@@ -105,6 +120,16 @@ export async function platformMiddleware(req: NextRequest): Promise<NextResponse
   ctx.license = { phase, nextPhaseChangeAt: ctx.license?.schedule ? (ctx.license.schedule.find((c) => c.at > now)?.at ?? null) : (ctx.license?.nextPhaseChangeAt ?? null) };
 
   if (ctx.status !== 'ACTIVE' && !isNeverBlockable(path)) return plain(503, 'Servicio suspendido');
+
+  // BD del cliente por detrás de lo que exige este build: mantenimiento SOLO para él (los demás clientes siguen). Se reintenta pronto:
+  // en cuanto el runner de migraciones publica la versión nueva en el registro, el cliente vuelve solo.
+  const schemaGate = gateBySchema(path, ctx.schemaVersion);
+  if (schemaGate) {
+    const headers = { 'Retry-After': '30', ...noStore };
+    return schemaGate.kind === 'api'
+      ? NextResponse.json({ error: schemaGate.message }, { status: schemaGate.status, headers })
+      : plain(schemaGate.status, schemaGate.message, { 'Retry-After': '30' });
+  }
 
   const gate = gateByModuleAndLicense(path, req.method, ctx.modules, phase);
   if (gate?.kind === 'not_found') return path.startsWith('/api/') ? NextResponse.json({ error: 'No encontrado' }, { status: 404, headers: noStore }) : plain(404, 'No encontrado');

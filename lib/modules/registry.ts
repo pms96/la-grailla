@@ -28,6 +28,7 @@ const rules: Rule[] = [
   { prefix: '/api/auth', owner: 'nucleo' },
   { prefix: '/api/signup', owner: 'nucleo' },
   { prefix: '/api/cron', owner: 'nucleo' },
+  { prefix: '/api/health', owner: 'nucleo' },
   { prefix: '/api/webhooks', owner: 'nucleo' },
   { prefix: '/api/admin/config', owner: 'nucleo' },
   { prefix: '/api/admin/users', owner: 'nucleo' },
@@ -141,6 +142,7 @@ export function isLicenseExempt(path: string, method: string): boolean {
   const p = normalize(path);
   const read = method === 'GET' || method === 'HEAD';
   if (p.startsWith('/api/webhooks/') || p.startsWith('/api/cron/')) return true;
+  if (p === '/api/health') return true; // la salud del cliente la lee el panel aunque esté en mantenimiento, suspendido o sin licencia
   if (p === '/api/scan' || p.startsWith('/api/scan/') || p === '/api/access' || p.startsWith('/api/access/')) return true;
   if (p.startsWith('/api/auth/') || p === '/api/auth') return true; // el login de staff debe poder abrirse para ver el aviso
   if (read && (p.startsWith('/confirmacion/') || p.startsWith('/tienda/confirmacion/'))) return true;

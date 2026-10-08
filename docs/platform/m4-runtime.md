@@ -37,12 +37,23 @@ petición ──► middleware (edge) ──────────────
 | `AUTH_TRUST_HOST=true` | next-auth deduce host y protocolo de `x-forwarded-*` |
 | `LEGACY_TENANT_ID`, `LEGACY_NEXTAUTH_SECRET` | Cliente legacy (La Grailla) |
 | `PLATFORM_PRODUCT` | Producto que sirve el despliegue (por defecto `grailla`) |
-| `CRON_SECRET` | Global (los crons por cliente llegan en M7): el mismo valor que usan los workflows de GitHub |
+| `PLATFORM_CRON_MASTER` | **M7.** Maestro de los secretos de cron por cliente (32 bytes base64url, **el mismo que el panel**). El secreto válido de `/api/cron/*` y del detalle de `/api/health` de un cliente es `HMAC(maestro, tenantId)` (`deriveCronSecret`): el de A se rechaza en B. Obligatoria; el preflight la comprueba |
+| `CRON_SECRET` | Global. En modo plataforma **solo lo acepta el cliente legacy** (los workflows de GitHub actuales siguen valiendo durante la observación); el resto de clientes solo aceptan su secreto derivado |
+| `SKIP_MIGRATE_ON_BUILD=1` | **M7.** `npm run build` no ejecuta `prisma migrate deploy` (con `PLATFORM_MODE=on` tampoco, siempre). Sin la variable el build migra como siempre; quitarla revierte |
 | `BLOB_READ_WRITE_TOKEN` | Almacén de Blob compartido: cada cliente sube bajo su prefijo `{tenantId}/` |
 
 **Comando de build del proyecto `platform`: `npm run build:platform`** (solo `next build`). El `build` normal ejecuta `prisma migrate deploy`, que exige `DATABASE_URL`/`DIRECT_URL`; sin sobrescribirlo alguien acabaría definiendo esas variables globales «para que compile».
 
 **No definir** `DATABASE_URL`, `DIRECT_URL`, `NEXTAUTH_SECRET` ni `NEXTAUTH_URL` en ese proyecto. Una regla de ESLint prohíbe leerlos fuera de `lib/auth.ts`, `lib/url.ts` y `lib/tenant/installation-secret.ts`, y prohíbe capturar un delegado de `prisma` en ámbito de módulo.
+
+## Operación (M7)
+
+- **Crons por cliente:** `lib/cron-auth.ts` (`authorizeCron`). Modo plataforma: el secreto de un cliente es `deriveCronSecret(PLATFORM_CRON_MASTER, tenantId)`; el de A se rechaza en B. El cliente legacy acepta además el `CRON_SECRET` global mientras los workflows de GitHub sigan en uso. Sin maestro y sin legacy con `CRON_SECRET`: 500 «Cron no configurado».
+- **Cola de reconciliación justa:** `reconcile-payments` sella `reconcileCheckedAt`/`reconcileAttempts` (migración aditiva `20261009090000_reconcile_queue`) en cada pedido examinado y ordena por `reconcileCheckedAt asc nulls first, createdAt asc`: 50 pedidos atascados en cabeza ya no dejan sin atender a los nuevos.
+- **`/api/health`:** público y sin datos (`{status}`, 200/503); con el secreto de cron del cliente devuelve el detalle (versión, esquema aplicado/esperado/mínimo, onboarding). Se sirve aunque el cliente esté suspendido, en mantenimiento o sin licencia.
+- **Puerta de esquema:** `lib/platform/min-schema.ts` (`FRONT_MIN_SCHEMA`) es la migración más nueva que necesita el código de este build; **se sube a mano** en el release que empieza a usar una columna nueva. Si el `schemaVersion` del registro de un cliente es anterior (o desconocido), solo ese cliente recibe 503 «Cliente en mantenimiento» (`Retry-After: 30`) hasta que el runner de migraciones publique la versión nueva. `scripts/platform-preflight.ts` falla si el registro o la BD real del cliente están por detrás.
+- **Build:** `npm run build` ejecuta `scripts/build.js`: `prisma migrate deploy` salvo con `SKIP_MIGRATE_ON_BUILD=1` o `PLATFORM_MODE=on`, y siempre `next build`. El proyecto actual de La Grailla sigue migrando en el build hasta que se decida con el runner probado; el interruptor es la variable (quitarla revierte).
+- **Onboarding:** `lib/onboarding.ts`. Un cliente nuevo (modo plataforma, no legacy) ve en el inicio del admin «Completa estos datos antes de publicar la web: …» con enlace a Configuración mientras falte `admin_email` o algún texto legal. La instalación única y el legacy no lo ven ni salen «degradados» en `/api/health` por esto.
 
 ## Probarlo en local
 
@@ -86,7 +97,7 @@ Se revisó el aislamiento con mentalidad adversarial; cada hallazgo se verificó
 
 - ~~Licencia por fases, módulos desactivados, dominio no verificado y revocación de emergencia~~: hecho en M5 (`m5-modulos-licencia.md`).
 - **`seq` persistente:** el anti-replay vive en la memoria de cada instancia (por cliente y producto); una instancia nueva acepta cualquier `seq` válido. Se decidió en M5 no persistirlo en el mismo almacén (no protege de quien lo controle): ver `m5-modulos-licencia.md`. El panel numera de forma monótona y **no debe reiniciarse**.
-- **Crons por cliente** (hoy `reconcile-payments` y `cleanup-waiting-room` son workflows de GitHub con la URL de La Grailla y un único `CRON_SECRET`): M7.
+- ~~Crons por cliente~~: autenticación por cliente hecha en M7 (arriba); el disparador desde el panel es del panel.
 - **Subidas a Blob desde el navegador** (`@vercel/blob/client`): el cliente elige la ruta; ya se validan contra la BD del cliente (ids cuid), pero llevarlas al prefijo `{tenantId}/` es de M6. Solo el `put` del servidor (`/api/admin/upload`) lo lleva ya.
 - **Branding:** los textos, colores y logos siguen siendo los de La Grailla para todos los clientes (M6).
 - **Medidas que necesitan Vercel/Neon reales** (spike M1): Ed25519/HKDF en el edge real, caché del CDN con dos dominios, arranque en frío de Neon, `waitUntil`, elección entre Edge Config y Upstash.

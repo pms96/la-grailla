@@ -15,6 +15,8 @@ export type TenantContext = {
   modules: string[];
   /** Licencia: tras el resolutor lleva la fase del snapshot y su calendario; el middleware la sustituye por la fase EFECTIVA ahora. Ausente = ACTIVE. */
   license?: { phase: LicensePhase; nextPhaseChangeAt: number | null; schedule?: { at: number; phase: LicensePhase }[] };
+  /** Última migración aplicada a la BD del cliente según el registro (nombre de carpeta), o null si se desconoce. Lo usa la puerta de esquema (M7). */
+  schemaVersion?: string | null;
   /** URLs de la BD del cliente SELLADAS (enc:v2): solo se abren en Node con la clave maestra del servidor. */
   db: { pooledEnc: string; directEnc: string };
   /** Solo tests: URL de BD en claro. Se ignora fuera de Vitest. */

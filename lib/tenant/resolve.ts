@@ -160,6 +160,7 @@ function toContext(body: SnapshotBody, secrets: SecretsSnapshotBody): Omit<Tenan
     status: r.status,
     modules: r.modules,
     license: r.license,
+    schemaVersion: r.schemaVersion,
     db: { pooledEnc: secrets.dbUrlPooledEnc, directEnc: secrets.dbUrlDirectEnc },
   };
 }

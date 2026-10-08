@@ -10,6 +10,7 @@ import {
   signSnapshot,
   type RoutingRecord,
 } from '@grailla/contracts';
+import { FRONT_MIN_SCHEMA } from '@/lib/platform/min-schema';
 import type { RegistryReader } from '@/lib/tenant/resolve';
 
 export class FakeRegistry implements RegistryReader {
@@ -42,6 +43,8 @@ export type PublishOptions = {
   master: Uint8Array;
   skipSecrets?: boolean;
   license?: RoutingRecord['license'];
+  /** Última migración que el registro dice aplicada a la BD del cliente. Por defecto la que exige este build (cliente al día); null = desconocida. */
+  schemaVersion?: string | null;
   /** Horas hasta que el snapshot se considera obsoleto (por defecto 168, como en el panel). */
   staleHours?: number;
   now?: number;
@@ -61,7 +64,7 @@ export async function publishTenant(reg: FakeRegistry, signer: Signer, o: Publis
     license: o.license ?? { phase: 'ACTIVE', nextPhaseChangeAt: null },
     primaryDomain: o.hosts[0],
     domains: o.hosts,
-    schemaVersion: null,
+    schemaVersion: o.schemaVersion === undefined ? FRONT_MIN_SCHEMA : o.schemaVersion,
     epoch: o.epoch ?? 0,
   };
   const routing = JSON.stringify(

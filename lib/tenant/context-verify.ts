@@ -23,6 +23,7 @@ const ContextSchema = z.object({
       schedule: z.array(z.object({ at: z.number().int().nonnegative(), phase: z.enum(LICENSE_PHASES) })).max(3).optional(),
     })
     .optional(),
+  schemaVersion: z.string().max(128).nullable().optional(),
   db: z.object({ pooledEnc: z.string().max(2048), directEnc: z.string().max(2048) }),
 });
 

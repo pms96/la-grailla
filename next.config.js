@@ -10,8 +10,24 @@ try {
   console.warn('No se pudo copiar pdf.worker.min.mjs:', err instanceof Error ? err.message : err);
 }
 
+/** Última migración de `prisma/migrations` que conoce ESTE build (la lee /api/health como «esquema esperado»). */
+function latestMigration() {
+  try {
+    const dir = path.join(__dirname, 'prisma/migrations');
+    const names = fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+    return names[names.length - 1] || '';
+  } catch {
+    return '';
+  }
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  env: { FRONT_SCHEMA_EXPECTED: latestMigration() },
   distDir: process.env.NEXT_DIST_DIR || '.next',
   output: process.env.NEXT_OUTPUT_MODE,
   poweredByHeader: false,

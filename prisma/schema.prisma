@@ -236,35 +236,39 @@ model TicketType {
 }
 
 model Order {
-  id              String        @id @default(cuid())
-  eventId         String
-  buyerName       String
-  buyerLastName   String
-  buyerEmail      String
-  totalAmount     Decimal       @db.Decimal(10, 2)
-  commission      Decimal       @default(0) @db.Decimal(10, 2)
-  paymentMethod   PaymentMethod @default(CARD)
-  paymentProvider String?
-  paymentId       String?
-  status          OrderStatus   @default(PENDING)
+  id                 String        @id @default(cuid())
+  eventId            String
+  buyerName          String
+  buyerLastName      String
+  buyerEmail         String
+  totalAmount        Decimal       @db.Decimal(10, 2)
+  commission         Decimal       @default(0) @db.Decimal(10, 2)
+  paymentMethod      PaymentMethod @default(CARD)
+  paymentProvider    String?
+  paymentId          String?
+  status             OrderStatus   @default(PENDING)
   // Clave que manda el frontend para que un reintento (doble clic antes de
   // que se desactive el botón, reintento de red, "atrás" + reenviar) nunca
   // cree un segundo pedido/cobro para la misma intención de compra. Se
   // limpia a null si el pedido se cancela (p. ej. fallo de la pasarela) para
   // que un reintento genuino con la misma clave no choque contra un pedido
   // ya muerto.
-  idempotencyKey  String?       @unique
-  soldById        String?
-  channel         String        @default("ONLINE")
-  pdfUrl          String?
-  emailSentAt     DateTime?
-  emailLastError  String?
-  emailAttempts   Int           @default(0)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  event           Event         @relation(fields: [eventId], references: [id])
-  tickets         Ticket[]
-  invitation      Invitation?
+  idempotencyKey     String?       @unique
+  soldById           String?
+  channel            String        @default("ONLINE")
+  pdfUrl             String?
+  emailSentAt        DateTime?
+  emailLastError     String?
+  emailAttempts      Int           @default(0)
+  // Cola justa del cron de reconciliación (M7): cuándo se examinó por última vez y cuántas veces. Se ordena por
+  // reconcileCheckedAt (nulos primero) para que unos pedidos atascados en cabeza no dejen sin atender a los nuevos.
+  reconcileCheckedAt DateTime?
+  reconcileAttempts  Int           @default(0)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  event              Event         @relation(fields: [eventId], references: [id])
+  tickets            Ticket[]
+  invitation         Invitation?
 
   @@index([eventId])
   @@index([buyerEmail])
@@ -348,28 +352,31 @@ model ProductVariant {
 }
 
 model ShopOrder {
-  id              String          @id @default(cuid())
-  buyerName       String
-  buyerEmail      String
-  shippingAddress String          @db.Text
-  shippingCity    String
-  shippingZip     String
-  shippingPhone   String?
-  totalAmount     Decimal         @db.Decimal(10, 2)
-  paymentProvider String?
-  paymentId       String?
-  status          ShopOrderStatus @default(PENDING)
-  trackingNumber  String?
-  notes           String?
-  idempotencyKey  String?         @unique
+  id                 String          @id @default(cuid())
+  buyerName          String
+  buyerEmail         String
+  shippingAddress    String          @db.Text
+  shippingCity       String
+  shippingZip        String
+  shippingPhone      String?
+  totalAmount        Decimal         @db.Decimal(10, 2)
+  paymentProvider    String?
+  paymentId          String?
+  status             ShopOrderStatus @default(PENDING)
+  trackingNumber     String?
+  notes              String?
+  idempotencyKey     String?         @unique
   // Vínculo opcional a la temporada de Compras/Gastos, mismo patrón que
   // Event.temporadaId — para poder sacar informes de tienda por edición.
   // Null = sin asignar; se enlaza manualmente desde la UI, sin backfill.
-  temporadaId     String?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  temporada       Temporada?      @relation(fields: [temporadaId], references: [id])
-  items           ShopOrderItem[]
+  temporadaId        String?
+  // Cola justa del cron de reconciliación (M7), igual que en Order.
+  reconcileCheckedAt DateTime?
+  reconcileAttempts  Int             @default(0)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  temporada          Temporada?      @relation(fields: [temporadaId], references: [id])
+  items              ShopOrderItem[]
 
   @@index([buyerEmail])
   @@index([temporadaId])

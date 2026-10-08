@@ -7,3 +7,4 @@ export * from './snapshot';
 export * from './secrets';
 export * from './secrets-snapshot';
 export * from './installation-secret';
+export * from './operations';

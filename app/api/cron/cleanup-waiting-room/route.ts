@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { cleanupAllStaleEntries } from '@/lib/waiting-room';
 import { handleApiError } from '@/lib/api-error';
-import { timingSafeEqualString } from '@/lib/secrets';
+import { authorizeCron } from '@/lib/cron-auth';
 
 // La limpieza normal (lib/waiting-room.ts) es oportunista: solo se dispara
 // con un 2% de probabilidad cuando alguien llama a join/status de ESE
@@ -13,12 +13,12 @@ import { timingSafeEqualString } from '@/lib/secrets';
 // /api/cron/reconcile-payments para los pedidos pendientes.
 export async function GET(request: Request) {
   try {
-    const cronSecret = process.env.CRON_SECRET;
-    if (!cronSecret) {
-      console.error('[GET /api/cron/cleanup-waiting-room] Falta CRON_SECRET en las variables de entorno');
+    const auth = await authorizeCron(request);
+    if (auth === 'not_configured') {
+      console.error('[GET /api/cron/cleanup-waiting-room] Falta el secreto de cron (CRON_SECRET o PLATFORM_CRON_MASTER)');
       return NextResponse.json({ error: 'Cron no configurado' }, { status: 500 });
     }
-    if (!timingSafeEqualString(request.headers.get('authorization') ?? '', `Bearer ${cronSecret}`)) {
+    if (auth === 'unauthorized') {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 

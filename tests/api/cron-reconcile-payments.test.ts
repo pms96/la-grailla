@@ -164,4 +164,73 @@ describe('GET /api/cron/reconcile-payments', () => {
       await prisma.product.delete({ where: { id: product.id } });
     }
   });
+
+  // M7: cola justa. Con `createdAt asc` a secas, los 50 más antiguos se examinaban en cada pasada y el resto no se atendía nunca.
+  describe('cola justa', () => {
+    const pendingEverywhere = () =>
+      vi.fn(async () => new Response(JSON.stringify({ status: 'PENDING' }), { status: 200 }));
+
+    it('sella reconcileCheckedAt y reconcileAttempts en los examinados sin tocar su estado', async () => {
+      const paymentId = `chk-stamp-${Date.now()}`;
+      const order = await createOrderAt(event.id, ticketType.id, paymentId, new Date(Date.now() - 5 * 60_000));
+      expect(order.reconcileCheckedAt).toBeNull();
+      expect(order.reconcileAttempts).toBe(0);
+      vi.stubGlobal('fetch', mockSumUpFetch({ [paymentId]: 'PENDING' }));
+
+      await reconcilePayments(cronRequest(TEST_SECRET));
+      const after = await prisma.order.findUnique({ where: { id: order.id } });
+      expect(after?.status).toBe('PENDING');
+      expect(after?.reconcileAttempts).toBe(1);
+      expect(after?.reconcileCheckedAt).toBeInstanceOf(Date);
+    });
+
+    it('también sella los que dan error en la pasarela (no se quedan en cabeza para siempre)', async () => {
+      const paymentId = `chk-err-${Date.now()}`;
+      const order = await createOrderAt(event.id, ticketType.id, paymentId, new Date(Date.now() - 5 * 60_000));
+      vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('pasarela caída'); }));
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const json = await (await reconcilePayments(cronRequest(TEST_SECRET))).json();
+      vi.restoreAllMocks();
+      expect(json.errors).toBeGreaterThanOrEqual(1);
+      const after = await prisma.order.findUnique({ where: { id: order.id } });
+      expect(after?.status).toBe('PENDING');
+      expect(after?.reconcileAttempts).toBe(1);
+    });
+
+    it('60 pedidos pendientes y 50 por pasada: la segunda pasada atiende a los 10 que la primera dejó fuera', async () => {
+      const stamp = Date.now();
+      // Más antiguos que el resto de pedidos de este fichero: son los que primero cogería un orden solo por antigüedad.
+      const createdAt = new Date(Date.now() - 30 * 60_000);
+      const ids = Array.from({ length: 60 }, (_, i) => `fair-${stamp}-${String(i).padStart(2, '0')}`);
+      await prisma.order.createMany({
+        data: ids.map((paymentId, i) => ({
+          id: `ord-${paymentId}`, eventId: event.id, buyerName: 'Cola', buyerLastName: 'Justa', buyerEmail: `fair-${i}@example.com`,
+          totalAmount: 10, paymentProvider: 'sumup', paymentId, status: 'PENDING' as const,
+          createdAt: new Date(createdAt.getTime() + i * 1000),
+        })),
+      });
+      const mine = ids.map((id) => `ord-${id}`);
+      const attempts = async () => new Map((await prisma.order.findMany({ where: { id: { in: mine } } })).map((o) => [o.id, o.reconcileAttempts]));
+      try {
+        vi.stubGlobal('fetch', pendingEverywhere());
+        await reconcilePayments(cronRequest(TEST_SECRET));
+        const first = await attempts();
+        const examinedFirst = mine.filter((id) => first.get(id) === 1);
+        const leftOut = mine.filter((id) => first.get(id) === 0);
+        expect(examinedFirst.length).toBeLessThanOrEqual(50);
+        expect(leftOut.length).toBeGreaterThanOrEqual(10);
+
+        await reconcilePayments(cronRequest(TEST_SECRET));
+        const second = await attempts();
+        // Los que quedaron fuera pasan por delante de los ya examinados.
+        for (const id of leftOut.slice(0, 10)) expect(second.get(id), id).toBe(1);
+        expect(mine.every((id) => (second.get(id) ?? 0) <= 2)).toBe(true);
+        // Nada se ha liberado ni completado: sigue todo PENDING.
+        expect(await prisma.order.count({ where: { id: { in: mine }, status: 'PENDING' } })).toBe(60);
+      } finally {
+        await prisma.order.deleteMany({ where: { id: { in: mine } } });
+      }
+    });
+  });
 });

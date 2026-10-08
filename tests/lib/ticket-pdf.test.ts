@@ -27,6 +27,8 @@ function sampleOrder() {
     emailSentAt: null,
     emailLastError: null,
     emailAttempts: 0,
+    reconcileCheckedAt: null,
+    reconcileAttempts: 0,
     createdAt: new Date(),
     updatedAt: new Date(),
     event: {

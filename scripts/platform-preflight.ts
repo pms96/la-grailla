@@ -5,7 +5,8 @@
  *   npx tsx scripts/platform-preflight.ts --host www.lagrailla.es [--legacy] [--expect-modules tienda,entradas]
  *
  * No imprime secretos: solo identificadores, estados y recuentos. Sale con código 1 si falla alguna comprobación. */
-import { parseMasterKey } from '@grailla/contracts';
+import { isSchemaAtLeast, parseMasterKey } from '@grailla/contracts';
+import { FRONT_MIN_SCHEMA } from '@/lib/platform/min-schema';
 import { runWithTenant } from '@/lib/tenant/context';
 import { getRegistryReader, resolveHost } from '@/lib/tenant/resolve';
 import { effectiveLicensePhase } from '@grailla/contracts';
@@ -58,6 +59,7 @@ async function main() {
   // 2. Claves y configuración.
   add('PLATFORM_CONTEXT_KEY válida (32 bytes)', keyOk('PLATFORM_CONTEXT_KEY'));
   add('PLATFORM_SESSION_MASTER válida (32 bytes)', keyOk('PLATFORM_SESSION_MASTER'));
+  add('PLATFORM_CRON_MASTER válida (32 bytes; de ella salen los secretos de cron por cliente)', keyOk('PLATFORM_CRON_MASTER'));
   const secretKeys = jsonObject('SECRETS_KEYS');
   const activeKid = process.env.SECRETS_ACTIVE_KID ?? '';
   add('SECRETS_KEYS + SECRETS_ACTIVE_KID', !!secretKeys && activeKid in secretKeys && Object.values(secretKeys).every((v) => typeof v === 'string'));
@@ -93,6 +95,12 @@ async function main() {
     const missing = expected.filter((m) => !resolved.modules.includes(m));
     add('Módulos esperados activos', missing.length === 0, missing.length ? `faltan: ${missing.join(', ')}` : undefined);
   }
+  // Puerta de esquema (M7): el registro del cliente debe declarar al menos la migración que exige este build; si no, el front lo pondría en mantenimiento.
+  add(
+    `Esquema del registro >= ${FRONT_MIN_SCHEMA}`,
+    isSchemaAtLeast(resolved.schemaVersion, FRONT_MIN_SCHEMA),
+    `registro: ${resolved.schemaVersion ?? 'desconocido'} — ejecuta el runner de migraciones antes de desplegar`
+  );
   if (flag('legacy')) add('El host es el cliente legacy', isLegacyTenant(resolved), 'LEGACY_TENANT_ID no coincide con el cliente resuelto');
 
   // 4. La BD del cliente se abre (URL sellada → clave maestra del servidor) y tiene el esquema esperado.
@@ -106,9 +114,14 @@ async function main() {
     }
     try {
       const rows = await prisma.$queryRaw<{ last: string | null; n: bigint }[]>`
-        SELECT (SELECT migration_name FROM "_prisma_migrations" WHERE finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1) AS last,
+        SELECT (SELECT migration_name FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY migration_name DESC LIMIT 1) AS last,
                (SELECT COUNT(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL) AS n`;
       add('Migraciones aplicadas', Number(rows[0]?.n ?? 0) > 0, `${Number(rows[0]?.n ?? 0)} aplicadas, última ${rows[0]?.last ?? '—'}`);
+      add(
+        `La BD del cliente tiene al menos ${FRONT_MIN_SCHEMA}`,
+        isSchemaAtLeast(rows[0]?.last, FRONT_MIN_SCHEMA),
+        `aplicada: ${rows[0]?.last ?? 'ninguna'} — ejecuta el runner de migraciones antes de desplegar`
+      );
     } catch (err) {
       add('Migraciones aplicadas', false, err instanceof Error ? err.message.slice(0, 160) : String(err));
     }
