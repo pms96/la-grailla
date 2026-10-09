@@ -27,6 +27,8 @@ const securityHeaders = [
 
 /** @type {import('next').NextConfig} */
 module.exports = {
+  // Permite compilar a otra carpeta (la comprobación del build en la CI, o una local) sin pisar la del servidor de desarrollo.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
   experimental: {

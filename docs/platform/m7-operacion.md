@@ -139,6 +139,30 @@ AES-256-GCM. Al restaurar, el contador `snapshotSeq` de cada suscripción **salt
 
 Programar la copia (semanal, como mínimo) y subirla a un almacenamiento externo es decisión tuya: requiere dar a un runner la URL de la BD de control y las claves.
 
+## 6 · Proyectos de Vercel y orden de un release
+
+Tres proyectos desde este mismo repositorio. La configuración se hace en Vercel (Settings), no en ficheros, para no cambiar el proyecto antiguo.
+
+| | La Grailla actual (`off`) | `platform` | Panel |
+|---|---|---|---|
+| Root Directory | raíz | raíz | `apps/control-panel` (con «Include source files outside of the Root Directory») |
+| Build Command | `npm run build` (migra la BD: sigue así hasta probar el runner) | `npm run build:platform` | `npm run build` |
+| Node.js | el que tenga | **22.x** (`.nvmrc`) | 22.x (`engines`) |
+| Región de las funciones | la que tenga | **fra1** (junto a Neon y Upstash, UE) | `fra1` (`vercel.json`) |
+| Variables de producción | las de siempre | las del front en modo plataforma | las del panel |
+
+**Variables solo en el entorno «Production» y marcadas «Sensitive»** (`SECRETS_KEYS`, `PLATFORM_*`, `LEGACY_NEXTAUTH_SECRET`, tokens de Upstash, `CONTROL_DATABASE_URL`, `SNAPSHOT_SIGNING_KEY`, `CRON_SECRET`…), nunca en «Preview» ni en «All Environments»: quien pueda subir una rama podría leerlas desde su propio código y abrir las BD de todos los clientes. Además, un despliegue de vista previa (`VERCEL_ENV=preview`) de `platform` o del panel responde 404 a todo, aunque heredase variables. Activa también **Deployment Protection** en las vistas previas.
+
+**Una base de Upstash por entorno** (producción, pruebas). Los nombres de clave (`h:{host}`, `s:{tenantId}:{producto}`) no llevan entorno: se aíslan con la base, no con un prefijo.
+
+**Un release que toca el esquema, mientras convivan el proyecto antiguo y `platform`**, siempre en este orden:
+1. Subir una **rama y abrir un PR** (no empujar a `main`: lo desplegaría el proyecto antiguo y migraría la BD de producción con código que la CI no ha visto). Esperar la CI en verde.
+2. Fusionar en una ventana sin eventos. El proyecto antiguo despliega y migra la BD de La Grailla en su build.
+3. `npm run migrate:tenants` (desde una máquina de operación): aplica las migraciones a los demás clientes, **sincroniza el `schemaVersion` del registro y republica**. Sin este paso, `platform` pondría «en mantenimiento» (503) a todo cliente cuyo registro esté por detrás de `FRONT_MIN_SCHEMA`.
+4. Recién entonces, **promocionar** el despliegue de `platform` (desactiva la promoción automática: Settings → Git → «Production Branch» manual, o Ignored Build Step) y comprobar `/health` del panel.
+
+La CI vigila dos cosas de este orden: toda migración posterior a `FRONT_MIN_SCHEMA` debe decidir por escrito si el front la necesita (`-- front-min-schema: not-required <motivo>`, o se sube `FRONT_MIN_SCHEMA`), y el front en modo plataforma y el panel se compilan de verdad (`next build`) en cada PR.
+
 ## Revisión independiente (aplicada)
 
 Un agente revisó M7 con mentalidad adversarial y verificó cada hallazgo; los reales se arreglaron con su test:

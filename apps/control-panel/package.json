@@ -1,6 +1,9 @@
 {
   "name": "control-panel",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "next dev -p 3200",
     "build": "prisma generate && next build",

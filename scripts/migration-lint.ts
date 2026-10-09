@@ -17,6 +17,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { FRONT_MIN_SCHEMA } from '../lib/platform/min-schema';
 
 export const BASELINE_MIGRATION = '20260930110333_add_ingreso_model';
 
@@ -78,20 +79,52 @@ export function lintMigrationsDir(dir: string, baseline = BASELINE_MIGRATION): {
   });
 }
 
+/* Puerta de esquema (FRONT_MIN_SCHEMA): olvidar subirla cuando el código empieza a leer una columna nueva hace que los clientes con la BD
+ * por detrás den un 500 en TODAS las lecturas de ese modelo (Prisma selecciona todas las columnas) en vez de «en mantenimiento». Como
+ * «¿lo necesita el código?» no se puede saber desde fuera, cada migración posterior a FRONT_MIN_SCHEMA obliga a decidirlo por escrito:
+ *   - el código de este release la necesita → se sube FRONT_MIN_SCHEMA a esa migración (y deja de estar «posterior»);
+ *   - el front funciona sin ella → `-- front-min-schema: not-required <motivo>` en su migration.sql. */
+const NOT_REQUIRED_MARKER = /^[ \t]*--[ \t]*front-min-schema:[ \t]*not-required[ \t]+\S+/im;
+
+export type MinSchemaFinding = { migration: string; message: string };
+
+export function checkMinSchemaDecisions(dir: string, min: string = FRONT_MIN_SCHEMA): MinSchemaFinding[] {
+  const names = fs.readdirSync(dir).filter((n) => fs.statSync(path.join(dir, n)).isDirectory());
+  return names
+    .filter((n) => /^\d{14}_/.test(n) && n > min)
+    .sort()
+    .flatMap((name) => {
+      const file = path.join(dir, name, 'migration.sql');
+      if (!fs.existsSync(file) || NOT_REQUIRED_MARKER.test(fs.readFileSync(file, 'utf8'))) return [];
+      return [
+        {
+          migration: name,
+          message:
+            `es posterior a FRONT_MIN_SCHEMA (${min}) y no dice si el front la necesita. Si el código de este release la necesita, sube FRONT_MIN_SCHEMA ` +
+            `en lib/platform/min-schema.ts a "${name}"; si el front funciona sin ella, añade a la migración "-- front-min-schema: not-required <motivo>".`,
+        },
+      ];
+    });
+}
+
 // Uso: npx tsx scripts/migration-lint.ts
 if (process.argv[1] && path.basename(process.argv[1]) === 'migration-lint.ts') {
   const dir = path.join(process.cwd(), 'prisma', 'migrations');
   const problems = lintMigrationsDir(dir);
-  if (problems.length === 0) {
-    console.log('Migraciones: todas las posteriores a la línea base son aditivas.');
+  const undecided = checkMinSchemaDecisions(dir);
+  if (problems.length === 0 && undecided.length === 0) {
+    console.log('Migraciones: todas las posteriores a la línea base son aditivas y la puerta de esquema está al día.');
   } else {
     for (const { migration, findings } of problems) {
       for (const f of findings) console.error(`✗ ${migration}: [${f.rule}] ${f.message}`);
     }
-    console.error(
-      '\nUna migración debe ser aditiva (expand). Si de verdad tiene que ser destructiva, añade una línea ' +
-        '"-- allow-destructive: <motivo>" y asegúrate de que ningún despliegue ejecuta ya el código antiguo.'
-    );
+    for (const u of undecided) console.error(`✗ ${u.migration}: [front-min-schema] ${u.message}`);
+    if (problems.length) {
+      console.error(
+        '\nUna migración debe ser aditiva (expand). Si de verdad tiene que ser destructiva, añade una línea ' +
+          '"-- allow-destructive: <motivo>" y asegúrate de que ningún despliegue ejecuta ya el código antiguo.'
+      );
+    }
     process.exit(1);
   }
 }

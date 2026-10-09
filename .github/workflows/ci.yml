@@ -49,7 +49,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Instalar dependencias
@@ -103,7 +103,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: 'npm'
           cache-dependency-path: apps/control-panel/package-lock.json
 
@@ -118,3 +118,44 @@ jobs:
 
       - name: Tests (Vitest, contra Postgres real)
         run: npm test
+
+  # El build de verdad. Hasta ahora nada ejecutaba `next build`: un import roto, un runtime edge incompatible o una página estática con datos
+  # de un cliente solo se habrían visto en Vercel, en el primer despliegue. Se compila como lo hará el proyecto `platform` (modo plataforma,
+  # sin DATABASE_URL ni NEXTAUTH_*: ese despliegue no las tiene) y como el panel.
+  build-front-platform:
+    runs-on: ubuntu-latest
+    env:
+      PLATFORM_MODE: 'on'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Build del front en modo plataforma
+        run: npm run build:platform
+
+  build-control-panel:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/control-panel
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+          cache-dependency-path: apps/control-panel/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Build del panel
+        run: npm run build
