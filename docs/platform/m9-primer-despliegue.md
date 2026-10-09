@@ -10,8 +10,8 @@ Reglas que valen en todo el documento:
 ## 0 · Claves de producción (en tu Mac, 2 minutos)
 
 ```bash
-cd apps/control-panel
-npm run keys:prod -- generate
+    cd apps/control-panel
+    npm run keys:prod -- generate
 ```
 
 Crea `~/grailla-produccion/` (fuera del repo) con tres ficheros de permisos 0600 y **no muestra ningún valor**:
