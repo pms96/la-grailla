@@ -37,14 +37,17 @@ export function freshStore() {
 
 export const signerPublicKey = () => publicKeyOf(process.env.SNAPSHOT_SIGNING_KEY!);
 
-export const DB_URLS = {
-  dbUrlPooled: 'postgresql://cliente:secreto-pooled@ep-demo-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require',
-  dbUrlDirect: 'postgresql://cliente:secreto-directo@ep-demo.eu-central-1.aws.neon.tech/neondb?sslmode=require',
-};
+/** URLs de BD de un cliente de prueba. Cada cliente tiene SU BD (el registro lo exige: no pueden compartirla), así que cada alta lleva las suyas. */
+export function dbUrlsFor(id: string) {
+  return {
+    dbUrlPooled: `postgresql://cliente:secreto-pooled@ep-demo-${id}-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require`,
+    dbUrlDirect: `postgresql://cliente:secreto-directo@ep-demo-${id}.eu-central-1.aws.neon.tech/neondb?sslmode=require`,
+  };
+}
 
 export function tenantInput(over: Record<string, unknown> = {}) {
   const id = uniq();
-  return { name: `Cliente ${id}`, productKey: 'grailla', primaryHost: `cliente-${id}.es`, modules: ['tienda'], ...DB_URLS, ...over };
+  return { name: `Cliente ${id}`, productKey: 'grailla', primaryHost: `cliente-${id}.es`, modules: ['tienda'], ...dbUrlsFor(id), ...over };
 }
 
 /** Alta de cliente con un SUPERADMIN propio (crear un cliente exige database:write). */

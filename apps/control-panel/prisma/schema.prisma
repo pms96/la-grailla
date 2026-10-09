@@ -146,6 +146,9 @@ model Subscription {
   // URLs de la BD del cliente, selladas (enc:v2). Nunca salen del panel en claro.
   dbUrlPooledEnc  String
   dbUrlDirectEnc  String
+  // Huella de la BD (servidor + puerto + nombre): única, para que dos clientes no puedan apuntar a la misma BD (ver lib/services/db-identity.ts).
+  // Null en altas anteriores: se rellena al registrar el siguiente cliente.
+  dbFingerprint   String?              @unique
   // Hash del registro publicado (sin seq/iat): detecta "cambios sin publicar".
   lastPublishedHash String?
   lastPublishedAt DateTime?

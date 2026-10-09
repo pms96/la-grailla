@@ -13,6 +13,7 @@ import type { FetchLike } from './tenant-calls';
 import { redactUrls } from '../migrations/executor';
 import { runMigrationsForSubscription, type MigrationRunResult, type RunOptions } from './migrations';
 import { loadSubscription, pendingChanges, publishSubscription } from './snapshot';
+import { assertProvisionTarget, withTenantDb, writeTenantMarker } from './tenant-db';
 import { createTenant, DB_URL_DIRECT_FIELD } from './tenants';
 
 /* Alta de un cliente de punta a punta (M7), por script y SIN tocar código. Cada paso es idempotente: si se corta a medias, repetir el
@@ -49,6 +50,12 @@ export type ProvisionInput = {
   allowIncomplete?: boolean;
   schemaVersion?: string | null;
   dbRegion?: string | null;
+  /**
+   * Adoptar una BD que YA tiene datos y no está marcada como de ningún cliente (p. ej. un cliente anterior a la plataforma). Sin esto, un alta
+   * se niega en una BD con datos: con una URL equivocada acabaría sembrando un administrador conocido en la BD de producción de otro cliente.
+   * Al adoptar no se crea ningún administrador si la BD ya tiene usuarios.
+   */
+  adoptDatabase?: boolean;
 };
 
 export type ProvisionDeps = {
@@ -118,20 +125,16 @@ async function ensureLocalDatabase(name: string): Promise<{ url: string; created
   }
 }
 
-async function withTenantDb<T>(url: string, fn: (db: PrismaClient) => Promise<T>): Promise<T> {
-  const db = new PrismaClient({ datasourceUrl: url, log: [] });
-  try {
-    return await fn(db);
-  } finally {
-    await db.$disconnect();
-  }
-}
-
-/** Siembra la configuración (sin pisar lo que ya exista) y el primer ADMIN. Devuelve la contraseña solo si el usuario es nuevo. */
+/**
+ * Marca la BD como de este cliente, siembra la configuración (sin pisar lo que ya exista) y el primer ADMIN. Devuelve la contraseña solo si
+ * el usuario es nuevo. La marca va PRIMERO: así una BD en la que se llegó a sembrar algo siempre dice de quién es.
+ */
 async function seedTenantDb(
   url: string,
-  args: { config: Record<string, string>; adminEmail: string; adminName: string }
+  args: { tenantId: string; config: Record<string, string>; adminEmail: string; adminName: string; createAdmin: boolean }
 ): Promise<{ configWritten: string[]; adminPassword?: string }> {
+  const marker = await writeTenantMarker(url, args.tenantId, cuidLike);
+  if (marker !== args.tenantId) throw new ServiceError('database_belongs_to_other_tenant', `Esa base de datos pertenece a otro cliente (${marker}): no se siembra nada`);
   return withTenantDb(url, async (db) => {
     const written: string[] = [];
     for (const [key, value] of Object.entries(args.config)) {
@@ -152,6 +155,7 @@ async function seedTenantDb(
       const rows = await db.$executeRawUnsafe(`UPDATE "AppConfig" SET "value" = $2 WHERE "key" = $1 AND btrim("value") = ''`, key, value);
       if (rows > 0) written.push(key);
     }
+    if (!args.createAdmin) return { configWritten: written };
     const existing = await db.$queryRawUnsafe<{ id: string }[]>(`SELECT "id" FROM "User" WHERE "email" = $1`, args.adminEmail);
     if (existing.length) return { configWritten: written };
     const password = crypto.randomBytes(15).toString('base64url');
@@ -275,19 +279,34 @@ export async function provisionTenant(input: ProvisionInput, actor: ActingOperat
   // 2. Base de datos.
   let pooledUrl: string;
   let directUrl: string;
+  let databaseStep: StepResult;
   if (input.database.mode === 'local') {
     const { url, created } = await ensureLocalDatabase(input.database.name);
     pooledUrl = url;
     directUrl = url;
-    step({ step: 'database', status: created ? 'done' : 'skipped', detail: created ? 'BD local creada' : 'La BD local ya existía' });
+    databaseStep = { step: 'database', status: created ? 'done' : 'skipped', detail: created ? 'BD local creada' : 'La BD local ya existía' };
   } else {
     pooledUrl = input.database.pooledUrl;
     directUrl = input.database.directUrl;
-    step({ step: 'database', status: 'skipped', detail: 'BD ya creada (se usa la indicada)' });
+    databaseStep = { step: 'database', status: 'skipped', detail: 'BD ya creada (se usa la indicada)' };
   }
 
   // 3. Registrar (o reutilizar si el dominio ya es de un cliente con este nombre).
   const existingDomain = await prisma.domain.findUnique({ where: { host }, include: { subscription: { include: { tenant: true } } } });
+  const resuming = !!existingDomain && existingDomain.status !== 'RELEASED' && existingDomain.subscription.tenant.name === name;
+  if (resuming) {
+    // Repetir un alta con OTRA URL de BD no debe migrar y sembrar en silencio la antigua: se avisa (para cambiarla hay `replaceDatabaseUrls`).
+    // Se comprueba primero porque no necesita red: con una URL equivocada no hace falta ni intentar conectar.
+    const registered = await openField(existingDomain!.subscription.dbUrlDirectEnc, { scope: existingDomain!.subscription.tenantId, field: DB_URL_DIRECT_FIELD });
+    if (registered !== directUrl) {
+      throw new ServiceError('database_mismatch', 'El cliente ya está registrado con otra URL de BD. Si el primer intento llevaba una URL equivocada, corrígela desde el panel (Sustituir las URLs de conexión) y repite');
+    }
+  }
+  // ANTES de registrar, migrar o sembrar nada: ¿esta BD es nueva, o de este mismo cliente? Con una URL equivocada (la de otro cliente, la de
+  // producción de La Grailla) un alta sembraría un administrador conocido en una BD ajena.
+  const target = await assertProvisionTarget(directUrl, resuming ? existingDomain!.subscription.tenantId : null, input.adoptDatabase === true);
+  step(databaseStep);
+
   let subscriptionId: string;
   let tenantId: string;
   if (existingDomain && existingDomain.status !== 'RELEASED') {
@@ -296,11 +315,6 @@ export async function provisionTenant(input: ProvisionInput, actor: ActingOperat
     }
     subscriptionId = existingDomain.subscriptionId;
     tenantId = existingDomain.subscription.tenantId;
-    // Repetir un alta con OTRA URL de BD no debe migrar y sembrar en silencio la antigua: se avisa (para cambiarla hay `replaceDatabaseUrls`).
-    const registered = await openField(existingDomain.subscription.dbUrlDirectEnc, { scope: tenantId, field: DB_URL_DIRECT_FIELD });
-    if (registered !== directUrl) {
-      throw new ServiceError('database_mismatch', 'El cliente ya está registrado con otra URL de BD. Si el primer intento llevaba una URL equivocada, corrígela desde el panel (Sustituir las URLs de conexión) y repite');
-    }
     step({ step: 'register', status: 'skipped', detail: 'El cliente ya estaba registrado' });
   } else {
     const created = await createTenant(
@@ -324,7 +338,9 @@ export async function provisionTenant(input: ProvisionInput, actor: ActingOperat
   const sub = await prisma.subscription.findUniqueOrThrow({ where: { id: subscriptionId } });
   const dbUrl = await openField(sub.dbUrlDirectEnc, { scope: tenantId, field: DB_URL_DIRECT_FIELD });
   try {
-    const seeded = await seedTenantDb(dbUrl, { config, adminEmail: adminUserEmail, adminName: input.adminUser?.name?.trim() || 'Administrador' });
+    // Adoptar una BD con usuarios: no se le añade un administrador nuevo (sus usuarios ya existen).
+    const createAdmin = !(input.adoptDatabase === true && target.contents.users > 0);
+    const seeded = await seedTenantDb(dbUrl, { tenantId, config, adminEmail: adminUserEmail, adminName: input.adminUser?.name?.trim() || 'Administrador', createAdmin });
     if (seeded.adminPassword) {
       result.adminPassword = seeded.adminPassword;
       await deps.onCredentials?.(seeded.adminPassword);

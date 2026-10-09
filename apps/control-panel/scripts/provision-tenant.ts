@@ -11,6 +11,8 @@
  *   --database-existing  usa una BD ya creada (producción: proyecto de Neon del cliente), con las URLs en VARIABLES DE ENTORNO
  *                        cuyo nombre se pasa por argumento (nunca la URL: quedaría en `ps` y en el historial).
  *   --database-local[=nombre]  crea la BD en el Postgres local (solo desarrollo).
+ *   --adopt-database  adopta una BD que YA tiene datos (p. ej. un cliente anterior a la plataforma). Sin esto, un alta se niega en una BD con
+ *     datos o marcada como de otro cliente: con una URL equivocada sembraría un administrador conocido en una BD ajena.
  *   La contraseña inicial del administrador se muestra UNA vez (o se guarda en --credentials-file con permisos 0600). */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -83,6 +85,7 @@ async function main() {
     domain: (arg('domain') as ProvisionInput['domain']) ?? 'pending',
     publish: !flag('no-publish'),
     allowIncomplete: flag('allow-incomplete'),
+    adoptDatabase: flag('adopt-database'),
     dbRegion: arg('region') ?? null,
   };
 

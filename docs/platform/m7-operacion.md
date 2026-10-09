@@ -33,6 +33,13 @@ Lo que NO se ha podido probar aquí (necesita Vercel/Neon/GitHub reales) está a
 
 Requisitos: la BD del cliente ya creada (un proyecto de Neon por cliente, región UE) y sus dos URLs (pooled y directa) en variables de entorno **de tu shell** (nunca como argumento: quedarían en `ps` y en el historial). Los textos legales los aporta el cliente, en una carpeta con `aviso-legal.txt`, `privacidad.txt` y `cookies.txt`.
 
+**Una BD por cliente, y nunca la de otro.** El alta se niega, antes de registrar, migrar o sembrar nada, si la BD:
+- ya tiene la marca de **otro** cliente (`AppConfig.platform_tenant_id`; se escribe al sembrar) — nunca, ni con `--adopt-database`;
+- tiene datos (usuarios, pedidos, eventos) y no está marcada — solo con `--adopt-database`, para adoptar a propósito un cliente que ya existía; al adoptar no se crea ningún administrador nuevo;
+- ya está registrada en otro cliente (la huella servidor+puerto+nombre es única en el registro), o las URLs con pooler y directa son de servidores distintos de Neon.
+
+Un front que sirve a un cliente cuya BD está marcada como de otro lo dice en `/api/health` (503, y el panel lo marca como «LA BD ES DE OTRO CLIENTE»). «Sustituir las URLs» desde el panel hace las mismas comprobaciones y **publica al momento** (antes el front seguía usando la BD antigua hasta el refresco diario).
+
 ```bash
 cd apps/control-panel
 BARPEPE_POOLED='postgresql://…' BARPEPE_DIRECT='postgresql://…' \

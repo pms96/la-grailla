@@ -4,12 +4,43 @@ import type { ActingOperator } from '../actor';
 import { appendAudit } from '../audit';
 import { prisma } from '../db';
 import { assertCan } from '../permissions';
-import { sealField } from '../secrets-store';
+import { openField, sealField } from '../secrets-store';
+import { assertSameDatabase, databaseFingerprint } from './db-identity';
 import { claimDomain, parseHostOrThrow } from './domains';
 import { ServiceError } from './errors';
+import { readTenantMarker } from './tenant-db';
 
 export const DB_URL_POOLED_FIELD = 'db_url_pooled';
 export const DB_URL_DIRECT_FIELD = 'db_url_direct';
+
+const isUniqueViolation = (err: unknown, field: string): boolean => {
+  const e = err as { code?: string; meta?: { target?: unknown } } | null;
+  return e?.code === 'P2002' && String(e.meta?.target ?? '').includes(field);
+};
+const databaseInUse = () => new ServiceError('database_in_use', 'Esa base de datos ya está registrada en otro cliente: cada cliente tiene la suya. Revisa las URLs (¿has copiado las de otro proyecto de Neon?)');
+
+/**
+ * Las altas anteriores a la huella no la tienen: se calcula abriendo su URL. Así una BD ya en uso se detecta aunque el cliente que la usa
+ * se diera de alta antes. Si dos clientes antiguos ya comparten BD, el segundo se queda sin huella y se avisa (hay que corregirlo a mano).
+ */
+async function backfillFingerprints(): Promise<void> {
+  const rows = await prisma.subscription.findMany({ where: { dbFingerprint: null }, select: { id: true, tenantId: true, dbUrlDirectEnc: true } });
+  for (const r of rows) {
+    try {
+      const url = await openField(r.dbUrlDirectEnc, { scope: r.tenantId, field: DB_URL_DIRECT_FIELD });
+      await prisma.subscription.update({ where: { id: r.id }, data: { dbFingerprint: databaseFingerprint(url) } });
+    } catch (err) {
+      console.error(`[tenants] no se pudo calcular la huella de BD del cliente ${r.tenantId}${isUniqueViolation(err, 'dbFingerprint') ? ': comparte BD con otro cliente' : ''}`);
+    }
+  }
+}
+
+/** Falla si otra suscripción (distinta de `except`) ya usa esa BD. */
+async function assertDatabaseFree(fingerprint: string, except?: string): Promise<void> {
+  await backfillFingerprints();
+  const other = await prisma.subscription.findFirst({ where: { dbFingerprint: fingerprint, ...(except ? { id: { not: except } } : {}) }, select: { id: true } });
+  if (other) throw databaseInUse();
+}
 
 export function parseDatabaseUrl(raw: string, label: string): string {
   const value = (raw ?? '').trim();
@@ -63,38 +94,48 @@ export async function createTenant(input: CreateTenantInput, actor: ActingOperat
   const host = parseHostOrThrow(input.primaryHost);
   const pooled = parseDatabaseUrl(input.dbUrlPooled, 'URL de BD (pooled)');
   const direct = parseDatabaseUrl(input.dbUrlDirect, 'URL de BD (directa)');
+  assertSameDatabase(pooled, direct);
+  const dbFingerprint = databaseFingerprint(direct);
+  await assertDatabaseFree(dbFingerprint);
   const tenantId = newUlid(now);
   const [pooledEnc, directEnc] = await Promise.all([
     sealField(pooled, { scope: tenantId, field: DB_URL_POOLED_FIELD }),
     sealField(direct, { scope: tenantId, field: DB_URL_DIRECT_FIELD }),
   ]);
 
-  return prisma.$transaction(async (tx) => {
-    const modules = await resolveModules(tx, input.productKey, input.modules);
-    const tenant = await tx.tenant.create({ data: { id: tenantId, name } });
-    const sub = await tx.subscription.create({
-      data: {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const modules = await resolveModules(tx, input.productKey, input.modules);
+      const tenant = await tx.tenant.create({ data: { id: tenantId, name } });
+      const sub = await tx.subscription.create({
+        data: {
+          tenantId,
+          productKey: input.productKey,
+          cell: input.cell ?? 'shared-1',
+          schemaVersion: input.schemaVersion ?? null,
+          dbRegion: input.dbRegion ?? null,
+          dbUrlPooledEnc: pooledEnc,
+          dbUrlDirectEnc: directEnc,
+          dbFingerprint,
+          modules: { create: modules.map((moduleKey) => ({ moduleKey, enabledBy: actor.id })) },
+        },
+      });
+      const domain = await claimDomain(tx, { host, subscriptionId: sub.id, tenantId }, now);
+      await appendAudit(tx, {
+        actor,
+        action: 'tenant.create',
+        targetType: 'tenant',
+        targetId: tenantId,
         tenantId,
-        productKey: input.productKey,
-        cell: input.cell ?? 'shared-1',
-        schemaVersion: input.schemaVersion ?? null,
-        dbRegion: input.dbRegion ?? null,
-        dbUrlPooledEnc: pooledEnc,
-        dbUrlDirectEnc: directEnc,
-        modules: { create: modules.map((moduleKey) => ({ moduleKey, enabledBy: actor.id })) },
-      },
+        meta: { name, productKey: input.productKey, host, modules, cell: sub.cell },
+      });
+      return { tenant, subscription: sub, domain };
     });
-    const domain = await claimDomain(tx, { host, subscriptionId: sub.id, tenantId }, now);
-    await appendAudit(tx, {
-      actor,
-      action: 'tenant.create',
-      targetType: 'tenant',
-      targetId: tenantId,
-      tenantId,
-      meta: { name, productKey: input.productKey, host, modules, cell: sub.cell },
-    });
-    return { tenant, subscription: sub, domain };
-  });
+  } catch (err) {
+    // Dos altas simultáneas con la misma BD: la comprobación de arriba no las ve a la vez, el índice único sí.
+    if (isUniqueViolation(err, 'dbFingerprint')) throw databaseInUse();
+    throw err;
+  }
 }
 
 /** Sustituye la lista de módulos (el núcleo no se puede quitar). */
@@ -159,26 +200,43 @@ export async function bumpEpoch(subscriptionId: string, actor: ActingOperator) {
 export async function replaceDatabaseUrls(
   subscriptionId: string,
   urls: { pooled: string; direct: string; schemaVersion?: string | null },
-  actor: ActingOperator
+  actor: ActingOperator,
+  /** `checkMarker`: abre la BD nueva y comprueba que no está marcada como de OTRO cliente (necesita alcanzarla; la acción del panel lo pide). */
+  opts: { checkMarker?: boolean } = {}
 ) {
   assertCan(actor.role, 'database:write');
   const pooled = parseDatabaseUrl(urls.pooled, 'URL de BD (pooled)');
   const direct = parseDatabaseUrl(urls.direct, 'URL de BD (directa)');
+  assertSameDatabase(pooled, direct);
   const sub = await prisma.subscription.findUnique({ where: { id: subscriptionId } });
   if (!sub) throw new ServiceError('not_found', 'Suscripción no encontrada');
+  const dbFingerprint = databaseFingerprint(direct);
+  await assertDatabaseFree(dbFingerprint, subscriptionId);
+  if (opts.checkMarker) {
+    const marker = await readTenantMarker(direct);
+    if (marker && marker !== sub.tenantId) {
+      throw new ServiceError('database_belongs_to_other_tenant', `Esa base de datos pertenece a otro cliente (${marker}): no se puede asignar a este`);
+    }
+  }
   const [pooledEnc, directEnc] = await Promise.all([
     sealField(pooled, { scope: sub.tenantId, field: DB_URL_POOLED_FIELD }),
     sealField(direct, { scope: sub.tenantId, field: DB_URL_DIRECT_FIELD }),
   ]);
-  await prisma.$transaction(async (tx) => {
-    await tx.subscription.update({
-      where: { id: subscriptionId },
-      data: {
-        dbUrlPooledEnc: pooledEnc,
-        dbUrlDirectEnc: directEnc,
-        ...(urls.schemaVersion !== undefined ? { schemaVersion: urls.schemaVersion } : {}),
-      },
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.subscription.update({
+        where: { id: subscriptionId },
+        data: {
+          dbUrlPooledEnc: pooledEnc,
+          dbUrlDirectEnc: directEnc,
+          dbFingerprint,
+          ...(urls.schemaVersion !== undefined ? { schemaVersion: urls.schemaVersion } : {}),
+        },
+      });
+      await appendAudit(tx, { actor, action: 'subscription.replace_database_urls', targetType: 'subscription', targetId: subscriptionId, tenantId: sub.tenantId, meta: {} });
     });
-    await appendAudit(tx, { actor, action: 'subscription.replace_database_urls', targetType: 'subscription', targetId: subscriptionId, tenantId: sub.tenantId, meta: {} });
-  });
+  } catch (err) {
+    if (isUniqueViolation(err, 'dbFingerprint')) throw databaseInUse();
+    throw err;
+  }
 }

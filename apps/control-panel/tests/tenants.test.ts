@@ -5,7 +5,7 @@ import { openField } from '@/lib/secrets-store';
 import { ForbiddenError } from '@/lib/permissions';
 import { ServiceError } from '@/lib/services/errors';
 import { bumpEpoch, createTenant, replaceDatabaseUrls, setModules, setTenantStatus } from '@/lib/services/tenants';
-import { DB_URLS, makeOperator, resetControlDb, tenantInput } from './helpers';
+import { makeOperator, resetControlDb, tenantInput } from './helpers';
 
 beforeEach(resetControlDb);
 
@@ -25,7 +25,7 @@ describe('createTenant', () => {
     // Nunca en claro en la BD de control, y se recuperan con el contexto correcto.
     expect(subscription.dbUrlPooledEnc.startsWith('enc:v2:')).toBe(true);
     expect(subscription.dbUrlPooledEnc).not.toContain('postgresql');
-    expect(await openField(subscription.dbUrlPooledEnc, { scope: tenant.id, field: 'db_url_pooled' })).toBe(DB_URLS.dbUrlPooled);
+    expect(await openField(subscription.dbUrlPooledEnc, { scope: tenant.id, field: 'db_url_pooled' })).toBe(input.dbUrlPooled);
     await expect(openField(subscription.dbUrlPooledEnc, { scope: tenant.id, field: 'db_url_direct' })).rejects.toThrow();
   });
 

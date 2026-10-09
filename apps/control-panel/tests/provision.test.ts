@@ -227,11 +227,18 @@ describe('alta de cliente de punta a punta', () => {
     freshStore();
     const { actor } = await makeOperator('SUPERADMIN');
     const first = input();
+    const firstName = (first.database as { name: string }).name;
     await provisionTenant(first, actor, {}); // deja la BD local creada y migrada
+    // Se deja la BD migrada pero VACÍA y sin dueño (como una BD nueva que ya se migró a mano). Un alta nueva no puede usar una BD que ya
+    // es de otro cliente (ver provision-safety.test.ts), pero sí una BD migrada y vacía.
+    await resetControlDb();
+    const { actor: actor2 } = await makeOperator('SUPERADMIN');
+    await queryScratch(firstName, `DELETE FROM "User" RETURNING 1`);
+    await queryScratch(firstName, `DELETE FROM "AppConfig" RETURNING 1`);
     // Mismo servidor, BD ya migrada, cliente NUEVO con --database-existing y sin schemaVersion:
-    const url = (await import('./scratch-db')).scratchUrl((first.database as { name: string }).name);
+    const url = (await import('./scratch-db')).scratchUrl(firstName);
     const second = input({ database: { mode: 'existing', pooledUrl: url, directUrl: url } });
-    const res = await provisionTenant(second, actor);
+    const res = await provisionTenant(second, actor2);
     expect(res.steps.find((s) => s.step === 'migrate')).toMatchObject({ status: 'skipped' });
     const sub = await prisma.subscription.findUniqueOrThrow({ where: { id: res.subscriptionId! } });
     const local = listLocalMigrations(frontPrismaDir());

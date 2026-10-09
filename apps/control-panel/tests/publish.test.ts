@@ -6,16 +6,17 @@ import type { RegistryStore } from '@/lib/registry/store';
 import { addDomain, releaseDomain, setPrimaryDomain, verifyDomainManually } from '@/lib/services/domains';
 import { loadSubscription, pendingChanges, publishSubscription, republishIfPublished } from '@/lib/services/snapshot';
 import { setModules, setTenantStatus } from '@/lib/services/tenants';
-import { DB_URLS, freshStore, makeOperator, resetControlDb, signerPublicKey, tenantInput, uniq, rootCreateTenant } from './helpers';
+import { freshStore, makeOperator, resetControlDb, signerPublicKey, tenantInput, uniq, rootCreateTenant } from './helpers';
 
 beforeEach(resetControlDb);
 
 async function verifiedTenant(modules = ['tienda']) {
   const { actor } = await makeOperator('OPERATOR');
   const { actor: root } = await makeOperator('SUPERADMIN');
-  const t = await rootCreateTenant(tenantInput({ modules }));
+  const input = tenantInput({ modules });
+  const t = await rootCreateTenant(input);
   await verifyDomainManually(t.domain.id, root);
-  return { actor, root, ...t, store: freshStore() };
+  return { actor, root, ...t, input, store: freshStore() };
 }
 
 async function read(store: { get(k: string): Promise<string | null> }, host: string) {
@@ -158,7 +159,7 @@ describe('publicar el registro', () => {
 
 describe('registro de secretos', () => {
   it('publica las URLs de BD selladas, firmadas y atadas al cliente y al producto', async () => {
-    const { actor, subscription, tenant, store } = await verifiedTenant();
+    const { actor, subscription, tenant, store, input } = await verifiedTenant();
     await publishSubscription(subscription.id, actor, store);
     const raw = await store.get(registryKeyForSecrets(tenant.id, 'grailla'));
     expect(raw).not.toBeNull();
@@ -170,7 +171,7 @@ describe('registro de secretos', () => {
     // El front las abre con la clave maestra y el mismo contexto (tenant + campo).
     const masters = JSON.parse(process.env.SECRETS_KEYS!) as Record<string, string>;
     const url = await openSecret(res.body.dbUrlPooledEnc, { tenantId: tenant.id, field: DB_URL_POOLED_FIELD }, parseMasterKey(masters[process.env.SECRETS_ACTIVE_KID!]));
-    expect(url).toBe(DB_URLS.dbUrlPooled);
+    expect(url).toBe(input.dbUrlPooled);
     expect(res.body.seq).toBe(1);
   });
 

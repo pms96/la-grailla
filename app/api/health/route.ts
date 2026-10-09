@@ -31,6 +31,16 @@ async function appliedSchema(): Promise<string | null> {
   }
 }
 
+/** El id de cliente con que el panel marcó esta BD al darla de alta (AppConfig `platform_tenant_id`), o null si no tiene marca. */
+async function databaseTenantMarker(): Promise<string | null> {
+  try {
+    const row = await prisma.appConfig.findUnique({ where: { key: 'platform_tenant_id' }, select: { value: true } });
+    return row?.value?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 async function isAuthorized(request: Request): Promise<boolean> {
   try {
     return (await authorizeCron(request)) === 'ok';
@@ -54,8 +64,14 @@ export async function GET(request: Request) {
   // sobre esta ruta (la única que la puerta deja pasar) vería verde con el cliente entero en mantenimiento.
   const serving = !isPlatformMode() || gateBySchema('/', currentTenant()?.schemaVersion) === null;
 
+  // ¿Es esta BD de este cliente? Si la marca dice otro, el aislamiento está roto por configuración (URLs cambiadas a la BD de otro cliente):
+  // es un error también para un monitor externo (la respuesta pública no dice por qué).
+  const tenantMarker = dbOk && isPlatformMode() ? await databaseTenantMarker() : null;
+  const tenantId = isPlatformMode() ? (currentTenant()?.tenantId ?? null) : null;
+  const wrongDatabase = !!tenantMarker && !!tenantId && tenantMarker !== tenantId;
+
   if (!(await isAuthorized(request))) {
-    if (!dbOk) return NextResponse.json({ status: 'error' }, { status: 503, headers });
+    if (!dbOk || wrongDatabase) return NextResponse.json({ status: 'error' }, { status: 503, headers });
     return serving ? NextResponse.json({ status: 'ok' }, { headers }) : NextResponse.json({ status: 'maintenance' }, { status: 503, headers });
   }
 
@@ -72,19 +88,20 @@ export async function GET(request: Request) {
   }
   // El onboarding solo degrada a quien se le exige (cliente nuevo en modo plataforma); a La Grailla no.
   const onboardingPending = dbOk && onboardingApplies() && !onboarding.complete;
-  const status = !dbOk ? 'error' : !serving || !upToDate || onboardingPending ? 'degraded' : 'ok';
+  const status = !dbOk || wrongDatabase ? 'error' : !serving || !upToDate || onboardingPending ? 'degraded' : 'ok';
 
   return NextResponse.json(
     {
       status,
       version: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || 'dev',
       platform: isPlatformMode(),
-      tenantId: isPlatformMode() ? (currentTenant()?.tenantId ?? null) : null,
+      tenantId,
+      tenantMarker,
       serving,
       db: { ok: dbOk, latencyMs },
       schema: { applied, expected: expectedSchema(), minRequired: FRONT_MIN_SCHEMA, upToDate },
       onboarding,
     },
-    { status: dbOk ? 200 : 503, headers }
+    { status: dbOk && !wrongDatabase ? 200 : 503, headers }
   );
 }

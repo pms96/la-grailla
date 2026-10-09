@@ -55,6 +55,40 @@ afterAll(async () => {
   await disconnectTenantClients();
 });
 
+describe('marca de la BD (platform_tenant_id)', () => {
+  const putMarker = (slot: 'a' | 'b', value: string) => tenantClient(slot).appConfig.create({ data: { key: 'platform_tenant_id', value, group: 'platform' } });
+
+  it('sin marca (BD anterior a la plataforma): tenantMarker null y nada cambia', async () => {
+    await fill('a');
+    const res = await detailOf('a');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'ok', tenantId: TEST_TENANT_IDS.a, tenantMarker: null });
+  });
+
+  it('con la marca de ESTE cliente: se devuelve y todo sigue bien', async () => {
+    await fill('a');
+    await putMarker('a', TEST_TENANT_IDS.a);
+    const res = await detailOf('a');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'ok', tenantMarker: TEST_TENANT_IDS.a });
+  });
+
+  it('con la marca de OTRO cliente (URLs apuntando a la BD de otro): error, 503 y la marca a la vista del panel', async () => {
+    await fill('a');
+    await putMarker('a', TEST_TENANT_IDS.b);
+    const res = await detailOf('a');
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ status: 'error', tenantId: TEST_TENANT_IDS.a, tenantMarker: TEST_TENANT_IDS.b });
+  });
+
+  it('también lo ve un monitor externo en la respuesta pública, sin decir por qué', async () => {
+    await putMarker('a', TEST_TENANT_IDS.b);
+    const res = await withTenantForTest('a', () => route.GET(call(null)));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ status: 'error' });
+  });
+});
+
 describe('respuesta pública (sin secreto)', () => {
   it('200 {status:"ok"} y NADA más si la BD responde', async () => {
     const res = await withTenantForTest('a', () => route.GET(call(null)));
@@ -99,18 +133,19 @@ describe('puerta de esquema', () => {
 });
 
 describe('detalle (con el secreto de cron del cliente)', () => {
-  it('forma EXACTA: status, version, platform, tenantId, db, schema y onboarding', async () => {
+  it('forma EXACTA: status, version, platform, tenantId, tenantMarker, db, schema y onboarding', async () => {
     await fill('a');
     const res = await detailOf('a');
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('no-store');
     const body = await res.json();
-    expect(Object.keys(body).sort()).toEqual(['db', 'onboarding', 'platform', 'schema', 'serving', 'status', 'tenantId', 'version']);
+    expect(Object.keys(body).sort()).toEqual(['db', 'onboarding', 'platform', 'schema', 'serving', 'status', 'tenantId', 'tenantMarker', 'version']);
     expect(body).toEqual({
       status: 'ok',
       version: 'abcdef1',
       platform: true,
       tenantId: TEST_TENANT_IDS.a,
+      tenantMarker: null,
       serving: true,
       db: { ok: true, latencyMs: expect.any(Number) },
       schema: { applied: latestMigrationOnDisk(), expected: latestMigrationOnDisk(), minRequired: FRONT_MIN_SCHEMA, upToDate: true },

@@ -14,6 +14,8 @@ export const HealthDetailSchema = z.object({
   // El front sirve a este cliente (false = la puerta de esquema lo tiene en mantenimiento). Opcional por compatibilidad con fronts anteriores.
   serving: z.boolean().optional(),
   tenantId: z.string().nullable(),
+  // Id de cliente con el que está marcada la BD (si coincide con `tenantId`, bien; si no, la BD es de OTRO cliente). Opcional por compatibilidad.
+  tenantMarker: z.string().nullable().optional(),
   db: z.object({ ok: z.boolean(), latencyMs: z.number() }),
   schema: z.object({ applied: z.string().nullable(), expected: z.string(), minRequired: z.string(), upToDate: z.boolean() }),
   onboarding: z.object({ complete: z.boolean(), missing: z.array(z.string()) }),
@@ -41,6 +43,8 @@ export async function probeTenantHealth(
   const d = parsed.data;
   const problems: string[] = [];
   if (!d.db.ok) problems.push('La base de datos no responde');
+  // El problema más grave posible en una plataforma multi-cliente: el front de este cliente está leyendo la BD de otro.
+  if (d.tenantMarker && d.tenantMarker !== target.tenantId) problems.push(`LA BD ES DE OTRO CLIENTE (marcada como ${d.tenantMarker}): revisa las URLs de BD de este cliente ya`);
   if (d.serving === false) problems.push('El front NO está sirviendo a este cliente (mantenimiento por esquema del registro atrasado): ejecuta el runner de migraciones o corrige la versión del registro');
   if (!d.schema.upToDate) problems.push(`Esquema atrasado: aplicado ${d.schema.applied ?? 'desconocido'}, el front exige ${d.schema.minRequired}`);
   if (target.declaredSchema !== undefined && d.schema.applied && migrationStamp(target.declaredSchema) !== migrationStamp(d.schema.applied)) {

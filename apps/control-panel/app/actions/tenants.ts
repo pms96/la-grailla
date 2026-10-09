@@ -133,9 +133,11 @@ export async function replaceDbAction(tenantId: string, subscriptionId: string, 
     await replaceDatabaseUrls(
       subscriptionId,
       { pooled: str(fd, 'pooled'), direct: str(fd, 'direct'), schemaVersion: str(fd, 'schemaVersion') || undefined },
-      actor
+      actor,
+      { checkMarker: true }
     );
-    return 'URLs de la base de datos actualizadas (selladas).';
+    // Se publica ya: el front lee las URLs del registro, y hasta el refresco diario seguiría usando la BD antigua (que quizá se desmantele).
+    return applyNow(tenantId, actor, 'URLs de la base de datos actualizadas (selladas).');
   });
 }
 
