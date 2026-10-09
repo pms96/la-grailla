@@ -30,6 +30,36 @@ export function runWithTenant<T>(ctx: TenantContext, fn: () => T): T {
   return als.run(ctx, fn);
 }
 
+/* La cabecera firmada solo debe vivir lo que dura el salto edge → Node (60 s): eso se comprueba UNA vez, la primera vez que se lee. Antes se
+ * verificaba en cada acceso a `prisma`, así que una petición larga (p. ej. enviar entradas, 120 s) fallaba a mitad con TenantContextError al
+ * pasar los 60 s: el email salía y la escritura que lo anotaba no. Una vez verificada, la misma cabecera vale para el resto de la petición.
+ * No abre ninguna puerta: la cabecera la firma el middleware (HMAC), que además borra cualquiera que mande el cliente; no se puede forjar
+ * ni reutilizar desde fuera. */
+const VERIFIED_TTL_MS = 15 * 60_000;
+const VERIFIED_MAX = 5000;
+const g = globalThis as unknown as { __grailla_ctx_verified?: Map<string, { ctx: TenantContext; at: number }> };
+
+function verifiedOnce(raw: string, key: Uint8Array, now: number): TenantContext | null {
+  const seen = (g.__grailla_ctx_verified ??= new Map());
+  const hit = seen.get(raw);
+  if (hit && now - hit.at < VERIFIED_TTL_MS) return { ...hit.ctx };
+  const ctx = verifyContext(raw, key, now);
+  if (!ctx) return null; // lo que no verifica (falsificado, caducado al llegar) no se recuerda
+  if (hit) seen.delete(raw);
+  while (seen.size >= VERIFIED_MAX) {
+    const oldest = seen.keys().next();
+    if (oldest.done) break;
+    seen.delete(oldest.value);
+  }
+  seen.set(raw, { ctx, at: now });
+  return { ...ctx };
+}
+
+/** Solo tests. */
+export function resetVerifiedContextForTests(): void {
+  g.__grailla_ctx_verified = undefined;
+}
+
 function fromRequestHeader(): TenantContext | null {
   let raw: string | null;
   try {
@@ -41,7 +71,7 @@ function fromRequestHeader(): TenantContext | null {
   }
   if (!raw) return null;
   const key = platformContextKey();
-  return key ? verifyContext(raw, key, Date.now()) : null;
+  return key ? verifiedOnce(raw, key, Date.now()) : null;
 }
 
 export function currentTenant(): TenantContext | null {
