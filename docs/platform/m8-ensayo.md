@@ -4,6 +4,8 @@ Todo lo que el código no puede demostrar solo: cómo se comportan Neon, Upstash
 
 Cada comprobación tiene su sonda (`npm run infra:probe`, desde `apps/control-panel`): solo lee, no imprime URLs ni tokens y sale con código 1 si algo falla. Sus tests y el código están en `lib/ops/infra-probe.ts`. Los números de latencia que dan desde un portátil son solo un orden de magnitud: los que cuentan son los de los logs de Vercel.
 
+Si el entorno de pruebas es el propio entorno de producción con un cliente demo (la opción elegida para el primer despliegue), los pasos de alta de proyectos, bases y variables están en [`m9-primer-despliegue.md`](./m9-primer-despliegue.md).
+
 ## 0 · Qué hace falta (lo pones tú; nada de esto va por chat)
 
 Los valores van en variables de entorno de tu shell o en un fichero `.env.ensayo` fuera de git; las sondas reciben el **nombre** de la variable, no el valor.

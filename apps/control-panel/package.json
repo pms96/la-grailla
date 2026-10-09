@@ -22,7 +22,8 @@
     "migrate:tenants": "tsx --require dotenv/config scripts/migrate-tenants.ts",
     "registry:export": "tsx --require dotenv/config scripts/registry-export.ts",
     "registry:import": "tsx --require dotenv/config scripts/registry-import.ts",
-    "infra:probe": "tsx scripts/infra-probe.ts"
+    "infra:probe": "tsx scripts/infra-probe.ts",
+    "keys:prod": "tsx scripts/prod-keys.ts"
   },
   "dependencies": {
     "@prisma/client": "6.7.0",
