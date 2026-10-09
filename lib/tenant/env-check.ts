@@ -32,7 +32,12 @@ function keyProblem(env: Env, name: string): string | null {
 export function platformEnvProblems(env: Env = process.env): string[] {
   const out: string[] = [];
   if (!env.UPSTASH_REDIS_REST_URL) out.push('UPSTASH_REDIS_REST_URL no está definida: el front no puede leer el registro de clientes');
-  if (!env.UPSTASH_REDIS_REST_TOKEN) out.push('UPSTASH_REDIS_REST_TOKEN no está definida: el front no puede leer el registro de clientes');
+  if (!env.UPSTASH_REDIS_REST_READ_ONLY_TOKEN && !env.UPSTASH_REDIS_REST_TOKEN) {
+    out.push('UPSTASH_REDIS_REST_READ_ONLY_TOKEN no está definida: el front no puede leer el registro de clientes');
+  } else if (!env.UPSTASH_REDIS_REST_READ_ONLY_TOKEN) {
+    // El front no escribe nunca: con el token de escritura, quien lo comprometiera podría borrar la revocación de un cliente o reponer snapshots.
+    out.push('El front lee el registro con el token de ESCRITURA (UPSTASH_REDIS_REST_TOKEN): usa el de solo lectura (UPSTASH_REDIS_REST_READ_ONLY_TOKEN)');
+  }
 
   const pub = jsonObject(env.SNAPSHOT_PUBKEYS);
   if (!pub || Object.keys(pub).length === 0 || !Object.values(pub).every((v) => typeof v === 'string')) {

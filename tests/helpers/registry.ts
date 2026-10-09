@@ -48,6 +48,8 @@ export type PublishOptions = {
   /** Horas hasta que el snapshot se considera obsoleto (por defecto 168, como en el panel). */
   staleHours?: number;
   now?: number;
+  /** Instante de firma (por defecto `now`). El anti-replay del front lo usa en lugar de `seq`. */
+  iat?: number;
 };
 
 /** Hace lo mismo que el panel al publicar: un snapshot de enrutado por dominio y uno de secretos por cliente. */
@@ -68,7 +70,7 @@ export async function publishTenant(reg: FakeRegistry, signer: Signer, o: Publis
     epoch: o.epoch ?? 0,
   };
   const routing = JSON.stringify(
-    await signSnapshot({ contractVersion: o.contractVersion ?? CONTRACT_VERSION, seq, iat: now, staleUntil: now + (o.staleHours ?? 168) * 3_600_000, record }, signer)
+    await signSnapshot({ contractVersion: o.contractVersion ?? CONTRACT_VERSION, seq, iat: o.iat ?? now, staleUntil: now + (o.staleHours ?? 168) * 3_600_000, record }, signer)
   );
   for (const host of o.hosts) reg.data.set(registryKeyForHost(host), routing);
   if (!o.skipSecrets) {
@@ -77,7 +79,7 @@ export async function publishTenant(reg: FakeRegistry, signer: Signer, o: Publis
         {
           contractVersion: o.contractVersion ?? CONTRACT_VERSION,
           seq,
-          iat: now,
+          iat: o.iat ?? now,
           tenantId: o.tenantId,
           product,
           dbUrlPooledEnc: await sealSecret(`postgresql://u:p@db-${o.tenantId}/x`, { kid: 'tk', tenantId: o.tenantId, field: DB_URL_POOLED_FIELD }, o.master),

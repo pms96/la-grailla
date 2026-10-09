@@ -65,7 +65,12 @@ async function main() {
   add('SECRETS_KEYS + SECRETS_ACTIVE_KID', !!secretKeys && activeKid in secretKeys && Object.values(secretKeys).every((v) => typeof v === 'string'));
   const pubKeys = jsonObject('SNAPSHOT_PUBKEYS');
   add('SNAPSHOT_PUBKEYS con al menos una clave', !!pubKeys && Object.keys(pubKeys).length > 0);
-  add('Registro configurado (UPSTASH_REDIS_REST_*)', !!process.env.UPSTASH_REDIS_REST_URL && !!process.env.UPSTASH_REDIS_REST_TOKEN);
+  add('Registro configurado (UPSTASH_REDIS_REST_URL + token)', !!process.env.UPSTASH_REDIS_REST_URL && !!(process.env.UPSTASH_REDIS_REST_READ_ONLY_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN));
+  add(
+    'El front lee el registro con el token de SOLO LECTURA (UPSTASH_REDIS_REST_READ_ONLY_TOKEN)',
+    !!process.env.UPSTASH_REDIS_REST_READ_ONLY_TOKEN,
+    'el front no escribe nunca; con el token de escritura, quien lo comprometiera podría borrar la revocación de un cliente o reponer snapshots. Créalo en la consola de Upstash («Read-Only Token») y quita UPSTASH_REDIS_REST_TOKEN de este proyecto'
+  );
   add('CRON_SECRET definida (los crons de GitHub la usan)', !!process.env.CRON_SECRET);
   add('BLOB_READ_WRITE_TOKEN definida (subidas de imágenes y vídeos)', !!process.env.BLOB_READ_WRITE_TOKEN);
   if (flag('legacy')) {

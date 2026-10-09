@@ -48,12 +48,23 @@ export async function signSecretsSnapshot(body: SecretsSnapshotBody, signer: { k
   return { kid: signer.kid, payload, sig: toBase64Url(sig) };
 }
 
-export type SecretsVerifyFailure = 'malformed' | 'unknown_kid' | 'bad_signature' | 'unsupported_contract' | 'replay' | 'tenant_mismatch' | 'product_mismatch';
+export type SecretsVerifyFailure = 'malformed' | 'unknown_kid' | 'bad_signature' | 'unsupported_contract' | 'replay' | 'expired' | 'tenant_mismatch' | 'product_mismatch';
 export type SecretsVerifyResult = { ok: true; body: SecretsSnapshotBody } | { ok: false; reason: SecretsVerifyFailure };
 
 export async function verifySecretsSnapshot(
   input: unknown,
-  opts: { keys: Record<string, string>; tenantId: string; product: string; lastSeq?: number | null; supportedContractVersion?: number }
+  opts: {
+    keys: Record<string, string>;
+    tenantId: string;
+    product: string;
+    lastSeq?: number | null;
+    /** `iat` del último snapshot de secretos aceptado: uno con `iat` menor se rechaza como repetición (sobrevive a restaurar el panel). */
+    lastIat?: number | null;
+    /** Caducidad dura (ms) y el instante actual con el que medirla: un snapshot firmado hace más tiempo se rechaza como `expired`. */
+    maxAgeMs?: number;
+    now?: number;
+    supportedContractVersion?: number;
+  }
 ): Promise<SecretsVerifyResult> {
   const env = EnvelopeSchema.safeParse(input);
   if (!env.success) return { ok: false, reason: 'malformed' };
@@ -82,5 +93,7 @@ export async function verifySecretsSnapshot(
   if (body.data.tenantId !== opts.tenantId) return { ok: false, reason: 'tenant_mismatch' };
   if (body.data.product !== opts.product) return { ok: false, reason: 'product_mismatch' };
   if (opts.lastSeq != null && body.data.seq < opts.lastSeq) return { ok: false, reason: 'replay' };
+  if (opts.maxAgeMs != null && opts.now != null && opts.now - body.data.iat > opts.maxAgeMs) return { ok: false, reason: 'expired' };
+  if (opts.lastIat != null && body.data.iat < opts.lastIat) return { ok: false, reason: 'replay' };
   return { ok: true, body: body.data };
 }

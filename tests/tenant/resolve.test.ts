@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateMasterKey, parseMasterKey, registryKeyForHost, registryKeyForRevocation, registryKeyForSecrets } from '@grailla/contracts';
 import {
+  DEFAULT_SNAPSHOT_MAX_AGE_MS,
   L1_TTL_MS,
   LOOKUP_BURST,
   MAX_STALE_SERVE_MS,
@@ -156,9 +157,40 @@ describe('caída o manipulación del registro: se sigue sirviendo lo último bue
   it('un snapshot más viejo (replay) no degrada al cliente: se conserva lo último visto', async () => {
     await pub({ seq: 5, modules: ['tienda', 'entradas'] });
     await resolveHost('a.cliente.es', NOW);
-    await pub({ seq: 3, modules: [] }); // alguien repone un snapshot antiguo, con firma válida
+    await pub({ seq: 3, iat: NOW - 60_000, modules: [] }); // alguien repone un snapshot antiguo (firmado antes), con firma válida
     const r = await resolveHost('a.cliente.es', NOW + L1_TTL_MS * 2);
     expect(r).toMatchObject({ status: 'ok', ctx: { modules: ['tienda', 'entradas'] } });
+  });
+
+  it('el anti-replay se mide por `iat`, no por `seq`: un `seq` alto repuesto, antiguo, sigue rechazado', async () => {
+    await pub({ seq: 5, modules: ['tienda'] });
+    await resolveHost('a.cliente.es', NOW);
+    await pub({ seq: 999, iat: NOW - 60_000, modules: [] });
+    const r = await resolveHost('a.cliente.es', NOW + L1_TTL_MS * 2);
+    expect(r).toMatchObject({ status: 'ok', ctx: { modules: ['tienda'] } });
+  });
+
+  it('tras restaurar la BD de control el `seq` retrocede pero el `iat` es nuevo: se acepta (antes, hasta 6 h de caída)', async () => {
+    await pub({ seq: 500, modules: ['tienda', 'entradas'] });
+    await resolveHost('a.cliente.es', NOW);
+    await pub({ seq: 3, iat: NOW + 60_000, modules: ['tienda'] }); // panel restaurado que vuelve a publicar
+    const r = await resolveHost('a.cliente.es', NOW + L1_TTL_MS * 2);
+    expect(r).toMatchObject({ status: 'ok', stale: false, ctx: { modules: ['tienda'] } });
+  });
+
+  it('un snapshot firmado hace más de 30 días se rechaza aunque la firma sea válida (caducidad dura)', async () => {
+    await pub({ iat: NOW - DEFAULT_SNAPSHOT_MAX_AGE_MS - 1 });
+    const r = await resolveHost('a.cliente.es', NOW);
+    expect(r.status).toBe('unavailable');
+    if (r.status === 'unavailable') expect(r.reason).toContain('expired');
+  });
+
+  it('el límite de la caducidad se puede cambiar con SNAPSHOT_MAX_AGE_DAYS', async () => {
+    await pub({ iat: NOW - 2 * 24 * 3_600_000 });
+    expect((await resolveHost('a.cliente.es', NOW)).status).toBe('ok');
+    resetResolverStateForTests();
+    vi.stubEnv('SNAPSHOT_MAX_AGE_DAYS', '1');
+    expect((await resolveHost('a.cliente.es', NOW)).status).toBe('unavailable');
   });
 
   it('un dominio liberado (ya no está en el registro) deja de servirse aunque hubiera caché', async () => {
@@ -209,7 +241,7 @@ describe('revisión de seguridad de M4: el registro no puede hacer servir el cli
   it('el replay sigue rechazándose para el MISMO cliente aunque cambie de dominio', async () => {
     await pub({ seq: 9, hosts: ['a.cliente.es', 'b.cliente.es'], modules: ['tienda', 'entradas'] });
     await resolveHost('a.cliente.es', NOW);
-    await pub({ seq: 4, hosts: ['b.cliente.es'], modules: [] }); // snapshot antiguo del mismo cliente bajo otro dominio
+    await pub({ seq: 4, iat: NOW - 60_000, hosts: ['b.cliente.es'], modules: [] }); // snapshot antiguo del mismo cliente bajo otro dominio
     const r = await resolveHost('b.cliente.es', NOW);
     expect(r.status).toBe('unavailable');
   });

@@ -58,7 +58,7 @@ describe('despliegues de vista previa de Vercel', () => {
 describe('comprobación del entorno del modo plataforma', () => {
   const validEnv = () => ({
     UPSTASH_REDIS_REST_URL: 'https://eu.example.upstash.io',
-    UPSTASH_REDIS_REST_TOKEN: 'token-de-prueba',
+    UPSTASH_REDIS_REST_READ_ONLY_TOKEN: 'token-de-solo-lectura-de-prueba',
     SNAPSHOT_PUBKEYS: JSON.stringify({ k1: 'clave-publica' }),
     PLATFORM_CONTEXT_KEY: generateMasterKey(),
     PLATFORM_SESSION_MASTER: generateMasterKey(),
@@ -73,7 +73,7 @@ describe('comprobación del entorno del modo plataforma', () => {
 
   it.each([
     'UPSTASH_REDIS_REST_URL',
-    'UPSTASH_REDIS_REST_TOKEN',
+    'UPSTASH_REDIS_REST_READ_ONLY_TOKEN',
     'SNAPSHOT_PUBKEYS',
     'PLATFORM_CONTEXT_KEY',
     'PLATFORM_SESSION_MASTER',
@@ -85,6 +85,16 @@ describe('comprobación del entorno del modo plataforma', () => {
     const problems = platformEnvProblems(e);
     expect(problems.length).toBeGreaterThan(0);
     expect(problems.join('\n')).toContain(name);
+  });
+
+  it('el front con el token de ESCRITURA del registro se señala (debe leer con el de solo lectura)', () => {
+    const { UPSTASH_REDIS_REST_READ_ONLY_TOKEN: _ro, ...rest } = validEnv();
+    void _ro;
+    const problems = platformEnvProblems({ ...rest, UPSTASH_REDIS_REST_TOKEN: 'token-de-escritura' }).join('\n');
+    expect(problems).toContain('ESCRITURA');
+    expect(problems).toContain('UPSTASH_REDIS_REST_READ_ONLY_TOKEN');
+    // con los dos, manda el de solo lectura y no hay problema
+    expect(platformEnvProblems({ ...validEnv(), UPSTASH_REDIS_REST_TOKEN: 'token-de-escritura' })).toEqual([]);
   });
 
   it('un JSON roto en SNAPSHOT_PUBKEYS o un kid activo que no existe se detectan', () => {

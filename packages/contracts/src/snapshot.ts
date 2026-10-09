@@ -11,9 +11,11 @@ export const KID_RE = /^[A-Za-z0-9_-]{1,32}$/;
 
 export const SnapshotBodySchema = z.object({
   contractVersion: z.number().int().positive(),
-  // Contador creciente por suscripción (tenant × producto): el lector rechaza snapshots más viejos que el
-  // último visto para esa misma pareja (replay). Debe persistirlo fuera de la instancia (no vale la memoria de una lambda).
+  // Contador creciente por suscripción (tenant × producto). Sirve para ordenar y auditar publicaciones, pero el anti-replay del lector NO se
+  // basa en él: al restaurar la BD de control (PITR) el contador retrocede y todos los fronts rechazarían los snapshots buenos hasta 6 h.
   seq: z.number().int().nonnegative(),
+  // Instante (ms) en que el panel firmó este snapshot. Es el criterio de anti-replay (`lastIat`) y de caducidad dura (`maxAgeMs`):
+  // una restauración publica de nuevo con un `iat` nuevo y se acepta; uno repuesto de hace semanas, no.
   iat: z.number().int().nonnegative(),
   // Pasado este instante el snapshot sigue siendo válido pero "obsoleto": nunca empeora por sí solo la licencia.
   staleUntil: z.number().int().nonnegative(),
@@ -80,7 +82,7 @@ export async function signSnapshot(
   return { kid: signer.kid, payload, sig: toBase64Url(sig) };
 }
 
-export type VerifyFailure = 'malformed' | 'unknown_kid' | 'bad_signature' | 'unsupported_contract' | 'replay' | 'host_mismatch' | 'product_mismatch';
+export type VerifyFailure = 'malformed' | 'unknown_kid' | 'bad_signature' | 'unsupported_contract' | 'replay' | 'expired' | 'host_mismatch' | 'product_mismatch';
 export type VerifyResult =
   | { ok: true; body: SnapshotBody; stale: boolean }
   | { ok: false; reason: VerifyFailure };
@@ -97,8 +99,12 @@ export type VerifyOptions = {
   host: string;
   /** Producto que sirve este despliegue (p. ej. "grailla"). Si se indica, el snapshot debe ser de ese producto. */
   product?: string;
-  /** Último `seq` aceptado para este tenant y producto; uno menor se rechaza como repetición. */
+  /** Último `seq` aceptado para este tenant y producto; uno menor se rechaza como repetición. (El front usa `lastIat`: ver `iat`.) */
   lastSeq?: number | null;
+  /** `iat` del último snapshot aceptado para este tenant y producto; uno con `iat` menor se rechaza como repetición. */
+  lastIat?: number | null;
+  /** Caducidad dura: un snapshot firmado hace más de esto (ms) se rechaza como `expired`, aunque la firma sea válida. */
+  maxAgeMs?: number;
   supportedContractVersion?: number;
 };
 
@@ -134,6 +140,8 @@ export async function verifySnapshot(input: unknown, opts: VerifyOptions): Promi
   if (!host || !body.data.record.domains.includes(host)) return { ok: false, reason: 'host_mismatch' };
   if (opts.product !== undefined && body.data.record.product !== opts.product) return { ok: false, reason: 'product_mismatch' };
   if (opts.lastSeq != null && body.data.seq < opts.lastSeq) return { ok: false, reason: 'replay' };
+  if (opts.maxAgeMs != null && opts.now - body.data.iat > opts.maxAgeMs) return { ok: false, reason: 'expired' };
+  if (opts.lastIat != null && body.data.iat < opts.lastIat) return { ok: false, reason: 'replay' };
 
   return { ok: true, body: body.data, stale: opts.now > body.data.staleUntil };
 }

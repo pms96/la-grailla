@@ -39,7 +39,7 @@ Mismo repositorio. **Build Command: `npm run build:platform`**, región `fra1`. 
 | `PLATFORM_CONTEXT_KEY`, `PLATFORM_SESSION_MASTER` | 32 bytes base64url **nuevos** (no reutilizar ninguno) |
 | `SECRETS_KEYS`, `SECRETS_ACTIVE_KID` | **los mismos que el panel** |
 | `SNAPSHOT_PUBKEYS` | clave(s) pública(s) Ed25519 del panel |
-| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | el registro (token de lectura) |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_READ_ONLY_TOKEN` | el registro (token de **solo lectura**; el de escritura es solo del panel) |
 | `LEGACY_TENANT_ID` | el del paso 1 |
 | `LEGACY_NEXTAUTH_SECRET` | **el valor actual de `NEXTAUTH_SECRET` de La Grailla, idéntico** |
 | `AUTH_TRUST_HOST` | `true` |

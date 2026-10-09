@@ -33,7 +33,8 @@ petición ──► middleware (edge) ──────────────
 | `PLATFORM_SESSION_MASTER` | Maestro de los secretos de sesión y tokens por cliente |
 | `SECRETS_KEYS`, `SECRETS_ACTIVE_KID` | **Los mismos maestros que el panel** (`{"m1":"…"}`): abren las URLs de BD y las credenciales `enc:v2` |
 | `SNAPSHOT_PUBKEYS` | `{"s1":"<clave pública Ed25519>"}` del panel; varias a la vez permiten rotar |
-| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Registro (token de **solo lectura** cuando se pueda) |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_READ_ONLY_TOKEN` | Registro. El front lee **siempre con el token de solo lectura** (el de escritura solo lo tiene el panel); `UPSTASH_REDIS_REST_TOKEN` se acepta como alternativa pero el preflight y el log de arranque lo señalan |
+| `SNAPSHOT_MAX_AGE_DAYS` | Opcional. Caducidad dura de un snapshot (30 por defecto) |
 | `AUTH_TRUST_HOST=true` | next-auth deduce host y protocolo de `x-forwarded-*` |
 | `LEGACY_TENANT_ID`, `LEGACY_NEXTAUTH_SECRET` | Cliente legacy (La Grailla) |
 | `PLATFORM_PRODUCT` | Producto que sirve el despliegue (por defecto `grailla`) |
@@ -96,7 +97,7 @@ Se revisó el aislamiento con mentalidad adversarial; cada hallazgo se verificó
 ## Pendiente (no es de M4)
 
 - ~~Licencia por fases, módulos desactivados, dominio no verificado y revocación de emergencia~~: hecho en M5 (`m5-modulos-licencia.md`).
-- **`seq` persistente:** el anti-replay vive en la memoria de cada instancia (por cliente y producto); una instancia nueva acepta cualquier `seq` válido. Se decidió en M5 no persistirlo en el mismo almacén (no protege de quien lo controle): ver `m5-modulos-licencia.md`. El panel numera de forma monótona y **no debe reiniciarse**.
+- **Anti-replay (decisión del 2026-10-09):** vive en la memoria de cada instancia (por cliente y producto) y **se mide por `iat`** (cuándo firmó el panel), **no por `seq`**: al restaurar la BD de control (PITR) el `seq` retrocede y todos los fronts habrían rechazado los snapshots buenos hasta 6 h; una restauración vuelve a publicar con un `iat` nuevo y se acepta. No se persiste (un almacén aparte añade un proveedor y un modo de fallo; ver `m5-modulos-licencia.md`). Lo que lo acota: (1) el front lee el registro con un token de **solo lectura** (`UPSTASH_REDIS_REST_READ_ONLY_TOKEN`), así que comprometer el front no permite reponer nada; (2) **caducidad dura**: un snapshot firmado hace más de 30 días (`SNAPSHOT_MAX_AGE_DAYS`) se rechaza aunque la firma sea válida. Precio de (2): si el panel estuviera caído más de ese plazo, los clientes dejarían de servirse; el refresco diario lo evita.
 - ~~Crons por cliente~~: autenticación por cliente hecha en M7 (arriba); el disparador desde el panel es del panel.
 - **Subidas a Blob desde el navegador** (`@vercel/blob/client`): el cliente elige la ruta; ya se validan contra la BD del cliente (ids cuid), pero llevarlas al prefijo `{tenantId}/` es de M6. Solo el `put` del servidor (`/api/admin/upload`) lo lleva ya.
 - **Branding:** los textos, colores y logos siguen siendo los de La Grailla para todos los clientes (M6).

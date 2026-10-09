@@ -54,11 +54,20 @@ export function setRegistryReaderForTests(reader: RegistryReader | null): void {
   readerOverride = reader;
 }
 
+/**
+ * Token con el que el front lee el registro. Debe ser el de SOLO LECTURA (`UPSTASH_REDIS_REST_READ_ONLY_TOKEN`): el front no escribe nunca, y
+ * con el de escritura quien comprometiera el front podría borrar `revoked:{tenantId}` o reponer snapshots antiguos. El de escritura
+ * (`UPSTASH_REDIS_REST_TOKEN`) solo se acepta como alternativa, y el preflight y la comprobación de entorno lo señalan.
+ */
+export function registryReadToken(env: Record<string, string | undefined> = process.env): string | undefined {
+  return env.UPSTASH_REDIS_REST_READ_ONLY_TOKEN || env.UPSTASH_REDIS_REST_TOKEN || undefined;
+}
+
 export function getRegistryReader(): RegistryReader {
   if (readerOverride) return readerOverride;
   const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) throw new Error('UPSTASH_REDIS_REST_URL y UPSTASH_REDIS_REST_TOKEN son obligatorios en modo plataforma');
+  const token = registryReadToken();
+  if (!url || !token) throw new Error('UPSTASH_REDIS_REST_URL y UPSTASH_REDIS_REST_READ_ONLY_TOKEN son obligatorios en modo plataforma');
   return new UpstashReader(url, token);
 }
 
@@ -79,6 +88,17 @@ function publicKeys(): Record<string, string> {
 }
 
 const product = () => process.env.PLATFORM_PRODUCT || 'grailla';
+
+/**
+ * Caducidad dura de un snapshot: uno firmado hace más que esto se rechaza aunque la firma sea válida (30 días por defecto, o
+ * `SNAPSHOT_MAX_AGE_DAYS`). El panel republica a diario, así que un snapshot sano nunca llega a esa edad; acota lo que se podría reponer
+ * desde el almacén. Si el panel estuviera caído más tiempo, los clientes dejarían de servirse: es el precio, y está documentado.
+ */
+export const DEFAULT_SNAPSHOT_MAX_AGE_MS = 30 * 24 * 3_600_000;
+export function snapshotMaxAgeMs(env: Record<string, string | undefined> = process.env): number {
+  const days = Number(env.SNAPSHOT_MAX_AGE_DAYS);
+  return Number.isFinite(days) && days > 0 ? days * 24 * 3_600_000 : DEFAULT_SNAPSHOT_MAX_AGE_MS;
+}
 
 export const L1_TTL_MS = 15_000;
 export const NEGATIVE_TTL_MS = 30_000;
@@ -108,9 +128,12 @@ type State = {
   negative: Map<string, number>;
   failed: Map<string, { until: number; reason: string }>;
   inflight: Map<string, Promise<Resolution>>;
-  /** Último `seq` de enrutado visto por suscripción (`tenantId|producto`): el `seq` es por cliente, no por host. */
-  lastRoutingSeq: Map<string, number>;
-  lastSecretsSeq: Map<string, number>;
+  /**
+   * Último `iat` de enrutado visto por suscripción (`tenantId|producto`): es por cliente, no por host. El anti-replay usa el instante de
+   * firma y no el `seq`: al restaurar la BD de control el `seq` retrocede, y con él cada front rechazaría snapshots buenos (hasta 6 h).
+   */
+  lastRoutingIat: Map<string, number>;
+  lastSecretsIat: Map<string, number>;
   bucket: { tokens: number; at: number };
   /** Revocación de emergencia por cliente: último valor leído y cuándo. */
   revocation: Map<string, { revoked: boolean; checkedAt: number }>;
@@ -123,8 +146,8 @@ const state = (): State =>
     negative: new Map(),
     failed: new Map(),
     inflight: new Map(),
-    lastRoutingSeq: new Map(),
-    lastSecretsSeq: new Map(),
+    lastRoutingIat: new Map(),
+    lastSecretsIat: new Map(),
     bucket: { tokens: LOOKUP_BURST, at: 0 },
     revocation: new Map(),
     revocationInflight: new Map(),
@@ -202,14 +225,15 @@ async function fetchAndVerify(host: string, now: number): Promise<Resolution> {
     }
     // El anti-replay se comprueba DESPUÉS de verificar, con el cliente que firma el snapshot: el `seq` es por suscripción,
     // y un dominio que pasa de un cliente a otro no puede compararse con el `seq` del anterior.
-    const routing = await verifySnapshot(JSON.parse(rawRouting), { keys, host, product: product(), now });
+    const maxAgeMs = snapshotMaxAgeMs();
+    const routing = await verifySnapshot(JSON.parse(rawRouting), { keys, host, product: product(), now, maxAgeMs });
     if (!routing.ok) return serveStale(`snapshot de enrutado no válido (${routing.reason})`);
 
     const { tenantId } = routing.body.record;
     verifiedTenant = tenantId;
     const subscription = `${tenantId}|${routing.body.record.product}`;
-    const lastRouting = st.lastRoutingSeq.get(subscription);
-    if (lastRouting != null && routing.body.seq < lastRouting) return serveStale('snapshot de enrutado no válido (replay)');
+    const lastRouting = st.lastRoutingIat.get(subscription);
+    if (lastRouting != null && routing.body.iat < lastRouting) return serveStale('snapshot de enrutado no válido (replay)');
 
     const secretsKey = registryKeyForSecrets(tenantId, routing.body.record.product);
     const rawSecrets = await reader.get(secretsKey);
@@ -218,12 +242,14 @@ async function fetchAndVerify(host: string, now: number): Promise<Resolution> {
       keys,
       tenantId,
       product: routing.body.record.product,
-      lastSeq: st.lastSecretsSeq.get(subscription) ?? null,
+      lastIat: st.lastSecretsIat.get(subscription) ?? null,
+      maxAgeMs,
+      now,
     });
     if (!secrets.ok) return serveStale(`snapshot de secretos no válido (${secrets.reason})`);
 
-    st.lastRoutingSeq.set(subscription, routing.body.seq);
-    st.lastSecretsSeq.set(subscription, secrets.body.seq);
+    st.lastRoutingIat.set(subscription, routing.body.iat);
+    st.lastSecretsIat.set(subscription, secrets.body.iat);
     st.failed.delete(host);
     const ctx = toContext(routing.body, secrets.body);
     setBounded(st.good, host, { ctx, secrets: secrets.body, fetchedAt: now, routingSeq: routing.body.seq, staleUntil: routing.body.staleUntil });
