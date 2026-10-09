@@ -102,35 +102,47 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
     let http: number | null = null;
     let error: string | null = null;
     let duration = 0;
-    if (job.kind === 'health') {
-      const probe = await probeTenantHealth({ tenantId: target.tenantId, host: target.host, declaredSchema: target.schemaVersion }, { fetchImpl: opts.fetchImpl, timeoutMs: callTimeoutMs });
-      await recordHealth(target.id, probe, new Date(now()));
-      success = probe.reachable;
-      http = probe.httpStatus;
-      error = probe.reachable ? null : probe.error;
-      duration = probe.latencyMs;
-    } else {
-      const res = await callTenant({ tenantId: target.tenantId, host: target.host }, job.path!, { fetchImpl: opts.fetchImpl, timeoutMs: opts.callTimeoutMs, now });
-      http = res.status;
-      duration = res.durationMs;
-      success = res.status !== null && res.status >= 200 && res.status < 300;
-      error = success ? null : (res.error ?? `HTTP ${res.status}${res.status === 401 ? ' (el cliente rechazó el secreto de cron)' : ''}`);
+    try {
+      if (job.kind === 'health') {
+        const probe = await probeTenantHealth({ tenantId: target.tenantId, host: target.host, declaredSchema: target.schemaVersion }, { fetchImpl: opts.fetchImpl, timeoutMs: callTimeoutMs });
+        await recordHealth(target.id, probe, new Date(now()));
+        success = probe.reachable;
+        http = probe.httpStatus;
+        error = probe.reachable ? null : probe.error;
+        duration = probe.latencyMs;
+      } else {
+        const res = await callTenant({ tenantId: target.tenantId, host: target.host }, job.path!, { fetchImpl: opts.fetchImpl, timeoutMs: opts.callTimeoutMs, now });
+        http = res.status;
+        duration = res.durationMs;
+        success = res.status !== null && res.status >= 200 && res.status < 300;
+        error = success ? null : (res.error ?? `HTTP ${res.status}${res.status === 401 ? ' (el cliente rechazó el secreto de cron)' : ''}`);
+      }
+    } catch (err) {
+      // Un fallo inesperado (p. ej. la BD de control al guardar la salud) es un fallo de ESTE cliente y esta tarea: no puede abortar la pasada
+      // de los demás clientes ni dejar a este sin anotar (sin anotar no habría backoff ni `lastError`).
+      success = false;
+      error = `Error interno del disparador: ${err instanceof Error ? err.message : String(err)}`;
     }
     const failures = success ? 0 : row.consecutiveFailures + 1;
     const finished = now();
-    await prisma.cronState.update({
-      where: { subscriptionId_job: { subscriptionId: row.subscriptionId, job: row.job } },
-      data: {
-        lastRunAt: new Date(t0),
-        ...(success ? { lastSuccessAt: new Date(finished) } : {}),
-        lastStatus: success ? 'ok' : 'error',
-        lastHttp: http,
-        lastDurationMs: duration,
-        lastError: error ? error.slice(0, 500) : null,
-        consecutiveFailures: failures,
-        nextRunAt: new Date(finished + nextRunDelay(job, failures)),
-      },
-    });
+    try {
+      await prisma.cronState.update({
+        where: { subscriptionId_job: { subscriptionId: row.subscriptionId, job: row.job } },
+        data: {
+          lastRunAt: new Date(t0),
+          ...(success ? { lastSuccessAt: new Date(finished) } : {}),
+          lastStatus: success ? 'ok' : 'error',
+          lastHttp: http,
+          lastDurationMs: duration,
+          lastError: error ? error.slice(0, 500) : null,
+          consecutiveFailures: failures,
+          nextRunAt: new Date(finished + nextRunDelay(job, failures)),
+        },
+      });
+    } catch (err) {
+      // Sin anotar, la fila sigue vencida y se reintenta en la siguiente pasada.
+      console.error(`[cron-dispatch] no se pudo anotar el estado de ${row.job} del cliente ${target.tenantId}:`, err instanceof Error ? err.message : err);
+    }
     const pj = (summary.perJob[row.job] ??= { ran: 0, ok: 0, failed: 0 });
     summary.ran += 1;
     pj.ran += 1;
@@ -140,6 +152,8 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
     } else {
       summary.failed += 1;
       pj.failed += 1;
+      // Con el cliente y la tarea: en el log de Vercel es lo único que dice QUÉ cliente está fallando.
+      console.error(`[cron-dispatch] ${row.job} falló para el cliente ${target.tenantId} (${target.host}), ${failures} seguidos: ${error ?? 'sin detalle'}`);
     }
   };
 
@@ -154,4 +168,15 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
   );
   summary.deferred = dueRows.length - next;
   return summary;
+}
+
+/**
+ * Código HTTP con el que el disparador responde (lo que ven Vercel Cron y cualquier monitor). Un 200 con clientes en rojo hacía que el cron
+ * «pasara» mientras todos los clientes fallaban: ahora falla la invocación si alguna tarea falló, o si había tareas vencidas y no se pudo
+ * lanzar ninguna (presupuesto de tiempo mal configurado).
+ */
+export function dispatchHttpStatus(summary: Pick<DispatchSummary, 'due' | 'ran' | 'failed'>): 200 | 500 {
+  if (summary.failed > 0) return 500;
+  if (summary.due > 0 && summary.ran === 0) return 500;
+  return 200;
 }

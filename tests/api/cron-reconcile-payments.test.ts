@@ -198,6 +198,25 @@ describe('GET /api/cron/reconcile-payments', () => {
       expect(after?.reconcileAttempts).toBe(1);
     });
 
+    it('responde 502 si todo lo examinado dio error y no hubo ni un avance (el disparador no la da por buena); 200 si no hubo errores', async () => {
+      const paymentId = `chk-502-${Date.now()}`;
+      await createOrderAt(event.id, ticketType.id, paymentId, new Date(Date.now() - 5 * 60_000));
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('pasarela caída'); }));
+      const failing = await reconcilePayments(cronRequest(TEST_SECRET));
+      const failingBody = await failing.json();
+      expect(failingBody.errors).toBeGreaterThanOrEqual(1);
+      // Con avance (p. ej. un pedido viejo sin pasarela que sí se libera) sería 200: en una BD compartida con otros tests solo se fija la regla.
+      const progressed = failingBody.completed + failingBody.released + failingBody.stillPending > 0;
+      expect(failing.status).toBe(progressed ? 200 : 502);
+
+      vi.stubGlobal('fetch', pendingEverywhere());
+      const healthy = await reconcilePayments(cronRequest(TEST_SECRET));
+      vi.restoreAllMocks();
+      expect(healthy.status).toBe(200);
+    });
+
     it('60 pedidos pendientes y 50 por pasada: la segunda pasada atiende a los 10 que la primera dejó fuera', async () => {
       const stamp = Date.now();
       // Más antiguos que el resto de pedidos de este fichero: son los que primero cogería un orden solo por antigüedad.

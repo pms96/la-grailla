@@ -7,6 +7,7 @@ import { completeOrder, releaseExpiredOrder } from '@/lib/reconciliation/entrada
 import { completeShopOrder, releaseExpiredShopOrder } from '@/lib/reconciliation/tienda';
 import { handleApiError } from '@/lib/api-error';
 import { authorizeCron } from '@/lib/cron-auth';
+import { currentTenant } from '@/lib/tenant/context';
 
 // Solo Stripe tiene webhook (app/api/webhooks/stripe) — SumUp no, así que un
 // pedido pagado con SumUp solo se confirma hoy si el comprador vuelve a
@@ -23,6 +24,9 @@ import { authorizeCron } from '@/lib/cron-auth';
 const MIN_AGE_MS = 2 * 60_000; // deja margen a que el comprador siga en pleno checkout
 const MAX_AGE_MS = 24 * 60 * 60_000; // ventana de reintentos de verificación
 const BATCH_SIZE = 50;
+
+/** Cliente de esta pasada, para los logs: en un proyecto compartido, un error de pago sin cliente no se puede atribuir a nadie. */
+const tenantTag = () => currentTenant()?.tenantId ?? '-';
 
 // Cola justa (M7): con `createdAt asc` a secas, 50 pedidos atascados en cabeza (pasarela caída, pago que no llega) se examinan en cada
 // pasada y los nuevos no se atienden nunca. Se atiende primero lo que nunca se examinó y luego lo examinado hace más tiempo; el
@@ -132,7 +136,7 @@ export async function GET(request: Request) {
       } catch (error) {
         errors += 1;
         console.error(
-          `[GET /api/cron/reconcile-payments] Error verificando pedido ${order.id}:`,
+          `[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] Errorverificando pedido ${order.id}:`,
           error instanceof Error ? error.message : error
         );
       }
@@ -154,7 +158,7 @@ export async function GET(request: Request) {
       } catch (error) {
         errors += 1;
         console.error(
-          `[GET /api/cron/reconcile-payments] Error liberando pedido ${order.id}:`,
+          `[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] Errorliberando pedido ${order.id}:`,
           error instanceof Error ? error.message : error
         );
       }
@@ -177,7 +181,7 @@ export async function GET(request: Request) {
       } catch (error) {
         errors += 1;
         console.error(
-          `[GET /api/cron/reconcile-payments] Error verificando shop ${order.id}:`,
+          `[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] Errorverificando shop ${order.id}:`,
           error instanceof Error ? error.message : error
         );
       }
@@ -199,23 +203,31 @@ export async function GET(request: Request) {
       } catch (error) {
         errors += 1;
         console.error(
-          `[GET /api/cron/reconcile-payments] Error liberando shop ${order.id}:`,
+          `[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] Errorliberando shop ${order.id}:`,
           error instanceof Error ? error.message : error
         );
       }
     }
 
-    return NextResponse.json({
-      checked:
-        pendingTicketOrders.length +
-        abandonedTicketOrders.length +
-        pendingShopOrders.length +
-        abandonedShopOrders.length,
-      completed,
-      released,
-      stillPending,
-      errors,
-    });
+    // Si todo lo examinado dio error y no hubo ni un avance (nada completado, liberado ni confirmado como aún pendiente), la pasada NO
+    // ha reconciliado nada: credencial ilegible, pasarela sin configurar o caída. Un 200 haría que el disparador la diera por buena y
+    // el operador no se enteraría de que los pedidos se quedan en PENDING hasta que se libera el aforo a las 24 h.
+    const failedPass = errors > 0 && completed + released + stillPending === 0;
+    if (errors > 0) console.error(`[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] ${errors} pedidos con error de ${completed + released + stillPending + errors}`);
+    return NextResponse.json(
+      {
+        checked:
+          pendingTicketOrders.length +
+          abandonedTicketOrders.length +
+          pendingShopOrders.length +
+          abandonedShopOrders.length,
+        completed,
+        released,
+        stillPending,
+        errors,
+      },
+      { status: failedPass ? 502 : 200 }
+    );
   } catch (error) {
     return handleApiError(error, 'GET /api/cron/reconcile-payments');
   }

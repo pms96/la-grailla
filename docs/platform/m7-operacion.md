@@ -10,7 +10,7 @@ Lo que NO se ha podido probar aquí (necesita Vercel/Neon/GitHub reales) está a
 |---|---|---|
 | Runner de migraciones | `apps/control-panel/lib/services/migrations.ts` · `npm run migrate:tenants` | Aplica las migraciones del front a la BD de cada cliente, con parada ante fallo, `lock_timeout` y reintentos |
 | Alta por script, idempotente | `lib/services/provision.ts` · `npm run tenant:provision` / `tenant:go-live` | BD → registrar → migrar → sembrar → verificar dominio → publicar → comprobar salud |
-| Disparador de crons por cliente | `lib/services/crons.ts` · `GET /api/cron/dispatch` · `.github/workflows/platform-crons.yml` | Un solo disparador recorre los clientes con el secreto de cada uno |
+| Disparador de crons por cliente | `lib/services/crons.ts` · `GET /api/cron/dispatch` · `apps/control-panel/vercel.json` (Vercel Cron) | Un solo disparador recorre los clientes con el secreto de cada uno |
 | Salud básica | front `GET /api/health` · panel `/health` y ficha del cliente | Última comprobación, esquema aplicado/declarado, tareas, onboarding |
 | Copia cifrada del registro | `lib/services/registry-export.ts` · `npm run registry:export` / `registry:import` | Segunda red de seguridad, fuera de la plataforma |
 | Puerta por versión de esquema | `lib/platform/min-schema.ts` + middleware | Un cliente atrasado ve mantenimiento **solo él** |
@@ -22,12 +22,11 @@ Lo que NO se ha podido probar aquí (necesita Vercel/Neon/GitHub reales) está a
 | Variable | Dónde | Valor |
 |---|---|---|
 | `PLATFORM_CRON_MASTER` | front **y** panel | 32 bytes base64url, **el mismo** en los dos. Distinto de cualquier otra clave. El secreto de cron de un cliente es `HMAC(maestro, tenantId)` |
-| `PANEL_CRON_SECRET` | panel **y** secret `PANEL_CRON_SECRET` del repo de GitHub | ≥ 24 caracteres aleatorios. Autentica al disparador frente al panel |
-| `PANEL_URL` | secret del repo de GitHub | URL del panel, sin barra final |
+| `CRON_SECRET` | proyecto Vercel del **panel** | ≥ 24 caracteres aleatorios. Vercel Cron lo envía solo en `Authorization: Bearer …` a cada ejecución; con él se autentica el disparador. `PANEL_CRON_SECRET` se acepta como alternativa para llamadas manuales con `curl` |
 | `REGISTRY_EXPORT_KEY` | donde se ejecute `registry:export` | 32 bytes base64url, **distinta de las demás**, guardada aparte del fichero |
 | `FRONT_PRISMA_DIR` | panel (opcional) | Carpeta `prisma/` del front; por defecto `../../prisma` |
 | `TENANT_URL_TEMPLATE` | panel (solo desarrollo) | p. ej. `http://{host}:57811`; por defecto `https://{host}` |
-| `CRON_BUDGET_MS` | panel (opcional) | Presupuesto de una invocación del disparador (40 000 por defecto; con el plan Hobby de Vercel, ~8 000) |
+| `CRON_BUDGET_MS` | panel (opcional) | Presupuesto de una invocación del disparador (90 000 por defecto, con `maxDuration = 120`). **No lo bajes de 30 000**: una llamada a un cliente puede tardar hasta 20 s y no se lanza ninguna que no quepa |
 | `SKIP_MIGRATE_ON_BUILD=1` | proyecto de Vercel del front (opcional) | El `build` no migra |
 
 ## 1 · Dar de alta un cliente
@@ -95,19 +94,22 @@ npm run migrate:tenants                                    # todos (concurrencia
 
 ## 3 · Crons por cliente
 
-Un solo workflow (`platform-crons.yml`) llama cada 5 minutos a `GET {PANEL_URL}/api/cron/dispatch?job=tenants` y una vez al día (04:17 UTC) a `?job=snapshots-refresh`.
+**Vercel Cron** (`apps/control-panel/vercel.json`, solo corre en el despliegue de producción del proyecto del panel; requiere plan Pro para ejecutarse cada 5 min) llama cada 5 minutos a `GET /api/cron/dispatch?job=tenants` y una vez al día (04:17 UTC) a `?job=snapshots-refresh`. Vercel envía `Authorization: Bearer $CRON_SECRET` por su cuenta. Sustituye al workflow de GitHub (`platform-crons.yml`, eliminado): GitHub puede retrasar o saltarse ejecuciones programadas, y aquí hay cobros de SumUp que solo esta tarea confirma.
+
+**La ejecución falla (HTTP 500) si alguna tarea de un cliente falla** o si había tareas vencidas y no se lanzó ninguna: se ve en la pestaña Cron Jobs de Vercel y en el log. Cada fallo deja una línea `[cron-dispatch] <tarea> falló para el cliente <id> (<host>)`. Vercel **no avisa** por sí solo de un cron fallido: hace falta un monitor externo (ver «Observabilidad mínima» en el plan de puesta en producción).
 
 - El panel recorre los clientes **publicados** (activos o suspendidos; un cliente suspendido sigue reconciliando sus cobros en vuelo) y llama a cada tarea con el secreto de **ese** cliente. No sigue redirecciones (el secreto va en una cabecera).
 - Tareas: `reconcile-payments` (5 min), `cleanup-waiting-room` (30 min), `health` (5 min). El backoff de `reconcile-payments` se queda en **15 min** como máximo (SumUp no tiene webhook: es lo que confirma un cobro); el de la limpieza, en 1 h.
-- No se lanza una llamada que pudiera acabar pasado el presupuesto (`CRON_BUDGET_MS` menos el tiempo máximo de la llamada, 20 s): con el plan Hobby (10 s) el disparador no llega a llamar a nadie; hace falta el plan Pro o dejar `CRON_BUDGET_MS` en ≥ 30 000.
-- Sin `PANEL_CRON_SECRET` el disparador responde 401, igual que con un secreto equivocado (no revela la configuración); el fallo se registra en el log del panel.
+- No se lanza una llamada que pudiera acabar pasado el presupuesto (`CRON_BUDGET_MS` menos el tiempo máximo de la llamada, 20 s). Con un presupuesto menor de 20 s el disparador no llamaría a nadie: ahora lo dice (responde 500 y lo registra) en lugar de «pasar» en verde.
+- Sin `CRON_SECRET` (o `PANEL_CRON_SECRET`) el disparador responde 401, igual que con un secreto equivocado (no revela la configuración); el fallo se registra en el log del panel.
+- Un fallo inesperado de un cliente (p. ej. la BD de control al guardar su salud) cuenta como fallo de **ese** cliente y tarea: queda anotado con su backoff y no aborta la pasada de los demás.
 - Estado por cliente y tarea en `CronState`: un cliente que falla se **espacia solo** (backoff exponencial hasta 1 h) y no frena a los demás; no hay «cabeza de cola». La tarea de salud no se espacia.
 - **Presupuesto de tiempo** por invocación (`CRON_BUDGET_MS`): lo que no cabe queda para la siguiente, y se atiende primero lo que lleva más sin ejecutarse.
 - **`snapshots-refresh` es obligatorio a diario**: sin él la fase de licencia deja de avanzar a las 168 h. `/health` avisa si un registro lleva más de 36 h sin republicarse.
 
 **Retirar los workflows antiguos** (`reconcile-payments.yml`, `cleanup-waiting-room.yml`, que llaman a `www.lagrailla.es` con un único secreto) **cuando** el proyecto `platform` sirva La Grailla y el disparador nuevo lleve unos días sin errores. Mientras coexistan no hacen daño: las tareas son idempotentes (el cliente legacy acepta el `CRON_SECRET` global justo para esto).
 
-Si el panel está en el plan Hobby de Vercel (10 s por función), baja `CRON_BUDGET_MS` a ~8 000 o usa el plan Pro (60 s).
+Plan de Vercel: el panel necesita **Pro** (Vercel Cron cada 5 min y funciones de 120 s). En Hobby los crons solo pueden ser diarios y una función dura 10 s: el disparador no serviría.
 
 ## 4 · Salud
 
@@ -156,7 +158,7 @@ Un agente revisó M7 con mentalidad adversarial y verificó cada hallazgo; los r
 
 ## No verificado / límites
 
-- Nada de esto se ha ejecutado contra **Vercel, Neon ni GitHub Actions**: el `ALTER DATABASE … SET lock_timeout` exige que el rol sea propietario de la BD (lo es en Neon, pero no está comprobado); el workflow de GitHub no se ha ejecutado; la creación de proyectos de Neon sigue siendo manual (`--database-existing`).
+- Nada de esto se ha ejecutado contra **Vercel, Neon ni GitHub Actions**: el `ALTER DATABASE … SET lock_timeout` exige que el rol sea propietario de la BD (lo es en Neon, pero no está comprobado); Vercel Cron no se ha ejecutado (primera ejecución real: lanza `GET /api/cron/dispatch?job=tenants` con `Authorization: Bearer $CRON_SECRET` y comprueba `ran > 0`); la creación de proyectos de Neon sigue siendo manual (`--database-existing`).
 - Un runner que muere entre `ALTER DATABASE SET lock_timeout` y su `RESET` deja el `lock_timeout` de 3 s en esa BD (véase la revisión); se comprueba con `SELECT setconfig FROM pg_db_role_setting`.
 - La **saga reanudable** con estado propio (`ProvisioningRun`), el borrado de tenant, el reconciliador de deriva y la salud por push siguen en el umbral de 3 a 5 clientes.
 - No se ha hecho la matriz de CI «front N contra esquema N-1/N+1» ni el «dry-run en rama de Neon»: el `--dry-run` actual solo lista y pasa el linter.

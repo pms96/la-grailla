@@ -31,7 +31,7 @@ Los plazos son por suscripción y configurables. `paidThrough` vacío = sin cadu
 2. Un snapshot que ha pasado su `staleUntil` (168 h) tampoco avanza la fase: si el panel está caído no puede registrar pagos y no se cobra a quien no puede pagar.
 3. Nunca mejora la fase por sí solo; eso solo lo hace un snapshot nuevo (al registrar un pago o canjear una clave el panel republica solo).
 
-> **Obligatorio: refresco diario.** Por la regla 2, el panel debe volver a publicar a diario (`npm run snapshots:refresh` en `apps/control-panel`, programado en cron o GitHub Actions). Sin él, un cliente impagado se quedaría en la fase de su último «Publicar». La programación llega con M7; hasta entonces debe ejecutarlo una persona o un workflow antes del corte.
+> **Obligatorio: refresco diario.** Por la regla 2, el panel debe volver a publicar a diario (`npm run snapshots:refresh` en `apps/control-panel`, programado). Sin él, un cliente impagado se quedaría en la fase de su último «Publicar». Desde M7 lo programa Vercel Cron del panel (`apps/control-panel/vercel.json`, a diario a las 04:17 UTC); ver `m7-operacion.md`.
 
 ### Allowlist «nunca bloqueable»
 

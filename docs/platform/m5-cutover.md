@@ -12,7 +12,7 @@ Cambiar `HKDF_INFO` o la sal del proveedor legacy · el nombre de la cookie de s
 
 - [ ] **Panel desplegado** (proyecto Vercel con *Root Directory* `apps/control-panel` y «Include source files outside of the Root Directory»), con su BD de control en Neon, claves propias (`SECRETS_KEYS` + `SECRETS_ACTIVE_KID` y `SNAPSHOT_SIGNING_KEY` + `SNAPSHOT_KID`) y una **regla de WAF / límite por IP en el login** (el panel solo limita por cuenta).
 - [ ] **Registro** (Upstash Redis, región UE): un token de escritura para el panel y, si el plan lo permite, uno de **solo lectura** para el front.
-- [ ] **Refresco diario de snapshots** programado: lo hace `.github/workflows/platform-crons.yml` (secrets `PANEL_URL` y `PANEL_CRON_SECRET`; ver `m7-operacion.md`), o `npm run snapshots:refresh` en `apps/control-panel` a mano. Sin él la fase de licencia deja de avanzar a las 168 h (ver `m5-modulos-licencia.md`). Para La Grailla, al no caducar, es lo que además mantiene `staleUntil` fresco.
+- [ ] **Refresco diario de snapshots** programado: lo hace Vercel Cron del proyecto del panel (`apps/control-panel/vercel.json`, variable `CRON_SECRET`; ver `m7-operacion.md`), o `npm run snapshots:refresh` en `apps/control-panel` a mano. Sin él la fase de licencia deja de avanzar a las 168 h (ver `m5-modulos-licencia.md`). Para La Grailla, al no caducar, es lo que además mantiene `staleUntil` fresco.
 - [ ] **Copia / punto de restauración** de la BD de La Grailla en Neon justo antes del corte.
 - [ ] **Ventana sin eventos ni venta activa** (la sala de espera y los pagos en vuelo no deben cruzarse con el corte). Avisar al equipo.
 
@@ -66,7 +66,7 @@ Después, con un dominio de prueba **verificado como segundo dominio de La Grail
 
 1. Anotar la hora y el último pedido de cada tipo (referencia para el rollback).
 2. En Vercel, **mover el dominio `www.lagrailla.es`** del proyecto antiguo al proyecto `platform`. (Si el DNS apunta a Vercel no cambia nada más; si no, cambiar el registro ahora.)
-3. Comprobar en los primeros minutos: portada y eventos (200), login de admin con la sesión existente **sin volver a pedir contraseña**, `/admin`, escaneo en `/acceso`, un webhook de prueba de Stripe (desde el panel de Stripe, «enviar evento de prueba»; debe dar 2xx), y que `/api/cron/*` responde con el `CRON_SECRET` (lanzar el workflow de GitHub a mano).
+3. Comprobar en los primeros minutos: portada y eventos (200), login de admin con la sesión existente **sin volver a pedir contraseña**, `/admin`, escaneo en `/acceso`, un webhook de prueba de Stripe (desde el panel de Stripe, «enviar evento de prueba»; debe dar 2xx), y que `/api/cron/*` responde con el `CRON_SECRET` (lanzar a mano `GET /api/cron/dispatch?job=tenants` del panel con su `CRON_SECRET`, o uno de los workflows antiguos de GitHub).
 4. Vigilar los logs del proyecto `platform` buscando `[tenant-resolve] sirviendo obsoleto` (el registro o una firma fallan) y errores de `TenantContextError`.
 
 ## 5. Rollback
