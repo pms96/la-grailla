@@ -134,7 +134,7 @@ describe('runner de migraciones — un cliente', () => {
     expect(sleeps).toBe(1);
     const cols = await queryScratch<{ column_name: string }>(DBS[0], `SELECT column_name FROM information_schema.columns WHERE table_name = 'demo' ORDER BY 1`);
     expect(cols.map((c) => c.column_name)).toEqual(['id', 'nota']);
-    // El lock_timeout temporal se retiró de la BD.
+    // La BD no ha tenido nunca un lock_timeout propio (iba solo en la conexión del runner).
     expect(await queryScratch(DBS[0], `SELECT 1 FROM pg_db_role_setting WHERE setdatabase = (SELECT oid FROM pg_database WHERE datname = current_database()) AND setconfig::text LIKE '%lock_timeout%'`)).toHaveLength(0);
   });
 
@@ -278,23 +278,30 @@ describe('runner de migraciones — arreglos de la revisión', () => {
     expect(await queryScratch(DBS[0], `SELECT 1 FROM information_schema.tables WHERE table_name = 'demo'`)).toHaveLength(0);
   });
 
-  it('un lock_timeout residual de un runner que murió NO se vuelve permanente', async () => {
+  it('plan B (ALTER DATABASE): un lock_timeout residual de un runner que murió NO se vuelve permanente', async () => {
     const dir = makeFixturePrismaDir(GOOD);
     const { actor, subscription } = await tenantOn(DBS[0]);
     // Como si un runner anterior hubiera muerto entre el ALTER y el RESET:
     await queryScratch(DBS[0], `ALTER DATABASE "${DBS[0]}" SET lock_timeout = '3000ms'`);
-    const res = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, republish: false, lockTimeoutMs: 3000 });
+    const res = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, republish: false, lockTimeoutMs: 3000, lockTimeoutMode: 'database' });
     expect(res.status).toBe('SUCCEEDED');
     expect(await queryScratch(DBS[0], `SELECT 1 FROM pg_db_role_setting WHERE setdatabase = (SELECT oid FROM pg_database WHERE datname = current_database()) AND setconfig::text LIKE '%lock_timeout%'`)).toHaveLength(0);
   });
 
-  it('un lock_timeout propio de la BD (distinto del nuestro) se restaura al terminar', async () => {
+  it('plan B (ALTER DATABASE): un lock_timeout propio de la BD (distinto del nuestro) se restaura al terminar', async () => {
     const dir = makeFixturePrismaDir(GOOD);
     const { actor, subscription } = await tenantOn(DBS[1]);
     await queryScratch(DBS[1], `ALTER DATABASE "${DBS[1]}" SET lock_timeout = '9000ms'`);
-    await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, republish: false });
+    await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, republish: false, lockTimeoutMode: 'database' });
     const rows = await queryScratch<{ setconfig: string[] }>(DBS[1], `SELECT setconfig FROM pg_db_role_setting WHERE setdatabase = (SELECT oid FROM pg_database WHERE datname = current_database())`);
     expect(rows[0].setconfig).toContain('lock_timeout=9000ms');
+  });
+
+  it('un bloque DO $$ BEGIN … END $$ no cuenta como transacción explícita, pero un COMMIT suelto sí', () => {
+    expect(hardProblems(`DO $$\nBEGIN\n  PERFORM 1;\nEND\n$$;`)).toEqual([]);
+    expect(hardProblems(`CREATE FUNCTION f() RETURNS int AS $body$\nBEGIN\n RETURN 1;\nEND;\n$body$ LANGUAGE plpgsql;`)).toEqual([]);
+    expect(hardProblems(`DO $$ BEGIN PERFORM 1; END $$;\nCOMMIT;`).join(' ')).toContain('explicit-tx');
+    expect(hardProblems(`BEGIN;\nALTER TABLE a ADD COLUMN b INT;\nCOMMIT;`).join(' ')).toContain('explicit-tx');
   });
 
   it('el proceso de prisma NO hereda las claves del panel (solo una lista blanca)', () => {

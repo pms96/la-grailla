@@ -7,7 +7,7 @@ import { BASELINE_MIGRATION, lintMigrationSql } from '../../../../scripts/migrat
 import type { ActingOperator } from '../actor';
 import { appendAudit } from '../audit';
 import { prisma } from '../db';
-import { prismaExecutor, redactUrls, type MigrationExecutor } from '../migrations/executor';
+import { prismaExecutor, redactUrls, withConnectionLockTimeout, type MigrationExecutor } from '../migrations/executor';
 import { assertCan } from '../permissions';
 import { openField } from '../secrets-store';
 import { ServiceError } from './errors';
@@ -19,7 +19,8 @@ import { DB_URL_DIRECT_FIELD } from './tenants';
  *
  * Reglas (del plan):
  *  - solo migraciones aditivas (el linter las rechaza si no, salvo `allowDestructive` explícito);
- *  - `lock_timeout` de 3 s y reintentos: una migración que espera un bloqueo no deja en cola el tráfico del cliente;
+ *  - `lock_timeout` de 3 s (en la conexión del runner, no en la BD) y reintentos: una migración que espera un bloqueo no deja en cola el
+ *    tráfico del cliente;
  *  - concurrencia limitada y PARADA ante el primer fallo (los que no llegan a lanzarse quedan como SKIPPED);
  *  - un fallo que no es de bloqueo no se «arregla» solo: queda la migración fallida a la vista para una persona;
  *  - al terminar, el registro de enrutado se actualiza con la nueva `schemaVersion` y se republica, y el front ya puede servir al cliente
@@ -35,7 +36,8 @@ const ALLOW_MARKER_LINE = /^[ \t]*--[ \t]*allow-destructive:.*$/gim;
 
 /** Sentencias que el runner nunca aplica (ni con `allowDestructive`). */
 export function hardProblems(rawSql: string): string[] {
-  const sql = rawSql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  // Los cuerpos entre $$…$$ (bloques DO, funciones) llevan sus propios BEGIN/END de PL/pgSQL, que no son control de transacción.
+  const sql = rawSql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\$(\w*)\$[\s\S]*?\$\1\$/g, '');
   const out: string[] = [];
   if (/^\s*(BEGIN|COMMIT|ROLLBACK|END|START\s+TRANSACTION|SAVEPOINT|RELEASE)\b/im.test(sql)) out.push('[explicit-tx] control de transacción dentro de la migración: no se puede garantizar que un aborto la deshaga entera');
   if (/\bCONCURRENTLY\b/i.test(sql)) out.push('[concurrently] CREATE/DROP INDEX CONCURRENTLY no puede ir en una migración (se hace como paso aparte)');
@@ -60,6 +62,8 @@ export type RunOptions = {
   allowDestructive?: boolean;
   maxAttempts?: number;
   lockTimeoutMs?: number;
+  /** Dónde se pone el lock_timeout: en la conexión del runner (por defecto) o en la BD entera (plan B). */
+  lockTimeoutMode?: 'connection' | 'database';
   /** Carpeta `prisma/` del front (con `schema.prisma` y `migrations/`). */
   prismaDir?: string;
   executor?: MigrationExecutor;
@@ -217,23 +221,31 @@ export async function runMigrationsForSubscription(subscriptionId: string, actor
     }
 
     // Aplicar con lock_timeout y reintentos solo si lo que falló fue el bloqueo (la migración se deshizo entera).
+    // El lock_timeout va en la CONEXIÓN del motor de Prisma, no en la BD: así ni las conexiones normales del cliente (ventas y taquilla
+    // esperan bloqueos de asesoramiento hasta 20 s) heredan 3 s, ni queda nada que restaurar si el runner muere. `database`
+    // (ALTER DATABASE … SET) es el plan B por si un proveedor rechazara el parámetro de arranque (MIGRATION_LOCK_TIMEOUT_MODE=database).
+    const lockMode = opts.lockTimeoutMode ?? (process.env.MIGRATION_LOCK_TIMEOUT_MODE === 'database' ? 'database' : 'connection');
+    const lockMs = opts.lockTimeoutMs ?? MIGRATION_LOCK_TIMEOUT_MS;
+    const migrateUrl = lockMode === 'connection' ? withConnectionLockTimeout(directUrl, lockMs) : directUrl;
     let attempts = 0;
     let lastError = '';
     let applied = false;
-    await executor.withLockTimeout(directUrl, opts.lockTimeoutMs ?? MIGRATION_LOCK_TIMEOUT_MS, async () => {
+    const applyLoop = async () => {
       while (attempts < maxAttempts) {
         attempts += 1;
-        const outcome = await executor.deploy(directUrl, { schemaPath });
+        const outcome = await executor.deploy(migrateUrl, { schemaPath });
         if (outcome.ok) {
           applied = true;
           return;
         }
         lastError = outcome.message;
         if (outcome.kind !== 'lock_timeout' || !outcome.migration) return; // fallo real: se queda a la vista
-        await executor.resolveRolledBack(directUrl, outcome.migration, { schemaPath });
+        await executor.resolveRolledBack(migrateUrl, outcome.migration, { schemaPath });
         if (attempts < maxAttempts) await sleep(Math.min(30_000, 1_000 * 2 ** (attempts - 1)) + Math.floor(Math.random() * 250));
       }
-    });
+    };
+    if (lockMode === 'database') await executor.withLockTimeout(directUrl, lockMs, applyLoop);
+    else await applyLoop();
     if (!applied) {
       return await fail(attempts >= maxAttempts && /55P03/.test(lastError) ? `Bloqueo de la BD tras ${attempts} intentos (lock_timeout): reintenta fuera de las horas de venta` : lastError || 'La migración falló', {
         fromVersion,

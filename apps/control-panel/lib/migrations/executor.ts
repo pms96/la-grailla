@@ -26,7 +26,10 @@ export interface MigrationExecutor {
   deploy(directUrl: string, opts: { schemaPath: string }): Promise<DeployOutcome>;
   /** Marca como revertida una migración abortada (ya deshecha por Postgres) para poder reintentarla. */
   resolveRolledBack(directUrl: string, migration: string, opts: { schemaPath: string }): Promise<void>;
-  /** Mientras corre `fn`, la BD tiene `lock_timeout`; después se restaura el valor anterior. */
+  /**
+   * Plan B (`lockTimeoutMode: 'database'`): mientras corre `fn`, la BD ENTERA tiene `lock_timeout` (afecta también a las conexiones normales
+   * del cliente) y después se restaura. Por defecto NO se usa: el `lock_timeout` va en la conexión del runner (`withConnectionLockTimeout`).
+   */
   withLockTimeout<T>(directUrl: string, ms: number, fn: () => Promise<T>): Promise<T>;
 }
 
@@ -36,6 +39,21 @@ export function redactUrls(text: string): string {
 }
 
 const quoteIdent = (name: string) => `"${name.replace(/"/g, '""')}"`;
+
+/**
+ * La URL con un `lock_timeout` SOLO para la conexión que abre el motor de Prisma (`options=-c lock_timeout=…`, parámetro de arranque de
+ * Postgres). A diferencia de `ALTER DATABASE … SET`, no toca la BD del cliente: ni sus conexiones normales (las de ventas y taquilla esperan
+ * bloqueos de asesoramiento hasta 20 s y fallarían a los 3 s) ni queda nada que restaurar si el runner muere. Se comprobó que el motor de
+ * Prisma lo respeta (la migración ve el valor en `current_setting`). Se codifica con %20 y %3D: un «+» no se leería como espacio.
+ */
+export function withConnectionLockTimeout(rawUrl: string, ms: number): string {
+  const u = new URL(rawUrl);
+  const existing = u.searchParams.get('options');
+  u.searchParams.delete('options');
+  const mine = `-c lock_timeout=${Math.max(1, Math.floor(ms))}`;
+  const base = u.toString();
+  return `${base}${base.includes('?') ? '&' : '?'}options=${encodeURIComponent(existing ? `${existing} ${mine}` : mine)}`;
+}
 
 async function withClient<T>(url: string, fn: (db: PrismaClient) => Promise<T>): Promise<T> {
   const db = new PrismaClient({ datasourceUrl: url, log: [] });
