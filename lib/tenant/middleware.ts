@@ -5,10 +5,12 @@ import { deriveInstallationSecret, effectiveLicensePhase, enabledModules, isSche
 import { isLicenseExempt, ownerEnabled, ownerOfPath } from '@/lib/modules/registry';
 import { isCrossOriginMutation, isOriginCheckExempt } from '@/lib/origin-check';
 import { FRONT_MIN_SCHEMA } from '@/lib/platform/min-schema';
-import { isAuthorizedStaffRequest } from '@/lib/staff-paths';
+import { isAuthorizedStaffRequest, isStaffApiPath } from '@/lib/staff-paths';
 import { signContext } from './context-sign';
 import { CONTEXT_HEADER, type TenantContext } from './context-types';
 import { isDevHost } from './dev-host';
+import { checkPlatformEnvOnce } from './env-check';
+import { logRateLimited } from './log';
 import { legacyTenantId } from './mode';
 import { resolveHost } from './resolve';
 
@@ -103,14 +105,23 @@ async function sessionSecretFor(ctx: Pick<TenantContext, 'tenantId' | 'epoch'>):
 const isPublicPage = (path: string, method: string) =>
   (method === 'GET' || method === 'HEAD') && !path.startsWith('/api/') && !path.startsWith('/admin') && !path.startsWith('/acceso') && !path.startsWith('/auth');
 
+/** Un despliegue de vista previa de Vercel (rama o PR) nunca sirve clientes: aunque heredase variables de producción, no resuelve ningún dominio. */
+export const isPreviewDeployment = (): boolean => process.env.VERCEL_ENV === 'preview';
+
 export async function platformMiddleware(req: NextRequest): Promise<NextResponse> {
+  if (isPreviewDeployment()) return plain(404, 'Sitio no configurado');
+  checkPlatformEnvOnce();
   const path = req.nextUrl.pathname;
   // Solo el header `host`: x-forwarded-host y compañía los puede mandar el cliente.
   const rawHost = (req.headers.get('host') ?? '').toLowerCase();
 
   const resolved = await resolveHost(rawHost);
   if (resolved.status === 'not_found') return plain(404, 'Sitio no configurado');
-  if (resolved.status === 'unavailable') return plain(503, 'Servicio no disponible temporalmente', { 'Retry-After': '5' });
+  if (resolved.status === 'unavailable') {
+    // Sin esto, un registro caído o una firma que no verifica es un 503 sin una sola línea de log.
+    logRateLimited(`unavailable:${rawHost}`, `[tenant-middleware] 503 en ${rawHost}: ${resolved.reason}`);
+    return plain(503, 'Servicio no disponible temporalmente', { 'Retry-After': '5' });
+  }
   const ctx: TenantContext = { ...resolved.ctx, host: rawHost };
 
   // Fase de licencia EFECTIVA ahora: avanza sola por el calendario del snapshot, pero solo con una lectura fresca (ver contrato).
@@ -140,10 +151,15 @@ export async function platformMiddleware(req: NextRequest): Promise<NextResponse
     return NextResponse.json({ error: 'Origen no permitido' }, { status: 403, headers: noStore });
   }
 
-  const needsStaff = path.startsWith('/admin') || path.startsWith('/acceso') || path.startsWith('/api/');
+  // Solo lo que es de staff necesita leer la sesión. El resto de la API (webhooks de pago, crons, salud, compras) no: así una clave de
+  // sesión que falte no tumba además los webhooks, y un webhook de Stripe que no llega se reintenta hasta que Stripe desactiva el endpoint.
+  const needsStaff = path.startsWith('/admin') || path.startsWith('/acceso') || isStaffApiPath(path);
   if (needsStaff) {
     const secret = await sessionSecretFor(ctx);
-    if (!secret) return plain(503, 'Servicio no disponible temporalmente', { 'Retry-After': '5' });
+    if (!secret) {
+      logRateLimited('no-session-secret', '[tenant-middleware] 503: falta PLATFORM_SESSION_MASTER (o LEGACY_NEXTAUTH_SECRET para el cliente legacy): no se puede leer ninguna sesión de staff');
+      return plain(503, 'Servicio no disponible temporalmente', { 'Retry-After': '5' });
+    }
     const token = await getToken({ req, secret, secureCookie: !isDevHost(ctx.host), cookieName: sessionCookieName(ctx) });
     // La sesión debe ser DE ESTE cliente. El legacy conserva sesiones anteriores a `tid`; el resto exige que coincida.
     const sameTenant = token ? (token.tid === undefined ? legacyTenantId() === ctx.tenantId : token.tid === ctx.tenantId) : false;
@@ -157,7 +173,10 @@ export async function platformMiddleware(req: NextRequest): Promise<NextResponse
   const forwarded = new Headers(req.headers);
   forwarded.delete(CONTEXT_HEADER); // nunca se confía en lo que traiga el cliente
   const key = process.env.PLATFORM_CONTEXT_KEY;
-  if (!key) return plain(503, 'Servicio no disponible temporalmente', { 'Retry-After': '5' });
+  if (!key) {
+    logRateLimited('no-context-key', '[tenant-middleware] 503: falta PLATFORM_CONTEXT_KEY: no se puede firmar el contexto de ningún cliente');
+    return plain(503, 'Servicio no disponible temporalmente', { 'Retry-After': '5' });
+  }
   forwarded.set(CONTEXT_HEADER, await signContext(ctx, parseMasterKey(key)));
 
   if (gate?.kind === 'notice') {

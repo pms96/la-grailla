@@ -9,6 +9,7 @@ import {
   type SnapshotBody,
 } from '@grailla/contracts';
 import type { TenantContext } from './context-types';
+import { logRateLimited } from './log';
 
 /* Resuelve un Host a su cliente leyendo el registro firmado. Edge-safe: solo fetch, WebCrypto y zod.
  *
@@ -65,10 +66,16 @@ export function getRegistryReader(): RegistryReader {
 function publicKeys(): Record<string, string> {
   try {
     const parsed = JSON.parse(process.env.SNAPSHOT_PUBKEYS ?? '{}') as unknown;
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      if (Object.keys(parsed).length === 0) logRateLimited('pubkeys-empty', '[tenant-resolve] SNAPSHOT_PUBKEYS está vacía: ningún snapshot se podrá verificar');
+      return parsed as Record<string, string>;
+    }
   } catch {
-    return {};
+    /* se avisa abajo */
   }
+  // Sin claves públicas no se puede verificar nada y TODOS los clientes dan 503: que quede dicho el porqué.
+  logRateLimited('pubkeys-invalid', '[tenant-resolve] SNAPSHOT_PUBKEYS no es un JSON válido {kid: clave pública}: ningún snapshot se podrá verificar');
+  return {};
 }
 
 const product = () => process.env.PLATFORM_PRODUCT || 'grailla';

@@ -61,18 +61,34 @@ export class UpstashRegistryStore implements RegistryStore {
 
 let cached: RegistryStore | null = null;
 
+/**
+ * Qué almacén toca usar. `memory` solo existe para tests y desarrollo: en un servidor «publicaría» en la memoria de cada instancia, el front
+ * no vería nada y todos los clientes darían 404 sin un solo error. Por eso en producción es un error, y también lo es no decir nada
+ * (los scripts de `tsx` no llevan NODE_ENV: un `tenant:provision` sin REGISTRY_STORE publicaría en el vacío).
+ */
+export function resolveStoreKind(env: Record<string, string | undefined> = process.env): 'upstash' | 'memory' {
+  const kind = env.REGISTRY_STORE;
+  const production = env.NODE_ENV === 'production' || !!env.VERCEL;
+  if (kind === 'upstash') return 'upstash';
+  if (kind === 'memory') {
+    if (production) throw new Error('REGISTRY_STORE=memory no vale en producción: publicaría en la memoria de cada instancia y el front no vería ningún cliente. Usa REGISTRY_STORE=upstash');
+    return 'memory';
+  }
+  if (kind) throw new Error(`REGISTRY_STORE desconocido: ${kind}`);
+  if (env.NODE_ENV === 'test' || env.NODE_ENV === 'development') return 'memory';
+  throw new Error('REGISTRY_STORE no está definido: pon REGISTRY_STORE=upstash (con UPSTASH_REDIS_REST_URL y UPSTASH_REDIS_REST_TOKEN)');
+}
+
 export function getRegistryStore(): RegistryStore {
   if (cached) return cached;
-  const kind = process.env.REGISTRY_STORE ?? 'memory';
+  const kind = resolveStoreKind();
   if (kind === 'upstash') {
     const url = process.env.UPSTASH_REDIS_REST_URL;
     const token = process.env.UPSTASH_REDIS_REST_TOKEN;
     if (!url || !token) throw new Error('UPSTASH_REDIS_REST_URL y UPSTASH_REDIS_REST_TOKEN son obligatorios con REGISTRY_STORE=upstash');
     cached = new UpstashRegistryStore(url, token);
-  } else if (kind === 'memory') {
-    cached = new MemoryRegistryStore();
   } else {
-    throw new Error(`REGISTRY_STORE desconocido: ${kind}`);
+    cached = new MemoryRegistryStore();
   }
   return cached;
 }
