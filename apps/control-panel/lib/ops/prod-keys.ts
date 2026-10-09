@@ -23,6 +23,13 @@ export type ProdKeySet = {
 const SECRETS_KID = 'm1';
 const SNAPSHOT_KID = 's1';
 
+/** Las variables que debe tener cada fichero: una que falte (o con otro nombre) no es un «__RELLENA__» y pasaría desapercibida. */
+export const REQUIRED_KEYS = {
+  panel: ['CONTROL_DATABASE_URL', 'CONTROL_DIRECT_URL', 'SECRETS_KEYS', 'SECRETS_ACTIVE_KID', 'SNAPSHOT_KID', 'SNAPSHOT_SIGNING_KEY', 'REGISTRY_STORE', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN', 'PLATFORM_CRON_MASTER', 'CRON_SECRET'],
+  platform: ['PLATFORM_MODE', 'AUTH_TRUST_HOST', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_READ_ONLY_TOKEN', 'SNAPSHOT_PUBKEYS', 'PLATFORM_CONTEXT_KEY', 'PLATFORM_SESSION_MASTER', 'PLATFORM_CRON_MASTER', 'SECRETS_KEYS', 'SECRETS_ACTIVE_KID'],
+  ops: ['REGISTRY_EXPORT_KEY'],
+} as const;
+
 export async function generateProdKeys(): Promise<ProdKeySet> {
   const secretsKeys = JSON.stringify({ [SECRETS_KID]: generateMasterKey() });
   const signing = await generateSigningKeyPair();
@@ -100,6 +107,11 @@ function is32(v: string | undefined): boolean {
 export async function checkProdKeys(set: ProdKeySet, dev: Vars = {}): Promise<KeyCheck[]> {
   const out: KeyCheck[] = [];
   const { panel, platform, ops } = set;
+
+  // 0 · Están todas las variables (con su nombre exacto).
+  const missing = (['panel', 'platform', 'ops'] as const).flatMap((f) => REQUIRED_KEYS[f].filter((k) => !(k in set[f])).map((k) => `${k} (${f})`));
+  out.push(missing.length ? fail(`Faltan variables o tienen otro nombre: ${missing.join(', ')}`) : pass('Todas las variables esperadas están en su fichero'));
+  if ('UPSTASH_REDIS_REST_READ_ONLY_TOKEN' in panel) out.push(fail('panel.env lleva UPSTASH_REDIS_REST_READ_ONLY_TOKEN: el panel necesita el token de ESCRITURA con el nombre UPSTASH_REDIS_REST_TOKEN'));
 
   // 1 · Nada sin rellenar.
   const empty = [...Object.entries(panel).map(([k, v]) => ['panel', k, v] as const), ...Object.entries(platform).map(([k, v]) => ['platform', k, v] as const)].filter(([, , v]) => !filled(v));

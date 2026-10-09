@@ -98,6 +98,15 @@ describe('claves de producción', () => {
     expect(failures(checks)).toEqual([]);
   });
 
+  it('detecta una variable que falta o con otro nombre (el token de escritura sustituido por el de solo lectura)', async () => {
+    const k = filled(await generateProdKeys());
+    k.panel.UPSTASH_REDIS_REST_READ_ONLY_TOKEN = k.panel.UPSTASH_REDIS_REST_TOKEN;
+    delete k.panel.UPSTASH_REDIS_REST_TOKEN;
+    const f = failures(await checkProdKeys(k)).join(' | ');
+    expect(f).toContain('Faltan variables o tienen otro nombre: UPSTASH_REDIS_REST_TOKEN (panel)');
+    expect(f).toContain('panel.env lleva UPSTASH_REDIS_REST_READ_ONLY_TOKEN');
+  });
+
   it('las comprobaciones nunca contienen un valor secreto', async () => {
     const k = filled(await generateProdKeys());
     const text = JSON.stringify(await checkProdKeys(k));
