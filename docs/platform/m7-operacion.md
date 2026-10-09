@@ -193,6 +193,8 @@ Un agente revisó M7 con mentalidad adversarial y verificó cada hallazgo; los r
 
 ## No verificado / límites
 
+El ensayo de todo esto en infraestructura real (sondas ejecutables, criterios de pasa/falla y registro de resultados) está en [`m8-ensayo.md`](./m8-ensayo.md).
+
 - Nada de esto se ha ejecutado contra **Vercel, Neon ni GitHub Actions**: el parámetro de arranque `options=-c lock_timeout=…` funciona contra Postgres local y con el motor de Prisma, pero no se ha probado contra el endpoint **directo** de Neon (los pooled no admiten parámetros de arranque; el runner usa el directo). Prueba: ejecutar el runner sobre una rama desechable de Neon con una migración que haga `SHOW lock_timeout`; si Neon lo rechaza, `MIGRATION_LOCK_TIMEOUT_MODE=database`; Vercel Cron no se ha ejecutado (primera ejecución real: lanza `GET /api/cron/dispatch?job=tenants` con `Authorization: Bearer $CRON_SECRET` y comprueba `ran > 0`); la creación de proyectos de Neon sigue siendo manual (`--database-existing`).
 - Solo en el plan B (`MIGRATION_LOCK_TIMEOUT_MODE=database`): un runner que muere entre `ALTER DATABASE SET lock_timeout` y su `RESET` deja el `lock_timeout` de 3 s en esa BD; se comprueba con `SELECT setconfig FROM pg_db_role_setting`. Con el modo por defecto no hay nada que limpiar.
 - El runner ya no rechaza como «transacción explícita» un bloque `DO $$ BEGIN … END $$` (el filtro ignora lo que va entre `$$…$$`).

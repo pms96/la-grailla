@@ -80,4 +80,4 @@ Mover `www.lagrailla.es` de vuelta al proyecto antiguo. No hay nada que deshacer
 
 ## Pendiente de medir en el entorno real
 
-Ed25519 y HKDF en el edge real de Vercel · caché del CDN con dos dominios y purga por etiqueta · arranque en frío de Neon · `waitUntil` · elección definitiva entre Edge Config y Upstash. Están en `m1-spike.md`; conviene hacerlos con el proyecto `platform` y un cliente de prueba **antes** de este corte.
+Hay una guía con sondas ejecutables para medirlo en un entorno de pruebas: [`m8-ensayo.md`](./m8-ensayo.md). Ed25519 y HKDF en el edge real de Vercel · caché del CDN con dos dominios y purga por etiqueta · arranque en frío de Neon · `waitUntil` · elección definitiva entre Edge Config y Upstash. Están en `m1-spike.md`; conviene hacerlos con el proyecto `platform` y un cliente de prueba **antes** de este corte.

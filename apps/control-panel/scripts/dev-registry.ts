@@ -8,6 +8,8 @@ import http from 'node:http';
 
 const PORT = Number(process.env.DEV_REGISTRY_PORT ?? 3113);
 const TOKEN = process.env.DEV_REGISTRY_TOKEN ?? 'dev';
+/** Opcional: un segundo token que solo puede leer (GET/SCAN), como el «Read-Only Token» de Upstash. */
+const READ_ONLY_TOKEN = process.env.DEV_REGISTRY_READ_ONLY_TOKEN;
 const data = new Map<string, string>();
 
 http
@@ -16,7 +18,9 @@ http
       res.writeHead(status, { 'content-type': 'application/json' });
       res.end(JSON.stringify(body));
     };
-    if (req.headers.authorization !== `Bearer ${TOKEN}`) return json(401, { error: 'Unauthorized' });
+    const auth = req.headers.authorization;
+    const readOnly = !!READ_ONLY_TOKEN && auth === `Bearer ${READ_ONLY_TOKEN}`;
+    if (auth !== `Bearer ${TOKEN}` && !readOnly) return json(401, { error: 'Unauthorized' });
     if (req.method === 'GET' && req.url === '/dump') return json(200, Object.fromEntries(data));
     if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
     let body = '';
@@ -30,7 +34,10 @@ http
       }
       if (!Array.isArray(cmd) || !cmd.every((c) => typeof c === 'string')) return json(400, { error: 'ERR invalid command' });
       const [op, key, value] = cmd as string[];
+      if (readOnly && !['GET', 'SCAN'].includes(op?.toUpperCase())) return json(400, { error: `NOPERM this user has no permissions to run the '${op?.toLowerCase()}' command` });
       switch (op?.toUpperCase()) {
+        case 'SCAN':
+          return json(200, { result: ['0', [...data.keys()]] });
         case 'SET':
           data.set(key, value);
           return json(200, { result: 'OK' });
