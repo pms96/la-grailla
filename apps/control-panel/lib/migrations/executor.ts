@@ -82,9 +82,39 @@ function resolveFromApp(find: (req: NodeJS.Require) => string): string {
   throw last;
 }
 
+const appBases = () => [process.cwd(), path.join(process.cwd(), 'apps', 'control-panel')];
+
+/**
+ * Copia del CLI de Prisma y de todas sus dependencias que mete el build (scripts/bundle-migration-assets.js). En Vercel el rastreo de archivos
+ * no llevaba `node_modules/prisma` a la función; esta copia vive en una carpeta de la propia app y sí llega. Solo se usa si falta el CLI normal.
+ */
+export function bundledModulesDir(): string | null {
+  for (const base of appBases()) {
+    const dir = path.join(base, 'migration-engine', 'modules');
+    if (fs.existsSync(path.join(dir, 'prisma', 'build', 'index.js'))) return dir;
+  }
+  return null;
+}
+
 // Las rutas van literales en cada llamada (no como variable): así webpack no avisa de «dependencia con expresión» al compilar el panel.
 function prismaBin(): string {
-  return resolveFromApp((req) => req.resolve('prisma/build/index.js'));
+  try {
+    return resolveFromApp((req) => req.resolve('prisma/build/index.js'));
+  } catch (err) {
+    const bundled = bundledModulesDir();
+    if (bundled) return path.join(bundled, 'prisma', 'build', 'index.js');
+    throw err;
+  }
+}
+
+/** La carpeta de módulos empaquetados, solo si el CLI que se va a ejecutar es la copia (sus dependencias se buscan allí con NODE_PATH). */
+function bundledCliDir(): string | null {
+  const bundled = bundledModulesDir();
+  try {
+    return bundled && prismaBin().startsWith(bundled) ? bundled : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Solo lo que `prisma` necesita para arrancar: el resto del entorno del panel (SECRETS_KEYS, URLs de otras BD, PANEL_*) no se le pasa. */
@@ -109,13 +139,23 @@ export function pickSchemaEngine(names: string[], platform: string = process.pla
 }
 
 export function schemaEngineSource(): string | null {
+  const dirs: string[] = [];
   try {
-    const dir = path.dirname(resolveFromApp((req) => req.resolve('@prisma/engines/package.json')));
-    const name = pickSchemaEngine(fs.readdirSync(dir));
-    return name ? path.join(dir, name) : null;
+    dirs.push(path.dirname(resolveFromApp((req) => req.resolve('@prisma/engines/package.json'))));
   } catch {
-    return null;
+    // sin node_modules/@prisma/engines: se prueba la copia empaquetada
   }
+  const bundled = bundledModulesDir();
+  if (bundled) dirs.push(path.join(bundled, '@prisma', 'engines'));
+  for (const dir of dirs) {
+    try {
+      const name = pickSchemaEngine(fs.readdirSync(dir));
+      if (name) return path.join(dir, name);
+    } catch {
+      // carpeta ilegible: se sigue con la siguiente
+    }
+  }
+  return null;
 }
 
 /**
@@ -123,8 +163,11 @@ export function schemaEngineSource(): string | null {
  * de esquema a /tmp con permisos de ejecución y se le dice a Prisma dónde está. Fuera de ahí no se toca nada.
  */
 export function engineEnv(): Record<string, string> {
-  if (!isServerless()) return {};
-  const env: Record<string, string> = { HOME: os.tmpdir(), XDG_CACHE_HOME: os.tmpdir() };
+  const env: Record<string, string> = {};
+  const bundled = bundledCliDir();
+  if (bundled) env.NODE_PATH = bundled;
+  if (!isServerless()) return env;
+  Object.assign(env, { HOME: os.tmpdir(), XDG_CACHE_HOME: os.tmpdir() });
   const src = schemaEngineSource();
   if (src) {
     const dest = path.join(os.tmpdir(), path.basename(src));
@@ -249,9 +292,14 @@ export async function diagnoseMigrationEngine(directUrl: string, { schemaPath, p
 
   try {
     prismaBin();
-    good('CLI de Prisma encontrado');
+    good(`CLI de Prisma encontrado (${bundledCliDir() ? 'copia empaquetada por el build' : 'node_modules'})`);
   } catch {
     bad('No se encuentra el CLI de Prisma (paquete `prisma`) en este despliegue');
+    // Dónde se ha buscado y qué hay, para poder corregirlo sin adivinar: en Vercel la raíz de la función no es la de la app.
+    const has = (base: string, rel: string) => (fs.existsSync(path.join(base, rel)) ? 'sí' : 'no');
+    for (const base of [...appBases(), ...(process.env.LAMBDA_TASK_ROOT ? [process.env.LAMBDA_TASK_ROOT] : [])]) {
+      lines.push(`  · ${base}: node_modules ${has(base, 'node_modules')} · node_modules/prisma ${has(base, 'node_modules/prisma')} · migration-engine ${has(base, 'migration-engine')} · front-prisma ${has(base, 'front-prisma')}`);
+    }
     return { ok, lines };
   }
 

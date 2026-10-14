@@ -46,7 +46,7 @@ export function hardProblems(rawSql: string): string[] {
 
 /**
  * Carpeta `prisma/` del front (con `schema.prisma` y `migrations/`). Por orden: `FRONT_PRISMA_DIR`; la del repositorio (`../../prisma`, en
- * local y en la CI); y la copia que el build mete en el despliegue (`front-prisma/`, ver `scripts/bundle-front-prisma.js`): en Vercel la
+ * local y en la CI); y la copia que el build mete en el despliegue (`front-prisma/`, ver `scripts/bundle-migration-assets.js`): en Vercel la
  * función solo lleva los archivos de esta app, no los de fuera.
  */
 export function frontPrismaDir(): string {
