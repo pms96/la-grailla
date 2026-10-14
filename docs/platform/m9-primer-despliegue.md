@@ -124,6 +124,33 @@ Sin correo configurado en el panel, el botón te enseña el enlace **una sola ve
 
 **Qué no hace el panel:** crear el proyecto de Neon del cliente, ni crear los registros DNS en tu proveedor (los muestra), ni restablecer contraseñas olvidadas (la invitación sirve también para eso: vuelve a pulsar «Enviar invitación»).
 
+## F · Copias de seguridad de la BD de un cliente (`pg_dump` en tu Mac)
+
+Neon Free tiene una ventana de restauración de pocas horas, así que la copia de verdad es la tuya. `scripts/backup-db.sh` hace el volcado, **solo lee** la BD y no cambia nada.
+
+1. Una sola vez: `brew install libpq` (trae `pg_dump`, `pg_restore` y `psql`; el script ya busca su carpeta de Homebrew).
+2. En Neon, copia la URL **directa** de la BD (con «Connection pooling» desactivado: el host no lleva `-pooler`). Pégala **en tu terminal**, no en ningún fichero del repo ni en el chat:
+   ```bash
+   export LAGRAILLA_DB_DIRECT='postgresql://…'
+   scripts/backup-db.sh LAGRAILLA_DB_DIRECT
+   ```
+3. Deja dos ficheros en `~/grailla-produccion/backups/` (fuera del repo, permisos 700/600): el `.dump` y su `.sha256`. El script comprueba que el fichero se lee entero y te dice el tamaño y cuántas tablas con datos tiene.
+4. **Prueba que se restaura** (una copia que no se ha probado no es una copia). Sin tocar Neon, en un Postgres desechable de Docker:
+   ```bash
+   docker run --rm -d --name pgcheck -e POSTGRES_PASSWORD=prueba -p 55432:5432 postgres:16
+   PGPASSWORD=prueba pg_restore --no-owner -h localhost -p 55432 -U postgres -d postgres ~/grailla-produccion/backups/lagrailla-AAAAMMDD-HHMMSS.dump
+   PGPASSWORD=prueba psql -h localhost -p 55432 -U postgres -c 'SELECT (SELECT count(*) FROM "Order") AS pedidos, (SELECT count(*) FROM "Ticket") AS entradas, (SELECT count(*) FROM "User") AS usuarios'
+   docker stop pgcheck
+   ```
+   Los tres números deben coincidir con los de Neon (misma consulta, en su SQL Editor, con la rama principal). Aparecer algún aviso de «role does not exist» no importa: el volcado va sin propietarios.
+5. **Cuándo:** una copia justo antes del corte de La Grailla, y otra después de la primera semana estable. Luego, la frecuencia que decidas.
+
+Lo que **no** está en el volcado, y hay que tener a mano para restaurar de verdad:
+- **`NEXTAUTH_SECRET`** de La Grailla (en tu gestor de contraseñas): las credenciales de pago y de correo guardadas en la BD están cifradas con una clave derivada de él. Sin él, la copia restaura pero esas credenciales no se descifran.
+- **Las imágenes** del almacén de Vercel Blob: son otro servicio.
+
+El volcado lleva datos personales de compradores: guárdalo en un disco cifrado (FileVault), no lo subas a ningún servicio sin cifrarlo antes y bórralo cuando una copia más reciente lo sustituya.
+
 ## Qué hago yo a partir de ahí (necesito tu «adelante» al terminar la sección D)
 
 1. Migro la BD de control de producción y creo tu usuario operador del panel (la contraseña inicial te la doy por fichero, no por chat).
