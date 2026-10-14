@@ -1,6 +1,7 @@
 node_modules
 .next
 .next-build-check
+front-prisma
 out
 *.tsbuildinfo
 next-env.d.ts

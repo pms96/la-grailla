@@ -6,7 +6,7 @@
   },
   "scripts": {
     "dev": "next dev -p 3200",
-    "build": "prisma generate && next build",
+    "build": "node scripts/bundle-front-prisma.js && prisma generate && next build",
     "start": "next start -p 3200",
     "postinstall": "prisma generate",
     "test": "vitest run",

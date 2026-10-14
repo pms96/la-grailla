@@ -34,6 +34,12 @@ module.exports = {
   experimental: {
     // @grailla/contracts vive fuera de esta carpeta (../../packages/contracts).
     externalDir: true,
+    // «Migrar BD» lanza el CLI de Prisma y su motor de esquema como proceso hijo y lee las migraciones del front (`front-prisma/`, copiada
+    // por scripts/bundle-front-prisma.js). Se cargan por ruta en tiempo de ejecución: el rastreo automático no las ve y la función de Vercel
+    // se quedaría sin ellas.
+    outputFileTracingIncludes: {
+      '/tenants/[id]': ['./node_modules/prisma/**/*', './node_modules/@prisma/engines/**/*', './front-prisma/**/*'],
+    },
   },
   webpack(config) {
     // El paquete de contratos importa zod desde fuera de esta app: se fuerza el de aquí

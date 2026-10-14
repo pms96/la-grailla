@@ -8,6 +8,8 @@ export type ActionState = {
   ok?: string;
   // Datos que se muestran una sola vez tras la acción (contraseña temporal, códigos de recuperación).
   reveal?: { title: string; lines: string[]; note?: string };
+  // Líneas de detalle de una acción larga (pasos de «Salir a producción», migraciones aplicadas, diagnóstico). Nunca secretos.
+  details?: string[];
 };
 
 export type FormAction = (prev: ActionState, formData: FormData) => Promise<ActionState>;
@@ -55,6 +57,13 @@ export function ActionForm({
         <p className="msg ok" role="status">
           {state.ok}
         </p>
+      )}
+      {state.details && state.details.length > 0 && (
+        <ul className="steplist muted">
+          {state.details.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
       )}
       {state.reveal && (
         <div className="reveal" role="status">

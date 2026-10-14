@@ -15,6 +15,7 @@ import { ServiceError } from '@/lib/services/errors';
 import type { ActingOperator } from '@/lib/actor';
 import { bumpEpoch, createTenant, replaceDatabaseUrls, setModules, setTenantStatus } from '@/lib/services/tenants';
 import { emergencyRevoke, liftEmergencyRevocation, redeemLicenseKey, registerPayment, setLicenseTerms } from '@/lib/services/license';
+import { runEngineCheck, runGoLive, runHealthCheck, runMigration, type Outcome } from '@/lib/services/lifecycle';
 import type { ActionState } from '../_components/action-form';
 import { str, toState } from './util';
 
@@ -46,16 +47,37 @@ export async function createTenantAction(_prev: ActionState, fd: FormData): Prom
 async function run(
   permission: Parameters<typeof requireOperator>[0],
   tenantId: string,
-  body: (actor: Awaited<ReturnType<typeof requireOperator>>['actor']) => Promise<string>
+  body: (actor: Awaited<ReturnType<typeof requireOperator>>['actor']) => Promise<string | Outcome>
 ): Promise<ActionState> {
   try {
     const { actor } = await requireOperator(permission);
-    const ok = await body(actor);
+    const result = await body(actor);
     revalidatePath(`/tenants/${tenantId}`);
-    return { ok };
+    return typeof result === 'string' ? { ok: result } : result;
   } catch (err) {
     return toState(err);
   }
+}
+
+// ── Puesta en marcha ───────────────────────────────────────────────────────
+
+/** Aplica (o, con `dryRun`, solo lista) las migraciones pendientes de la BD de este cliente. */
+export async function migrateAction(tenantId: string, subscriptionId: string, dryRun: boolean, _p: ActionState) {
+  return run('migrations:run', tenantId, (actor) => runMigration(subscriptionId, dryRun, actor));
+}
+
+/** Datos mínimos → dominio → publicar → salud. Repetible: si falta algo, dice qué y se vuelve a pulsar. */
+export async function goLiveAction(tenantId: string, subscriptionId: string, _p: ActionState, fd: FormData) {
+  return run('publish', tenantId, (actor) => runGoLive(subscriptionId, { manualDomain: str(fd, 'manualDomain') === 'on' }, actor));
+}
+
+export async function checkHealthAction(tenantId: string, subscriptionId: string, _p: ActionState) {
+  return run('tenants:write', tenantId, (actor) => runHealthCheck(subscriptionId, actor));
+}
+
+/** Diagnóstico: ¿puede este entorno aplicar migraciones? Solo lectura. */
+export async function engineCheckAction(tenantId: string, subscriptionId: string, _p: ActionState) {
+  return run('migrations:run', tenantId, (actor) => runEngineCheck(subscriptionId, actor));
 }
 
 export async function setModulesAction(tenantId: string, subscriptionId: string, _p: ActionState, fd: FormData) {

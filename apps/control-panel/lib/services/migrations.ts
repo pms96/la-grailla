@@ -44,8 +44,16 @@ export function hardProblems(rawSql: string): string[] {
   return out;
 }
 
+/**
+ * Carpeta `prisma/` del front (con `schema.prisma` y `migrations/`). Por orden: `FRONT_PRISMA_DIR`; la del repositorio (`../../prisma`, en
+ * local y en la CI); y la copia que el build mete en el despliegue (`front-prisma/`, ver `scripts/bundle-front-prisma.js`): en Vercel la
+ * función solo lleva los archivos de esta app, no los de fuera.
+ */
 export function frontPrismaDir(): string {
-  return path.resolve(process.env.FRONT_PRISMA_DIR || path.join(process.cwd(), '..', '..', 'prisma'));
+  if (process.env.FRONT_PRISMA_DIR) return path.resolve(process.env.FRONT_PRISMA_DIR);
+  const sibling = path.resolve(process.cwd(), '..', '..', 'prisma');
+  const candidates = [sibling, path.resolve(process.cwd(), 'front-prisma'), path.resolve(process.cwd(), 'apps', 'control-panel', 'front-prisma')];
+  return candidates.find((dir) => fs.existsSync(path.join(dir, 'schema.prisma'))) ?? sibling;
 }
 
 export function listLocalMigrations(prismaDir: string = frontPrismaDir()): string[] {

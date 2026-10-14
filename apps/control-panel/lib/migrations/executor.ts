@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import os from 'node:os';
 import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
 
@@ -64,10 +66,25 @@ async function withClient<T>(url: string, fn: (db: PrismaClient) => Promise<T>):
   }
 }
 
+/**
+ * Resuelve un paquete desde el directorio del panel (su propio `node_modules`), no desde este archivo: así funciona igual bajo tsx y vitest.
+ * En Vercel el directorio de trabajo puede ser la raíz del despliegue o la carpeta de la app: se prueban las dos.
+ */
+function resolveFromApp(find: (req: NodeJS.Require) => string): string {
+  let last: unknown;
+  for (const base of [process.cwd(), path.join(process.cwd(), 'apps', 'control-panel')]) {
+    try {
+      return find(createRequire(path.join(base, 'package.json')));
+    } catch (err) {
+      last = err;
+    }
+  }
+  throw last;
+}
+
+// Las rutas van literales en cada llamada (no como variable): así webpack no avisa de «dependencia con expresión» al compilar el panel.
 function prismaBin(): string {
-  // Se resuelve desde el directorio del panel (su propio `prisma`), no desde este archivo: así funciona igual bajo tsx y vitest.
-  const req = createRequire(path.join(process.cwd(), 'package.json'));
-  return req.resolve('prisma/build/index.js');
+  return resolveFromApp((req) => req.resolve('prisma/build/index.js'));
 }
 
 /** Solo lo que `prisma` necesita para arrancar: el resto del entorno del panel (SECRETS_KEYS, URLs de otras BD, PANEL_*) no se le pasa. */
@@ -78,10 +95,56 @@ export function childEnv(url: string, base: NodeJS.ProcessEnv = process.env): No
   return Object.assign(env, { DATABASE_URL: url, DIRECT_URL: url, PRISMA_HIDE_UPDATE_MESSAGE: '1', CHECKPOINT_DISABLE: '1' });
 }
 
+const isServerless = () => !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+
+/** De los binarios `schema-engine-*` que trae `@prisma/engines`, el de esta plataforma (en Vercel, Linux con OpenSSL 3). */
+export function pickSchemaEngine(names: string[], platform: string = process.platform): string | null {
+  const engines = names.filter((n) => /^schema-engine-[a-z0-9.-]+$/i.test(n));
+  const prefer = platform === 'linux' ? [/rhel-openssl-3/, /debian-openssl-3/, /linux/] : platform === 'darwin' ? [/darwin/] : [/windows/];
+  for (const re of prefer) {
+    const hit = engines.find((n) => re.test(n));
+    if (hit) return hit;
+  }
+  return engines[0] ?? null;
+}
+
+export function schemaEngineSource(): string | null {
+  try {
+    const dir = path.dirname(resolveFromApp((req) => req.resolve('@prisma/engines/package.json')));
+    const name = pickSchemaEngine(fs.readdirSync(dir));
+    return name ? path.join(dir, name) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * En un entorno serverless (Vercel) el HOME no se puede escribir y un binario trazado puede perder el bit de ejecución: se copia el motor
+ * de esquema a /tmp con permisos de ejecución y se le dice a Prisma dónde está. Fuera de ahí no se toca nada.
+ */
+export function engineEnv(): Record<string, string> {
+  if (!isServerless()) return {};
+  const env: Record<string, string> = { HOME: os.tmpdir(), XDG_CACHE_HOME: os.tmpdir() };
+  const src = schemaEngineSource();
+  if (src) {
+    const dest = path.join(os.tmpdir(), path.basename(src));
+    try {
+      if (!fs.existsSync(dest)) {
+        fs.copyFileSync(src, dest);
+        fs.chmodSync(dest, 0o755);
+      }
+      env.PRISMA_SCHEMA_ENGINE_BINARY = dest;
+    } catch {
+      // Sin copia, Prisma buscará el motor donde lo instaló npm: el diagnóstico dirá si funciona.
+    }
+  }
+  return env;
+}
+
 function runPrisma(args: string[], url: string): Promise<{ code: number | null; output: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [prismaBin(), ...args], {
-      env: childEnv(url),
+      env: { ...childEnv(url), ...engineEnv() },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let output = '';
@@ -153,3 +216,69 @@ export const prismaExecutor: MigrationExecutor = {
     }
   },
 };
+
+export type EngineDiagnosis = { ok: boolean; lines: string[] };
+
+/**
+ * ¿Puede ESTE entorno aplicar migraciones? Es lo que hay que saber antes de fiarse del botón «Migrar BD» en Vercel: encuentra la carpeta
+ * `prisma/` del front, el CLI de Prisma y el motor de esquema, y ejecuta `prisma --version` y `prisma migrate status` (solo lectura) contra
+ * la BD del cliente. No modifica nada. Nada de lo que devuelve contiene una URL de conexión.
+ */
+export async function diagnoseMigrationEngine(directUrl: string, { schemaPath, prismaDir }: { schemaPath: string; prismaDir: string }): Promise<EngineDiagnosis> {
+  const lines: string[] = [];
+  let ok = true;
+  const bad = (line: string) => {
+    ok = false;
+    lines.push(`✗ ${line}`);
+  };
+  const good = (line: string) => lines.push(`✓ ${line}`);
+
+  lines.push(`Entorno: ${isServerless() ? 'serverless' : 'local'} · Node ${process.version} · ${process.platform}-${process.arch}`);
+
+  if (fs.existsSync(schemaPath)) {
+    let count = 0;
+    try {
+      count = fs.readdirSync(path.join(prismaDir, 'migrations')).filter((n) => /^\d{14}_/.test(n)).length;
+    } catch {
+      // sin carpeta de migraciones: se avisa abajo
+    }
+    count > 0 ? good(`Carpeta prisma del front encontrada (${count} migraciones)`) : bad('La carpeta prisma del front no trae migraciones (¿falta incluirla en el despliegue?)');
+  } else {
+    bad(`No se encuentra el schema.prisma del front (${path.relative(process.cwd(), prismaDir) || '.'})`);
+  }
+
+  try {
+    prismaBin();
+    good('CLI de Prisma encontrado');
+  } catch {
+    bad('No se encuentra el CLI de Prisma (paquete `prisma`) en este despliegue');
+    return { ok, lines };
+  }
+
+  const engine = schemaEngineSource();
+  engine ? good(`Motor de esquema incluido: ${path.basename(engine)}`) : bad('No se encuentra el binario schema-engine de @prisma/engines en este despliegue');
+
+  try {
+    const v = await runPrisma(['--version'], directUrl);
+    const info = redactUrls(v.output)
+      .split('\n')
+      .filter((l) => /^(prisma\b|Computed binaryTarget|Schema Engine|Query Engine)/i.test(l.trim()))
+      .map((l) => l.trim().replace(/\(at [^)]*\)/, '').slice(0, 110));
+    v.code === 0 ? good(`prisma --version responde${info.length ? `: ${info.join(' · ')}` : ''}`) : bad(`prisma --version falla: ${redactUrls(v.output).slice(-200).trim()}`);
+  } catch (err) {
+    bad(`No se pudo lanzar el CLI de Prisma: ${redactUrls(err instanceof Error ? err.message : String(err))}`);
+    return { ok, lines };
+  }
+
+  try {
+    const s = await runPrisma(['migrate', 'status', '--schema', schemaPath], directUrl);
+    const text = redactUrls(s.output);
+    if (/up to date/i.test(text)) good('El motor llega a la BD del cliente: esquema al día');
+    else if (/not yet been applied|have not yet been applied/i.test(text)) good('El motor llega a la BD del cliente: hay migraciones por aplicar');
+    else if (/P100[01]|Can't reach database|Authentication failed/i.test(text)) bad(`El motor arranca pero no conecta con la BD del cliente: ${text.slice(-200).trim()}`);
+    else bad(`prisma migrate status no dio un resultado reconocible: ${text.slice(-300).trim()}`);
+  } catch (err) {
+    bad(`No se pudo lanzar prisma migrate status: ${redactUrls(err instanceof Error ? err.message : String(err))}`);
+  }
+  return { ok, lines };
+}

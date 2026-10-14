@@ -6,10 +6,16 @@ import { getOperations, getTenantDetail, recentAudit } from '@/lib/queries';
 import { verificationRecordName, verificationRecordValue } from '@/lib/services/domains';
 import { buildRoutingRecord } from '@/lib/services/snapshot';
 import { licenseStateOf } from '@/lib/services/license';
+import { listLocalMigrations } from '@/lib/services/migrations';
+import { computeReadiness } from '@/lib/services/readiness';
 import {
   addDomainAction,
   bumpEpochAction,
+  checkHealthAction,
   emergencyRevokeAction,
+  engineCheckAction,
+  goLiveAction,
+  migrateAction,
   liftRevocationAction,
   redeemKeyAction,
   registerPaymentAction,
@@ -27,6 +33,8 @@ import { ActionForm } from '../../_components/action-form';
 import { DomainStatusPill, LicensePhasePill, Pill, PublishPill, TenantStatusPill, formatDate, formatDay } from '../../_components/ui';
 
 export const dynamic = 'force-dynamic';
+// Las acciones de esta ficha corren bajo esta ruta: migrar una BD o salir a producción tarda más que los 10-15 s por defecto de Vercel.
+export const maxDuration = 300;
 
 /** `yyyy-mm-dd` del día de Madrid (el formulario edita el día de cobertura tal como lo ve el operador, no el UTC). */
 const madridDay = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(d);
@@ -82,8 +90,82 @@ export default async function TenantPage({ params }: { params: { id: string } })
         }
         const live_domains = sub.domains.filter((d) => d.status !== 'RELEASED');
         const released = sub.domains.filter((d) => d.status === 'RELEASED');
+        const health = ops.get(sub.id)!.health;
+        let latestMigration: string | null = null;
+        try {
+          latestMigration = listLocalMigrations().at(-1) ?? null;
+        } catch {
+          // Sin la carpeta prisma/ del front en este despliegue: el paso de esquema solo compara con el mínimo exigido.
+        }
+        const readiness = computeReadiness({
+          schemaVersion: sub.schemaVersion,
+          latestMigration,
+          domains: sub.domains.map((d) => ({ host: d.host, status: d.status, isPrimary: d.isPrimary })),
+          published: sub.lastPublishedAt !== null,
+          pendingChanges: pending,
+          publishError: sub.lastPublishError,
+          health: health ? { ok: health.ok, status: health.status, error: health.error, onboardingComplete: health.onboardingComplete, onboardingMissing: health.onboardingMissing } : null,
+        });
+        const canMigrate = can(role, 'migrations:run');
+        const canGoLive = canWrite && can(role, 'publish');
         return (
           <section key={sub.id} aria-label={`Producto ${sub.product.name}`}>
+            <div className="panel">
+              <div className="pagehead" style={{ marginBottom: '.5rem' }}>
+                <h2 style={{ margin: 0 }}>Puesta en marcha</h2>
+                {readiness.complete ? <Pill tone="ok">En marcha</Pill> : <Pill tone="warn">Faltan pasos</Pill>}
+              </div>
+              <ol className="steps">
+                {readiness.steps.map((s) => (
+                  <li key={s.key} className={`step ${s.state}${readiness.next === s.key ? ' next' : ''}`}>
+                    <span className="mark" aria-hidden="true">
+                      {s.state === 'done' ? '✓' : s.state === 'attention' ? '!' : ''}
+                    </span>
+                    <div>
+                      <strong>{s.label}</strong> {readiness.next === s.key && <Pill tone="accent">Siguiente</Pill>}
+                      <div className="muted">{s.detail}</div>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+              {(canMigrate || canGoLive) && (
+                <div className="grid2">
+                  {canMigrate && (
+                    <div className="stack">
+                      <p className="muted" style={{ margin: 0 }}>Aplica a la BD del cliente las migraciones que le faltan y anota la versión en el registro. Tarda de segundos a un par de minutos.</p>
+                      <ActionForm className="inline" action={migrateAction.bind(null, tenant.id, sub.id, false)} submitLabel="Migrar BD" confirm="Se aplicarán a la BD de este cliente las migraciones pendientes. ¿Continuar?" />
+                      <ActionForm className="inline" action={migrateAction.bind(null, tenant.id, sub.id, true)} submitLabel="Ver pendientes" tone="quiet" />
+                    </div>
+                  )}
+                  {canGoLive && (
+                    <div className="stack">
+                      <p className="muted" style={{ margin: 0 }}>Comprueba en su BD el email y los textos legales, verifica el dominio por DNS, publica y mira que la web responda. Si falta algo, lo dice y repites.</p>
+                      <ActionForm action={goLiveAction.bind(null, tenant.id, sub.id)} submitLabel="Salir a producción">
+                        {can(role, 'domains:verify-manual') && (
+                          <label className="check">
+                            <input type="checkbox" name="manualDomain" /> Dar el dominio por verificado sin comprobar el DNS (queda auditado)
+                          </label>
+                        )}
+                      </ActionForm>
+                    </div>
+                  )}
+                  {canWrite && (
+                    <div className="stack">
+                      <p className="muted" style={{ margin: 0 }}>Pregunta a la web del cliente cómo está (versión, esquema, si la sirve la plataforma). Necesita un dominio ya verificado.</p>
+                      <ActionForm className="inline" action={checkHealthAction.bind(null, tenant.id, sub.id)} submitLabel="Comprobar salud" tone="quiet" />
+                    </div>
+                  )}
+                </div>
+              )}
+              {canMigrate && (
+                <details style={{ marginTop: '.75rem' }}>
+                  <summary>Diagnóstico del motor de migraciones</summary>
+                  <p className="muted">Comprueba que este panel puede aplicar migraciones desde donde está desplegado (motor de Prisma, carpeta de migraciones y conexión a la BD). Solo lee.</p>
+                  <ActionForm className="inline" action={engineCheckAction.bind(null, tenant.id, sub.id)} submitLabel="Probar el motor" tone="quiet" />
+                </details>
+              )}
+            </div>
+
             <div className="panel">
               <div className="pagehead" style={{ marginBottom: '.5rem' }}>
                 <h2 style={{ margin: 0 }}>Publicación · {sub.product.name}</h2>
