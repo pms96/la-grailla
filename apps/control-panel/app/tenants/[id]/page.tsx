@@ -24,6 +24,7 @@ import {
   releaseDomainAction,
   replaceDbAction,
   seedTenantAction,
+  inviteAdminAction,
   setModulesAction,
   setPrimaryAction,
   setStatusAction,
@@ -32,6 +33,7 @@ import {
   verifyManualAction,
 } from '../../actions/tenants';
 import { vercelConfig } from '@/lib/services/vercel-domains';
+import { mailerConfig } from '@/lib/services/mailer';
 import { ActionForm } from '../../_components/action-form';
 import { DomainStatusPill, LicensePhasePill, Pill, PublishPill, TenantStatusPill, formatDate, formatDay } from '../../_components/ui';
 
@@ -166,7 +168,7 @@ export default async function TenantPage({ params }: { params: { id: string } })
                 <details style={{ marginTop: '.75rem' }} open={readiness.steps.find((s) => s.key === 'data')?.state !== 'done'}>
                   <summary>Datos iniciales del cliente (email de avisos, textos legales y administrador de su web)</summary>
                   <p className="muted">
-                    Para un cliente que se registró sin ellos. No pisa lo que ya tenga valor ni crea un segundo administrador. Necesita la BD migrada. Si crea el usuario, te enseña su contraseña temporal una sola vez.
+                    Para un cliente que se registró sin ellos. No pisa lo que ya tenga valor ni crea un segundo administrador. Necesita la BD migrada. Si crea el usuario, te enseña su contraseña temporal una sola vez, o (casilla de abajo) le manda una invitación para que la fije él.
                   </p>
                   <ActionForm action={seedTenantAction.bind(null, tenant.id, sub.id)} submitLabel="Guardar datos iniciales">
                     <label>
@@ -195,7 +197,20 @@ export default async function TenantPage({ params }: { params: { id: string } })
                       Política de cookies
                       <textarea name="cookies_policy" rows={3} />
                     </label>
+                    <label className="check">
+                      <input type="checkbox" name="invite" /> Invitar al administrador en lugar de enseñar una contraseña temporal (necesita el dominio verificado)
+                    </label>
                   </ActionForm>
+                </details>
+              )}
+              {canSeed && (
+                <details style={{ marginTop: '.75rem' }}>
+                  <summary>Invitar al administrador de su web</summary>
+                  <p className="muted">
+                    Le llega un enlace de un solo uso, que caduca en 72 horas, para que fije su propia contraseña: no pasa ninguna contraseña por el panel ni por correo. Necesita la BD migrada, un administrador creado y el dominio verificado. Volver a invitar anula la invitación anterior.{' '}
+                    {mailerConfig() ? 'Se envía por correo desde el panel.' : 'Este panel no tiene correo configurado: te enseñará el enlace una sola vez para que lo pases tú.'}
+                  </p>
+                  <ActionForm className="inline" action={inviteAdminAction.bind(null, tenant.id, sub.id)} submitLabel="Enviar invitación" />
                 </details>
               )}
               {canMigrate && (

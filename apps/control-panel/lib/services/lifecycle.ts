@@ -6,6 +6,7 @@ import { assertCan } from '../permissions';
 import { openField } from '../secrets-store';
 import { ServiceError } from './errors';
 import { probeTenantHealth, recordHealth } from './health';
+import { inviteTenantAdmin, type InviteDeps, type InviteResult } from './invitations';
 import { frontPrismaDir, runMigrationsForSubscription, type MigrationRunResult } from './migrations';
 import { goLiveTenant, type ProvisionDeps, type ProvisionResult, type StepResult } from './provision';
 import type { FetchLike } from './tenant-calls';
@@ -66,13 +67,14 @@ const STEP_LABEL: Record<string, string> = {
 const stepLine = (s: StepResult) => `${s.status === 'done' || s.status === 'skipped' ? '✓' : '✗'} ${STEP_LABEL[s.step] ?? s.step}: ${s.detail ?? s.status}`;
 
 /** Cuenta en claro el resultado del alta por asistente: pasos, contraseña inicial (una sola vez) y enlace a la ficha. */
-export function describeProvision(result: ProvisionResult, ctx: { adminEmail: string; extra?: string[] }): Outcome {
+export function describeProvision(result: ProvisionResult, ctx: { adminEmail: string; extra?: string[]; invite?: boolean }): Outcome {
   const details = result.steps.map(stepLine);
   if (result.dnsRecord) details.push(`Crea este registro TXT en el DNS del cliente: ${result.dnsRecord.name} → ${result.dnsRecord.value}`);
   details.push(...(ctx.extra ?? []));
   const out: Outcome = { details };
   if (result.tenantId) out.link = { href: `/tenants/${result.tenantId}`, label: 'Abrir la ficha del cliente' };
-  if (result.adminPassword) {
+  // Con invitación, la contraseña temporal no se enseña a nadie: el administrador fijará la suya con el enlace.
+  if (result.adminPassword && !ctx.invite) {
     out.reveal = {
       title: 'Administrador de la web del cliente (se muestra una sola vez)',
       lines: [`Usuario: ${ctx.adminEmail}`, `Contraseña temporal: ${result.adminPassword}`],
@@ -87,13 +89,14 @@ export function describeProvision(result: ProvisionResult, ctx: { adminEmail: st
 }
 
 /** Cuenta en claro el resultado de sembrar los datos iniciales de un cliente ya registrado. */
-export function describeSeed(seed: SeedResult): Outcome {
+export function describeSeed(seed: SeedResult, opts: { invite?: boolean } = {}): Outcome {
   const details: string[] = [];
   details.push(seed.configWritten.length ? `Guardado: ${seed.configWritten.join(', ')}` : 'No había nada nuevo que guardar: lo indicado ya estaba en su BD.');
   if (!seed.adminPassword) details.push('El usuario administrador ya existía: su contraseña no se ha cambiado.');
+  else if (opts.invite) details.push('Usuario administrador creado sin contraseña conocida: la fijará él mismo con la invitación.');
   if (seed.missing.length) details.push(`Siguen sin completar: ${seed.missing.join(', ')}`);
   const out: Outcome = { ok: seed.missing.length ? 'Datos guardados, pero aún faltan algunos obligatorios.' : 'Datos iniciales completos. Ya se puede salir a producción.', details };
-  if (seed.adminPassword) {
+  if (seed.adminPassword && !opts.invite) {
     out.reveal = {
       title: 'Administrador de la web del cliente (se muestra una sola vez)',
       lines: [`Usuario: ${seed.adminEmail}`, `Contraseña temporal: ${seed.adminPassword}`],
@@ -101,6 +104,27 @@ export function describeSeed(seed: SeedResult): Outcome {
     };
   }
   return out;
+}
+
+/** Cuenta en claro la invitación al administrador: enviada por correo, o el enlace UNA sola vez para que lo pase el operador. */
+export function describeInvite(res: InviteResult): Outcome {
+  const until = new Intl.DateTimeFormat('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Madrid' }).format(res.expiresAt);
+  if (res.delivery === 'email') {
+    return { ok: `Invitación enviada a ${res.userEmail}. El enlace funciona una sola vez y caduca el ${until}.` };
+  }
+  return {
+    ok: res.mailError ? undefined : 'Invitación creada. Este panel no tiene correo configurado: pasa el enlace tú al administrador.',
+    error: res.mailError,
+    reveal: {
+      title: 'Enlace de invitación (se muestra una sola vez)',
+      lines: [`Para: ${res.userEmail}`, res.link ?? ''],
+      note: `Es de un solo uso y caduca el ${until}. Si se pierde, vuelve a pulsar «Enviar invitación»: la anterior deja de valer.`,
+    },
+  };
+}
+
+export async function runInvite(subscriptionId: string, opts: { userEmail?: string }, actor: ActingOperator, deps: InviteDeps = {}): Promise<Outcome> {
+  return describeInvite(await inviteTenantAdmin(subscriptionId, opts, actor, deps));
 }
 
 /** «Salir a producción»: comprueba los datos mínimos EN la BD del cliente, verifica el dominio, publica y mira la salud. Repetible. */

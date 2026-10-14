@@ -15,7 +15,7 @@ import { ServiceError } from '@/lib/services/errors';
 import type { ActingOperator } from '@/lib/actor';
 import { bumpEpoch, createTenant, replaceDatabaseUrls, setModules, setTenantStatus } from '@/lib/services/tenants';
 import { emergencyRevoke, liftEmergencyRevocation, redeemLicenseKey, registerPayment, setLicenseTerms } from '@/lib/services/license';
-import { describeProvision, describeSeed, runEngineCheck, runGoLive, runHealthCheck, runMigration, type Outcome } from '@/lib/services/lifecycle';
+import { describeProvision, describeSeed, runEngineCheck, runGoLive, runHealthCheck, runInvite, runMigration, type Outcome } from '@/lib/services/lifecycle';
 import { prisma } from '@/lib/db';
 import { provisionTenant, type ProvisionInput } from '@/lib/services/provision';
 import { seedExistingTenant } from '@/lib/services/tenant-setup';
@@ -61,6 +61,17 @@ async function vercelDomainLines(host: string): Promise<string[]> {
   }
 }
 
+/** Invita al administrador y suma el resultado al de otra acción. Un fallo aquí (p. ej. dominio aún sin verificar) no estropea lo ya hecho. */
+async function withInvitation(base: Outcome, subscriptionId: string, actor: ActingOperator): Promise<Outcome> {
+  try {
+    const inv = await runInvite(subscriptionId, {}, actor);
+    return { ...base, details: [...(base.details ?? []), ...(inv.ok ? [`✓ Invitación: ${inv.ok}`] : []), ...(inv.error ? [`✗ Invitación: ${inv.error}`] : [])], reveal: inv.reveal ?? base.reveal };
+  } catch (err) {
+    const why = err instanceof ServiceError ? err.message : 'error inesperado, mira los registros del servidor';
+    return { ...base, details: [...(base.details ?? []), `✗ Invitación: ${why}. Cuando esté listo, pulsa «Enviar invitación» en la ficha del cliente.`] };
+  }
+}
+
 /** Asistente de alta: registra, migra, siembra, verifica el dominio y publica (el mismo servicio que `npm run tenant:provision`). Repetible. */
 export async function provisionAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
   try {
@@ -85,7 +96,10 @@ export async function provisionAction(_prev: ActionState, fd: FormData): Promise
     const result = await provisionTenant(input, actor);
     const extra = result.tenantId ? await vercelDomainLines(result.host) : [];
     revalidatePath('/');
-    return describeProvision(result, { adminEmail: (input.adminUser?.email || adminEmail).trim().toLowerCase(), extra });
+    // Con «invitar», la contraseña temporal no se enseña: el administrador fija la suya. La invitación solo sale si el dominio ya está verificado.
+    const invite = str(fd, 'invite') === 'on';
+    const outcome = describeProvision(result, { adminEmail: (input.adminUser?.email || adminEmail).trim().toLowerCase(), extra, invite });
+    return invite && result.subscriptionId ? withInvitation(outcome, result.subscriptionId, actor) : outcome;
   } catch (err) {
     return toState(err);
   }
@@ -121,20 +135,26 @@ export async function goLiveAction(tenantId: string, subscriptionId: string, _p:
 
 /** Datos iniciales de un cliente ya registrado: email de avisos, textos legales y primer administrador de su web. */
 export async function seedTenantAction(tenantId: string, subscriptionId: string, _p: ActionState, fd: FormData) {
-  return run('database:write', tenantId, async (actor) =>
-    describeSeed(
-      await seedExistingTenant(
-        subscriptionId,
-        {
-          adminEmail: str(fd, 'adminEmail'),
-          adminName: str(fd, 'adminName') || undefined,
-          adminUserEmail: str(fd, 'adminUserEmail') || undefined,
-          legal: { legal_notice: str(fd, 'legal_notice'), privacy_policy: str(fd, 'privacy_policy'), cookies_policy: str(fd, 'cookies_policy') },
-        },
-        actor
-      )
-    )
-  );
+  return run('database:write', tenantId, async (actor) => {
+    const invite = str(fd, 'invite') === 'on';
+    const seed = await seedExistingTenant(
+      subscriptionId,
+      {
+        adminEmail: str(fd, 'adminEmail'),
+        adminName: str(fd, 'adminName') || undefined,
+        adminUserEmail: str(fd, 'adminUserEmail') || undefined,
+        legal: { legal_notice: str(fd, 'legal_notice'), privacy_policy: str(fd, 'privacy_policy'), cookies_policy: str(fd, 'cookies_policy') },
+      },
+      actor
+    );
+    const outcome = describeSeed(seed, { invite });
+    return invite ? withInvitation(outcome, subscriptionId, actor) : outcome;
+  });
+}
+
+/** «Enviar invitación»: el administrador de la web del cliente fija su contraseña con un enlace de un solo uso (por correo si el panel lo tiene). */
+export async function inviteAdminAction(tenantId: string, subscriptionId: string, _p: ActionState) {
+  return run('database:write', tenantId, (actor) => runInvite(subscriptionId, {}, actor));
 }
 
 /** Añade el dominio al proyecto de Vercel de la plataforma (si el panel tiene el token) y dice qué registro DNS crear. */

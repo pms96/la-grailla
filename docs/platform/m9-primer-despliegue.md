@@ -89,7 +89,7 @@ Todo lo de esta sección se hace en el panel; los comandos `tenant:provision`, `
 1. En Neon, crea el proyecto del cliente (Postgres 16, Frankfurt) y copia sus dos URLs (pooled y directa).
 2. En el panel, «Alta completa»: nombre, dominio, módulos, las dos URLs, email de administración, nombre y correo del administrador de su web y los tres textos legales. «Dar de alta».
 3. El panel registra, migra la BD, siembra los datos, crea el administrador, verifica el dominio y publica. Cada paso sale con ✓ o ✗. Si algo se corta, repites con los mismos datos y continúa donde se quedó.
-4. La **contraseña temporal del administrador de su web se muestra una sola vez**, en esa misma pantalla. Guárdala y pásasela al cliente por un canal seguro.
+4. **Acceso del administrador de su web.** Con la casilla «Invitar al administrador» (marcada por defecto) **no hay contraseña temporal**: el administrador recibe un enlace de un solo uso, que caduca a las 72 horas, para fijar la suya. La invitación solo puede salir cuando el dominio ya está verificado: si todavía no lo está, el alta lo dice y se envía después desde la ficha (apartado «Invitar al administrador de su web»). Sin la casilla, el panel crea al administrador con una **contraseña temporal que se muestra una sola vez**: guárdala y pásasela al cliente por un canal seguro.
 5. El panel dice qué registro DNS crear (el TXT de verificación y el CNAME o A hacia Vercel). Cuando exista, entra en la ficha y pulsa «Salir a producción».
 
 **Cliente ya registrado** (ficha, tarjeta «Puesta en marcha»): la lista de pasos dice cuál toca. Botones: **Migrar BD**, **Datos iniciales** (email de avisos, textos legales y administrador, para quien se registró sin ellos), **Salir a producción**, **Comprobar salud**. En cada dominio, **Añadir a Vercel**.
@@ -104,7 +104,23 @@ Todo lo de esta sección se hace en el panel; los comandos `tenant:provision`, `
 
 Los dominios `*.vercel.app` no necesitan nada de esto.
 
-**Qué no hace el panel:** crear el proyecto de Neon del cliente, ni crear los registros DNS en tu proveedor (los muestra), ni enviar la contraseña por correo (la invitación por email llega con la fase 3).
+**Invitaciones por correo (opcional).** La ficha del cliente tiene el botón «Enviar invitación» (superadmin; necesita la BD migrada, un administrador creado y el dominio verificado). El panel guarda en la BD del cliente un token de un solo uso (solo su hash) y le manda al administrador un enlace a la web del propio cliente (`/auth/establecer-contrasena?token=…`) donde fija su contraseña (mínimo 10 caracteres). Volver a invitar anula la invitación anterior. La contraseña no pasa nunca por el panel ni por el correo. No hace falta ninguna migración de BD.
+
+Sin correo configurado en el panel, el botón te enseña el enlace **una sola vez** para que se lo pases tú. Para que lo envíe el panel, añade estas variables al proyecto **`panel-control`** (solo Production, Sensitive) y redespliega:
+
+| Variable | Qué es |
+|---|---|
+| `PANEL_SMTP_HOST` | Servidor SMTP del proveedor de correo que elijas. |
+| `PANEL_SMTP_USER` | Usuario SMTP. |
+| `PANEL_SMTP_PASSWORD` | Contraseña SMTP (o clave de API SMTP). |
+| `PANEL_SMTP_FROM_EMAIL` | Remitente de las invitaciones, p. ej. `no-reply@tudominio.es`. Mejor con SPF y DKIM configurados para ese dominio. |
+| `PANEL_SMTP_PORT` | Opcional, 587 por defecto (465 activa TLS directo). |
+| `PANEL_SMTP_SECURE` | Opcional, `true` para TLS directo. |
+| `PANEL_SMTP_FROM_NAME` | Opcional, «La Grailla» por defecto. |
+
+**DPA:** el proveedor de correo que configures aquí es un **subencargado más** (ve el correo del administrador del cliente y el enlace de invitación): añádelo a la lista del DPA antes de usarlo con clientes reales. Es una cuenta tuya de proveedor, no la del cliente. El correo no lleva datos del cliente más allá de su nombre comercial.
+
+**Qué no hace el panel:** crear el proyecto de Neon del cliente, ni crear los registros DNS en tu proveedor (los muestra), ni restablecer contraseñas olvidadas (la invitación sirve también para eso: vuelve a pulsar «Enviar invitación»).
 
 ## Qué hago yo a partir de ahí (necesito tu «adelante» al terminar la sección D)
 

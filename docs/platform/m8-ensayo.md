@@ -113,7 +113,7 @@ La Fase 1 está cerrada cuando **P1–P5 pasan** y P6–P7 están hechos y anota
 | P2 Neon | sin ejecutar (la sonda pasa contra Postgres 16 local) | | |
 | P3 Runner en rama | sin ejecutar | | |
 | P4 Dominios y caché | sin ejecutar (la sonda detecta una caché que mezcla Hosts en sus tests) | | |
-| P5 Vercel Cron | sin ejecutar | | |
+| P5 Vercel Cron | hecha en producción (panel `panel-control`), salvo provocar un fallo | 2026-10-14 | Sonda manual: 401 sin secreto; `job=tenants` 200 (`due=2 ran=2 ok=2 failed=0`); `job=snapshots-refresh` republicó 1 registro. Logs de Vercel: el cron real corre cada 5 minutos (marcas de tiempo separadas 300 s) con 200 y `[cron-dispatch] … failed=0`. Sin ejecutar: forzar un fallo (URL de BD errónea en un cliente de prueba) para ver la ejecución marcada como fallida; la alerta es de la Fase 2. |
 | P6 Aislamiento real | sin ejecutar | | |
 | P7 Restauración en Neon | local hecha (3 clientes, 13 módulos, 49 entradas de auditoría idénticos; registro reconstruido con 3 `h:` y 3 `s:`); Neon sin ejecutar | 2026-10-09 | |
 

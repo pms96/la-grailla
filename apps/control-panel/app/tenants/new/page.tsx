@@ -113,6 +113,9 @@ export default async function NewTenantPage() {
             <label className="check">
               <input type="checkbox" name="publish" defaultChecked /> Publicar en cuanto el dominio esté verificado y los datos completos
             </label>
+            <label className="check">
+              <input type="checkbox" name="invite" defaultChecked /> Invitar al administrador por correo en lugar de enseñar una contraseña temporal (si el dominio aún no está verificado, la invitación se envía desde la ficha)
+            </label>
             <p className="muted" style={{ fontSize: '.85rem', margin: 0 }}>
               {vercel
                 ? 'El dominio se añade al proyecto de Vercel de la plataforma automáticamente y se te dirá qué registro DNS crear.'
