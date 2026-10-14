@@ -6,7 +6,7 @@ import { Pill, PublishPill, TenantStatusPill, formatDate } from './_components/u
 
 export const dynamic = 'force-dynamic';
 
-export default async function TenantsPage({ searchParams }: { searchParams: { denied?: string } }) {
+export default async function TenantsPage({ searchParams }: { searchParams: { denied?: string; retired?: string } }) {
   const { live } = await requireOperator('view');
   const rows = await listTenants();
   return (
@@ -23,6 +23,7 @@ export default async function TenantsPage({ searchParams }: { searchParams: { de
         )}
       </div>
       {searchParams.denied && <p className="msg error">No tienes permiso para esa acción.</p>}
+      {searchParams.retired && <p className="msg">Cliente retirado. Si su base de datos sigue en Neon, bórrala allí: el panel nunca la toca.</p>}
       {rows.length === 0 ? (
         <div className="panel emptystate">
           <p>Todavía no hay clientes registrados.</p>

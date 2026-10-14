@@ -24,7 +24,8 @@ const databaseInUse = () => new ServiceError('database_in_use', 'Esa base de dat
  * se diera de alta antes. Si dos clientes antiguos ya comparten BD, el segundo se queda sin huella y se avisa (hay que corregirlo a mano).
  */
 async function backfillFingerprints(): Promise<void> {
-  const rows = await prisma.subscription.findMany({ where: { dbFingerprint: null }, select: { id: true, tenantId: true, dbUrlDirectEnc: true } });
+  // Los clientes retirados no tienen URL (se vaciaron) ni huella a propósito: no hay nada que calcular.
+  const rows = await prisma.subscription.findMany({ where: { dbFingerprint: null, tenant: { status: { not: 'DELETED' } } }, select: { id: true, tenantId: true, dbUrlDirectEnc: true } });
   for (const r of rows) {
     try {
       const url = await openField(r.dbUrlDirectEnc, { scope: r.tenantId, field: DB_URL_DIRECT_FIELD });

@@ -120,6 +120,8 @@ Sin correo configurado en el panel, el botón te enseña el enlace **una sola ve
 
 **DPA:** el proveedor de correo que configures aquí es un **subencargado más** (ve el correo del administrador del cliente y el enlace de invitación): añádelo a la lista del DPA antes de usarlo con clientes reales. Es una cuenta tuya de proveedor, no la del cliente. El correo no lleva datos del cliente más allá de su nombre comercial.
 
+**Retirar un cliente** (superadmin; para un ensayo o una baja). En su ficha: primero «Suspender» y después, en el panel «Retirar cliente», escribir su nombre exacto. El panel borra del registro sus dominios, la conexión sellada a su BD y cualquier revocación (la web deja de servirse), vacía en el panel sus URLs selladas y la huella de la BD (esa BD se puede volver a registrar), deja los dominios como liberados (nadie puede reclamarlos durante 30 días) y lo oculta de los listados, de la salud, de los crons, de las migraciones y del refresco de snapshots. El cliente queda con estado «Borrado» y la auditoría sigue nombrándolo: es de solo inserción. **No borra su BD en Neon**: eso se hace a mano allí.
+
 **Qué no hace el panel:** crear el proyecto de Neon del cliente, ni crear los registros DNS en tu proveedor (los muestra), ni restablecer contraseñas olvidadas (la invitación sirve también para eso: vuelve a pulsar «Enviar invitación»).
 
 ## Qué hago yo a partir de ahí (necesito tu «adelante» al terminar la sección D)

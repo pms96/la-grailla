@@ -2,7 +2,9 @@ import { prisma } from './db';
 import { pendingChanges } from './services/snapshot';
 
 export async function listTenants() {
+  // Los retirados (borrado suave) no se listan: solo siguen existiendo para que la auditoría los nombre.
   const tenants = await prisma.tenant.findMany({
+    where: { status: { not: 'DELETED' } },
     orderBy: { createdAt: 'desc' },
     include: { subscriptions: { include: { modules: true, domains: true, tenant: true } } },
   });

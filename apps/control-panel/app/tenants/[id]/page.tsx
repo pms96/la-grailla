@@ -25,6 +25,7 @@ import {
   replaceDbAction,
   seedTenantAction,
   inviteAdminAction,
+  retireTenantAction,
   setModulesAction,
   setPrimaryAction,
   setStatusAction,
@@ -51,6 +52,40 @@ export default async function TenantPage({ params }: { params: { id: string } })
   if (!detail) notFound();
   const { tenant, subscriptions } = detail;
   const audit = await recentAudit({ tenantId: tenant.id, take: 15 });
+  // Un cliente retirado ya no tiene URLs, dominios ni registro: solo se enseña lo que queda, su historial.
+  if (tenant.status === 'DELETED') {
+    return (
+      <main>
+        <p style={{ margin: 0 }}>
+          <Link href="/">← Clientes</Link>
+        </p>
+        <div className="pagehead">
+          <div>
+            <h1>{tenant.name}</h1>
+            <p className="muted mono">{tenant.id}</p>
+          </div>
+          <TenantStatusPill status={tenant.status} />
+        </div>
+        <p className="msg">Este cliente está retirado: su web ya no se sirve y no queda ninguna conexión a su base de datos. Si su base de datos sigue en Neon, bórrala allí.</p>
+        <div className="panel">
+          <h2>Historial</h2>
+          <div className="tablewrap">
+            <table>
+              <tbody>
+                {audit.map((a) => (
+                  <tr key={a.id.toString()}>
+                    <td className="muted" style={{ whiteSpace: 'nowrap' }}>{formatDate(a.at)}</td>
+                    <td className="mono">{a.action}</td>
+                    <td>{a.operatorEmail}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    );
+  }
   const ops = new Map(await Promise.all(subscriptions.map(async ({ sub }) => [sub.id, await getOperations(sub.id)] as const)));
   const canWrite = can(role, 'tenants:write');
   const canBill = can(role, 'billing:write');
@@ -504,6 +539,25 @@ export default async function TenantPage({ params }: { params: { id: string } })
             <ActionForm className="inline" action={liftRevocationAction.bind(null, tenant.id)} submitLabel="Levantar la revocación" tone="quiet" />
           ) : (
             <ActionForm className="inline" action={emergencyRevokeAction.bind(null, tenant.id)} submitLabel="Revocar acceso ahora" tone="danger" confirm="Esto corta la web de este cliente en segundos. ¿Seguro?" />
+          )}
+        </div>
+      )}
+
+      {canSeed && (
+        <div className="panel">
+          <h2>Retirar cliente</h2>
+          <p className="muted">
+            Para un cliente que ya no existe (un ensayo, una baja). Su web deja de servirse, se borran del registro sus dominios y la conexión sellada a su base de datos, y desaparece de los listados. <strong>No borra su base de datos en Neon</strong>: eso se hace a mano allí. La auditoría conserva su nombre. No se puede deshacer.
+          </p>
+          {tenant.status === 'SUSPENDED' ? (
+            <ActionForm action={retireTenantAction.bind(null, tenant.id)} submitLabel="Retirar cliente" tone="danger">
+              <label>
+                Escribe el nombre del cliente para confirmar
+                <input name="confirmName" type="text" required autoComplete="off" spellCheck={false} placeholder={tenant.name} />
+              </label>
+            </ActionForm>
+          ) : (
+            <p className="muted">Para retirarlo, suspéndelo primero (botón «Suspender» de arriba). Así la web queda cortada antes de borrar nada.</p>
           )}
         </div>
       )}

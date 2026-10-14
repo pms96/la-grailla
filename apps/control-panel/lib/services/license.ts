@@ -246,7 +246,7 @@ export async function refreshAllSnapshots(actor: ActingOperator, store: Registry
   assertCan(actor.role, 'publish');
   // Sin ningún dominio verificado no hay nada que publicar (se liberaron todos): se omite en lugar de fallar en cada ejecución.
   const subs = await prisma.subscription.findMany({
-    where: { lastPublishedAt: { not: null }, domains: { some: { status: 'VERIFIED' } } },
+    where: { tenant: { status: { in: ['ACTIVE', 'SUSPENDED'] } }, lastPublishedAt: { not: null }, domains: { some: { status: 'VERIFIED' } } },
     select: { id: true, tenantId: true },
   });
   const failed: { subscriptionId: string; error: string }[] = [];

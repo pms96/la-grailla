@@ -84,6 +84,8 @@ export async function publishSubscription(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${subscriptionId}))`;
       const sub = await loadSubscription(tx, subscriptionId);
+      // Un cliente retirado no se vuelve a publicar nunca: su registro se borró a propósito.
+      if (sub.tenant.status === 'DELETED' || sub.tenant.status === 'PENDING_DELETION') throw new ServiceError('invalid_state', 'Este cliente está retirado: no se puede publicar');
       const record = buildRoutingRecord(sub, now);
       const hash = recordHash(record, sub);
       const seq = sub.snapshotSeq + 1;

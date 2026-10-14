@@ -19,6 +19,7 @@ import { describeProvision, describeSeed, runEngineCheck, runGoLive, runHealthCh
 import { prisma } from '@/lib/db';
 import { provisionTenant, type ProvisionInput } from '@/lib/services/provision';
 import { seedExistingTenant } from '@/lib/services/tenant-setup';
+import { retireTenant } from '@/lib/services/retire';
 import { describeDomainSetup, ensureVercelDomain, vercelConfig } from '@/lib/services/vercel-domains';
 import type { ActionState } from '../_components/action-form';
 import { str, toState } from './util';
@@ -70,6 +71,18 @@ async function withInvitation(base: Outcome, subscriptionId: string, actor: Acti
     const why = err instanceof ServiceError ? err.message : 'error inesperado, mira los registros del servidor';
     return { ...base, details: [...(base.details ?? []), `✗ Invitación: ${why}. Cuando esté listo, pulsa «Enviar invitación» en la ficha del cliente.`] };
   }
+}
+
+/** «Retirar cliente»: borrado suave (ver lib/services/retire.ts). Tras retirarlo, su ficha ya no tiene nada que hacer: se vuelve a la lista. */
+export async function retireTenantAction(tenantId: string, _prev: ActionState, fd: FormData): Promise<ActionState> {
+  try {
+    const { actor } = await requireOperator('database:write');
+    await retireTenant(tenantId, { confirmName: str(fd, 'confirmName') }, actor);
+  } catch (err) {
+    return toState(err);
+  }
+  revalidatePath('/');
+  redirect('/?retired=1');
 }
 
 /** Asistente de alta: registra, migra, siembra, verifica el dominio y publica (el mismo servicio que `npm run tenant:provision`). Repetible. */
