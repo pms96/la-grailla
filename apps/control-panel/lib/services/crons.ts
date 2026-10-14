@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../db';
-import { probeTenantHealth, recordHealth } from './health';
+import { notify, type Alert } from './alerts';
+import { isHealthy, probeTenantHealth, recordHealth } from './health';
 import { callTenant, type FetchLike } from './tenant-calls';
 
 /* Disparador de tareas periódicas POR CLIENTE (M7). Sustituye a los workflows de GitHub con la URL de La Grailla clavada y un único
@@ -34,7 +35,14 @@ export function nextRunDelay(job: TenantJob, failures: number): number {
   return Math.min(job.maxBackoffMs ?? MAX_BACKOFF_MS, job.intervalMs * 2 ** (failures - 1));
 }
 
+/** Fallos seguidos de una tarea tras los que se avisa. La salud es la más sensible (una caída se nota en ~10 min); el resto tolera un tropiezo suelto. */
+export const alertAfterFailures = (job: TenantJob) => (job.kind === 'health' ? 2 : 3);
+/** Tope de avisos por pasada: una caída general no debe mandar un mensaje por cliente. */
+export const MAX_ALERTS_PER_RUN = 10;
+
 export type DispatchOptions = {
+  /** Cómo se envía un aviso (por defecto, los canales configurados en el entorno). Los tests lo sustituyen. */
+  notify?: (alert: Alert) => Promise<unknown>;
   now?: () => number;
   jobs?: string[];
   budgetMs?: number;
@@ -57,11 +65,12 @@ export type DispatchSummary = {
 async function targets() {
   const subs = await prisma.subscription.findMany({
     where: { tenant: { status: { in: ['ACTIVE', 'SUSPENDED'] } }, lastPublishedAt: { not: null }, domains: { some: { status: 'VERIFIED' } } },
-    select: { id: true, tenantId: true, schemaVersion: true, domains: { where: { status: 'VERIFIED' }, select: { host: true, isPrimary: true } } },
+    select: { id: true, tenantId: true, schemaVersion: true, tenant: { select: { name: true } }, domains: { where: { status: 'VERIFIED' }, select: { host: true, isPrimary: true } } },
   });
   return subs.map((s) => ({
     id: s.id,
     tenantId: s.tenantId,
+    name: s.tenant.name,
     schemaVersion: s.schemaVersion,
     host: (s.domains.find((d) => d.isPrimary) ?? s.domains[0]).host,
   }));
@@ -94,18 +103,44 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
   const summary: DispatchSummary = { due: dueRows.length, ran: 0, ok: 0, failed: 0, deferred: 0, perJob: {} };
   let next = 0;
 
+  // Avisos: con tope por pasada, y un fallo al avisar nunca rompe la pasada.
+  const send = opts.notify ?? ((a: Alert) => notify(a));
+  let sentAlerts = 0;
+  let omittedAlerts = 0;
+  const emit = async (a: Alert) => {
+    if (sentAlerts >= MAX_ALERTS_PER_RUN) {
+      omittedAlerts += 1;
+      return;
+    }
+    sentAlerts += 1;
+    try {
+      await send(a);
+    } catch {
+      // un aviso que no sale no puede dejar a los demás clientes sin atender
+    }
+  };
+
   const runOne = async (row: (typeof dueRows)[number]) => {
     const target = byId.get(row.subscriptionId)!;
     const job = TENANT_JOBS[row.job];
+    const who = { name: target.name, host: target.host };
     const t0 = now();
     let success = false;
     let http: number | null = null;
     let error: string | null = null;
     let duration = 0;
+    let healthChange: Alert | null = null;
     try {
       if (job.kind === 'health') {
+        // Estado anterior, para avisar solo del CAMBIO (sano → degradado, degradado → sano) y no en cada pasada.
+        const previous = await prisma.tenantHealth.findUnique({ where: { subscriptionId: target.id }, select: { ok: true, status: true } });
         const probe = await probeTenantHealth({ tenantId: target.tenantId, host: target.host, declaredSchema: target.schemaVersion }, { fetchImpl: opts.fetchImpl, timeoutMs: callTimeoutMs });
         await recordHealth(target.id, probe, new Date(now()));
+        if (probe.reachable && previous) {
+          const healthy = isHealthy(probe);
+          if (!healthy && previous.ok) healthChange = { severity: 'warning', title: `${target.name}: la web responde pero no está sana`, detail: probe.problems.join(' · '), tenant: who };
+          else if (healthy && !previous.ok && previous.status !== 'unreachable') healthChange = { severity: 'recovery', title: `${target.name}: la web vuelve a estar sana`, tenant: who };
+        }
         success = probe.reachable;
         http = probe.httpStatus;
         error = probe.reachable ? null : probe.error;
@@ -125,6 +160,7 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
     }
     const failures = success ? 0 : row.consecutiveFailures + 1;
     const finished = now();
+    let recorded = false;
     try {
       await prisma.cronState.update({
         where: { subscriptionId_job: { subscriptionId: row.subscriptionId, job: row.job } },
@@ -139,9 +175,20 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
           nextRunAt: new Date(finished + nextRunDelay(job, failures)),
         },
       });
+      recorded = true;
     } catch (err) {
       // Sin anotar, la fila sigue vencida y se reintenta en la siguiente pasada.
       console.error(`[cron-dispatch] no se pudo anotar el estado de ${row.job} del cliente ${target.tenantId}:`, err instanceof Error ? err.message : err);
+    }
+    // Avisos SOLO si el estado quedó anotado: si no, la fila se repite en la siguiente pasada con el mismo contador y el aviso saldría otra vez.
+    if (recorded) {
+      const threshold = alertAfterFailures(job);
+      if (!success && failures === threshold) {
+        await emit({ severity: 'critical', title: `${target.name}: la tarea «${row.job}» falla`, detail: `${failures} fallos seguidos. ${error ?? ''}`, tenant: who });
+      } else if (success && row.consecutiveFailures >= threshold) {
+        await emit({ severity: 'recovery', title: `${target.name}: la tarea «${row.job}» se ha recuperado`, tenant: who });
+      }
+      if (healthChange) await emit(healthChange);
     }
     const pj = (summary.perJob[row.job] ??= { ran: 0, ok: 0, failed: 0 });
     summary.ran += 1;
@@ -167,6 +214,13 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
     })
   );
   summary.deferred = dueRows.length - next;
+  if (omittedAlerts > 0) {
+    try {
+      await send({ severity: 'warning', title: `${omittedAlerts} avisos más en esta pasada`, detail: 'Varios clientes cambian de estado a la vez: mira la página Salud del panel.' });
+    } catch {
+      // ídem
+    }
+  }
   return summary;
 }
 

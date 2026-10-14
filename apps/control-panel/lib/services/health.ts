@@ -55,6 +55,11 @@ export async function probeTenantHealth(
   return { reachable: true, httpStatus: res.status, latencyMs: res.durationMs, detail: d, problems };
 }
 
+/** ¿Está sano? Responde, sin error declarado por el propio cliente y sin problemas (esquema atrasado, BD de otro cliente…). Mismo criterio que `ok` al guardar. */
+export function isHealthy(probe: ProbeResult): boolean {
+  return probe.reachable && probe.detail.status !== 'error' && probe.problems.length === 0;
+}
+
 /** Guarda la última comprobación (una fila por suscripción). */
 export async function recordHealth(subscriptionId: string, probe: ProbeResult, now: Date = new Date()): Promise<void> {
   const base = {

@@ -151,6 +151,33 @@ Lo que **no** está en el volcado, y hay que tener a mano para restaurar de verd
 
 El volcado lleva datos personales de compradores: guárdalo en un disco cifrado (FileVault), no lo subas a ningún servicio sin cifrarlo antes y bórralo cuando una copia más reciente lo sustituya.
 
+## G · Alertas (que te avisen sin que tengas que mirar el panel)
+
+Sin esto, si un cliente se cae o una migración falla, nadie te avisa: te enteras cuando te escribe el cliente. El panel avisa en estos casos, **una sola vez** por cambio de estado (no cada 5 minutos):
+
+| Qué pasa | Cuándo avisa |
+|---|---|
+| La comprobación de salud de una web no responde | A los 2 intentos seguidos (≈10 min), y cuando vuelve |
+| Otra tarea de un cliente (cobros pendientes, sala de espera) falla | A los 3 seguidos, y cuando se recupera |
+| Una web pasa de sana a degradada (esquema atrasado, datos sin completar, BD de otro cliente…) | En el momento del cambio, y cuando vuelve a estar sana |
+| Una migración real falla | En el momento |
+| No se puede escribir en el registro (un cambio no llega a la web del cliente) | En el momento |
+| Falla el refresco diario del registro | El mismo día |
+
+Si muchos clientes cambian a la vez (una caída general), manda los 10 primeros y **un solo resumen**, no un mensaje por cliente. Todo queda además en el registro del servidor (`[alert] …`) y la página **Salud** del panel sigue mostrando el estado de cada cliente.
+
+**Dónde te llega** (tres canales, todos opcionales; añade los que quieras al proyecto `panel-control`, solo Production y Sensitive, y redespliega):
+
+| Variable | Qué es |
+|---|---|
+| `ALERT_WEBHOOK_URL` | **El móvil o un chat.** Con **ntfy** (gratis, sin cuenta): instala la app «ntfy», suscríbete a un tema con un nombre largo y secreto (genera uno con `openssl rand -hex 12` y úsalo como `grailla-` + eso) y pon `https://ntfy.sh/grailla-…`. También vale un webhook de Slack o de Discord. **La URL es un secreto**: cualquiera con ella puede mandarte avisos. |
+| `ALERT_EMAIL_TO` | Una o varias direcciones separadas por comas. Necesita que el panel tenga el SMTP configurado (`PANEL_SMTP_*`, sección E). |
+| `HEARTBEAT_URL` | **Un latido contra la caída del propio panel.** Si el panel o su cron se paran, el panel no puede avisar de que se ha parado. Crea una comprobación en **healthchecks.io** (gratis): periodo 10 minutos y margen 10 minutos, con tu móvil o correo como destino, y pon aquí su URL de «ping». Cada pasada del disparador (cada 5 min) la llama; si dejan de llegar, healthchecks avisa. |
+
+Para probarlo: **Salud → Alertas → «Enviar alerta de prueba»**. Debe llegarte al instante. Hazlo antes de fiarte de ello.
+
+**Complemento recomendado (cinco minutos, fuera del panel):** un monitor externo gratuito (UptimeRobot, Better Stack) sobre `https://www.lagrailla.es/api/health` y sobre la dirección de cada cliente. Es independiente de este panel y de Vercel Cron: si todo el panel está caído, él lo ve igual.
+
 ## Qué hago yo a partir de ahí (necesito tu «adelante» al terminar la sección D)
 
 1. Migro la BD de control de producción y creo tu usuario operador del panel (la contraseña inicial te la doy por fichero, no por chat).

@@ -10,6 +10,7 @@ import { prisma } from '../db';
 import { prismaExecutor, redactUrls, withConnectionLockTimeout, type MigrationExecutor } from '../migrations/executor';
 import { assertCan } from '../permissions';
 import { openField } from '../secrets-store';
+import { notify } from './alerts';
 import { ServiceError } from './errors';
 import { publishSubscription } from './snapshot';
 import { DB_URL_DIRECT_FIELD } from './tenants';
@@ -184,6 +185,10 @@ export async function runMigrationsForSubscription(subscriptionId: string, actor
         meta: { runId: r.id, status: r.status, from: r.fromVersion, to: r.toVersion, pending: r.pending, attempts: r.attempts, allowDestructive: !!opts.allowDestructive, error: r.error ? r.error.slice(0, 200) : null },
       })
     );
+    // Una migración REAL que falla deja a un cliente a medias: hay que enterarse ya (un ensayo, `dryRun`, no es un aviso). `notify` no lanza.
+    if (r.status === 'FAILED' && !dryRun) {
+      await notify({ severity: 'critical', title: `${sub.tenant.name}: la migración de su BD ha fallado`, detail: r.error ?? undefined, tenant: { name: sub.tenant.name } });
+    }
   };
 
   try {

@@ -16,6 +16,7 @@ import { prisma } from '../db';
 import { assertCan } from '../permissions';
 import { snapshotSigner, snapshotStaleHours } from '../env';
 import { getRegistryStore, type RegistryStore } from '../registry/store';
+import { notify } from './alerts';
 import { ServiceError } from './errors';
 
 export type SubscriptionFull = Subscription & { tenant: Tenant; modules: SubscriptionModule[]; domains: Domain[] };
@@ -80,10 +81,12 @@ export async function publishSubscription(
 ): Promise<PublishResult> {
   assertCan(actor.role, 'publish');
   let storeError: Error | null = null;
+  let tenantName = '';
   const result = await prisma.$transaction(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${subscriptionId}))`;
       const sub = await loadSubscription(tx, subscriptionId);
+      tenantName = sub.tenant.name;
       // Un cliente retirado no se vuelve a publicar nunca: su registro se borró a propósito.
       if (sub.tenant.status === 'DELETED' || sub.tenant.status === 'PENDING_DELETION') throw new ServiceError('invalid_state', 'Este cliente está retirado: no se puede publicar');
       const record = buildRoutingRecord(sub, now);
@@ -146,7 +149,11 @@ export async function publishSubscription(
     },
     { timeout: 30_000 }
   );
-  if (storeError) throw new ServiceError('registry_unavailable', `No se pudo escribir en el registro: ${(storeError as Error).message}`);
+  if (storeError) {
+    // Sin registro al día, un cambio (módulos, suspensión, licencia) no llega a la web del cliente: el operador debe saberlo aunque no esté mirando.
+    await notify({ severity: 'critical', title: `${tenantName || 'Un cliente'}: no se pudo publicar en el registro`, detail: (storeError as Error).message, tenant: tenantName ? { name: tenantName } : undefined });
+    throw new ServiceError('registry_unavailable', `No se pudo escribir en el registro: ${(storeError as Error).message}`);
+  }
   return result;
 }
 

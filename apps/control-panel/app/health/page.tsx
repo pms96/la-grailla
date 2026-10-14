@@ -1,6 +1,10 @@
 import Link from 'next/link';
 import { requireOperator } from '@/lib/guard';
+import { can } from '@/lib/permissions';
 import { healthOverview, type HealthLevel } from '@/lib/queries';
+import { describeChannels } from '@/lib/services/alerts';
+import { testAlertAction } from '../actions/alerts';
+import { ActionForm } from '../_components/action-form';
 import { Pill, formatDate } from '../_components/ui';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +22,9 @@ function ago(d: Date | null): string {
 }
 
 export default async function HealthPage() {
-  await requireOperator('view');
+  const { live } = await requireOperator('view');
+  const canTest = can(live.operator.role, 'tenants:write');
+  const channels = describeChannels();
   const rows = await healthOverview();
   const count = (l: HealthLevel) => rows.filter((r) => r.level === l).length;
   return (
@@ -96,6 +102,24 @@ export default async function HealthPage() {
           </table>
         </div>
       )}
+
+      <div className="panel">
+        <div className="pagehead" style={{ marginBottom: '.5rem' }}>
+          <h2 style={{ margin: 0 }}>Alertas</h2>
+          {channels.webhook || channels.email ? <Pill tone="ok">Con canal de aviso</Pill> : <Pill tone="warn">Sin canal de aviso</Pill>}
+        </div>
+        <p className="muted">
+          El panel avisa cuando una tarea de un cliente falla varias veces seguidas (y cuando se recupera), cuando una web pasa de sana a degradada, cuando falla una migración o al publicar en el registro, y cuando falla el refresco diario. Sin ningún canal, el aviso solo queda en el registro del servidor.
+        </p>
+        <ul className="steplist">
+          <li>{channels.webhook ? '✓' : '✗'} Móvil o chat (ntfy, Slack, Discord): {channels.webhook ? 'configurado' : 'sin configurar (ALERT_WEBHOOK_URL)'}</li>
+          <li>
+            {channels.email ? '✓' : '✗'} Correo: {channels.email ? 'configurado' : channels.emailNeedsSmtp ? 'falta el SMTP del panel (PANEL_SMTP_*)' : 'sin configurar (ALERT_EMAIL_TO)'}
+          </li>
+          <li>{channels.heartbeat ? '✓' : '✗'} Latido (avisa si el propio panel o su cron se paran): {channels.heartbeat ? 'configurado' : 'sin configurar (HEARTBEAT_URL)'}</li>
+        </ul>
+        {canTest && <ActionForm className="inline" action={testAlertAction} submitLabel="Enviar alerta de prueba" tone="quiet" />}
+      </div>
     </main>
   );
 }

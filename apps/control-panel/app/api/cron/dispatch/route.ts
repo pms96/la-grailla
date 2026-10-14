@@ -4,6 +4,7 @@ export const maxDuration = 120;
 import crypto from 'node:crypto';
 import { NextResponse } from 'next/server';
 import type { ActingOperator } from '@/lib/actor';
+import { notify, sendHeartbeat } from '@/lib/services/alerts';
 import { dispatchHttpStatus, dispatchTenantJobs, TENANT_JOBS } from '@/lib/services/crons';
 import { refreshAllSnapshots } from '@/lib/services/license';
 
@@ -39,7 +40,11 @@ export async function GET(request: Request) {
   try {
     if (job === 'snapshots-refresh') {
       const { published, failed } = await refreshAllSnapshots(actor);
-      if (failed.length) console.error(`[cron-dispatch] snapshots-refresh: ${failed.length} clientes sin republicar`);
+      if (failed.length) {
+        console.error(`[cron-dispatch] snapshots-refresh: ${failed.length} clientes sin republicar`);
+        // Sin este refresco diario la licencia deja de avanzar y el registro envejece: avisar el mismo día, no cuando alguien lo note.
+        await notify({ severity: 'critical', title: `El refresco diario del registro falló para ${failed.length} ${failed.length === 1 ? 'cliente' : 'clientes'}`, detail: failed.slice(0, 2).map((f) => f.error).join(' | ') });
+      }
       return NextResponse.json({ published, failed: failed.length }, { status: failed.length ? 500 : 200 });
     }
     if (job === 'tenants') {
@@ -51,11 +56,15 @@ export async function GET(request: Request) {
       const status = dispatchHttpStatus(summary);
       console.log(`[cron-dispatch] due=${summary.due} ran=${summary.ran} ok=${summary.ok} failed=${summary.failed} deferred=${summary.deferred}`);
       if (summary.due > 0 && summary.ran === 0) console.error('[cron-dispatch] había tareas vencidas y no se lanzó ninguna: ¿CRON_BUDGET_MS menor que el tiempo máximo de una llamada (20 s)?');
+      // Latido: «el disparador sigue vivo» aunque haya clientes fallando (de eso avisan las alertas). Si deja de llegar, el servicio externo avisa.
+      await sendHeartbeat(true);
       return NextResponse.json(summary, { status });
     }
     return NextResponse.json({ error: 'job debe ser tenants o snapshots-refresh' }, { status: 400 });
   } catch (error) {
     console.error('[GET /api/cron/dispatch]', error instanceof Error ? error.message : error);
+    // El disparador reventó (BD de control caída, etc.): el latido de fallo avisa de inmediato en vez de esperar al plazo del servicio externo.
+    if (job === 'tenants') await sendHeartbeat(false);
     return NextResponse.json({ error: 'Error interno' }, { status: 500 });
   }
 }
