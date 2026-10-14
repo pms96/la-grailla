@@ -85,7 +85,7 @@ describe('probeRegistry', () => {
 });
 
 /** Dos clientes servidos por el mismo despliegue. `contaminate` hace que la 2ª petición de A devuelva la página de B (caché que mezcla Hosts). */
-function fakeHosts(opts: { contaminate?: boolean; healthLeak?: boolean; foreignSitemap?: boolean; sameTitle?: boolean } = {}) {
+function fakeHosts(opts: { contaminate?: boolean; healthLeak?: boolean; foreignSitemap?: boolean; sameTitle?: boolean; hitOn?: string[] } = {}) {
   const hits = new Map<string, number>();
   return async (input: string) => {
     const u = new URL(input);
@@ -94,7 +94,9 @@ function fakeHosts(opts: { contaminate?: boolean; healthLeak?: boolean; foreignS
     const n = (hits.get(input) ?? 0) + 1;
     hits.set(input, n);
     const shownBrand = opts.contaminate && brand === 'Casa A' && u.pathname === '/' && n >= 2 ? 'Casa B' : opts.sameTitle ? 'Casa A' : brand;
-    const headers = { 'x-vercel-id': 'cdg1::fra1::abc', 'cache-control': 'private, no-store' };
+    // `hitOn`: rutas que el CDN sirve de caché a partir de la 2ª petición (el navegador sigue viendo `private, no-store`).
+    const cdn: Record<string, string> = opts.hitOn?.includes(u.pathname) ? { 'x-vercel-cache': n >= 2 ? 'HIT' : 'MISS' } : {};
+    const headers: Record<string, string> = { 'x-vercel-id': 'cdg1::fra1::abc', 'cache-control': 'private, no-store', ...cdn };
     switch (u.pathname) {
       case '/':
         return new Response(`<html><head><title>${shownBrand}</title></head></html>`, { status: 200, headers });
@@ -137,6 +139,20 @@ describe('probeHosts', () => {
     expect(byId(foreign, 'host.foreign.https://a.ejemplo.es/robots.txt')?.status).toBe('fail');
     const unknown = await probeHosts({ origins, unknownOrigin: 'https://a.ejemplo.es', fetch: fakeHosts() });
     expect(byId(unknown, 'host.desconocido')?.status).toBe('fail');
+  });
+
+  it('una página pública servida desde el CDN es lo esperado (informativo); en una ruta que no se cachea, un HIT es un fallo', async () => {
+    const pub = await probeHosts({ origins, fetch: fakeHosts({ hitOn: ['/'] }) });
+    expect(hasFailures(pub)).toBe(false);
+    expect(byId(pub, 'host.cache-cdn.https://a.ejemplo.es/')?.status).toBe('info');
+    expect(byId(pub, 'host.cache-leak.https://a.ejemplo.es/')).toBeUndefined();
+    const api = await probeHosts({ origins, fetch: fakeHosts({ hitOn: ['/api/health'] }) });
+    expect(byId(api, 'host.cache-leak.https://a.ejemplo.es/api/health')?.status).toBe('fail');
+  });
+
+  it('con el CDN sirviendo la portada, una caché que mezcla dominios se sigue detectando', async () => {
+    const checks = await probeHosts({ origins, fetch: fakeHosts({ hitOn: ['/'], contaminate: true }) });
+    expect(byId(checks, 'host.title-stable.https://a.ejemplo.es')?.status).toBe('fail');
   });
 
   it('falla si las funciones corren en otra región', async () => {

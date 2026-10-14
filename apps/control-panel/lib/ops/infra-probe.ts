@@ -273,6 +273,9 @@ function functionRegion(id: string | null): string | null {
   return parts.length >= 3 ? parts[1] : null;
 }
 
+/** Rutas públicas que el front deja cachear 60 s en el CDN de Vercel (next.config.js, `Vercel-CDN-Cache-Control`). Un HIT ahí es lo esperado. */
+const CDN_CACHED_PATHS = new Set(['/', '/eventos', '/tienda', '/sponsors']);
+
 export async function probeHosts(opts: HostsProbeOptions): Promise<Check[]> {
   const doFetch = opts.fetch ?? fetch;
   const out: Check[] = [];
@@ -309,7 +312,17 @@ export async function probeHosts(opts: HostsProbeOptions): Promise<Check[]> {
       const cc = seen[0].headers.get('cache-control');
       const vc = seen.map((s) => s.headers.get('x-vercel-cache')).join('/');
       out.push(check(`host.cache.${origin}${p}`, 'info', `${origin}${p}: cache-control «${cc ?? '—'}», x-vercel-cache ${vc || '—'}`));
-      if (/private|no-store/i.test(cc ?? '') && seen.some((s) => /^(HIT|STALE)$/i.test(s.headers.get('x-vercel-cache') ?? ''))) out.push(check(`host.cache-leak.${origin}${p}`, 'fail', `${origin}${p} declara «${cc}» y aun así el CDN la sirvió de caché`));
+      if (/private|no-store/i.test(cc ?? '') && seen.some((s) => /^(HIT|STALE)$/i.test(s.headers.get('x-vercel-cache') ?? ''))) {
+        // Las páginas públicas piden 60 s de caché al CDN A PROPÓSITO (`Vercel-CDN-Cache-Control` en next.config.js; Vercel quita esa
+        // cabecera de la respuesta, así que desde fuera solo se ve el `private` del navegador). Ahí un HIT es lo esperado: lo que habría que
+        // detectar es que mezcle dominios, y eso lo comprueban el título estable y la marca distinta entre rondas intercaladas.
+        // En cualquier otra ruta (API, robots…) un HIT sí es un fallo.
+        out.push(
+          CDN_CACHED_PATHS.has(p)
+            ? check(`host.cache-cdn.${origin}${p}`, 'info', `${origin}${p}: el CDN la sirvió de caché (esperado: 60 s, con el dominio en la clave)`)
+            : check(`host.cache-leak.${origin}${p}`, 'fail', `${origin}${p} declara «${cc}» y aun así el CDN la sirvió de caché`)
+        );
+      }
       if (p === '/') {
         const [t0, t1] = seen.map((s) => titleOf(s.body));
         titles.set(origin, t0);
