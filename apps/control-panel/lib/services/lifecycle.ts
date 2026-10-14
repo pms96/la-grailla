@@ -7,15 +7,23 @@ import { openField } from '../secrets-store';
 import { ServiceError } from './errors';
 import { probeTenantHealth, recordHealth } from './health';
 import { frontPrismaDir, runMigrationsForSubscription, type MigrationRunResult } from './migrations';
-import { goLiveTenant, type ProvisionDeps, type StepResult } from './provision';
+import { goLiveTenant, type ProvisionDeps, type ProvisionResult, type StepResult } from './provision';
 import type { FetchLike } from './tenant-calls';
+import type { SeedResult } from './tenant-setup';
 import { DB_URL_DIRECT_FIELD } from './tenants';
 
 /* Lo que hacen los botones de «Puesta en marcha» de la ficha del cliente. Cada función devuelve un resultado en texto para el operador
  * (`ok` y/o `error`, más líneas de detalle) y NUNCA una URL de conexión ni un secreto. La lógica de verdad vive en los servicios que ya
  * usaban los scripts (runner de migraciones, salir a producción, salud): aquí solo se orquestan y se cuentan en claro. */
 
-export type Outcome = { ok?: string; error?: string; details?: string[] };
+export type Outcome = {
+  ok?: string;
+  error?: string;
+  details?: string[];
+  /** Datos que se enseñan UNA vez (la contraseña inicial del administrador de la web del cliente). */
+  reveal?: { title: string; lines: string[]; note?: string };
+  link?: { href: string; label: string };
+};
 
 const MAX_LISTED = 40;
 const list = (names: string[]) => (names.length > MAX_LISTED ? [...names.slice(0, MAX_LISTED), `… y ${names.length - MAX_LISTED} más`] : names);
@@ -44,8 +52,56 @@ export async function runMigration(subscriptionId: string, dryRun: boolean, acto
   return describeMigration(await runMigrationsForSubscription(subscriptionId, actor, { dryRun }));
 }
 
-const STEP_LABEL: Record<string, string> = { onboarding: 'Datos mínimos', domain: 'Dominio', publish: 'Publicación', health: 'Salud de la web', finish: 'Cierre' };
+const STEP_LABEL: Record<string, string> = {
+  database: 'Base de datos',
+  register: 'Registro',
+  migrate: 'Migración',
+  seed: 'Datos iniciales',
+  onboarding: 'Datos mínimos',
+  domain: 'Dominio',
+  publish: 'Publicación',
+  health: 'Salud de la web',
+  finish: 'Cierre',
+};
 const stepLine = (s: StepResult) => `${s.status === 'done' || s.status === 'skipped' ? '✓' : '✗'} ${STEP_LABEL[s.step] ?? s.step}: ${s.detail ?? s.status}`;
+
+/** Cuenta en claro el resultado del alta por asistente: pasos, contraseña inicial (una sola vez) y enlace a la ficha. */
+export function describeProvision(result: ProvisionResult, ctx: { adminEmail: string; extra?: string[] }): Outcome {
+  const details = result.steps.map(stepLine);
+  if (result.dnsRecord) details.push(`Crea este registro TXT en el DNS del cliente: ${result.dnsRecord.name} → ${result.dnsRecord.value}`);
+  details.push(...(ctx.extra ?? []));
+  const out: Outcome = { details };
+  if (result.tenantId) out.link = { href: `/tenants/${result.tenantId}`, label: 'Abrir la ficha del cliente' };
+  if (result.adminPassword) {
+    out.reveal = {
+      title: 'Administrador de la web del cliente (se muestra una sola vez)',
+      lines: [`Usuario: ${ctx.adminEmail}`, `Contraseña temporal: ${result.adminPassword}`],
+      note: 'Guárdala ahora: no se puede volver a ver. Pásasela al cliente por un canal seguro.',
+    };
+  }
+  const failed = result.steps.some((s) => s.status === 'failed');
+  if (failed) out.error = result.tenantId ? 'El alta no ha terminado: revisa los pasos marcados con ✗. El cliente ya está registrado: puedes seguir desde su ficha o repetir el alta con los mismos datos.' : 'El alta no se ha podido completar: revisa los pasos marcados con ✗.';
+  else if (result.published) out.ok = 'Cliente dado de alta y publicado.';
+  else out.ok = 'Cliente registrado, pero todavía sin publicar: faltan los pasos marcados con ✗ (datos mínimos o verificación del dominio). Se completan desde su ficha.';
+  return out;
+}
+
+/** Cuenta en claro el resultado de sembrar los datos iniciales de un cliente ya registrado. */
+export function describeSeed(seed: SeedResult): Outcome {
+  const details: string[] = [];
+  details.push(seed.configWritten.length ? `Guardado: ${seed.configWritten.join(', ')}` : 'No había nada nuevo que guardar: lo indicado ya estaba en su BD.');
+  if (!seed.adminPassword) details.push('El usuario administrador ya existía: su contraseña no se ha cambiado.');
+  if (seed.missing.length) details.push(`Siguen sin completar: ${seed.missing.join(', ')}`);
+  const out: Outcome = { ok: seed.missing.length ? 'Datos guardados, pero aún faltan algunos obligatorios.' : 'Datos iniciales completos. Ya se puede salir a producción.', details };
+  if (seed.adminPassword) {
+    out.reveal = {
+      title: 'Administrador de la web del cliente (se muestra una sola vez)',
+      lines: [`Usuario: ${seed.adminEmail}`, `Contraseña temporal: ${seed.adminPassword}`],
+      note: 'Guárdala ahora: no se puede volver a ver. Pásasela al cliente por un canal seguro.',
+    };
+  }
+  return out;
+}
 
 /** «Salir a producción»: comprueba los datos mínimos EN la BD del cliente, verifica el dominio, publica y mira la salud. Repetible. */
 export async function runGoLive(subscriptionId: string, opts: { manualDomain?: boolean }, actor: ActingOperator, deps: ProvisionDeps = {}): Promise<Outcome> {

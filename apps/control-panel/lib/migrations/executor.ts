@@ -262,6 +262,11 @@ export const prismaExecutor: MigrationExecutor = {
 
 export type EngineDiagnosis = { ok: boolean; lines: string[] };
 
+/** ¿`prisma --version` llegó a imprimir la versión del motor de esquema? (el código de salida no es fiable en serverless) */
+export function versionPrinted(output: string): boolean {
+  return /Schema Engine\s*:/i.test(output) && /Default Engines Hash/i.test(output);
+}
+
 /**
  * ¿Puede ESTE entorno aplicar migraciones? Es lo que hay que saber antes de fiarse del botón «Migrar BD» en Vercel: encuentra la carpeta
  * `prisma/` del front, el CLI de Prisma y el motor de esquema, y ejecuta `prisma --version` y `prisma migrate status` (solo lectura) contra
@@ -308,11 +313,13 @@ export async function diagnoseMigrationEngine(directUrl: string, { schemaPath, p
 
   try {
     const v = await runPrisma(['--version'], directUrl);
-    const info = redactUrls(v.output)
+    const text = redactUrls(v.output);
+    const info = text
       .split('\n')
-      .filter((l) => /^(prisma\b|Computed binaryTarget|Schema Engine|Query Engine)/i.test(l.trim()))
+      .filter((l) => /^(prisma\b|Computed binaryTarget|Schema Engine)/i.test(l.trim()))
       .map((l) => l.trim().replace(/\(at [^)]*\)/, '').slice(0, 110));
-    v.code === 0 ? good(`prisma --version responde${info.length ? `: ${info.join(' · ')}` : ''}`) : bad(`prisma --version falla: ${redactUrls(v.output).slice(-200).trim()}`);
+    // Se mira lo que imprime, no el código de salida: en Vercel `--version` sale con un código distinto de 0 aunque lo muestre todo bien.
+    versionPrinted(text) ? good(`prisma --version responde${info.length ? `: ${info.join(' · ')}` : ''}`) : bad(`prisma --version falla (código ${v.code}): ${text.slice(-200).trim()}`);
   } catch (err) {
     bad(`No se pudo lanzar el CLI de Prisma: ${redactUrls(err instanceof Error ? err.message : String(err))}`);
     return { ok, lines };

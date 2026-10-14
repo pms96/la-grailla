@@ -10,6 +10,8 @@ export type ActionState = {
   reveal?: { title: string; lines: string[]; note?: string };
   // Líneas de detalle de una acción larga (pasos de «Salir a producción», migraciones aplicadas, diagnóstico). Nunca secretos.
   details?: string[];
+  // Enlace a seguir tras una acción que no redirige (porque hay que enseñar antes una contraseña).
+  link?: { href: string; label: string };
 };
 
 export type FormAction = (prev: ActionState, formData: FormData) => Promise<ActionState>;
@@ -64,6 +66,11 @@ export function ActionForm({
             <li key={i}>{line}</li>
           ))}
         </ul>
+      )}
+      {state.link && (
+        <p style={{ margin: 0 }}>
+          <a href={state.link.href}>{state.link.label} →</a>
+        </p>
       )}
       {state.reveal && (
         <div className="reveal" role="status">

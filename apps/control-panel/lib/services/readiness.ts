@@ -50,7 +50,7 @@ export function computeReadiness(input: ReadinessInput): Readiness {
   // 2. Datos mínimos (los lee la salud del front; antes de salir a producción se comprueban directamente en la BD).
   const h = input.health;
   if (h && h.onboardingComplete === false) {
-    steps.push({ key: 'data', label: 'Datos mínimos del cliente', state: 'attention', detail: `Faltan: ${h.onboardingMissing.join(', ')}. Los completa el cliente desde su administración.` });
+    steps.push({ key: 'data', label: 'Datos mínimos del cliente', state: 'attention', detail: `Faltan: ${h.onboardingMissing.join(', ')}. Complétalos en «Datos iniciales» (más abajo) o los completa el cliente desde su administración.` });
   } else if (h && h.onboardingComplete === true) {
     steps.push({ key: 'data', label: 'Datos mínimos del cliente', state: 'done', detail: 'Email de administración y textos legales completos.' });
   } else {

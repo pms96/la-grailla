@@ -81,6 +81,31 @@ En ambos proyectos: Postgres **16**, región **AWS Europe (Frankfurt)**, y deja 
 4. Redespliega los dos (Deployments → Redeploy de `plataforma`, o un push a la rama). Esta vez deben terminar en verde.
 5. En `grailla-panel` → Settings → Cron Jobs deben aparecer las dos tareas de `vercel.json` (`tenants` cada 5 minutos y `snapshots-refresh` a diario).
 
+## E · Dar de alta y poner en marcha clientes desde el panel (sin comandos)
+
+Todo lo de esta sección se hace en el panel; los comandos `tenant:provision`, `migrate:tenants` y `tenant:go-live` siguen existiendo y hacen lo mismo.
+
+**Cliente nuevo** (`/tenants/new`, solo superadmin):
+1. En Neon, crea el proyecto del cliente (Postgres 16, Frankfurt) y copia sus dos URLs (pooled y directa).
+2. En el panel, «Alta completa»: nombre, dominio, módulos, las dos URLs, email de administración, nombre y correo del administrador de su web y los tres textos legales. «Dar de alta».
+3. El panel registra, migra la BD, siembra los datos, crea el administrador, verifica el dominio y publica. Cada paso sale con ✓ o ✗. Si algo se corta, repites con los mismos datos y continúa donde se quedó.
+4. La **contraseña temporal del administrador de su web se muestra una sola vez**, en esa misma pantalla. Guárdala y pásasela al cliente por un canal seguro.
+5. El panel dice qué registro DNS crear (el TXT de verificación y el CNAME o A hacia Vercel). Cuando exista, entra en la ficha y pulsa «Salir a producción».
+
+**Cliente ya registrado** (ficha, tarjeta «Puesta en marcha»): la lista de pasos dice cuál toca. Botones: **Migrar BD**, **Datos iniciales** (email de avisos, textos legales y administrador, para quien se registró sin ellos), **Salir a producción**, **Comprobar salud**. En cada dominio, **Añadir a Vercel**.
+
+**Dominios en Vercel desde el panel (opcional).** Sin esto, el panel enseña el registro DNS y tú añades el dominio a mano en el proyecto `grailla-platform`. Para que lo haga el panel, añade estas variables al proyecto **`grailla-panel`** (solo Production, Sensitive) y redespliega:
+
+| Variable | Qué es |
+|---|---|
+| `VERCEL_API_TOKEN` | Un token de Vercel creado **solo para esto** (Account Settings → Tokens), con caducidad. Los tokens de Vercel son del equipo, no de un proyecto: con él se pueden tocar todos sus proyectos. Guárdalo en el gestor de contraseñas. |
+| `VERCEL_PLATFORM_PROJECT_ID` | El id (`prj_…`, en Settings → General) o el nombre del proyecto `grailla-platform`. |
+| `VERCEL_TEAM_ID` | El id del equipo (`team_…`, en Settings → General del equipo). No hace falta en una cuenta personal. |
+
+Los dominios `*.vercel.app` no necesitan nada de esto.
+
+**Qué no hace el panel:** crear el proyecto de Neon del cliente, ni crear los registros DNS en tu proveedor (los muestra), ni enviar la contraseña por correo (la invitación por email llega con la fase 3).
+
 ## Qué hago yo a partir de ahí (necesito tu «adelante» al terminar la sección D)
 
 1. Migro la BD de control de producción y creo tu usuario operador del panel (la contraseña inicial te la doy por fichero, no por chat).

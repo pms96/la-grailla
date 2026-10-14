@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { generateMasterKey } from '@grailla/contracts';
-import { engineEnv, pickSchemaEngine } from '@/lib/migrations/executor';
+import { engineEnv, pickSchemaEngine, versionPrinted } from '@/lib/migrations/executor';
 import { describeMigration, runEngineCheck, runHealthCheck, runMigration } from '@/lib/services/lifecycle';
 import type { MigrationRunResult } from '@/lib/services/migrations';
 import { createTenant } from '@/lib/services/tenants';
@@ -84,6 +84,13 @@ describe('motor de migraciones en el entorno', () => {
     expect(pickSchemaEngine(names, 'linux')).toBe('schema-engine-rhel-openssl-3.0.x');
     expect(pickSchemaEngine(names, 'darwin')).toBe('schema-engine-darwin-arm64');
     expect(pickSchemaEngine(['index.js', 'README.md'], 'linux')).toBeNull();
+  });
+
+  it('prisma --version cuenta como correcto si imprime el motor, aunque salga con otro código (lo que pasa en Vercel)', () => {
+    const printed = 'prisma : 6.7.0\nSchema Engine : schema-engine-cli abc\nSchema Wasm : x\nDefault Engines Hash : abc\nStudio : 0.511.0';
+    expect(versionPrinted(printed)).toBe(true);
+    expect(versionPrinted('Error: Cannot find module @prisma/debug')).toBe(false);
+    expect(versionPrinted('')).toBe(false);
   });
 
   it('fuera de un entorno serverless no cambia el entorno del proceso hijo', () => {

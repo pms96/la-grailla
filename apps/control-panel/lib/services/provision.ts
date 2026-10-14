@@ -129,7 +129,7 @@ async function ensureLocalDatabase(name: string): Promise<{ url: string; created
  * Marca la BD como de este cliente, siembra la configuración (sin pisar lo que ya exista) y el primer ADMIN. Devuelve la contraseña solo si
  * el usuario es nuevo. La marca va PRIMERO: así una BD en la que se llegó a sembrar algo siempre dice de quién es.
  */
-async function seedTenantDb(
+export async function seedTenantDb(
   url: string,
   args: { tenantId: string; config: Record<string, string>; adminEmail: string; adminName: string; createAdmin: boolean }
 ): Promise<{ configWritten: string[]; adminPassword?: string }> {

@@ -23,12 +23,15 @@ import {
   publishAction,
   releaseDomainAction,
   replaceDbAction,
+  seedTenantAction,
   setModulesAction,
   setPrimaryAction,
   setStatusAction,
+  vercelDomainAction,
   verifyDnsAction,
   verifyManualAction,
 } from '../../actions/tenants';
+import { vercelConfig } from '@/lib/services/vercel-domains';
 import { ActionForm } from '../../_components/action-form';
 import { DomainStatusPill, LicensePhasePill, Pill, PublishPill, TenantStatusPill, formatDate, formatDay } from '../../_components/ui';
 
@@ -50,6 +53,8 @@ export default async function TenantPage({ params }: { params: { id: string } })
   const canWrite = can(role, 'tenants:write');
   const canBill = can(role, 'billing:write');
   const canRevoke = can(role, 'tenants:revoke');
+  const canSeed = can(role, 'database:write');
+  const vercelOn = vercelConfig() !== null;
 
   return (
     <main>
@@ -156,6 +161,42 @@ export default async function TenantPage({ params }: { params: { id: string } })
                     </div>
                   )}
                 </div>
+              )}
+              {canSeed && (
+                <details style={{ marginTop: '.75rem' }} open={readiness.steps.find((s) => s.key === 'data')?.state !== 'done'}>
+                  <summary>Datos iniciales del cliente (email de avisos, textos legales y administrador de su web)</summary>
+                  <p className="muted">
+                    Para un cliente que se registró sin ellos. No pisa lo que ya tenga valor ni crea un segundo administrador. Necesita la BD migrada. Si crea el usuario, te enseña su contraseña temporal una sola vez.
+                  </p>
+                  <ActionForm action={seedTenantAction.bind(null, tenant.id, sub.id)} submitLabel="Guardar datos iniciales">
+                    <label>
+                      Email de administración (recibe los avisos de la web)
+                      <input name="adminEmail" type="email" required autoCapitalize="none" spellCheck={false} />
+                    </label>
+                    <div className="grid2">
+                      <label>
+                        Nombre del administrador
+                        <input name="adminName" type="text" placeholder="Administrador" />
+                      </label>
+                      <label>
+                        Email del usuario administrador (si es otro)
+                        <input name="adminUserEmail" type="email" placeholder="el mismo de arriba" autoCapitalize="none" spellCheck={false} />
+                      </label>
+                    </div>
+                    <label>
+                      Aviso legal
+                      <textarea name="legal_notice" rows={3} />
+                    </label>
+                    <label>
+                      Política de privacidad
+                      <textarea name="privacy_policy" rows={3} />
+                    </label>
+                    <label>
+                      Política de cookies
+                      <textarea name="cookies_policy" rows={3} />
+                    </label>
+                  </ActionForm>
+                </details>
               )}
               {canMigrate && (
                 <details style={{ marginTop: '.75rem' }}>
@@ -403,6 +444,9 @@ export default async function TenantPage({ params }: { params: { id: string } })
                         </td>
                         <td>
                           <div className="row">
+                            {canWrite && vercelOn && !d.host.endsWith('.vercel.app') && (
+                              <ActionForm className="inline" action={vercelDomainAction.bind(null, tenant.id, d.id)} submitLabel="Añadir a Vercel" tone="quiet" />
+                            )}
                             {canWrite && d.status === 'PENDING' && <ActionForm className="inline" action={verifyDnsAction.bind(null, tenant.id, d.id)} submitLabel="Verificar DNS" tone="quiet" />}
                             {can(role, 'domains:verify-manual') && d.status === 'PENDING' && (
                               <ActionForm className="inline" action={verifyManualAction.bind(null, tenant.id, d.id)} submitLabel="Marcar verificado" tone="quiet" confirm="Verificación manual: queda auditada. ¿Seguro?" />

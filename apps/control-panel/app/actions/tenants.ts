@@ -15,7 +15,11 @@ import { ServiceError } from '@/lib/services/errors';
 import type { ActingOperator } from '@/lib/actor';
 import { bumpEpoch, createTenant, replaceDatabaseUrls, setModules, setTenantStatus } from '@/lib/services/tenants';
 import { emergencyRevoke, liftEmergencyRevocation, redeemLicenseKey, registerPayment, setLicenseTerms } from '@/lib/services/license';
-import { runEngineCheck, runGoLive, runHealthCheck, runMigration, type Outcome } from '@/lib/services/lifecycle';
+import { describeProvision, describeSeed, runEngineCheck, runGoLive, runHealthCheck, runMigration, type Outcome } from '@/lib/services/lifecycle';
+import { prisma } from '@/lib/db';
+import { provisionTenant, type ProvisionInput } from '@/lib/services/provision';
+import { seedExistingTenant } from '@/lib/services/tenant-setup';
+import { describeDomainSetup, ensureVercelDomain, vercelConfig } from '@/lib/services/vercel-domains';
 import type { ActionState } from '../_components/action-form';
 import { str, toState } from './util';
 
@@ -41,6 +45,50 @@ export async function createTenantAction(_prev: ActionState, fd: FormData): Prom
     return toState(err);
   }
   redirect(`/tenants/${tenantId}`);
+}
+
+/** Qué hacer con el dominio en Vercel tras un alta: añadirlo por API si el panel tiene el token, o decir cómo hacerlo a mano. */
+async function vercelDomainLines(host: string): Promise<string[]> {
+  if (host.endsWith('.vercel.app')) return ['Dominio de Vercel (*.vercel.app): no hace falta añadirlo ni crear DNS.'];
+  const cfg = vercelConfig();
+  if (!cfg) {
+    return ['Dominio en Vercel: añádelo a mano en el proyecto grailla-platform (Settings → Domains), o configura VERCEL_API_TOKEN y VERCEL_PLATFORM_PROJECT_ID en el panel para hacerlo desde aquí.'];
+  }
+  try {
+    return describeDomainSetup(await ensureVercelDomain(host, cfg));
+  } catch (err) {
+    return [`✗ Vercel: ${err instanceof ServiceError ? err.message : 'error inesperado, mira los registros del servidor'}`];
+  }
+}
+
+/** Asistente de alta: registra, migra, siembra, verifica el dominio y publica (el mismo servicio que `npm run tenant:provision`). Repetible. */
+export async function provisionAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  try {
+    const { actor } = await requireOperator('database:write');
+    const mode = str(fd, 'domainMode');
+    const adminEmail = str(fd, 'adminEmail');
+    const input: ProvisionInput = {
+      name: str(fd, 'name'),
+      productKey: 'grailla',
+      primaryHost: str(fd, 'primaryHost'),
+      modules: fd.getAll('modules').filter((v): v is string => typeof v === 'string'),
+      adminEmail,
+      adminUser: { email: str(fd, 'adminUserEmail') || undefined, name: str(fd, 'adminName') || undefined },
+      legal: { legal_notice: str(fd, 'legal_notice'), privacy_policy: str(fd, 'privacy_policy'), cookies_policy: str(fd, 'cookies_policy') },
+      database: { mode: 'existing', pooledUrl: str(fd, 'dbUrlPooled'), directUrl: str(fd, 'dbUrlDirect') },
+      domain: mode === 'manual' || mode === 'pending' ? mode : 'dns',
+      publish: str(fd, 'publish') === 'on',
+      allowIncomplete: str(fd, 'allowIncomplete') === 'on',
+      dbRegion: str(fd, 'dbRegion') || null,
+    };
+    // Sin comprobar la salud: en un alta el dominio todavía no apunta a la plataforma. Se comprueba desde la ficha cuando el DNS esté.
+    const result = await provisionTenant(input, actor);
+    const extra = result.tenantId ? await vercelDomainLines(result.host) : [];
+    revalidatePath('/');
+    return describeProvision(result, { adminEmail: (input.adminUser?.email || adminEmail).trim().toLowerCase(), extra });
+  } catch (err) {
+    return toState(err);
+  }
 }
 
 /** Envuelve una acción sobre un tenant: comprueba permiso, ejecuta, refresca la ficha y devuelve el mensaje. */
@@ -69,6 +117,36 @@ export async function migrateAction(tenantId: string, subscriptionId: string, dr
 /** Datos mínimos → dominio → publicar → salud. Repetible: si falta algo, dice qué y se vuelve a pulsar. */
 export async function goLiveAction(tenantId: string, subscriptionId: string, _p: ActionState, fd: FormData) {
   return run('publish', tenantId, (actor) => runGoLive(subscriptionId, { manualDomain: str(fd, 'manualDomain') === 'on' }, actor));
+}
+
+/** Datos iniciales de un cliente ya registrado: email de avisos, textos legales y primer administrador de su web. */
+export async function seedTenantAction(tenantId: string, subscriptionId: string, _p: ActionState, fd: FormData) {
+  return run('database:write', tenantId, async (actor) =>
+    describeSeed(
+      await seedExistingTenant(
+        subscriptionId,
+        {
+          adminEmail: str(fd, 'adminEmail'),
+          adminName: str(fd, 'adminName') || undefined,
+          adminUserEmail: str(fd, 'adminUserEmail') || undefined,
+          legal: { legal_notice: str(fd, 'legal_notice'), privacy_policy: str(fd, 'privacy_policy'), cookies_policy: str(fd, 'cookies_policy') },
+        },
+        actor
+      )
+    )
+  );
+}
+
+/** Añade el dominio al proyecto de Vercel de la plataforma (si el panel tiene el token) y dice qué registro DNS crear. */
+export async function vercelDomainAction(tenantId: string, domainId: string, _p: ActionState) {
+  return run('tenants:write', tenantId, async (): Promise<Outcome> => {
+    const cfg = vercelConfig();
+    if (!cfg) throw new ServiceError('vercel_not_configured', 'Falta configurar VERCEL_API_TOKEN y VERCEL_PLATFORM_PROJECT_ID en el panel.');
+    const domain = await prisma.domain.findUnique({ where: { id: domainId }, include: { subscription: { select: { tenantId: true } } } });
+    if (!domain || domain.subscription.tenantId !== tenantId || domain.status === 'RELEASED') throw new ServiceError('not_found', 'Dominio no encontrado');
+    const setup = await ensureVercelDomain(domain.host, cfg);
+    return { ok: setup.misconfigured === false && setup.records.length === 0 ? 'El dominio está en Vercel y el DNS ya apunta bien.' : 'El dominio está en Vercel. Falta lo que se indica abajo.', details: describeDomainSetup(setup) };
+  });
 }
 
 export async function checkHealthAction(tenantId: string, subscriptionId: string, _p: ActionState) {
