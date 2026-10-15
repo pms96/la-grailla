@@ -5,6 +5,8 @@ import { fileURLToPath } from 'url';
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  // tsconfig usa `jsx: preserve` (lo compila Next): para probar componentes, Vitest los transforma con el runtime automático de React.
+  oxc: { jsx: { runtime: 'automatic' } },
   test: {
     environment: 'node',
     // dotenv primero (carga el .env) y después la guardia: la suite se niega a arrancar contra una base de datos que no sea local.

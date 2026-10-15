@@ -14,11 +14,15 @@ import { z } from 'zod';
 export const THEME_VERSION = 1 as const;
 
 // ── Catálogo cerrado ────────────────────────────────────────────────────────────────────────────────────────────────
-export const TEMPLATES = ['feria', 'editorial'] as const;
+export const TEMPLATES = ['feria', 'editorial', 'marquesina'] as const;
 export type TemplateKey = (typeof TEMPLATES)[number];
 export const TEMPLATE_LABELS: Record<TemplateKey, { label: string; description: string }> = {
   feria: { label: 'Feria', description: 'Festiva: degradados, pegatinas de borde grueso y botones redondeados.' },
   editorial: { label: 'Editorial', description: 'Sobria: tipografía grande, mucho aire y sin adornos.' },
+  marquesina: {
+    label: 'Marquesina',
+    description: 'Cartel de teatro: el nombre del evento a pantalla completa, cinta en movimiento y programación en filas con el cartel flotando al pasar el ratón.',
+  },
 };
 
 export const FONT_KEYS = ['fredoka', 'space-grotesk', 'inter', 'dm-sans', 'poppins', 'montserrat', 'playfair-display', 'bebas-neue'] as const;
@@ -42,6 +46,16 @@ export const RADIUS_VALUE: Record<RadiusKey, string> = { recto: '0.375rem', suav
 
 export const MODES = ['dark', 'light', 'system'] as const;
 export type ModeKey = (typeof MODES)[number];
+
+/** Ajustes con los que cada plantilla luce mejor. Son una SUGERENCIA (la pantalla de Apariencia los ofrece con un botón), no se imponen. */
+export const TEMPLATE_PRESETS: Partial<Record<TemplateKey, { mode: ModeKey; radius: RadiusKey; fonts: { display: FontKey; body: FontKey }; note: string }>> = {
+  marquesina: {
+    mode: 'dark',
+    radius: 'recto',
+    fonts: { display: 'bebas-neue', body: 'space-grotesk' },
+    note: 'modo oscuro, esquinas rectas y Bebas Neue para el titular',
+  },
+};
 
 // ── Esquema ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Color en formato #RRGGBB');

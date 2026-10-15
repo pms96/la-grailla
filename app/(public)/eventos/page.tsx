@@ -11,6 +11,8 @@ import { FadeIn, Stagger, StaggerItem } from '@/components/ui/animate';
 import { Container } from '@/components/layouts/container';
 import { ReloadButton } from '@/components/reload-button';
 import { getBrand } from '@/lib/brand/brand';
+import { EventosMarquesina } from '../_home/marquesina/eventos-marquesina';
+import { toMarquesinaEvent } from '../_home/marquesina/data';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
@@ -35,6 +37,11 @@ export default async function EventosPage() {
   } catch (error) {
     console.error('[EventosPage] Error al cargar eventos:', error);
     loadError = true;
+  }
+
+  const brand = await getBrand();
+  if (brand.template === 'marquesina') {
+    return <EventosMarquesina brandName={brand.name} events={events.map(toMarquesinaEvent)} loadError={loadError} />;
   }
 
   const [featured, ...rest] = events;

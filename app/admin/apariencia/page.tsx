@@ -14,7 +14,7 @@ import { PageHeader } from '@/components/layouts/page-header';
 import { cn } from '@/lib/utils';
 import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
 import {
-  FONT_CATALOG, FONT_KEYS, MODES, RADII, RADIUS_VALUE, TEMPLATES, TEMPLATE_LABELS,
+  FONT_CATALOG, FONT_KEYS, MODES, RADII, RADIUS_VALUE, TEMPLATES, TEMPLATE_LABELS, TEMPLATE_PRESETS,
   deriveTokens, hexToHsl, hslToHex, themeContrastIssues, themeContrastWarnings,
   type FontKey, type ModeKey, type RadiusKey, type SiteTheme, type TemplateKey, type TokenSet,
 } from '@/lib/brand/theme';
@@ -103,6 +103,17 @@ function Preview({ theme, mode }: { theme: SiteTheme; mode: 'light' | 'dark' }) 
           )}
         </div>
       </div>
+      {theme.template === 'marquesina' ? (
+        <div>
+          <div className="px-4 pb-4 pt-6">
+            <p className="mb-2 text-xs uppercase tracking-[0.14em]" style={{ color: 'hsl(var(--muted-foreground))' }}>Próximo evento</p>
+            <h3 className="break-words text-5xl uppercase leading-[0.86]" style={{ fontFamily: display }}>{theme.brand.name || 'Tu marca'}</h3>
+          </div>
+          <div className="whitespace-nowrap px-4 py-2 text-lg uppercase" style={{ background: 'hsl(var(--accent))', color: 'hsl(var(--accent-foreground))', fontFamily: display }}>
+            Sáb 14 nov / Tu sala / Entradas / Sáb 14 nov
+          </div>
+        </div>
+      ) : (
       <div className={cn('relative px-4 py-8', feria && 'hero-gradient')}>
         <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: 'hsl(var(--muted-foreground))' }}>Próximo evento</p>
         <h3 className={cn('mb-2 text-2xl leading-tight', feria ? 'font-bold' : 'font-semibold tracking-tight')} style={{ fontFamily: display }}>
@@ -124,6 +135,7 @@ function Preview({ theme, mode }: { theme: SiteTheme; mode: 'light' | 'dark' }) 
           </span>
         </div>
       </div>
+      )}
       <div className="grid grid-cols-2 gap-3 border-t p-4" style={{ borderColor: 'hsl(var(--border))' }}>
         {['Tarjeta', 'Otra tarjeta'].map((t) => (
           <div key={t} className="rounded-lg border p-3" style={{ borderColor: 'hsl(var(--border))', background: 'hsl(var(--card))', color: 'hsl(var(--card-foreground))' }}>
@@ -286,6 +298,20 @@ export default function AparienciaPage() {
                 </button>
               ))}
             </div>
+            {(() => {
+              const preset = TEMPLATE_PRESETS[theme.template];
+              if (!preset) return null;
+              const applied = theme.mode === preset.mode && theme.radius === preset.radius && theme.fonts.display === preset.fonts.display && theme.fonts.body === preset.fonts.body;
+              if (applied) return null;
+              return (
+                <div className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-muted/30 p-3 text-sm">
+                  <p className="min-w-0 flex-1">Esta plantilla luce mejor con {preset.note}.</p>
+                  <Button type="button" size="sm" variant="outline" onClick={() => patch({ mode: preset.mode, radius: preset.radius, fonts: { ...preset.fonts } })}>
+                    Usar ajustes recomendados
+                  </Button>
+                </div>
+              );
+            })()}
           </CardContent></Card>
 
           <Card><CardContent className="space-y-5 p-6">

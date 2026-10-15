@@ -1,0 +1,186 @@
+/* Plantilla «marquesina». Todo sale de los tokens del tema del cliente (colores, tipografías, radio): aquí no hay ningún color ni fuente fijos.
+ *
+ * Movimiento (ver DESIGN y la revisión de módulos §4.4): solo transform/opacity/color, curva --ease-out, nada que bloquee la compra.
+ * Todo lo que se mueve tiene su rama prefers-reduced-motion al final del fichero. El hover va tras (hover: hover) and (pointer: fine):
+ * en táctil no hay «hover pegado». */
+
+/* ── Titular a pantalla completa, con máscara por palabras ─────────────────────────────────────────────── */
+.mq-title {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  line-height: 0.86;
+  letter-spacing: -0.01em;
+  /* Móvil: más grande en proporción y partido en líneas (en una sola línea un nombre de 15 letras quedaría pequeño). */
+  font-size: clamp(3.5rem, 25vw, 7.5rem);
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+.mq-title[data-size='m'] {
+  font-size: clamp(3rem, 19vw, 6rem);
+}
+.mq-title[data-size='s'] {
+  font-size: clamp(2.5rem, 13vw, 4.5rem);
+}
+@media (min-width: 768px) {
+  .mq-title {
+    font-size: clamp(3.25rem, 17vw, 14rem);
+  }
+  .mq-title[data-size='m'] {
+    font-size: clamp(3rem, 12.5vw, 10.5rem);
+  }
+  .mq-title[data-size='s'] {
+    font-size: clamp(2.5rem, 9vw, 7.5rem);
+  }
+}
+.mq-word {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: top;
+  /* La máscara recorta lo que sobresale: con interlineado < 1 las tildes (Á, Ó) y la tilde de la Ñ quedaban cortadas. Se agranda la zona
+   * visible por arriba y se compensa con un margen negativo para que la altura de la línea no cambie. */
+  padding-top: 0.2em;
+  margin-top: -0.2em;
+  padding-bottom: 0.06em;
+}
+.mq-word > span {
+  display: inline-block;
+  /* Visible en el HTML del servidor: la animación solo desplaza la palabra desde abajo; sin CSS ni JS el titular se lee igual. */
+  animation: mq-rise 700ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+@keyframes mq-rise {
+  from {
+    transform: translateY(105%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.mq-eyebrow {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+
+/* ── Cinta ─────────────────────────────────────────────────────────────────────────────────────────── */
+.mq-band {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  font-size: clamp(1.5rem, 4vw, 3rem);
+  line-height: 1;
+  padding-block: 0.7em;
+}
+
+/* ── Programación en filas ─────────────────────────────────────────────────────────────────────────── */
+.mq-row {
+  border-top: 1px solid hsl(var(--border));
+  transition:
+    background-color 200ms var(--ease-out),
+    color 200ms var(--ease-out);
+}
+.mq-list > li:last-child .mq-row {
+  border-bottom: 1px solid hsl(var(--border));
+}
+.mq-row-name {
+  transition: transform 200ms var(--ease-out);
+}
+.mq-row:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+.mq-row:focus-visible .mq-muted {
+  color: inherit;
+  opacity: 0.85;
+}
+.mq-muted {
+  color: hsl(var(--muted-foreground));
+}
+@media (hover: hover) and (pointer: fine) {
+  .mq-row:hover {
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+  }
+  .mq-row:hover .mq-muted {
+    color: inherit;
+    opacity: 0.85;
+  }
+  .mq-row:hover .mq-row-name {
+    transform: translateX(0.75rem);
+  }
+}
+
+/* Cartel que sigue al cursor (solo puntero fino; la posición la mueve el cliente con rAF, aquí solo el aspecto). */
+.mq-poster {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 40;
+  width: min(22vw, 20rem);
+  pointer-events: none;
+  will-change: transform;
+}
+.mq-poster-card {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  border: 2px solid hsl(var(--foreground));
+  background: hsl(var(--muted));
+  opacity: 0;
+  transform: scale(0.96);
+  transition:
+    opacity 160ms var(--ease-out),
+    transform 160ms var(--ease-out);
+}
+.mq-poster[data-on='true'] .mq-poster-card {
+  opacity: 1;
+  transform: none;
+}
+.mq-poster img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 120ms var(--ease-out);
+}
+.mq-poster img[data-active='true'] {
+  opacity: 1;
+}
+
+/* ── Bloques de color ─────────────────────────────────────────────────────────────────────────────── */
+.mq-block {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+.mq-block-link .mq-block-arrow {
+  transition: transform 200ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .mq-block-link:hover .mq-block-arrow {
+    transform: translate(0.5rem, -0.5rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mq-word > span {
+    animation: none;
+  }
+  .mq-row,
+  .mq-row-name,
+  .mq-poster-card,
+  .mq-poster img,
+  .mq-block-link .mq-block-arrow {
+    transition: none;
+  }
+  .mq-row:hover .mq-row-name {
+    transform: none;
+  }
+}

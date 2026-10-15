@@ -238,6 +238,18 @@ Cada una lleva un preset de fuente, radio y modo, y todo su contenido sale de to
 - SSR determinista (la caché del CDN va por Host): cuentas atrás y cursor solo en cliente. H1 en HTML real (con `aria-label` si se parte en letras).
 - Objetivo medible: Lighthouse móvil con CPU 4× y CLS bajo.
 
+### 4.5 Estado de las plantillas (2026-10-15)
+
+**Marquesina: hecha la primera versión** (portada y `/eventos`). Titular a pantalla completa con máscara por palabras, cinta en movimiento (componente `Marquee`, solo CSS) y programación en filas con el cartel flotando junto al cursor (solo ratón; en táctil, miniatura en cada fila). Todo sale de los tokens y los textos del cliente. Archivos: `app/(public)/_home/marquesina/`, `components/templates/marquesina.css`, `components/ui/marquee.tsx`; la plantilla se elige en Apariencia (con botón «Usar ajustes recomendados»: oscuro, esquinas rectas, Bebas Neue + Space Grotesk). Verificada en navegador (escritorio y móvil) y con 16 tests. Cosas que salieron al verla: la tilde de la Ó/Á se recortaba con la máscara (corregido) y en móvil el titular tenía que ser más grande y partirse en líneas (corregido).
+
+**Pendiente de Marquesina:** la ficha del evento, `/tienda` y `/sponsors` siguen con la estética de Feria (y `eventos/loading.tsx` tiene la cabecera de Feria); la cabecera de navegación es la de siempre; no se ha medido Lighthouse ni CLS; Apariencia no se ha visto en el navegador (necesita sesión de admin); no hay regla global `prefers-reduced-motion` (solo en lo nuevo, porque un reinicio global pararía los indicadores de carga).
+
+**Fechas:** la plantilla formatea en hora de Madrid. Feria y Editorial formatean en la hora del servidor (UTC), así que un evento pasada la medianoche puede salir con el día anterior en esas dos. Convendría unificarlo.
+
+**Tests de componentes:** `vitest.config.mts` transforma JSX con el runtime automático para poder probar componentes con `renderToStaticMarkup`.
+
+**Siguientes:** Galería, Cine, Drop, Estudio y Tipo (ver 4.3), más las secciones configurables del núcleo para Estudio y Tipo.
+
 ---
 
 ## 5. Plan propuesto (orden recomendado)
