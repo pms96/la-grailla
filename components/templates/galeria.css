@@ -1,0 +1,159 @@
+/* Plantilla «galería». Todo sale de los tokens del tema del cliente (colores, tipografías, radio); aquí no hay ningún color ni fuente fijos.
+ *
+ * Carácter: clara, serif enorme, mucho aire, programa numerado. El movimiento es mejora progresiva y lento-suave: la imagen se revela con
+ * clip-path y se desplaza unos puntos (parallax) ligados al scroll con `animation-timeline: view()`. Todo eso vive DENTRO de
+ * `prefers-reduced-motion: no-preference` y de `@supports`: en un navegador sin soporte, o con «reducir movimiento», las imágenes se ven
+ * normales y quietas. El hover va tras (hover: hover) and (pointer: fine). */
+
+/* ── Titular ───────────────────────────────────────────────────────────────────────────────────────── */
+.gl-title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  line-height: 0.94;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  font-size: clamp(3.5rem, 18vw, 5.5rem);
+}
+.gl-title[data-size='m'] {
+  font-size: clamp(3rem, 13.5vw, 4.5rem);
+}
+.gl-title[data-size='s'] {
+  font-size: clamp(2.25rem, 9.5vw, 3.25rem);
+}
+@media (min-width: 768px) {
+  .gl-title {
+    font-size: clamp(4rem, 9.5vw, 9.5rem);
+  }
+  .gl-title[data-size='m'] {
+    font-size: clamp(3.5rem, 7.5vw, 7.5rem);
+  }
+  .gl-title[data-size='s'] {
+    font-size: clamp(2.75rem, 5.5vw, 5.5rem);
+  }
+}
+/* Una palabra en cursiva (solo con tipografías que la tienen: la decide la página). */
+.gl-title em {
+  font-style: italic;
+}
+
+/* Titulares de sección y de cada entrada: la misma serifa, sin negrita (Instrument Serif solo existe en 400). */
+.gl-serif {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.gl-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+.gl-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Marco de imagen: recorte fijo 4:5, la foto un poco más grande para poder desplazarse dentro ──────── */
+.gl-frame {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 4 / 5;
+  background: hsl(var(--muted));
+}
+.gl-frame > img {
+  position: absolute;
+  left: 0;
+  top: -6%;
+  width: 100%;
+  height: 112%;
+  object-fit: cover;
+  transition: scale 600ms var(--ease-out);
+}
+/* Sin foto: el día en grande, en la misma serifa, dentro del marco. */
+.gl-frame--blank {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: hsl(var(--primary) / 0.08);
+  color: hsl(var(--primary));
+}
+.gl-numeral {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-style: italic;
+  line-height: 1;
+  font-size: clamp(6rem, 22vw, 11rem);
+}
+
+/* ── Entradas del programa ─────────────────────────────────────────────────────────────────────────── */
+.gl-entry {
+  border-top: 1px solid hsl(var(--border));
+}
+.gl-list > li:last-child .gl-entry {
+  border-bottom: 1px solid hsl(var(--border));
+}
+.gl-entry:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 4px;
+}
+/* Subrayado que crece de izquierda a derecha (también al enfocar con teclado). */
+.gl-underline {
+  background: linear-gradient(currentColor, currentColor) 0 100% / 0 1px no-repeat;
+  transition: background-size 400ms var(--ease-out);
+}
+.gl-entry:focus-visible .gl-underline {
+  background-size: 100% 1px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .gl-entry:hover .gl-underline {
+    background-size: 100% 1px;
+  }
+  .gl-entry:hover .gl-frame > img {
+    scale: 1.03;
+  }
+}
+
+/* ── Movimiento (solo si el visitante no ha pedido reducirlo) ──────────────────────────────────────── */
+@media (prefers-reduced-motion: no-preference) {
+  /* La foto de la cabecera se revela al cargar (por tiempo: está siempre a la vista). */
+  .gl-frame[data-hero] {
+    animation: gl-unveil 900ms var(--ease-out) both;
+  }
+  @supports (animation-timeline: view()) {
+    /* Las del programa, al entrar en pantalla al hacer scroll. Las que ya están a la vista al cargar aparecen enteras. */
+    .gl-frame[data-reveal] {
+      animation: gl-unveil linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 60%;
+    }
+    .gl-frame > img {
+      animation: gl-drift linear both;
+      animation-timeline: view();
+      animation-range: cover;
+    }
+  }
+}
+@keyframes gl-unveil {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
+@keyframes gl-drift {
+  from {
+    transform: translateY(-5%);
+  }
+  to {
+    transform: translateY(5%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gl-frame > img,
+  .gl-underline {
+    transition: none;
+  }
+}

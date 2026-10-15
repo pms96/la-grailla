@@ -12,7 +12,8 @@ import { Container } from '@/components/layouts/container';
 import { ReloadButton } from '@/components/reload-button';
 import { getBrand } from '@/lib/brand/brand';
 import { EventosMarquesina } from '../_home/marquesina/eventos-marquesina';
-import { toMarquesinaEvent } from '../_home/marquesina/data';
+import { EventosGaleria } from '../_home/galeria/eventos-galeria';
+import { toTemplateEvent } from '../_home/event-view';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
@@ -41,7 +42,17 @@ export default async function EventosPage() {
 
   const brand = await getBrand();
   if (brand.template === 'marquesina') {
-    return <EventosMarquesina brandName={brand.name} events={events.map(toMarquesinaEvent)} loadError={loadError} />;
+    return <EventosMarquesina brandName={brand.name} events={events.map(toTemplateEvent)} loadError={loadError} />;
+  }
+  if (brand.template === 'galeria') {
+    return (
+      <EventosGaleria
+        brandName={brand.name}
+        events={events.map(toTemplateEvent)}
+        loadError={loadError}
+        italicAccent={brand.theme?.fonts.display === 'instrument-serif'}
+      />
+    );
   }
 
   const [featured, ...rest] = events;

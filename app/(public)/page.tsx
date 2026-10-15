@@ -15,7 +15,8 @@ import { HeroFeria } from './_home/hero-feria';
 import { HeroEditorial } from './_home/hero-editorial';
 import type { HeroProps } from './_home/hero';
 import { HomeMarquesina } from './_home/marquesina/home-marquesina';
-import { toMarquesinaEvent } from './_home/marquesina/data';
+import { HomeGaleria } from './_home/galeria/home-galeria';
+import { toTemplateEvent } from './_home/event-view';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
@@ -98,13 +99,15 @@ export default async function HomePage() {
     primaryCta,
     stickerImage: brand.stickerImage,
   };
-  // Plantilla «marquesina»: otra composición completa de la portada (Feria y Editorial siguen por el camino de siempre).
-  if (brand.template === 'marquesina') {
+  // Plantillas nuevas (marquesina, galería): otra composición completa de la portada (Feria y Editorial siguen por el camino de siempre).
+  if (brand.template === 'marquesina' || brand.template === 'galeria') {
+    const Home = brand.template === 'galeria' ? HomeGaleria : HomeMarquesina;
     return (
-      <HomeMarquesina
+      <Home
         brandName={brand.name}
+        italicAccent={brand.theme?.fonts.display === 'instrument-serif'}
         hero={{ badge: hero.badge, title: hero.title, subtitle: hero.subtitle, primaryCta }}
-        events={events.map(toMarquesinaEvent)}
+        events={events.map(toTemplateEvent)}
         loadError={loadError}
         hasEntradas={hasEntradas}
         hasTienda={modules.includes('tienda')}

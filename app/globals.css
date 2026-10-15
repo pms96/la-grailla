@@ -240,3 +240,9 @@
     animation: none;
   }
 }
+
+/* Plantillas con su propia cabecera de página: la barra fija heredada de Feria lleva una sombra grande que desentona en la «galería», tan
+ * serena. El layout público marca la plantilla con `data-template`; solo queda el filo inferior que ya trae la barra. */
+[data-template='galeria'] > header {
+  box-shadow: none;
+}

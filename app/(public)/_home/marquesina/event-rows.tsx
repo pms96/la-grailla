@@ -5,7 +5,7 @@ import type { PointerEvent } from 'react';
 import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
 import '@/components/templates/marquesina.css';
-import type { MarquesinaEvent } from './data';
+import type { TemplateEvent } from '../event-view';
 
 const POSTER_OFFSET = 28;
 const EDGE = 8;
@@ -15,7 +15,7 @@ const EDGE = 8;
  * mueve con un suavizado y nunca es la única forma de ver nada: en táctil cada fila lleva su miniatura, y todo lo importante (fecha, lugar,
  * precio, estado) está en el texto. Los carteles se cargan al pasar por primera vez por su fila, no todos de golpe.
  */
-export function EventRows({ events }: { events: readonly MarquesinaEvent[] }) {
+export function EventRows({ events }: { events: readonly TemplateEvent[] }) {
   const [active, setActive] = useState<number | null>(null);
   const [seen, setSeen] = useState<number[]>([]);
   const poster = useRef<HTMLDivElement>(null);

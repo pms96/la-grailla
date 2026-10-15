@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { FONT_CATALOG, TEMPLATES, TEMPLATE_LABELS, TEMPLATE_PRESETS, parseTheme } from '@/lib/brand/theme';
-import { titleSize, toMarquesinaEvent, type EventInput } from '@/app/(public)/_home/marquesina/data';
+import { titleSize, toTemplateEvent, type EventInput } from '@/app/(public)/_home/event-view';
 import { EventRows } from '@/app/(public)/_home/marquesina/event-rows';
 import { HomeMarquesina, MarquesinaHero, type HomeMarquesinaProps } from '@/app/(public)/_home/marquesina/home-marquesina';
 import { Marquee } from '@/components/ui/marquee';
@@ -50,10 +50,10 @@ describe('plantilla «marquesina» — catálogo', () => {
   });
 });
 
-describe('toMarquesinaEvent', () => {
+describe('toTemplateEvent', () => {
   it('formatea la fecha en hora de Madrid: un evento a las 00:30 no cae en el día anterior', () => {
     // 23:30 UTC del 14 = 00:30 del 15 en Madrid (horario de invierno).
-    const e = toMarquesinaEvent(event({ date: '2026-11-14T23:30:00Z' }));
+    const e = toTemplateEvent(event({ date: '2026-11-14T23:30:00Z' }));
     expect(e.day).toBe('15');
     expect(e.month).toBe('nov');
     expect(e.weekday).toBe('dom');
@@ -61,18 +61,18 @@ describe('toMarquesinaEvent', () => {
   });
 
   it('junta sala y ciudad, y toma el precio del tipo de entrada más barato', () => {
-    const e = toMarquesinaEvent(event());
+    const e = toTemplateEvent(event());
     expect(e.place).toBe('Sala Rodrigo, Valencia');
     expect(e.fromPrice).toBe(15);
-    expect(toMarquesinaEvent(event({ ticketTypes: [] })).fromPrice).toBeNull();
-    expect(toMarquesinaEvent(event({ venue: null, city: 'Valencia' })).place).toBe('Valencia');
+    expect(toTemplateEvent(event({ ticketTypes: [] })).fromPrice).toBeNull();
+    expect(toTemplateEvent(event({ venue: null, city: 'Valencia' })).place).toBe('Valencia');
   });
 
   it('estado de venta: normal, alta demanda, sin plazas o cerrada con su texto', () => {
-    expect(toMarquesinaEvent(event()).status).toBeNull();
-    expect(toMarquesinaEvent(event({ maxCapacity: 100, currentCount: 90 })).status).toBe('Alta demanda');
-    expect(toMarquesinaEvent(event({ maxCapacity: 100, currentCount: 100 })).status).toBe('Sin plazas online');
-    expect(toMarquesinaEvent(event({ onlineSalesClosed: true, onlineSalesClosedLabel: 'Solo en taquilla' })).status).toBe('Solo en taquilla');
+    expect(toTemplateEvent(event()).status).toBeNull();
+    expect(toTemplateEvent(event({ maxCapacity: 100, currentCount: 90 })).status).toBe('Alta demanda');
+    expect(toTemplateEvent(event({ maxCapacity: 100, currentCount: 100 })).status).toBe('Sin plazas online');
+    expect(toTemplateEvent(event({ onlineSalesClosed: true, onlineSalesClosedLabel: 'Solo en taquilla' })).status).toBe('Solo en taquilla');
   });
 });
 
@@ -103,7 +103,7 @@ describe('MarquesinaHero', () => {
   const hero = { badge: '', title: 'Sala Rodrigo', subtitle: 'Música en directo', primaryCta: { href: '/eventos', label: 'Ver eventos', icon: 'ticket' as const } };
 
   it('con evento destacado: el nombre es el único h1 y completo, y el botón lleva a comprar', () => {
-    const html = render(<MarquesinaHero brandName="Sala Rodrigo" hero={hero} featured={toMarquesinaEvent(event())} />);
+    const html = render(<MarquesinaHero brandName="Sala Rodrigo" hero={hero} featured={toTemplateEvent(event())} />);
     expect(html.match(/<h1/g)).toHaveLength(1);
     expect(text(html.match(/<h1[\s\S]*?<\/h1>/)![0])).toBe('Noche de Verano');
     expect(html).toContain('href="/eventos/noche-de-verano/comprar"');
@@ -126,7 +126,7 @@ describe('MarquesinaHero', () => {
 
 describe('EventRows', () => {
   it('una fila por evento, con enlace a su ficha, lugar, precio y estado', () => {
-    const rows = [toMarquesinaEvent(event()), toMarquesinaEvent(event({ id: 'e2', slug: 'otra', name: 'Otra Noche', imageUrl: null, maxCapacity: 100, currentCount: 100 }))];
+    const rows = [toTemplateEvent(event()), toTemplateEvent(event({ id: 'e2', slug: 'otra', name: 'Otra Noche', imageUrl: null, maxCapacity: 100, currentCount: 100 }))];
     const html = render(<EventRows events={rows} />);
     expect(html.match(/class="mq-row /g)).toHaveLength(2);
     expect(html).toContain('href="/eventos/noche-de-verano"');
@@ -136,7 +136,7 @@ describe('EventRows', () => {
   });
 
   it('el cartel flotante empieza vacío y oculto: ningún cartel se descarga hasta pasar por su fila', () => {
-    const html = render(<EventRows events={[toMarquesinaEvent(event())]} />);
+    const html = render(<EventRows events={[toTemplateEvent(event())]} />);
     expect(html).toMatch(/class="mq-poster hidden md:block" data-on="false" aria-hidden="true"/);
     // La miniatura de las filas (táctil) es perezosa; el cartel grande no existe aún.
     expect(html.match(/<img /g)).toHaveLength(1);
@@ -148,7 +148,7 @@ describe('HomeMarquesina — cada sección solo con su módulo', () => {
   const base: HomeMarquesinaProps = {
     brandName: 'Sala Rodrigo',
     hero: { badge: '', title: 'Sala Rodrigo', subtitle: '', primaryCta: null },
-    events: [toMarquesinaEvent(event())],
+    events: [toTemplateEvent(event())],
     loadError: false,
     hasEntradas: true,
     hasTienda: true,

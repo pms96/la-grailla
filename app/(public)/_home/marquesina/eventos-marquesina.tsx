@@ -4,10 +4,10 @@ import { Marquee } from '@/components/ui/marquee';
 import { ReloadButton } from '@/components/reload-button';
 import '@/components/templates/marquesina.css';
 import { EventRows } from './event-rows';
-import type { MarquesinaEvent } from './data';
+import type { EventosTemplateProps } from '../template-props';
 
 /** `/eventos` con la plantilla «marquesina»: el mismo lenguaje que la portada (titular grande, cinta, filas con cartel flotante). */
-export function EventosMarquesina({ brandName, events, loadError }: { brandName: string; events: readonly MarquesinaEvent[]; loadError: boolean }) {
+export function EventosMarquesina({ brandName, events, loadError }: EventosTemplateProps) {
   return (
     <div>
       <section className="border-b border-border">

@@ -5,32 +5,15 @@ import { Marquee } from '@/components/ui/marquee';
 import { ContactForm } from '@/components/contact-form';
 import { ReloadButton } from '@/components/reload-button';
 import '@/components/templates/marquesina.css';
-import type { HeroProps } from '../hero';
+import type { HomeTemplateProps } from '../template-props';
 import { EventRows } from './event-rows';
-import { titleSize, type MarquesinaEvent } from './data';
+import { titleSize, type TemplateEvent } from '../event-view';
 
 /* Portada de la plantilla «marquesina»: el nombre del evento ocupa la pantalla, una cinta lo acompaña con fecha · lugar · entradas y la
  * programación va en filas. El titular es lo único «enorme» de la página (el resto de títulos de sección son de un tamaño normal). Todo el
  * texto sale del cliente (marca y Configuración → Contenido); aquí no hay copy fijo de ninguna marca. */
 
-export type HomeMarquesinaProps = {
-  brandName: string;
-  hero: Pick<HeroProps, 'badge' | 'title' | 'subtitle' | 'primaryCta'>;
-  events: readonly MarquesinaEvent[];
-  loadError: boolean;
-  hasEntradas: boolean;
-  hasTienda: boolean;
-  hasSponsors: boolean;
-  contactEnabled: boolean;
-  copy: {
-    shopTitle: string;
-    shopSubtitle: string;
-    aboutTitle: string;
-    aboutText: string;
-    sponsorsTitle: string;
-    sponsorsSubtitle: string;
-  };
-};
+export type HomeMarquesinaProps = HomeTemplateProps;
 
 /** El titular partido en palabras: cada una sube desde su máscara (ver `.mq-word` en marquesina.css). El texto sigue siendo un único <h1>. */
 function Words({ text }: { text: string }) {
@@ -49,7 +32,7 @@ function Words({ text }: { text: string }) {
   );
 }
 
-export function MarquesinaHero({ brandName, hero, featured }: { brandName: string; hero: HomeMarquesinaProps['hero']; featured: MarquesinaEvent | null }) {
+export function MarquesinaHero({ brandName, hero, featured }: { brandName: string; hero: HomeMarquesinaProps['hero']; featured: TemplateEvent | null }) {
   const headline = featured ? featured.name : hero.title || brandName;
   const eyebrow = featured ? `Próximo evento · ${featured.longDate}` : hero.badge || (headline === brandName ? '' : brandName);
   const bandItems = featured ? [featured.longDate, featured.place, 'Entradas'] : [brandName, hero.subtitle];

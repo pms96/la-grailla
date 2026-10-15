@@ -248,7 +248,13 @@ Cada una lleva un preset de fuente, radio y modo, y todo su contenido sale de to
 
 **Tests de componentes:** `vitest.config.mts` transforma JSX con el runtime automático para poder probar componentes con `renderToStaticMarkup`.
 
-**Siguientes:** Galería, Cine, Drop, Estudio y Tipo (ver 4.3), más las secciones configurables del núcleo para Estudio y Tipo.
+**Galería: hecha la primera versión** (portada y `/eventos`). Clara, con **Instrument Serif** (tipografía nueva del catálogo, solo para titulares, con cursiva real: la última palabra del titular va en cursiva solo si el cliente la tiene elegida), cabecera con el nombre del evento, sus datos en una lista con filetes y la foto; programa numerado en el orden del calendario con la foto alternando de lado; las fotos se revelan con `clip-path` y se desplazan con suavidad ligadas al scroll (`animation-timeline: view()`, mejora progresiva: sin soporte o con «reducir movimiento» se ven quietas); sin foto, el día en grande dentro de un bloque tintado. Archivos: `app/(public)/_home/galeria/`, `components/templates/galeria.css`. Es **toda de servidor**: no añade JavaScript al navegador. Verificada en navegador (escritorio y móvil) y con 14 tests.
+
+**Cimientos que salieron de hacer la segunda plantilla:** el modelo de evento ya formateado (`event-view.ts`: `TemplateEvent`, `toTemplateEvent`, `titleSize`) y los tipos de las portadas (`template-props.ts`: `HomeTemplateProps`, `EventosTemplateProps`) son comunes a las plantillas nuevas; el layout público marca la plantilla con `data-template`, que usa una regla global para quitar la sombra de la barra fija en «galería». Cada plantilla nueva es ahora: un CSS, tres componentes y dos ramas pequeñas en `page.tsx` y `eventos/page.tsx`.
+
+**Pendiente de Galería:** igual que Marquesina (ficha del evento, `/tienda`, `/sponsors`, `eventos/loading.tsx` y el menú siguen con la estética de Feria); no se ha medido Lighthouse; no se ha visto Apariencia en el navegador. El parallax solo funciona en navegadores con `animation-timeline` (Chromium; Safari y Firefox ven la foto quieta).
+
+**Siguientes:** Cine, Drop, Estudio y Tipo (ver 4.3), más las secciones configurables del núcleo para Estudio y Tipo.
 
 ---
 

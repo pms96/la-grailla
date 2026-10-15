@@ -14,7 +14,7 @@ import { z } from 'zod';
 export const THEME_VERSION = 1 as const;
 
 // ── Catálogo cerrado ────────────────────────────────────────────────────────────────────────────────────────────────
-export const TEMPLATES = ['feria', 'editorial', 'marquesina'] as const;
+export const TEMPLATES = ['feria', 'editorial', 'marquesina', 'galeria'] as const;
 export type TemplateKey = (typeof TEMPLATES)[number];
 export const TEMPLATE_LABELS: Record<TemplateKey, { label: string; description: string }> = {
   feria: { label: 'Feria', description: 'Festiva: degradados, pegatinas de borde grueso y botones redondeados.' },
@@ -23,9 +23,13 @@ export const TEMPLATE_LABELS: Record<TemplateKey, { label: string; description: 
     label: 'Marquesina',
     description: 'Cartel de teatro: el nombre del evento a pantalla completa, cinta en movimiento y programación en filas con el cartel flotando al pasar el ratón.',
   },
+  galeria: {
+    label: 'Galería',
+    description: 'Clara y con mucho aire: tipografía con serifa enorme, programa numerado y fotos que se revelan al bajar. Para cultura, gastronomía y clubs privados.',
+  },
 };
 
-export const FONT_KEYS = ['fredoka', 'space-grotesk', 'inter', 'dm-sans', 'poppins', 'montserrat', 'playfair-display', 'bebas-neue'] as const;
+export const FONT_KEYS = ['fredoka', 'space-grotesk', 'inter', 'dm-sans', 'poppins', 'montserrat', 'playfair-display', 'bebas-neue', 'instrument-serif'] as const;
 export type FontKey = (typeof FONT_KEYS)[number];
 /** `cssVar`: la variable que define `next/font` para esa familia (ver lib/brand/fonts.ts). Los valores NO vienen del cliente. */
 export const FONT_CATALOG: Record<FontKey, { label: string; cssVar: string; roles: readonly ('display' | 'body')[] }> = {
@@ -37,6 +41,7 @@ export const FONT_CATALOG: Record<FontKey, { label: string; cssVar: string; role
   montserrat: { label: 'Montserrat (urbana)', cssVar: '--f-montserrat', roles: ['display', 'body'] },
   'playfair-display': { label: 'Playfair Display (serif elegante)', cssVar: '--f-playfair-display', roles: ['display'] },
   'bebas-neue': { label: 'Bebas Neue (cartel)', cssVar: '--f-bebas-neue', roles: ['display'] },
+  'instrument-serif': { label: 'Instrument Serif (serif de galería)', cssVar: '--f-instrument-serif', roles: ['display'] },
 };
 export const DEFAULT_FONTS = { display: 'fredoka', body: 'space-grotesk' } as const satisfies { display: FontKey; body: FontKey };
 
@@ -54,6 +59,12 @@ export const TEMPLATE_PRESETS: Partial<Record<TemplateKey, { mode: ModeKey; radi
     radius: 'recto',
     fonts: { display: 'bebas-neue', body: 'space-grotesk' },
     note: 'modo oscuro, esquinas rectas y Bebas Neue para el titular',
+  },
+  galeria: {
+    mode: 'light',
+    radius: 'recto',
+    fonts: { display: 'instrument-serif', body: 'dm-sans' },
+    note: 'modo claro, esquinas rectas y Instrument Serif para el titular',
   },
 };
 

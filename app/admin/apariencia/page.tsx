@@ -113,6 +113,15 @@ function Preview({ theme, mode }: { theme: SiteTheme; mode: 'light' | 'dark' }) 
             Sáb 14 nov / Tu sala / Entradas / Sáb 14 nov
           </div>
         </div>
+      ) : theme.template === 'galeria' ? (
+        <div className="px-4 pb-6 pt-6">
+          <p className="mb-3 text-xs uppercase tracking-[0.14em]" style={{ color: 'hsl(var(--muted-foreground))' }}>Próximo evento</p>
+          <h3 className="break-words text-4xl leading-[0.95]" style={{ fontFamily: display, fontWeight: 400 }}>{theme.brand.name || 'Tu marca'}</h3>
+          <div className="mt-5 flex items-end justify-between gap-4 border-t pt-3 text-xs" style={{ borderColor: 'hsl(var(--border))' }}>
+            <span style={{ color: 'hsl(var(--muted-foreground))' }}>Sábado, 14 de noviembre<br />Tu sala, tu ciudad</span>
+            <span className="block h-20 w-16 shrink-0" style={{ background: 'hsl(var(--primary) / 0.1)' }} aria-hidden />
+          </div>
+        </div>
       ) : (
       <div className={cn('relative px-4 py-8', feria && 'hero-gradient')}>
         <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: 'hsl(var(--muted-foreground))' }}>Próximo evento</p>
