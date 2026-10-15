@@ -15,6 +15,8 @@ import { isLegacyTenant } from '@/lib/tenant/installation-secret';
 type Check = { name: string; ok: boolean; detail?: string };
 const checks: Check[] = [];
 const add = (name: string, ok: boolean, detail?: string) => checks.push({ name, ok, detail });
+/** Un texto de ayuda («haz esto») solo tiene sentido cuando la comprobación falla: en un ✓ confundía. */
+const hint = (ok: boolean, text: string): string | undefined => (ok ? undefined : text);
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -69,7 +71,7 @@ async function main() {
   add(
     'El front lee el registro con el token de SOLO LECTURA (UPSTASH_REDIS_REST_READ_ONLY_TOKEN)',
     !!process.env.UPSTASH_REDIS_REST_READ_ONLY_TOKEN,
-    'el front no escribe nunca; con el token de escritura, quien lo comprometiera podría borrar la revocación de un cliente o reponer snapshots. Créalo en la consola de Upstash («Read-Only Token») y quita UPSTASH_REDIS_REST_TOKEN de este proyecto'
+    hint(!!process.env.UPSTASH_REDIS_REST_READ_ONLY_TOKEN, 'el front no escribe nunca; con el token de escritura, quien lo comprometiera podría borrar la revocación de un cliente o reponer snapshots. Créalo en la consola de Upstash («Read-Only Token») y quita UPSTASH_REDIS_REST_TOKEN de este proyecto')
   );
   add('CRON_SECRET definida (los crons de GitHub la usan)', !!process.env.CRON_SECRET);
   add('BLOB_READ_WRITE_TOKEN definida (subidas de imágenes y vídeos)', !!process.env.BLOB_READ_WRITE_TOKEN);
@@ -104,9 +106,12 @@ async function main() {
   add(
     `Esquema del registro >= ${FRONT_MIN_SCHEMA}`,
     isSchemaAtLeast(resolved.schemaVersion, FRONT_MIN_SCHEMA),
-    `registro: ${resolved.schemaVersion ?? 'desconocido'} — ejecuta el runner de migraciones antes de desplegar`
+    hint(isSchemaAtLeast(resolved.schemaVersion, FRONT_MIN_SCHEMA), `registro: ${resolved.schemaVersion ?? 'desconocido'} — pulsa «Migrar BD» en la ficha del cliente (anota la versión aunque no haya pendientes) o ejecuta el runner`)
   );
-  if (flag('legacy')) add('El host es el cliente legacy', isLegacyTenant(resolved), 'LEGACY_TENANT_ID no coincide con el cliente resuelto');
+  if (flag('legacy')) {
+    const legacy = isLegacyTenant(resolved);
+    add('El host es el cliente legacy', legacy, hint(legacy, 'LEGACY_TENANT_ID no coincide con el cliente resuelto'));
+  }
 
   // 4. La BD del cliente se abre (URL sellada → clave maestra del servidor) y tiene el esquema esperado.
   await runWithTenant({ ...resolved, host }, async () => {
@@ -125,7 +130,7 @@ async function main() {
       add(
         `La BD del cliente tiene al menos ${FRONT_MIN_SCHEMA}`,
         isSchemaAtLeast(rows[0]?.last, FRONT_MIN_SCHEMA),
-        `aplicada: ${rows[0]?.last ?? 'ninguna'} — ejecuta el runner de migraciones antes de desplegar`
+        hint(isSchemaAtLeast(rows[0]?.last, FRONT_MIN_SCHEMA), `aplicada: ${rows[0]?.last ?? 'ninguna'} — ejecuta el runner de migraciones antes de desplegar`)
       );
     } catch (err) {
       add('Migraciones aplicadas', false, err instanceof Error ? err.message.slice(0, 160) : String(err));

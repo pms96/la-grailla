@@ -2,7 +2,14 @@
 
 La Grailla pasa de su proyecto de Vercel actual (modo normal, una BD) a un proyecto nuevo `platform` (`PLATFORM_MODE=on`) que la sirve como el cliente `legacy`. **El corte es mover el dominio** (segundos) y **el rollback es moverlo de vuelta**. El proyecto antiguo se deja caliente 4 semanas.
 
-Nada de esto se ha ejecutado contra Vercel/Neon reales: lo que sigue es el procedimiento, con las comprobaciones que ya existen en el código. Lo que cambia respecto a hoy es solo *dónde* corre el código; la BD, el dominio, Stripe y los datos son los mismos.
+**Ejecutado el 2026-10-15** (web en standby hasta la nueva temporada, sin ventas ni pedidos pendientes). Lo que sigue es el procedimiento con las lecciones de esa ejecución. Lo que cambia respecto a hoy es solo *dónde* corre el código; la BD, el dominio y los datos son los mismos.
+
+**Orden que funcionó, sin huecos ni alertas falsas:** (A) copia nueva: `pg_dump` con `scripts/backup-db.sh` + instantánea de Neon → (B) en el panel, verificar `www` como **segundo** dominio, dejando el de ensayo como principal, y publicar → (C) mover `www` en Vercel → (D) comprobar a mano → (E) hacer `www` el principal y publicar → (F) la prueba de pagos que corresponda al proveedor (con SumUp no hay webhook: se confirma por `/confirmacion/…` y `reconcile-payments`; hacer una compra de prueba mínima antes de abrir ventas). Si `www` se hace principal *antes* de moverlo, el panel sondea el proyecto antiguo (404 en `/api/health`) y puede mandar alertas falsas.
+
+**Lecciones:**
+- Registrar el cliente desde el panel con **«Solo registrar»** (`/tenants/new`): no escribe nada en la BD del cliente. El asistente grande se niega a una BD con datos.
+- Tras registrar, pulsa **«Migrar BD»** (no «Ver pendientes», que solo lista y no anota nada): con 0 pendientes no ejecuta el motor, solo anota `schemaVersion` y republica. Con el registro sin versión, el front pone al cliente en «mantenimiento» (503) **y también corta sus crons**.
+- La comprobación previa se alimenta con `vercel env pull` a un fichero **fuera del repo**, cargado con `dotenv` (no con `source`, que rompe los valores JSON), y se borra al terminar. Se puede ensayar con un segundo dominio verificado del mismo cliente antes de verificar `www`.
 
 ## Lo que puede romper datos reales (no tocar)
 
