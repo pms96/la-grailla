@@ -32,7 +32,7 @@ export async function GET() {
     // Solo las claves de los módulos que el cliente tiene (ver lib/config-ownership.ts): sin Entradas no sale la comisión, sin Wallets no
     // salen sus certificados. Las claves internas y las desconocidas nunca salen.
     const active = getActiveModules();
-    const all = await prisma.appConfig.findMany({ orderBy: { group: 'asc' } });
+    const all = await prisma.appConfig.findMany({ orderBy: [{ group: 'asc' }, { key: 'asc' }] });
     const configs = all.filter((c) => isConfigKeyAllowed(c.key, active, session.user.modules));
     // Las credenciales son de solo escritura: el navegador recibe una máscara,
     // nunca el valor (ni descifrado ni el blob cifrado). Así un guardado desde el
