@@ -7,6 +7,7 @@ import { completeOrder } from '@/lib/reconciliation/entradas';
 import { getBaseUrl } from '@/lib/url';
 import { handleApiError } from '@/lib/api-error';
 import { allowOrderAccess, getTokenFromRequest } from '@/lib/access-token';
+import { withoutSeasonLink } from '@/lib/modules/season-link';
 
 const includeTicketsAndEvent = { event: true, tickets: { include: { ticketType: true } } } as const;
 
@@ -50,7 +51,7 @@ export async function GET(
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
     }
 
-    return NextResponse.json(order);
+    return NextResponse.json(withoutSeasonLink(order));
   } catch (error) {
     return handleApiError(error, 'GET /api/orders/[orderId]');
   }

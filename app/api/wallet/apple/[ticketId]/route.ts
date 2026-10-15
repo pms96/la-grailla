@@ -5,9 +5,14 @@ import { prisma } from '@/lib/prisma';
 import { buildApplePass } from '@/lib/wallet';
 import { handleApiError } from '@/lib/api-error';
 import { allowTicketAccess, getTokenFromRequest } from '@/lib/access-token';
+import { isModuleEnabled } from '@/lib/modules/runtime';
 
 export async function GET(request: Request, { params }: { params: { ticketId: string } }) {
   try {
+    // El pase es de una entrada: sin Entradas no se consulta ni se delata si existe.
+    if (!isModuleEnabled('entradas')) {
+      return NextResponse.json({ error: 'Entrada no encontrada' }, { status: 404 });
+    }
     const ticketId = params?.ticketId;
     const ticket = await prisma.ticket.findUnique({
       where: { id: ticketId },

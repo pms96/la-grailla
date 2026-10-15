@@ -7,7 +7,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { getBaseUrl } from '@/lib/url';
-import { seasonLinkEnabled } from '@/lib/modules/season-link';
+import { seasonLinkEnabled, withoutSeasonLink } from '@/lib/modules/season-link';
 import { ensureSponsorPortalInvite, buildSponsorPortalUrl } from '@/lib/sponsor-portal';
 
 const updateSponsorSchema = z.object({
@@ -54,7 +54,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
     const portalUrl = sponsorRequest.sponsor
       ? buildSponsorPortalUrl(getBaseUrl(request), sponsorRequest.sponsor.id, sponsorRequest.sponsor.portalTokenVersion)
       : null;
-    return NextResponse.json({ ...sponsorRequest, portalUrl });
+    return NextResponse.json(withoutSeasonLink({ ...sponsorRequest, portalUrl }));
   } catch (error) {
     return handleApiError(error, 'GET /api/admin/sponsors/[id]');
   }

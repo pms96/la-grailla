@@ -9,6 +9,7 @@ import { handleApiError } from '@/lib/api-error';
 import { ensureSponsorPortalInvite } from '@/lib/sponsor-portal';
 import { normalizePhone } from '@/lib/phone';
 import { getBaseUrl } from '@/lib/url';
+import { withoutSeasonLink } from '@/lib/modules/season-link';
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -20,7 +21,7 @@ export async function GET() {
       orderBy: { createdAt: 'desc' },
       include: { sponsor: { select: { id: true, status: true, invitationEmailStatus: true, isPaid: true, isCollaboration: true } } },
     });
-    return NextResponse.json(sponsors ?? []);
+    return NextResponse.json(withoutSeasonLink(sponsors ?? []));
   } catch (error) {
     return handleApiError(error, 'GET /api/admin/sponsors');
   }

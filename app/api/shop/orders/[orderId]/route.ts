@@ -6,6 +6,7 @@ import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { completeShopOrder } from '@/lib/reconciliation/tienda';
 import { handleApiError } from '@/lib/api-error';
 import { allowShopOrderAccess, getTokenFromRequest } from '@/lib/access-token';
+import { withoutSeasonLink } from '@/lib/modules/season-link';
 
 export async function GET(
   request: Request,
@@ -51,7 +52,7 @@ export async function GET(
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
     }
 
-    return NextResponse.json(order);
+    return NextResponse.json(withoutSeasonLink(order));
   } catch (error) {
     return handleApiError(error, 'GET /api/shop/orders/[orderId]');
   }

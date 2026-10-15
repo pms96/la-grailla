@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
+import { withoutSeasonLink } from '@/lib/modules/season-link';
 
 export async function GET() {
   try {
@@ -16,7 +17,7 @@ export async function GET() {
         },
       },
     });
-    return NextResponse.json(products ?? []);
+    return NextResponse.json(withoutSeasonLink(products ?? []));
   } catch (error) {
     return handleApiError(error, 'GET /api/products');
   }

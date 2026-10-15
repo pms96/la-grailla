@@ -6,3 +6,19 @@ import { isModuleEnabled } from '@/lib/modules/runtime';
 export function seasonLinkEnabled(): boolean {
   return isModuleEnabled('contabilidad');
 }
+
+const SEASON_KEYS = new Set(['temporadaId', 'temporada']);
+
+function strip(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(strip);
+  // Solo objetos planos: fechas, Decimal y demás instancias se devuelven tal cual.
+  if (value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.fromEntries(Object.entries(value).filter(([k]) => !SEASON_KEYS.has(k)).map(([k, v]) => [k, strip(v)]));
+  }
+  return value;
+}
+
+/** Quita `temporadaId` y `temporada` (también anidados) de lo que se devuelve cuando el cliente no tiene Contabilidad. */
+export function withoutSeasonLink<T>(value: T): T {
+  return seasonLinkEnabled() ? value : (strip(value) as T);
+}

@@ -6,6 +6,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { buildShopOrdersWhere } from '@/lib/shop-order-filters';
+import { withoutSeasonLink } from '@/lib/modules/season-link';
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
       include: { items: { include: { product: true } } },
       orderBy: { createdAt: 'desc' },
     });
-    return NextResponse.json(orders ?? []);
+    return NextResponse.json(withoutSeasonLink(orders ?? []));
   } catch (error) {
     return handleApiError(error, 'GET /api/admin/shop-orders');
   }

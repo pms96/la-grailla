@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
-import { seasonLinkEnabled } from '@/lib/modules/season-link';
+import { seasonLinkEnabled, withoutSeasonLink } from '@/lib/modules/season-link';
 import { syncProductVariants } from '@/lib/product-stock';
 
 const variantStockSchema = z.object({
@@ -40,7 +40,7 @@ export async function GET() {
       orderBy: { createdAt: 'desc' },
       include: { variants: { orderBy: [{ size: 'asc' }, { color: 'asc' }] } },
     });
-    return NextResponse.json(products ?? []);
+    return NextResponse.json(withoutSeasonLink(products ?? []));
   } catch (error) {
     return handleApiError(error, 'GET /api/admin/products');
   }

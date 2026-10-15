@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
-import { seasonLinkEnabled } from '@/lib/modules/season-link';
+import { seasonLinkEnabled, withoutSeasonLink } from '@/lib/modules/season-link';
 
 const createEventSchema = z.object({
   name: z.string().min(1),
@@ -105,7 +105,7 @@ export async function GET(request: Request) {
       };
     });
 
-    return NextResponse.json(enriched);
+    return NextResponse.json(withoutSeasonLink(enriched));
   } catch (error) {
     return handleApiError(error, 'GET /api/admin/events');
   }

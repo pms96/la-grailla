@@ -30,6 +30,8 @@ Fecha: 2026-10-15. Revisión de solo lectura hecha por 7 revisores (uno por mód
 - **Sesiones revocables**: cada lectura de sesión se contrasta con la BD (usuario borrado, rol cambiado, `sessionsValidAfter`); cambiar contraseña o rol cierra las sesiones.
 - Correo de avisos propio por módulo (`notify_email_*`, con el de administración como respaldo).
 
+**Test genérico «módulo apagado = cero datos»** (`tests/tenant/module-off-zero-data.test.ts`, 2026-10-15): (1) toda tabla de Prisma declara su módulo dueño; (2) para «solo núcleo» y «todo menos cada módulo», llama a todos los GET que el middleware dejaría pasar con y sin los datos de los módulos apagados y exige respuestas idénticas. Al estrenarlo encontró dos fugas reales, ya cerradas: sin Contabilidad, ocho respuestas devolvían `temporadaId` (ahora `withoutSeasonLink`), y sin Entradas los pases de wallet de tickets seguían consultando tickets (ahora 404 uniforme). No cubre páginas (server components) ni escritura (POST/PUT/PATCH/DELETE).
+
 > **AL DESPLEGAR (importante):** hay una migración nueva (`20261015120000_access_roles`) y `FRONT_MIN_SCHEMA` sube a ella. Cada cliente se pone en «mantenimiento» hasta que el panel haga **«Migrar BD»**. Orden: desplegar → «Migrar BD» en La Grailla (la migración es aditiva). Las sesiones que ya existen de propietarios siguen valiendo; las de TAQUILLA también. Si la BD falla al contrastar una sesión, se cae al token (no se deja sin sesión al personal de puerta).
 >
 > **Para dar cuenta propia a la tienda de La Grailla** (cuando toque): pestaña Tienda → elegir pasarela y pegar sus claves → Guardar. Si es Stripe, crear su endpoint `/api/webhooks/stripe-tienda` y pegar su secreto.
