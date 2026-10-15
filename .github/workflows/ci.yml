@@ -53,6 +53,15 @@ jobs:
           node-version-file: '.nvmrc'
           cache: 'npm'
 
+      # Vercel instala con el gestor cuyo lockfile encuentre: un yarn.lock hacía que producción usara versiones distintas a las que
+      # prueba esta CI (que usa package-lock.json). Un solo gestor: npm.
+      - name: Un solo fichero de versiones (npm)
+        run: |
+          if [ -f yarn.lock ] || [ -f pnpm-lock.yaml ]; then
+            echo "::error::Hay un lockfile de otro gestor (yarn.lock o pnpm-lock.yaml): Vercel instalaría con él en lugar de package-lock.json"
+            exit 1
+          fi
+
       - name: Instalar dependencias
         run: npm ci
 
