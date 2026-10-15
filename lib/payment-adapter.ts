@@ -392,18 +392,42 @@ export class SumUpAdapter implements PaymentProvider {
     };
   }
 
-  // SumUp no expone un header de idempotencia equivalente en este endpoint;
-  // el parámetro se acepta igualmente para cumplir la interfaz común.
-  async refund(paymentId: string, _amount?: number, _idempotencyKey?: string): Promise<RefundResult> {
-    const response = await fetch(`https://api.sumup.com/v0.1/receipts/${paymentId}/refund`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${this.apiKey}` },
-    });
-    if (!response.ok) {
-      const data = await response.json().catch(() => null);
-      return { success: false, error: data?.message || `SumUp devolvió ${response.status}` };
+  // SumUp reembolsa TRANSACCIONES, no checkouts: lo que guardamos en el pedido (`paymentId`) es el id del checkout, así que primero se lee
+  // el checkout para sacar la transacción cobrada y luego se reembolsa esa
+  // (POST /v1.0/merchants/{merchant_code}/payments/{transaction_id}/refunds; sin importe = reembolso total).
+  // SumUp no tiene cabecera de idempotencia: si la transacción ya consta como reembolsada se da por hecho, para que un reintento tras un
+  // fallo posterior (p. ej. al guardar el pedido) no se quede atascado en el 409 de SumUp. El parámetro de idempotencia se acepta por la interfaz común.
+  async refund(paymentId: string, amount?: number, _idempotencyKey?: string): Promise<RefundResult> {
+    const headers = { 'Authorization': `Bearer ${this.apiKey}` };
+    const message = (data: any, status: number, what: string): string => data?.message || data?.detail || data?.error_message || `SumUp devolvió ${status} al ${what}`;
+    try {
+      const lookup = await fetch(`https://api.sumup.com/v0.1/checkouts/${encodeURIComponent(paymentId)}`, { headers, signal: AbortSignal.timeout(15_000) });
+      const checkout = await lookup.json().catch(() => null);
+      if (!lookup.ok) return { success: false, error: message(checkout, lookup.status, 'consultar el pago') };
+
+      const transactions: { id?: string; status?: string; amount?: number }[] = Array.isArray(checkout?.transactions) ? checkout.transactions : [];
+      const charged = transactions.find((t) => t?.status === 'SUCCESSFUL' && t.id);
+      if (!charged) {
+        const refunded = transactions.find((t) => t?.status === 'REFUNDED' && t.id);
+        return refunded ? { success: true, refundId: refunded.id } : { success: false, error: 'SumUp no tiene ninguna transacción cobrada en este pago: no hay nada que reembolsar' };
+      }
+
+      // Un importe menor que lo cobrado es un reembolso parcial; el total (o sin importe) se pide sin él.
+      const partial = typeof amount === 'number' && typeof charged.amount === 'number' && amount > 0 && amount < charged.amount - 0.005;
+      const response = await fetch(`https://api.sumup.com/v1.0/merchants/${encodeURIComponent(this.merchantCode)}/payments/${encodeURIComponent(charged.id as string)}/refunds`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(partial ? { amount } : {}),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        return { success: false, error: message(data, response.status, 'reembolsar') };
+      }
+      return { success: true, refundId: charged.id };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
-    return { success: true };
   }
 }
 

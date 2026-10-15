@@ -8,7 +8,8 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    # `plataforma` es la rama que sirve la web real (proyecto la-grailla-platform): sin esto se desplegaba sin ninguna prueba automática.
+    branches: [main, plataforma]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}

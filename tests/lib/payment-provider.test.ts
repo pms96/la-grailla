@@ -84,6 +84,81 @@ describe('estado de cobro normalizado', () => {
       expect(r.amount).toBeUndefined();
     });
   });
+
+  /* SumUp reembolsa TRANSACCIONES, no checkouts: el `paymentId` de un pedido es el id del checkout, así que primero se lee el checkout para
+   * sacar la transacción cobrada y luego se reembolsa esa (POST /v1.0/merchants/{merchant_code}/payments/{transaction_id}/refunds). */
+  describe('SumUp.refund', () => {
+    afterEach(() => vi.unstubAllGlobals());
+    const TX = '410fc44a-5956-44e1-b5cc-19c6f8d727a4';
+    const REFUND_URL = `https://api.sumup.com/v1.0/merchants/M123/payments/${TX}/refunds`;
+    const checkout = (transactions: Record<string, unknown>[], over: Record<string, unknown> = {}) => ({ id: 'co_1', status: 'PAID', amount: 25.5, transactions, ...over });
+    const successful = { id: TX, status: 'SUCCESSFUL', amount: 25.5 };
+
+    /** Simula la API de SumUp según la ruta y apunta las llamadas que recibe. */
+    function sumup(routes: { checkout?: [number, unknown]; refund?: [number, unknown] }) {
+      const calls: { url: string; method: string; body?: string; auth?: string }[] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: { method?: string; body?: string; headers?: Record<string, string> }) => {
+          calls.push({ url, method: init?.method ?? 'GET', body: init?.body, auth: init?.headers?.Authorization });
+          const [status, body] = (url.includes('/checkouts/') ? routes.checkout : routes.refund) ?? [500, {}];
+          return { ok: status >= 200 && status < 300, status, json: async () => body };
+        })
+      );
+      return calls;
+    }
+    const adapter = () => new SumUpAdapter('key_1', 'M123');
+
+    it('reembolsa la TRANSACCIÓN cobrada (no el id del checkout) por la ruta de reembolsos de SumUp y con la clave de la cuenta', async () => {
+      const calls = sumup({ checkout: [200, checkout([successful])], refund: [200, {}] });
+      expect(await adapter().refund('co_1', 25.5, 'refund_o1')).toEqual({ success: true, refundId: TX });
+      expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['GET https://api.sumup.com/v0.1/checkouts/co_1', `POST ${REFUND_URL}`]);
+      expect(calls.every((c) => c.auth === 'Bearer key_1')).toBe(true);
+      expect(calls.some((c) => c.url.includes('/receipts/'))).toBe(false); // la ruta antigua, que no existe en SumUp
+    });
+
+    it('un reembolso total no manda importe (SumUp reembolsa todo lo cobrado)', async () => {
+      const calls = sumup({ checkout: [200, checkout([successful])], refund: [200, {}] });
+      await adapter().refund('co_1', 25.5);
+      expect(JSON.parse(calls[1].body ?? 'null')).toEqual({});
+    });
+
+    it('un importe menor que lo cobrado se manda como reembolso parcial', async () => {
+      const calls = sumup({ checkout: [200, checkout([successful])], refund: [200, {}] });
+      await adapter().refund('co_1', 10);
+      expect(JSON.parse(calls[1].body ?? 'null')).toEqual({ amount: 10 });
+    });
+
+    it('si la transacción ya consta como reembolsada se da por hecho, sin volver a llamar (un reintento no se atasca en un 409)', async () => {
+      const calls = sumup({ checkout: [200, checkout([{ id: TX, status: 'REFUNDED', amount: 25.5 }])], refund: [409, { message: 'ya reembolsada' }] });
+      expect(await adapter().refund('co_1', 25.5)).toEqual({ success: true, refundId: TX });
+      expect(calls).toHaveLength(1);
+    });
+
+    it('sin ninguna transacción cobrada no hay nada que reembolsar: falla y no llama a la ruta de reembolsos', async () => {
+      const calls = sumup({ checkout: [200, checkout([{ id: 'tx_f', status: 'FAILED', amount: 25.5 }], { status: 'FAILED' })], refund: [200, {}] });
+      const r = await adapter().refund('co_1', 25.5);
+      expect(r.success).toBe(false);
+      expect(r.error).toMatch(/ninguna transacción cobrada/i);
+      expect(calls).toHaveLength(1);
+    });
+
+    it('si no se encuentra el checkout falla con el mensaje de SumUp y no reembolsa nada', async () => {
+      const calls = sumup({ checkout: [404, { message: 'Checkout not found' }], refund: [200, {}] });
+      expect(await adapter().refund('co_x', 25.5)).toEqual({ success: false, error: 'Checkout not found' });
+      expect(calls).toHaveLength(1);
+    });
+
+    it('si SumUp rechaza el reembolso, falla con su mensaje (el pedido volverá a su estado y el admin verá el motivo)', async () => {
+      sumup({ checkout: [200, checkout([successful])], refund: [422, { message: 'INVALID_AMOUNT' }] });
+      expect(await adapter().refund('co_1', 99)).toEqual({ success: false, error: 'INVALID_AMOUNT' });
+    });
+
+    it('un fallo de red no lanza: se devuelve como fallo, igual que en Stripe', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('socket hang up'); }));
+      expect(await adapter().refund('co_1', 25.5)).toEqual({ success: false, error: 'socket hang up' });
+    });
+  });
 });
 
 describe('Stripe.parseWebhook', () => {
