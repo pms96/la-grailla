@@ -5,10 +5,13 @@ import { sendMail } from '@/lib/mailer';
 import { absoluteBrandUrl, getBrand } from '@/lib/brand/brand';
 import { hexToRgb } from '@/lib/brand/theme';
 import { fetchLimited } from '@/lib/brand/pdf';
+import { isModuleEnabled } from '@/lib/modules/runtime';
 
 export type WalletAvailability = { google: boolean; apple: boolean };
 
 export async function getWalletAvailability(): Promise<WalletAvailability> {
+  // Sin el módulo Wallets no se ofrece ni se adjunta ningún pase, aunque queden claves guardadas en la configuración.
+  if (!isModuleEnabled('wallets')) return { google: false, apple: false };
   try {
     const cfg = await getConfigs([
       'google_wallet_issuer_id',
@@ -198,7 +201,7 @@ export async function alertAppleCertExpiringSoon(notAfter: Date, daysRemaining: 
       : `[wallet] El certificado de Apple Wallet caduca en ${daysRemaining} día(s) (${notAfterIso}) — requiere renovación.`
   );
   try {
-    const to = await getOperatorEmail();
+    const to = await getOperatorEmail('entradas');
     if (!to) return; // cliente sin admin_email: solo queda el log
     const emailResult = await sendMail({
       to,

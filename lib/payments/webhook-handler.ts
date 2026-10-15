@@ -3,32 +3,39 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
 import { getBaseUrl } from '@/lib/url';
-import { ProviderNotConfiguredError, WebhookRejected, getPaymentProviderByName } from '@/lib/payment-adapter';
+import { ProviderNotConfiguredError, WebhookRejected, getPaymentProviderByName, type PaymentScope } from '@/lib/payment-adapter';
 import { resolveExpiredCheckout, resolvePaidCheckout } from '@/lib/order-reconciliation';
 
 /* Entrada común de los webhooks de cobro: `/api/webhooks/{proveedor}`. Cada proveedor aporta SU verificación de firma y su traducción
  * a un evento neutro (`PaymentProvider.parseWebhook`); aquí está todo lo demás, igual para todos: idempotencia, reconciliación del pedido
  * (entradas o tienda) y la respuesta. Un webhook nunca se corta por fase de licencia ni por módulo apagado: es dinero en vuelo. */
 
-const KNOWN_PROVIDERS = new Set(['stripe', 'sumup']);
+/** Nombre en la URL → proveedor real y cuenta de cobro. La tienda tiene su propia cuenta de Stripe, con su propio endpoint y su secreto de firma. */
+const WEBHOOK_TARGETS: Record<string, { provider: string; scope: PaymentScope }> = {
+  stripe: { provider: 'stripe', scope: 'entradas' },
+  'stripe-tienda': { provider: 'stripe', scope: 'tienda' },
+  sumup: { provider: 'sumup', scope: 'entradas' },
+};
 
 /** Las filas de Stripe ya guardadas son el `evt_…` a secas; el resto de proveedores llevan su nombre delante para no chocar entre sí. */
 const processedKey = (provider: string, eventId: string) => (provider === 'stripe' ? eventId : `${provider}:${eventId}`);
+// (`stripe-tienda` lleva su nombre delante: el `evt_…` de otra cuenta de Stripe nunca choca con uno de Entradas.)
 
 export async function handleProviderWebhook(providerName: string, request: Request): Promise<NextResponse> {
   const name = providerName.toLowerCase();
   const route = `POST /api/webhooks/${name}`;
-  if (!KNOWN_PROVIDERS.has(name)) return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 });
+  const target = WEBHOOK_TARGETS[name];
+  if (!target) return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 });
 
   try {
     let provider;
     try {
-      provider = await getPaymentProviderByName(name);
+      provider = await getPaymentProviderByName(target.provider, target.scope);
     } catch (err) {
       // Falta una credencial: se dice así (400). Una credencial cifrada que no se puede abrir es otra cosa y sigue siendo un 500.
       if (err instanceof ProviderNotConfiguredError) {
         console.error(`[${route}] ${err.message}`);
-        return NextResponse.json({ error: `${name === 'stripe' ? 'Stripe' : 'SumUp'} no está configurado` }, { status: 400 });
+        return NextResponse.json({ error: `${target.provider === 'stripe' ? 'Stripe' : 'SumUp'} no está configurado` }, { status: 400 });
       }
       throw err;
     }

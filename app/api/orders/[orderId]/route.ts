@@ -38,7 +38,7 @@ export async function GET(
         const provider = await getPaymentProviderByName(order.paymentProvider);
         const result = await provider.verifyPayment(order.paymentId);
         if (result.success) {
-          await completeOrder(order.id, getBaseUrl(request));
+          await completeOrder(order.id, getBaseUrl(request), result);
           order = await prisma.order.findUnique({ where: { id: order.id }, include: includeTicketsAndEvent });
         }
       } catch (error) {

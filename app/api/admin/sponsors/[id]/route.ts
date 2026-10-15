@@ -7,6 +7,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { getBaseUrl } from '@/lib/url';
+import { seasonLinkEnabled } from '@/lib/modules/season-link';
 import { ensureSponsorPortalInvite, buildSponsorPortalUrl } from '@/lib/sponsor-portal';
 
 const updateSponsorSchema = z.object({
@@ -30,7 +31,8 @@ export async function GET(request: Request, { params }: { params: { id: string }
     const sponsorRequest = await prisma.sponsorRequest.findUnique({
       where: { id: params?.id },
       include: {
-        temporada: { select: { id: true, nombre: true } },
+        // El nombre de la temporada es de Contabilidad: sin ese módulo no se devuelve.
+        ...(seasonLinkEnabled() ? { temporada: { select: { id: true, nombre: true } } } : {}),
         emailLogs: { orderBy: { createdAt: 'desc' } },
         // El historial de emails de arriba (sponsorRequest.emailLogs) ya es el
         // superset completo — todo email post-aceptación se registra con
@@ -73,7 +75,7 @@ export async function PUT(
       data: {
         status: body?.status,
         adminNotes: body?.adminNotes,
-        temporadaId: body?.temporadaId === undefined ? undefined : body.temporadaId || null,
+        temporadaId: body?.temporadaId === undefined || !seasonLinkEnabled() ? undefined : body.temporadaId || null,
         sponsorType: body?.sponsorType === undefined ? undefined : body.sponsorType || null,
       },
     });

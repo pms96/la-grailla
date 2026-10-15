@@ -13,6 +13,7 @@ import { checkPlatformEnvOnce } from './env-check';
 import { logRateLimited } from './log';
 import { legacyTenantId } from './mode';
 import { resolveHost } from './resolve';
+import { pathAllowedForModules } from '@/lib/modules/access';
 
 /* Middleware del modo plataforma (edge). Hace, por este orden, TODO lo que debe ocurrir antes de que un handler vea la petición:
  *   1. resolver el Host a un cliente (registro firmado) → 404 si no existe;
@@ -168,6 +169,17 @@ export async function platformMiddleware(req: NextRequest): Promise<NextResponse
     if (path.startsWith('/admin') && role !== 'ADMIN') return NextResponse.redirect(new URL('/auth/login', req.url));
     if (path.startsWith('/acceso') && role !== 'ADMIN' && role !== 'TAQUILLA') return NextResponse.redirect(new URL('/auth/login', req.url));
     if (!isAuthorizedStaffRequest(path, role)) return NextResponse.json({ error: 'No autorizado' }, { status: 401, headers: noStore });
+
+    // Permisos por módulo: un administrador con un rol restringido solo entra en las rutas de SUS módulos. Sin `mods` en el token es el
+    // propietario (como siempre). Aquí no hay BD: es la primera barrera; los handlers contrastan además la sesión con la BD (lib/auth.ts).
+    if (role === 'ADMIN') {
+      const mods = Array.isArray(token?.mods) ? (token!.mods as string[]) : null;
+      if (!pathAllowedForModules(path, mods)) {
+        return path.startsWith('/api/')
+          ? NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403, headers: noStore })
+          : NextResponse.redirect(new URL('/admin', req.url));
+      }
+    }
   }
 
   const forwarded = new Headers(req.headers);

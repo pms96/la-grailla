@@ -1,6 +1,7 @@
 /* Payment Adapter Pattern — extensible payment gateway abstraction */
 import type Stripe from 'stripe';
-import { getConfig, getConfigOrThrow } from '@/lib/config';
+import { getConfig, getConfigOrThrow, hasConfigRow } from '@/lib/config';
+import { isModuleEnabled } from '@/lib/modules/runtime';
 
 export interface PaymentSession {
   sessionId: string;
@@ -469,30 +470,63 @@ export class MockPaymentAdapter implements PaymentProvider {
  * esté activa ahora mismo en /admin/configuracion. Necesario para verificar un
  * pago más tarde (p. ej. al volver del checkout) usando la pasarela con la que
  * REALMENTE se creó ese pedido, no la que esté seleccionada en ese momento. */
-export async function getPaymentProviderByName(gateway: string): Promise<PaymentProvider> {
+export async function getPaymentProviderByName(gateway: string, scope: PaymentScope = 'entradas'): Promise<PaymentProvider> {
+  const keys = await paymentKeys(scope);
+
   if (gateway === 'stripe') {
     // .trim(): una key guardada con un espacio/salto de línea invisible (copia
     // y pega desde el dashboard de la pasarela) rompe el header Authorization
     // y la pasarela responde 401 sin más contexto — nunca es un valor válido.
-    const secretKey = (await getConfigOrThrow('stripe_secret_key')).trim();
-    if (!secretKey) throw new ProviderNotConfiguredError('Stripe está activo pero falta stripe_secret_key en /admin/configuracion', 'stripe');
-    return new StripeAdapter(secretKey, async () => (await getConfigOrThrow('stripe_webhook_secret')).trim());
+    const secretKey = (await getConfigOrThrow(keys.stripeSecret)).trim();
+    if (!secretKey) throw new ProviderNotConfiguredError(`Stripe está activo pero falta ${keys.stripeSecret} en /admin/configuracion`, 'stripe');
+    return new StripeAdapter(secretKey, async () => (await getConfigOrThrow(keys.stripeWebhook)).trim());
   }
 
   if (gateway === 'sumup') {
     const [apiKey, merchantCode] = await Promise.all([
-      getConfigOrThrow('sumup_api_key'),
-      getConfig('sumup_merchant_code'),
+      getConfigOrThrow(keys.sumupKey),
+      getConfig(keys.sumupMerchant),
     ]);
     const trimmedApiKey = apiKey.trim();
     const trimmedMerchantCode = merchantCode.trim();
     if (!trimmedApiKey || !trimmedMerchantCode) {
-      throw new ProviderNotConfiguredError('SumUp está activo pero falta sumup_api_key o sumup_merchant_code en /admin/configuracion', 'sumup');
+      throw new ProviderNotConfiguredError(`SumUp está activo pero falta ${keys.sumupKey} o ${keys.sumupMerchant} en /admin/configuracion`, 'sumup');
     }
     return new SumUpAdapter(trimmedApiKey, trimmedMerchantCode);
   }
 
   return new MockPaymentAdapter();
+}
+
+/** A qué cuenta de cobro pertenece un pedido: cada módulo con venta tiene la suya. */
+export type PaymentScope = 'entradas' | 'tienda';
+
+const ENTRADAS_KEYS = {
+  gateway: 'payment_gateway',
+  stripeSecret: 'stripe_secret_key',
+  stripeWebhook: 'stripe_webhook_secret',
+  sumupKey: 'sumup_api_key',
+  sumupMerchant: 'sumup_merchant_code',
+} as const;
+
+const TIENDA_KEYS = {
+  gateway: 'shop_payment_gateway',
+  stripeSecret: 'shop_stripe_secret_key',
+  stripeWebhook: 'shop_stripe_webhook_secret',
+  sumupKey: 'shop_sumup_api_key',
+  sumupMerchant: 'shop_sumup_merchant_code',
+} as const;
+
+/**
+ * Claves de configuración de la cuenta de cobro de un módulo. Entradas y Tienda NO comparten cuenta: la tienda lee sus claves `shop_*`.
+ * Continuidad: un cliente que ya cobraba la tienda con la cuenta de Entradas sigue igual hasta que guarde la pasarela de la tienda
+ * (no existe todavía la fila `shop_payment_gateway`); en cuanto la guarda, la tienda usa solo las suyas. Esa continuidad solo existe si
+ * el cliente tiene Entradas (sin él no hay otra cuenta de la que heredar).
+ */
+async function paymentKeys(scope: PaymentScope): Promise<{ gateway: string; stripeSecret: string; stripeWebhook: string; sumupKey: string; sumupMerchant: string }> {
+  if (scope === 'entradas') return ENTRADAS_KEYS;
+  if (isModuleEnabled('entradas') && !(await hasConfigRow(TIENDA_KEYS.gateway))) return ENTRADAS_KEYS;
+  return TIENDA_KEYS;
 }
 
 /* Factory — lee la pasarela activa desde la config de la BD.
@@ -501,8 +535,8 @@ export async function getPaymentProviderByName(gateway: string): Promise<Payment
  * falta una credencial, lanzamos un error en vez de caer a Mock en silencio —
  * lo contrario simula un pago aceptado sin cobrar nada real, y el fallo de
  * configuración nunca se detectaría hasta producción. */
-export async function getPaymentProvider(): Promise<PaymentProvider> {
-  const activeGateway = await getConfig('payment_gateway');
+export async function getPaymentProvider(scope: PaymentScope = 'entradas'): Promise<PaymentProvider> {
+  const activeGateway = await getConfig((await paymentKeys(scope)).gateway);
   const resolvedGateway = activeGateway || 'mock';
 
   // En producción, "mock" completa pedidos como pagados sin cobrar nada real
@@ -517,5 +551,5 @@ export async function getPaymentProvider(): Promise<PaymentProvider> {
     );
   }
 
-  return getPaymentProviderByName(resolvedGateway);
+  return getPaymentProviderByName(resolvedGateway, scope);
 }

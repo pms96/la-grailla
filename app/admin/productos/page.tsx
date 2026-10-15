@@ -62,6 +62,8 @@ export default function ProductosPage() {
   const [saving, setSaving] = useState(false);
   const [stockTouched, setStockTouched] = useState(false);
   const [temporadas, setTemporadas] = useState<Temporada[]>([]);
+  // Las temporadas son de Contabilidad: sin ese módulo la API responde 404 y el selector no se muestra.
+  const [temporadasDisponibles, setTemporadasDisponibles] = useState(false);
 
   const fetchProducts = useCallback(() => {
     fetch('/api/admin/products')
@@ -77,7 +79,10 @@ export default function ProductosPage() {
 
   useEffect(() => {
     fetch('/api/admin/compras/temporadas')
-      .then((r) => r.json())
+      .then((r) => {
+        setTemporadasDisponibles(r.ok);
+        return r.json();
+      })
       .then((d) => setTemporadas(Array.isArray(d) ? d : []))
       .catch(() => {});
   }, []);
@@ -442,21 +447,23 @@ export default function ProductosPage() {
               </Select>
             </div>
 
-            <div>
-              <Label>Temporada de compras (opcional)</Label>
-              <div className="mt-1">
-                <TemporadaSelector
-                  temporadas={temporadas}
-                  temporadaId={form?.temporadaId ?? null}
-                  onChange={(id) => updateField('temporadaId', id)}
-                  onTemporadaCreada={(t) => setTemporadas((prev) => [t, ...prev])}
-                  allowNone
-                />
+            {temporadasDisponibles && (
+              <div>
+                <Label>Temporada de compras (opcional)</Label>
+                <div className="mt-1">
+                  <TemporadaSelector
+                    temporadas={temporadas}
+                    temporadaId={form?.temporadaId ?? null}
+                    onChange={(id) => updateField('temporadaId', id)}
+                    onTemporadaCreada={(t) => setTemporadas((prev) => [t, ...prev])}
+                    allowNone
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Vincula este producto a la temporada de Compras/Gastos de la caseta, para poder sacar informes de tienda por edición.
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Vincula este producto a la temporada de Compras/Gastos de la caseta, para poder sacar informes de tienda por edición.
-              </p>
-            </div>
+            )}
             <Button onClick={handleSave} disabled={saving} className="w-full gap-2">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               {editing ? 'Guardar cambios' : 'Crear producto'}

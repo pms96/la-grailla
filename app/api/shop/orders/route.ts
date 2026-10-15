@@ -25,7 +25,8 @@ const createShopOrderSchema = z.object({
     .array(
       z.object({
         productId: z.string().min(1),
-        quantity: z.number().int().positive().optional(),
+        // Tope por línea: sin él, una sola petición podía reservar todo el stock de un producto.
+        quantity: z.number().int().positive().max(100).optional(),
         size: z.string().optional().nullable(),
         color: z.string().optional().nullable(),
       })
@@ -167,7 +168,7 @@ export async function POST(request: Request) {
     let provider = 'mock';
     try {
       const baseUrl = getBaseUrl(request);
-      const paymentProvider = await getPaymentProvider();
+      const paymentProvider = await getPaymentProvider('tienda');
       const brand = await getBrand();
       provider = paymentProvider.name;
       if (paymentProvider.name !== 'mock' && createdOrder.totalAmount > 0) {

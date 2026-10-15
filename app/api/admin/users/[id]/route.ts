@@ -8,11 +8,14 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { isModuleEnabled } from '@/lib/modules/runtime';
+import { accessRoleProblem, countOwners, isOwnerAdmin } from '@/lib/access-roles';
 
 const updateUserSchema = z.object({
   role: z.enum(['ADMIN', 'TAQUILLA', 'USER']).optional(),
   name: z.string().optional().nullable(),
   password: z.string().min(8, 'password_too_short').optional(),
+  // Rol por módulos (ver lib/modules/access.ts): clave predefinida, `c_<id>`, o null = propietario.
+  accessRole: z.string().nullable().optional(),
 });
 
 export async function PUT(
@@ -22,6 +25,10 @@ export async function PUT(
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  }
+  // Gestionar usuarios es solo del propietario: un rol restringido podría darse más permisos.
+  if (!isOwnerAdmin(session)) {
+    return NextResponse.json({ error: 'Solo el propietario puede gestionar usuarios' }, { status: 403 });
   }
   try {
     const body = updateUserSchema.parse(await request.json());
@@ -39,24 +46,48 @@ export async function PUT(
     if (body?.role && body.role !== 'ADMIN' && params?.id === session.user?.id) {
       return NextResponse.json({ error: 'No puedes quitarte a ti mismo el rol de administrador' }, { status: 400 });
     }
+    const target = await prisma.user.findUnique({ where: { id: params?.id }, select: { role: true, accessRole: true } });
+    const targetIsOwner = target?.role === 'ADMIN' && target.accessRole === null;
     if (body?.role && body.role !== 'ADMIN') {
-      const target = await prisma.user.findUnique({ where: { id: params?.id }, select: { role: true } });
       if (target?.role === 'ADMIN') {
         const adminCount = await prisma.user.count({ where: { role: 'ADMIN' } });
         if (adminCount <= 1) {
           return NextResponse.json({ error: 'No puedes quitar el último administrador' }, { status: 400 });
         }
+        if (targetIsOwner && (await countOwners()) <= 1) {
+          return NextResponse.json({ error: 'No puedes quitar al último propietario' }, { status: 400 });
+        }
       }
     }
+
+    // Rol por módulos. Quien deja de ser administrador no conserva uno. Un rol restringido se asigna solo a administradores que existan.
+    let accessRole: string | null | undefined = body?.accessRole;
+    if (body?.role && body.role !== 'ADMIN') accessRole = null;
+    const accessRoleChanges = accessRole !== undefined && accessRole !== (target?.accessRole ?? null);
+    if (accessRole !== undefined) {
+      const problem = await accessRoleProblem(accessRole, body?.role ?? target?.role ?? 'USER');
+      if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+      if (accessRoleChanges && params?.id === session.user?.id) {
+        return NextResponse.json({ error: 'No puedes cambiarte tu propio rol de acceso' }, { status: 400 });
+      }
+      if (accessRoleChanges && targetIsOwner && accessRole !== null && (await countOwners()) <= 1) {
+        return NextResponse.json({ error: 'No puedes restringir al último propietario: el cliente se quedaría sin nadie que gestione usuarios' }, { status: 400 });
+      }
+    }
+
+    // Cambiar la contraseña, el rol de cuenta o el rol por módulos cierra las sesiones que esa persona tenga abiertas.
+    const revokeSessions = Boolean(body?.password) || accessRoleChanges || Boolean(body?.role && body.role !== target?.role);
 
     const user = await prisma.user.update({
       where: { id: params?.id },
       data: {
         role: body?.role,
         name: body?.name,
+        ...(accessRole !== undefined ? { accessRole } : {}),
         ...(body?.password ? { hashedPassword: await bcrypt.hash(body.password, 12) } : {}),
+        ...(revokeSessions ? { sessionsValidAfter: new Date() } : {}),
       },
-      select: { id: true, name: true, email: true, role: true },
+      select: { id: true, name: true, email: true, role: true, accessRole: true },
     });
     return NextResponse.json(user);
   } catch (error) {
@@ -72,17 +103,24 @@ export async function DELETE(
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
+  if (!isOwnerAdmin(session)) {
+    return NextResponse.json({ error: 'Solo el propietario puede gestionar usuarios' }, { status: 403 });
+  }
   try {
     if (params?.id === session.user?.id) {
       return NextResponse.json({ error: 'No puedes eliminar tu propia cuenta' }, { status: 400 });
     }
-    const target = await prisma.user.findUnique({ where: { id: params?.id }, select: { role: true } });
+    const target = await prisma.user.findUnique({ where: { id: params?.id }, select: { role: true, accessRole: true } });
     if (target?.role === 'ADMIN') {
       const adminCount = await prisma.user.count({ where: { role: 'ADMIN' } });
       if (adminCount <= 1) {
         return NextResponse.json({ error: 'No puedes eliminar el último administrador' }, { status: 400 });
       }
+      if (target.accessRole === null && (await countOwners()) <= 1) {
+        return NextResponse.json({ error: 'No puedes eliminar al último propietario' }, { status: 400 });
+      }
     }
+    // Al borrarlo, su sesión deja de valer al instante: cada lectura de sesión contrasta con la BD (lib/auth.ts).
     await prisma.user.delete({ where: { id: params?.id } });
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/logo';
 import { cn } from '@/lib/utils';
 import { isLinkVisible } from '@/lib/modules/registry';
+import { pathAllowedForModules } from '@/lib/modules/access';
 import type { ModuleKey } from '@grailla/contracts';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ChangePasswordDialog } from '@/app/admin/_components/change-password-dialog';
@@ -122,8 +123,13 @@ export default function AdminShell({ children, modules, licenseGrace }: AdminShe
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const closeSidebar = () => setSidebarOpen(false);
   // Un enlace solo aparece si el módulo dueño de su ruta está activo (la ruta, además, está cortada en el servidor).
+  // Además, con un rol por módulos solo salen las pantallas de SUS módulos (el servidor lo hace cumplir igual: esto solo evita enlaces muertos).
+  const userModules = session?.user?.modules ?? null;
   const visibleGroups = navGroups
-    .map((g) => ({ ...g, items: modules ? g.items.filter((i) => isLinkVisible(i.href, modules)) : g.items }))
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((i) => (!modules || isLinkVisible(i.href, modules)) && pathAllowedForModules(i.href, userModules)),
+    }))
     .filter((g) => g.items.length > 0);
   const showScanner = !modules || isLinkVisible('/acceso', modules);
 

@@ -124,7 +124,7 @@ export async function GET(request: Request) {
         const provider = await getPaymentProviderByName(order.paymentProvider!);
         const result = await provider.verifyPayment(order.paymentId!);
         if (result.success) {
-          await completeOrder(order.id);
+          await completeOrder(order.id, undefined, result);
           completed += 1;
         } else if (result.status === 'EXPIRED') {
           // Una sesión de pago caducada ya no se puede pagar: se libera el aforo sin esperar a las 24 h.
@@ -148,7 +148,7 @@ export async function GET(request: Request) {
           const provider = await getPaymentProviderByName(order.paymentProvider);
           const result = await provider.verifyPayment(order.paymentId);
           if (result.success) {
-            await completeOrder(order.id);
+            await completeOrder(order.id, undefined, result);
             completed += 1;
             continue;
           }
@@ -166,10 +166,10 @@ export async function GET(request: Request) {
 
     for (const order of pendingShopOrders) {
       try {
-        const provider = await getPaymentProviderByName(order.paymentProvider!);
+        const provider = await getPaymentProviderByName(order.paymentProvider!, 'tienda');
         const result = await provider.verifyPayment(order.paymentId!);
         if (result.success) {
-          await completeShopOrder(order.id);
+          await completeShopOrder(order.id, result);
           completed += 1;
         } else if (result.status === 'EXPIRED') {
           // Una sesión de pago caducada ya no se puede pagar: se libera el aforo sin esperar a las 24 h.
@@ -190,10 +190,10 @@ export async function GET(request: Request) {
     for (const order of abandonedShopOrders) {
       try {
         if (order.paymentProvider && order.paymentProvider !== 'mock' && order.paymentId) {
-          const provider = await getPaymentProviderByName(order.paymentProvider);
+          const provider = await getPaymentProviderByName(order.paymentProvider, 'tienda');
           const result = await provider.verifyPayment(order.paymentId);
           if (result.success) {
-            await completeShopOrder(order.id);
+            await completeShopOrder(order.id, result);
             completed += 1;
             continue;
           }

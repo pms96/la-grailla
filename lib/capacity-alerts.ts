@@ -41,7 +41,8 @@ export async function checkCapacityAlerts(eventId: string) {
     const pending = thresholds.filter((t) => percent >= t && !alreadySent.includes(String(t)));
     if (!pending.length) return;
 
-    const adminEmail = await getConfig('admin_email');
+    // El aforo es de Entradas: su correo propio si lo tiene, y si no el de administración.
+    const adminEmail = (await getConfig('notify_email_entradas')).trim() || (await getConfig('admin_email'));
     if (!adminEmail) return;
 
     const highest = pending[pending.length - 1];

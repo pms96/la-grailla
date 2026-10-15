@@ -1,0 +1,264 @@
+# Revisión de módulos, aislamiento de datos y plantillas premium
+
+Fecha: 2026-10-15. Revisión de solo lectura hecha por 7 revisores (uno por módulo, uno de aislamiento transversal y uno de la web pública). **No se ha cambiado código.** Las referencias `fichero:línea` salen de los informes; tres de los hallazgos más graves (marcados con ✔) se comprobaron a mano.
+
+> Lo que NO está verificado: no se ha visto el render de ninguna página (solo código y HTML de las referencias), y las estimaciones de esfuerzo son aproximadas.
+
+---
+
+## 1. Lo más importante (léelo si solo lees esto)
+
+**Seguridad y datos, corregibles en pocos días:**
+
+| # | Hallazgo | Módulo | Esfuerzo |
+|---|---|---|---|
+| 1 ✔ | `GET /api/events?status=DRAFT` lista los **borradores** a cualquiera, y la API pública devuelve datos internos del evento (`currentCount`, `alertsSent`, `temporadaId`, stock por tipo). `app/api/events/route.ts:14` | Entradas | S |
+| 2 ✔ | El portal del sponsor devuelve la fila entera: el sponsor recibe `brandContext` (la investigación privada del admin), errores de email y contadores internos. `app/api/sponsors/portal/[sponsorId]/route.ts:56-62` | Sponsors | S |
+| 3 ✔ | `allowSponsorAccess` acepta cualquier sesión de staff, **incluida TAQUILLA**: un taquillero puede editar y subir materiales de cualquier sponsor. `lib/access-token.ts:150-156` | Sponsors | S |
+| 4 | Un tipo de entrada **desactivado** se puede comprar llamando a la API (no se comprueba `isActive`, ni en `orders` ni en `taquilla/sale`). | Entradas | S |
+| 5 | No se compara el **importe cobrado** con el total del pedido (entradas y tienda): un pedido pasa a pagado solo porque la pasarela diga "pagado". | Entradas, Tienda | S |
+| 6 | Precios negativos o cantidades sin límite en la tienda pueden dar pedidos gratis o con total negativo. | Tienda | S |
+| 7 | La sesión de un admin **no se puede revocar**: borrarlo o cambiarle la contraseña no corta sus sesiones activas (dura hasta 30 días). `lib/auth.ts:48-56` | Núcleo | M |
+| 8 | La generación de vídeo IA puede dejar a un sponsor **bloqueado para siempre** (`isGenerating` sin timeout) y gastando un intento. | Sponsors | S |
+
+### Estado a 2026-10-15 (sin commit): fases A y B hechas
+
+**Fase A completa** (lo de la tabla de abajo, más: máquina de estados de pedidos de tienda y stock que no vuelve si ya se envió, IVA del gasto desde pedido calculado de las líneas y editable). **Fase B completa:**
+- Configuración por módulo: cada clave de `AppConfig` declara su módulo dueño (`lib/config-ownership.ts`; un test obliga a declarar las nuevas), el GET solo devuelve y el PUT solo guarda claves de módulos activos y de los módulos del usuario, con validación de valores (400 y no se guarda nada si uno falla). Pantalla en pestañas por módulo + «Conexiones» (correo, IA).
+- **Cuenta de cobro propia por módulo**: la tienda usa `shop_*` (y `/api/webhooks/stripe-tienda`). Continuidad: mientras no se guarde `shop_payment_gateway`, la tienda sigue con la cuenta de Entradas (para no cortar una tienda en marcha).
+- **Roles por módulo**: predefinidos (Gestor de entradas, de tienda, Contable, de sponsors, Contenido y mensajes) y personalizados con alias (tabla `AccessRole`); solo el propietario gestiona usuarios y roles; middleware, API de configuración y menú los respetan.
+- **Sesiones revocables**: cada lectura de sesión se contrasta con la BD (usuario borrado, rol cambiado, `sessionsValidAfter`); cambiar contraseña o rol cierra las sesiones.
+- Correo de avisos propio por módulo (`notify_email_*`, con el de administración como respaldo).
+
+> **AL DESPLEGAR (importante):** hay una migración nueva (`20261015120000_access_roles`) y `FRONT_MIN_SCHEMA` sube a ella. Cada cliente se pone en «mantenimiento» hasta que el panel haga **«Migrar BD»**. Orden: desplegar → «Migrar BD» en La Grailla (la migración es aditiva). Las sesiones que ya existen de propietarios siguen valiendo; las de TAQUILLA también. Si la BD falla al contrastar una sesión, se cae al token (no se deja sin sesión al personal de puerta).
+>
+> **Para dar cuenta propia a la tienda de La Grailla** (cuando toque): pestaña Tienda → elegir pasarela y pegar sus claves → Guardar. Si es Stripe, crear su endpoint `/api/webhooks/stripe-tienda` y pegar su secreto.
+
+### Estado de la fase A (2026-10-15, sin commit)
+
+| Hecho y con test | Pendiente de la fase A |
+|---|---|
+| 1 borradores y campos internos de la API de eventos · 2 portal de sponsors con lista cerrada · 3 sponsors solo ADMIN · 4 tipo de entrada desactivado / de otro evento · 5 importe cobrado vs total (entradas y tienda) · 6 límites de precio y cantidad · 8 generación de vídeo IA colgada (se recupera a los 5 min, tiempo límite de 45 s) | 7 revocar sesiones de un admin (requiere columna nueva en `User` y tocar el login: se diseña con la fase B) |
+| Cruces: resumen de gastos solo lee Entradas/Sponsors si están activos · ventas por día solo lee la caja si hay Contabilidad · sitemap por módulos · Wallet sin módulo no ofrece pases · el vínculo con la temporada se ignora y se oculta sin Contabilidad (API y 4 pantallas) | Test genérico "módulo apagado = cero datos" para todos los handlers · máquina de estados de pedidos de tienda y no devolver stock de lo ya enviado · IVA fijo del 21 % en gasto desde pedido |
+
+**Aislamiento entre módulos:** el corte por módulo es sólido en las **rutas** (el middleware da 404) pero casi no existe **dentro de los handlers**. Solo hay 3 usos reales de `isModuleEnabled` en el servidor. Detalle en la sección 3.
+
+---
+
+## 2. Revisión módulo a módulo
+
+### 2.1 Núcleo
+**Mejoras**
+- ALTO: configuración muerta. `social_*`, `cookies_banner_enabled` y `maps_provider` se guardan pero no los lee nadie (el pie no pinta redes; el banner de cookies se renderiza siempre). *(Hallazgo del revisor, sin comprobar por mí.)* → pintarlos o retirar los campos. S
+- ALTO: `sitemap.ts` lista `/eventos`, `/tienda`, `/sponsors` y los slugs de eventos **aunque el módulo esté apagado**. S
+- ALTO: al guardar Apariencia el CDN sigue sirviendo la marca vieja hasta ~90 s (no hay purga por etiqueta). M
+- MEDIO: bandeja sin insignia de "sin responder" en el menú, sin acuse al visitante y con un único `admin_email` para todo (falta `contact_notification_email`). M
+- MEDIO: email de usuarios sin normalizar a minúsculas; contraseña solo `min(8)`; el rol `USER` no sirve para nada; `getConfig` traga errores de BD y devuelve el valor por defecto. S/M
+- MEDIO: el PUT de config acepta **cualquier clave** y no valida tipos. S
+- MEDIO: textos legales como texto plano, con "entradas, pedidos" fijo aunque no haya módulos. M
+- MEDIO: subida de imágenes: acepta SVG (el tipo lo da el navegador), sin cuota ni limpieza de huérfanos. S
+- BAJO: clave `lagrailla_cookie_consent` con marca fija; fuentes: se declaran 8 familias aunque el cliente use 2.
+
+**Ampliaciones que pedirá un cliente**
+- Secciones configurables de la portada (galería, FAQ, mapa y horarios, equipo, testimonios, servicios). **Valor alto, M-L, y es requisito para las plantillas de empresas de servicios.**
+- Páginas editables (novedades, "cómo llegar", normas) con editor de texto. L
+- Newsletter con consentimiento RGPD. M · Multi-idioma. L · SEO por página y JSON-LD. M
+- Banner de cookies real con registro de consentimiento. M · Banner de anuncio / "próximamente". S
+- Usuarios con permisos por módulo, 2FA y registro de actividad. M-L
+
+### 2.2 Venta de entradas
+**Mejoras**
+- Además de los puntos 1, 4 y 5 de arriba:
+- ALTO: reembolso **no atómico** (si falla la transacción final queda REFUNDED con entradas VALID); no hay reembolso parcial. M
+- ALTO: TAQUILLA puede emitir hasta 20 entradas gratis por llamada sin cupo ni auditoría, y anular invitaciones. M
+- ALTO: la sala de espera hace una transacción con lock + un `count` O(n) en cada consulta; con miles de personas compiten por el mismo lock. Mitigación barata: barrer cada N segundos y cachear la posición. L
+- MEDIO: el escáner se bloquea 4 s tras cada lectura, no tiene modo offline, y el límite de 120/min es por IP (varias puertas comparten IP). M
+- MEDIO: importes en coma flotante sin redondear a céntimos; faltan índices (`Ticket(eventId,status)`, `Order(eventId,status,createdAt)`, `ScanLog(...)`); exportaciones que truncan en silencio y llevan el QR completo; estadísticas por día en UTC y otra en Madrid. S
+
+**Ampliaciones**
+- Escáner PWA **offline** con sincronización (la más pedida en campo). M
+- Entradas nominativas y cambio de titular. M · Códigos promocionales y apertura de fases por fecha. M
+- Zonas con aforo propio (L si numeradas). · Abonos y pases multi-evento. L
+- Reembolso parcial. M · Facturas por pedido. M · Lista de espera de agotados. M-L
+- Pantalla de puerta con aforo en vivo. S · Pixel de analítica (UTM/Meta/GA). S
+
+### 2.3 Tienda
+**Mejoras**
+- Además de los puntos 5 y 6 de arriba:
+- ALTO: el admin puede poner **cualquier estado** (PENDING→PAID sin cobro). Falta máquina de estados. S/M
+- ALTO: reembolsar un pedido ya enviado **devuelve el stock** aunque la mercancía no vuelva. S
+- ALTO: productos sin variantes tienen stock ilimitado sin que el admin lo vea. M
+- MEDIO: líneas inválidas se descartan en silencio; el carrito se vacía antes de confirmar el pago; el admin guarda stock en valor absoluto y puede pisar reservas; cambiar tallas **borra variantes y su stock**; `GET /api/admin/shop-orders` sin paginar. S/M
+- MEDIO: **no hay email de envío** (el correo promete "te avisaremos" y nunca se envía, ni con `trackingNumber`). Es la mayor carencia para el comprador. S/M
+- MEDIO: sin envío, IVA ni impuestos. M/L · No existe `/tienda/[slug]` (la ficha es un diálogo, sin URL ni SEO) y el listado es CSR, no rastreable. M
+- BAJO: `ShopOrderItem` no guarda el nombre del producto (renombrar cambia el histórico); umbral de poco stock fijo; clave `lagrailla_cart`.
+
+**Ampliaciones:** email de envío con seguimiento (alto, S/M) · gastos de envío y recogida (alto, M) · IVA y facturas PDF (alto, M/L) · cupones (alto, M) · variantes con precio/SKU/imagen (M) · packs (M) · carrito abandonado (M) · avisos de reposición/preventa (M) · tarjeta de fidelización (ver Wallets) · RGPD por interesado (S/M).
+
+### 2.4 Contabilidad
+**Mejoras**
+- ALTO: el IVA del gasto generado desde un pedido está **fijo al 21 %** aunque las líneas tengan 10 % o 4 %. S/M
+- ALTO: redondeo doble por unidad y floats: puede desviarse euros respecto al proveedor. → céntimos enteros o `Decimal`. M
+- ALTO: el **margen es incompleto**: suma Entradas y Sponsors pero ignora Tienda, e incluye comisión e IVA (es un margen bruto con IVA, y debe rotularse así). M
+- ALTO: una temporada `CERRADA` no bloquea escrituras; el borrado de gastos/ingresos es duro y sin huella de quién cambió qué. S / M
+- MEDIO: validación débil (rangos de IVA, existencia de temporada/artículo/proveedor → hoy acaba en error 500); pedidos rígidos (no se editan líneas ni se borra un borrador); el planificador no redondea a unidades por caja y elige la temporada de referencia por año. M
+- BAJO: sin paginación; categorías orientadas a bebidas de caseta; `extraer-imagen` envía una URL arbitraria a un tercero (citar en el DPA y validar que sea del Blob propio).
+- ✔ La regla "nunca enviar pedidos a proveedores solos" **se cumple** (según el revisor). Conviene un test que la blinde.
+
+**Ampliaciones:** informe P&L por evento/temporada (alto, M) · IVA trimestral y exportación a gestoría (alto, M/L) · adjuntar facturas con OCR (M) · presupuesto frente a real (M) · conciliación bancaria (alto, L) · rol "contable" de solo lectura (M).
+
+### 2.5 Wallets
+- ALTO: los pases **no se actualizan ni se anulan** (sin `webServiceURL` en Apple, `state: ACTIVE` fijo en Google): tras un reembolso o cambio de fecha el pase sigue vivo con el QR antiguo. M
+- ALTO: la caducidad del certificado de Apple solo se avisa cuando alguien genera un pase. Falta un aviso en el admin. S
+- ALTO: Google funciona en modo prueba hasta pedir acceso a producción: va a la guía de alta del cliente. S
+- Fuga: `getWalletAvailability()` no comprueba `isModuleEnabled('wallets')`; un cliente con claves residuales sigue enviando pases por email. S
+- Hoy Wallets **solo sirve para entradas**. La regla "Entradas o Tienda" no tiene uso real hasta que exista la tarjeta de fidelización. S
+- El logo `wallet-strip.png` y el color `#1F1A22` son de La Grailla. Apple exige cuenta de desarrollador (99 $/año por cliente).
+- Ampliaciones: pase actualizable/anulable (alto, M-L) · **tarjeta de fidelización** (puntos o sellos, suplemento mensual, L: modelos `LoyaltyCard`/`LoyaltyTxn`, canje en tienda, decidir si el comprador crea cuenta) · pases de abono y notificaciones (M).
+
+### 2.6 Sponsors
+- Además de los puntos 2, 3 y 8 de arriba:
+- ALTO: el token del portal viaja en la URL (`?t=`), **no caduca** y los de formato v1 siguen vigentes. → caducidad ligada a la edición, `Referrer-Policy: no-referrer`. M
+- MEDIO: sin validación del contenido de las subidas (solo el tipo MIME declarado); el meta-prompt tiene una sección duplicada y menciona "festivales, discotecas" fijo; sin recordatorios automáticos ni plantillas de email editables. S/M
+- BAJO: sin borrado RGPD por interesado.
+- Propuesta de **Sponsors v2**: (1) cerrar las fugas, imprescindible antes de vender; (2) paquetes y acuerdos por evento (`SponsorPackage`, `SponsorDeal`); (3) cobro real con enlace de pago y factura; (4) pipeline con tareas y recordatorios; (5) informe de retorno para el sponsor (vende renovaciones); (6) vídeo IA configurable por tipo de entregable y por cliente.
+
+---
+
+## 3. Aislamiento de datos y configuración por módulo
+
+### 3.1 Qué cruces existen hoy
+| Dónde | Qué pasa | Protegido |
+|---|---|---|
+| `api/admin/gastos/resumen` (Contabilidad) | Lee `Order`/`Event` (Entradas) y `Sponsor` directamente | No |
+| `api/admin/stats/ventas-por-dia` (Entradas) | Lee `Ingreso` (Contabilidad) | No |
+| `app/sitemap.ts` | Lista rutas y slugs de módulos apagados | No |
+| `api/admin/config` GET/PUT | Devuelve y acepta **todas** las claves de todos los módulos; la pantalla solo oculta pestañas | No |
+| Entradas, Tienda y Sponsors | Leen y escriben `temporadaId` (Contabilidad) y devuelven `temporada {id,nombre}` | No |
+| `admin-dashboard.tsx`, formularios de eventos/productos/pedidos/sponsors | Piden `/compras/temporadas` y pintan el selector aunque Contabilidad esté apagada (falla en silencio) | Solo por el 404 |
+| `lib/tickets.ts` | Adjunta pases de Wallet sin mirar si el módulo está activo | No |
+| Cron `reconcile-payments` | Mezcla `Order` y `ShopOrder` | Por diseño (dinero en vuelo) |
+
+### 3.2 Reestructurar `/admin/configuracion` por módulo (lo que pediste)
+Hoy es una sola pantalla con pestañas cableadas a mano; el input "comisión por entradas" vive en la pestaña común **Pagos**. Propuesta:
+
+| Pestaña | Contenido | Visible si… |
+|---|---|---|
+| **General** | Contenido, redes, legal, cookies | siempre |
+| **Conexiones** (compartidas) | Pasarela de pago y claves, correo (SMTP) y destinatarios, clave de IA | siempre; cada bloque con la etiqueta "Usado por: Entradas, Tienda" |
+| **Entradas** | **Comisión por entradas**, límites de compra, seguridad, impresora | módulo Entradas activo |
+| **Tienda** | Envíos, IVA, umbral de poco stock, email de pedidos | módulo Tienda activo |
+| **Contabilidad** | Categorías, IVA por defecto, temporada activa | módulo Contabilidad activo |
+| **Wallets** | Apple y Google | módulo Wallets activo (y Entradas) |
+| **Sponsors** | Niveles, textos del portal, vídeo IA | módulo Sponsors activo |
+
+Reglas que lo hacen cumplir de verdad (no solo en pantalla):
+1. **Tabla de claves con dueño:** cada clave de `AppConfig` declara a qué módulo(s) pertenece. Una clave compartida (SMTP, pasarela, clave de IA) se declara con **varios dueños** y existe si **cualquiera** está activo; una exclusiva (`commission_percentage`) solo con el suyo.
+2. **El GET devuelve y el PUT acepta solo claves de módulos activos**, con validación de tipo por clave.
+3. **Destinatarios por módulo** (avisos de sponsors, pagos, contacto) en lugar de un único `admin_email`, con valor por defecto explícito.
+4. **Test de CI:** enumera las claves y falla si un handler de un módulo lee claves de otro sin estar declarado.
+5. Casos compartidos a mover: la clave de IA (la usan Contabilidad y Sponsors, pero la pestaña solo existe con Sponsors) pasa a **Conexiones**; la **pasarela** la comparten Entradas y Tienda: o se muestra con su etiqueta, o se permite una cuenta por módulo (`shop_active_gateway`…), M.
+
+### 3.3 Entre personas de un mismo cliente
+Hoy: ~90 endpoints exigen `role === 'ADMIN'`, TAQUILLA solo entra en escáner/taquilla, y quien administra la tienda también ve las claves de pago y la contabilidad. Propuesta:
+- `User.modules: ModuleKey[]` (vacío = todos los del cliente) y `canAccess(sesión, módulo)` comprobado en el middleware (`needsStaff`, usando `ownerOfPath`), en el menú y en los endpoints con dinero.
+- Permiso aparte para **Conexiones** (claves de pago y SMTP): solo el propietario.
+- Rol "contable" de solo lectura.
+- **Riesgo:** toca el JWT. Debe ser aditivo (sin campo = acceso a todo como hoy) para no cerrar la sesión de los admins ni de la taquilla de La Grailla en plena noche de evento.
+- Límite honesto: un admin con acceso a un módulo sigue siendo de confianza total en él. Esto protege de errores y de accesos innecesarios, no de un administrador malicioso.
+
+### 3.4 Hacia fuera (público y APIs)
+- DTO público explícito (`select`) para eventos y productos: nada de `currentCount`, `alertsSent`, `temporadaId` ni stock exacto.
+- Borradores solo para ADMIN.
+- Sitemap y navegación filtrados por módulo.
+- **Test de CI "módulo apagado = cero datos":** con una BD con filas de todos los módulos, recorrer cada handler con el módulo apagado: 404 en lo suyo e idéntica respuesta a la BD vacía en los handlers que cruzan.
+
+### 3.5 Mecanismos estructurales (orden recomendado)
+| Prioridad | Mecanismo | Esfuerzo |
+|---|---|---|
+| 1 | Test de CI "módulo apagado = cero datos" | M |
+| 2 | Corregir los cruces concretos de 3.1 | S cada uno |
+| 3 | Config con dueño por clave (3.2) | M |
+| 4 | Widgets de dashboard registrados por módulo (`{owner, requires, Component}`) | M |
+| 5 | Adaptadores de datos: cada módulo expone `lib/modules/<m>/api.ts` (`getRevenueForSeason`…) y una regla ESLint prohíbe `prisma.<modelo ajeno>` fuera del dueño | M-L |
+| 6 | Permisos por módulo y usuario (3.3) | L |
+| 7 | Cron de pagos separado por módulo | S |
+| 8 | Auditoría de lecturas cruzadas | L (con el panel) |
+
+**Límites que hay que decir al cliente:** los datos de un módulo apagado **siguen en la BD del cliente** (el corte es de aplicación); si se reactiva el módulo vuelven a verse; las tablas `Temporada` y sus claves foráneas cruzan módulos por esquema y solo se cortan del todo con cambios de esquema aditivos.
+
+---
+
+## 4. Plantillas premium
+
+### 4.1 Cómo está hoy
+- La plantilla solo cambia **3 cosas**: la portada (un ternario `feria`/`editorial`), la pegatina del nav y la maqueta de Apariencia. Todo lo demás (`/eventos`, ficha de evento, `/sponsors`, nav y footer) es estética feria con **copy fijo** ("PROGRAMACIÓN", "Noches que no se pierden", "Tu marca en la caseta").
+- Se parametriza con colores, modo, radio, 2 fuentes de un catálogo de 8, logos y marca. El CSS nunca es texto libre del cliente.
+- Límites: imágenes **sin optimizar** (hasta 5 MB), subida solo de imagen (sin vídeo), un único `imageUrl` por evento, `main` con `pt-16` fijo que choca con héroes a sangre, y **ninguna regla `prefers-reduced-motion`** en toda la app.
+- Problemas que arreglar antes de nada: `FadeIn` renderiza `opacity:0` en el servidor (el LCP espera a la hidratación); el SVG del grano de `globals.css:195` está malformado (hoy el ruido no funciona); `eventos/loading.tsx` tiene cabecera feria fija.
+
+### 4.2 Qué se toma de las referencias (y qué no)
+| Referencia | Se toma | Se descarta |
+|---|---|---|
+| epic.net | Titular partido por líneas con máscara, reveals | WebGL, SPA, easter eggs |
+| unseen.co | Cursor con estados, lista de proyectos con preview al hover | WebGL, audio, pantalla de entrada |
+| eszterbial (Varlak) | Tipografía enorme, marquee, bloques de color, vídeo de fondo con póster, cuenta atrás | — (es la más viable) |
+| moahu | Bloques de color, producto recortado, microestados ("añadido") | — |
+
+**Técnicas viables:** titulares de 12-22vw con `clamp()`, máscara por líneas en CSS, marquee en CSS puro, reveals con `animation-timeline: view()` (mejora progresiva), `useScroll` de Framer con `LazyMotion`, cursor propio solo con `(hover:hover) and (pointer:fine)`, preview flotante al hover de una fila, cortina de transición y **View Transition** del cartel (lista → ficha) con fallback a fundido.
+**Descartadas:** WebGL/Three, audio, pinning pesado con GSAP (duplicaría peso con Framer), Lenis salvo en escritorio y fuera de flujos de compra.
+
+### 4.3 Catálogo propuesto: 6 plantillas, de más a menos material gráfico
+Cada una lleva un preset de fuente, radio y modo, y todo su contenido sale de tokens, logo, fotos y textos del cliente.
+
+| Plantilla | Para quién | Material que necesita | Carácter | Momento "wow" |
+|---|---|---|---|---|
+| **Cine** | Conciertos, promotoras con aftermovie | **Alto** (vídeo + fotos profesionales) | Oscura, vídeo hero a sangre, riel horizontal de eventos con `scroll-snap` | El cartel crece de tarjeta a hero (View Transition) |
+| **Galería** | Cultura, gastronomía, clubs privados | Alto-medio | Clara, serif gigante, mucho aire, numeración | Imágenes que se revelan con `clip-path` y parallax suave |
+| **Marquesina** | Festivales, ferias, salas y noche | Medio | Oscura, nombre del evento a 18vw, marquee con fecha · lugar · ENTRADAS, bloques de color | Al pasar el ratón por una fila el cartel flota siguiendo el cursor |
+| **Drop** | Comercio y marca (tienda) | Medio (producto recortado) | Bloques de color, producto grande, carrusel `scroll-snap` | Microestado "añadido" y producto que sigue al cursor |
+| **Estudio** | **Empresas de servicios**, productoras y agencias | Medio | Portafolio de proyectos/casos, lista con preview al hover, servicios y equipo | Lista de proyectos con preview que sigue al cursor |
+| **Tipo** | Cualquiera **sin fotos** | **Bajo**: solo tipografía y color | Titulares enormes, formas generativas y bloques de color en lugar de foto | Titular en máscara por líneas y marquee |
+
+**Dependencias que hay que construir para que las plantillas existan:**
+- **Estudio** y parte de **Tipo** necesitan que el Núcleo tenga **secciones configurables** (servicios, proyectos/casos, equipo, FAQ). Hoy el núcleo solo tiene hero, "sobre nosotros" y contacto. Sin esto no hay plantilla de empresas de servicios. M-L
+- **Drop** necesita `/tienda/[slug]` y el listado de tienda en SSR (hoy es CSR y sin ficha con URL). M
+- **Cine** necesita `assets.heroVideo` + póster y que el upload admita mp4/webm (el CSP ya lo permite). M
+- Catálogo de fuentes ampliado (p. ej. Anton o Archivo, Instrument Serif o Fraunces, cursiva de Playfair). S
+- Sacar a configuración los textos fijos de `eventos/page.tsx` y `sponsors/page.tsx`. S
+- Optimización de imágenes al subir (redimensionar y WebP/AVIF) con `fetchpriority` y dimensiones en el hero. M
+
+### 4.4 Reglas de rendimiento y seguridad de la compra
+- **Modo "calma"** obligatorio en sala de espera, checkout y confirmaciones: sin cursor, sin cortina, sin Lenis, sin vídeo. Se implementa con un `MotionProvider` y `data-motion` según la ruta. Nuevo campo de tema `motion: 'cinematic' | 'calm'` (enum con default, sin subir `v:1`).
+- Hero visible en SSR (keyframes CSS), sin `opacity:0` esperando a la hidratación.
+- Animar solo `transform`, `opacity` y `clip-path` pequeño; nada de blur grande ni `backdrop-blur-xl` en capas fijas; vídeo hero ≤ 6 MB.
+- `prefers-reduced-motion` global y `scroll-behavior: smooth` condicionado.
+- SSR determinista (la caché del CDN va por Host): cuentas atrás y cursor solo en cliente. H1 en HTML real (con `aria-label` si se parte en letras).
+- Objetivo medible: Lighthouse móvil con CPU 4× y CLS bajo.
+
+---
+
+## 5. Plan propuesto (orden recomendado)
+
+| Fase | Contenido | Esfuerzo | Notas |
+|---|---|---|---|
+| **A. Cerrar fugas y huecos** | Puntos 1-8 de la sección 1, los cruces de 3.1, test "módulo apagado = cero datos", sitemap por módulos, gate de Wallets | ~5-7 días | Riesgo bajo, valor alto. **Se despliega en producción (`plataforma`)**: esperar a que acabe la observación del 29 de octubre, o hacerlo en el standby |
+| **B. Configuración por módulo y permisos** | Config con dueño por clave, nueva pantalla por pestañas, destinatarios por módulo, permisos por módulo/usuario | ~8-10 días | El cambio de JWT debe ser aditivo (riesgo sesiones de La Grailla) |
+| **C. Cimientos de plantillas** | Registro de plantillas, shells por plantilla, copy a config, `data-template`/`data-motion`, primitivas (Reveal, Marquee, SplitLines, cursor), reduced-motion, fix del grano, optimización de imágenes | ~3-4 días | Todo lo demás depende de esto |
+| **D. Núcleo: secciones configurables** | Servicios, proyectos, equipo, FAQ, galería | ~6-8 días | Requisito de Estudio y Tipo |
+| **E. Plantillas** | Marquesina (5 d) → transiciones/cortina/View Transition (3 d) → Galería (4 d) → Cine (6 d) → Drop (5 d) → Estudio (5 d) → Tipo (3 d) | ~30 días | Orden por valor: Marquesina primero, porque es la que más se parece a lo que ya vendes |
+| **F. QA** | Lighthouse móvil, CLS, accesibilidad, previews en Apariencia | ~3 días | |
+| **Aparte** | Entradas: escáner offline, nominativas, promociones · Tienda: email de envío, envíos, IVA, cupones · Contabilidad: P&L y gestoría · Wallets: pases actualizables y fidelización · Sponsors v2 | según demanda | Se priorizan con el primer cliente real que lo pida |
+
+Total aproximado del bloque A-F: **55-65 días laborables**. Las plantillas son el grueso.
+
+**Encaje con lo ya planificado:** el ensayo de Next 15 recomienda hacerse en diciembre durante el standby. Conviene hacer **A antes**, y **C-E después** de subir a Next 15 (para no construir animaciones sobre una versión que se va a cambiar; View Transitions y Framer también se verán afectados).
+
+---
+
+## 6. Decisiones pendientes del dueño
+1. ¿Se confirma el orden A → B → C-F, o prefieres empezar por las plantillas (lo visible) y dejar las correcciones para el standby?
+2. ¿Una cuenta de pago **por módulo** (Entradas y Tienda con cuentas distintas) o la misma pasarela compartida con etiqueta "usado por"?
+3. Permisos por módulo: ¿quieres roles con nombre (Propietario, Gestor de tienda, Contable…) o una lista de módulos marcable por usuario?
+4. ¿Cuántas plantillas en la primera tanda? Mi propuesta: **Marquesina, Galería y Tipo** (cubren festivales, cultura y quien no tiene fotos), y las otras tres bajo demanda.
+5. Para Estudio (servicios): ¿qué secciones necesitan tus primeros clientes de este tipo? (servicios, casos, equipo, precios, reservas, blog…).

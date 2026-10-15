@@ -32,6 +32,7 @@ const rules: Rule[] = [
   { prefix: '/api/webhooks', owner: 'nucleo' },
   { prefix: '/api/admin/config', owner: 'nucleo' },
   { prefix: '/api/admin/users', owner: 'nucleo' },
+  { prefix: '/api/admin/roles', owner: 'nucleo' },
   { prefix: '/api/admin/theme', owner: 'nucleo' },
   { prefix: '/api/admin/contact', owner: 'nucleo' },
   { prefix: '/api/contact', owner: 'nucleo' },

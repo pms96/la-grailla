@@ -6,6 +6,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { importeGastoConIva as precioConIvaTotal } from '@/lib/gasto-calc';
+import { isModuleEnabled } from '@/lib/modules/runtime';
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
@@ -29,19 +30,26 @@ export async function GET(request: Request) {
       orderBy: { anio: 'desc' },
     });
 
+    // Los ingresos solo se leen de los módulos que el cliente tiene: sin Entradas o sin Sponsors sus tablas pueden conservar filas de
+    // antes (apagar un módulo no las borra) y no deben colarse en el margen.
+    const hasEntradas = isModuleEnabled('entradas');
+    const hasSponsors = isModuleEnabled('sponsors');
+
     const [gastos, gastosAnterior, eventosEnlazados, patrociniosAgg] = await Promise.all([
       prisma.gasto.findMany({ where: { temporadaId } }),
       temporadaAnterior ? prisma.gasto.findMany({ where: { temporadaId: temporadaAnterior.id } }) : Promise.resolve([]),
-      prisma.event.findMany({ where: { temporadaId }, select: { id: true } }),
+      hasEntradas ? prisma.event.findMany({ where: { temporadaId }, select: { id: true } }) : Promise.resolve([] as { id: string }[]),
       // Ingreso por patrocinio de la temporada: sponsors marcados como pagados
       // cuya SponsorRequest está asignada a esta temporada (ver
       // mark-paid/route.ts) — independiente de si hay eventos enlazados.
       // isCollaboration: false excluye las aportaciones en especie: no ha
       // entrado dinero real, así que no deben contabilizarse como ingreso.
-      prisma.sponsor.aggregate({
-        where: { isPaid: true, isCollaboration: false, sponsorRequest: { temporadaId } },
-        _sum: { paidAmount: true },
-      }),
+      hasSponsors
+        ? prisma.sponsor.aggregate({
+            where: { isPaid: true, isCollaboration: false, sponsorRequest: { temporadaId } },
+            _sum: { paidAmount: true },
+          })
+        : Promise.resolve({ _sum: { paidAmount: null as number | null } }),
     ]);
 
     const gastoTotal = Math.round(gastos.reduce((acc, g) => acc + precioConIvaTotal(g.importeSinIva, g.ivaPercent), 0) * 100) / 100;

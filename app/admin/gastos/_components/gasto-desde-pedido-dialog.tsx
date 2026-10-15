@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { precioFinalUnidad, precioTrasDescuento } from '@/lib/compras/calculadora';
+import { ivaEfectivo } from '@/lib/gasto-calc';
 
 type PedidoConDetalle = Pedido & {
   proveedor: Proveedor;
@@ -27,6 +28,7 @@ type Props = {
 
 export function GastoDesdePedidoDialog({ pedido, onClose, onSaved }: Props) {
   const [importeSinIva, setImporteSinIva] = useState('');
+  const [ivaPercent, setIvaPercent] = useState('21');
   const [numDocumento, setNumDocumento] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -34,6 +36,10 @@ export function GastoDesdePedidoDialog({ pedido, onClose, onSaved }: Props) {
     if (!pedido) return;
     const total = pedido.lineas.reduce((sum, l) => sum + precioTrasDescuento(l.precioSinIva, l.descuentoPercent) * l.cantidad, 0);
     setImporteSinIva(total.toFixed(2));
+    // El IVA sale de las líneas del pedido (antes se guardaba siempre el 21 %, aunque fueran de 10 % o 4 %).
+    setIvaPercent(
+      String(ivaEfectivo(pedido.lineas.map((l) => ({ base: precioTrasDescuento(l.precioSinIva, l.descuentoPercent) * l.cantidad, ivaPercent: l.ivaPercent }))))
+    );
     setNumDocumento('');
   }, [pedido]);
 
@@ -54,7 +60,7 @@ export function GastoDesdePedidoDialog({ pedido, onClose, onSaved }: Props) {
           proveedorId: pedido.proveedorId,
           pedidoId: pedido.id,
           importeSinIva: Number(importeSinIva) || 0,
-          ivaPercent: 21,
+          ivaPercent: Number(ivaPercent),
           numDocumento: numDocumento || null,
           tipoDocumento: 'Factura',
         }),
@@ -81,6 +87,11 @@ export function GastoDesdePedidoDialog({ pedido, onClose, onSaved }: Props) {
           <div>
             <Label>Importe s/IVA (€) *</Label>
             <Input type="number" step="0.01" value={importeSinIva} onChange={(e) => setImporteSinIva(e.target.value)} className="mt-1" />
+          </div>
+          <div>
+            <Label>IVA (%) *</Label>
+            <Input type="number" step="0.01" min={0} max={100} value={ivaPercent} onChange={(e) => setIvaPercent(e.target.value)} className="mt-1" />
+            <p className="mt-1 text-xs text-muted-foreground">Calculado a partir de las líneas del pedido; cámbialo si la factura lleva otro.</p>
           </div>
           <div>
             <Label>Nº de factura</Label>

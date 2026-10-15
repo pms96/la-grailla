@@ -9,4 +9,4 @@
  * Un test comprueba que la carpeta existe y que no es posterior a la última migración del repo.
  *
  * Archivo sin dependencias de Node: lo importa el middleware (edge). */
-export const FRONT_MIN_SCHEMA = '20261009090000_reconcile_queue';
+export const FRONT_MIN_SCHEMA = '20261015120000_access_roles';

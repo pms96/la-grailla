@@ -139,7 +139,8 @@ export async function POST(request: Request) {
     // de por medio.
     const requestedQuantities = new Map<string, number>();
     for (const item of items) {
-      const tt = event.ticketTypes?.find((t) => t?.id === item?.ticketTypeId);
+      // `isActive`: un tipo desactivado en el admin no se vende, aunque alguien llame a la API a mano (la web solo lo oculta).
+      const tt = event.ticketTypes?.find((t) => t?.id === item?.ticketTypeId && t.isActive);
       if (!tt) return NextResponse.json({ error: 'Tipo de entrada no válido' }, { status: 400 });
       requestedQuantities.set(tt.id, (requestedQuantities.get(tt.id) ?? 0) + (item?.quantity ?? 1));
     }
@@ -176,7 +177,8 @@ export async function POST(request: Request) {
         const ticketData: { ticketTypeId: string; quantity: number; name: string }[] = [];
         for (const [ticketTypeId, quantity] of requestedQuantities) {
           const tt = freshTicketTypes.find((t) => t.id === ticketTypeId);
-          if (!tt) throw new OrderRejectedError('Tipo de entrada no válido');
+          // Se vuelve a comprobar con los datos frescos y el lock tomado: el admin pudo desactivarlo mientras se esperaba.
+          if (!tt || !tt.isActive || tt.eventId !== eventId) throw new OrderRejectedError('Tipo de entrada no válido');
           if (tt.soldCount + quantity > tt.maxQuantity) {
             throw new OrderRejectedError(`No hay suficientes entradas de ${tt.name}`);
           }

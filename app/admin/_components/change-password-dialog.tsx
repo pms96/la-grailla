@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { signOut } from 'next-auth/react';
 
 const EMPTY = { currentPassword: '', newPassword: '', confirmPassword: '' };
 
@@ -39,9 +40,15 @@ export function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; on
         toast.error(data?.error ?? 'No se ha podido cambiar la contraseña');
         return;
       }
-      toast.success('Contraseña actualizada');
       setForm(EMPTY);
       onOpenChange(false);
+      // Cambiar la contraseña cierra todas las sesiones, la actual incluida: se vuelve a la pantalla de entrada.
+      if (data?.signOut) {
+        toast.success('Contraseña actualizada. Entra de nuevo con la nueva.');
+        await signOut({ callbackUrl: '/auth/login' });
+        return;
+      }
+      toast.success('Contraseña actualizada');
     } catch {
       toast.error('Error de conexión');
     } finally {

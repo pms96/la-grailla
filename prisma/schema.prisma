@@ -76,6 +76,12 @@ model User {
   hashedPassword    String?
   image             String?
   role              UserRole              @default(USER)
+  // Qué módulos puede administrar este usuario (solo cuenta si role = ADMIN). null = todos (propietario, como siempre). Una clave de
+  // rol predefinido (`entradas`, `tienda`, `contabilidad`, `sponsors`) o `c_<id>` de un AccessRole personalizado. Sin texto libre en
+  // ninguna ruta de código: una clave desconocida no da acceso a nada.
+  accessRole         String?
+  // Las sesiones iniciadas ANTES de esta fecha dejan de valer (cambio de contraseña, «cerrar sesiones»). null = ninguna revocada.
+  sessionsValidAfter DateTime?
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
   accounts          Account[]
@@ -86,6 +92,16 @@ model User {
   sponsorEmailsSent SponsorEmailLog[]     @relation("SponsorEmailsSent")
   gastosCreados     Gasto[]
   ingresosCreados   Ingreso[]
+}
+
+// Rol personalizado que crea el propio cliente: un alias y una lista de módulos que puede administrar quien lo tenga. Los roles
+// predefinidos (Propietario, Gestor de entradas, de tienda…) viven en código (lib/modules/access.ts), no aquí.
+model AccessRole {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  modules   String[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Account {

@@ -53,13 +53,25 @@ export async function GET(request: Request, { params }: { params: { sponsorId: s
     // aprobado Y ha pagado — si el admin lo sube o aprueba antes (el
     // pipeline interno no depende del pago, ver mark-paid/route.ts), el
     // sponsor sigue viendo el aviso de pago pendiente en vez del vídeo.
-    const { finalVideoUrl, finalVideoFileName, finalVideoSize, finalVideoUploadedAt, paidAmount, paidAt, ...rest } = sponsor;
+    const { finalVideoUrl, finalVideoFileName, finalVideoSize, finalVideoUploadedAt } = sponsor;
     const finalVideo =
       sponsor.status === 'APROBADO_PARA_VIDEO' && sponsor.isPaid && finalVideoUrl
         ? { url: finalVideoUrl, fileName: finalVideoFileName, size: finalVideoSize, uploadedAt: finalVideoUploadedAt }
         : null;
 
-    return NextResponse.json({ ...rest, finalVideo });
+    // Lista cerrada: solo lo que pinta la pantalla del portal. Antes se devolvía la fila entera (`...rest`) y salían la investigación
+    // privada del admin (brandContext), el error de envío del email y los contadores internos de generación.
+    return NextResponse.json({
+      id: sponsor.id,
+      status: sponsor.status,
+      guidedAnswers: sponsor.guidedAnswers,
+      freeText: sponsor.freeText,
+      isPaid: sponsor.isPaid,
+      sponsorRequest: sponsor.sponsorRequest,
+      currentAsset: sponsor.currentAsset,
+      assets: sponsor.assets,
+      finalVideo,
+    });
   } catch (error) {
     return handleApiError(error, 'GET /api/sponsors/portal/[sponsorId]');
   }

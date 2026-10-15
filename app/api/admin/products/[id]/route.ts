@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { seasonLinkEnabled } from '@/lib/modules/season-link';
 import { syncProductVariants } from '@/lib/product-stock';
 
 const variantStockSchema = z.object({
@@ -18,7 +19,7 @@ const variantStockSchema = z.object({
 const updateProductSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional().nullable(),
-  price: z.coerce.number().optional(),
+  price: z.coerce.number().min(0).max(100_000).optional(),
   imageUrl: z.string().optional().nullable(),
   images: z.array(z.string()).optional(),
   category: z.string().optional().nullable(),
@@ -49,7 +50,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       if (body?.sizes !== undefined) data.sizes = body.sizes || null;
       if (body?.colors !== undefined) data.colors = body.colors || null;
       if (body?.isActive !== undefined) data.isActive = Boolean(body.isActive);
-      if (body?.temporadaId !== undefined) {
+      if (body?.temporadaId !== undefined && seasonLinkEnabled()) {
         data.temporada = body.temporadaId ? { connect: { id: body.temporadaId } } : { disconnect: true };
       }
 

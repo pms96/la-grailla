@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     });
 
     // Aviso al operador del cliente. Si no tiene admin_email el mensaje queda igualmente en la bandeja; nunca se envía a otra dirección.
-    const to = await getOperatorEmail();
+    const to = await getOperatorEmail('contacto');
     if (to) {
       const mail = await contactNotificationEmail(saved);
       const sent = await sendMail({ to, subject: mail.subject, html: mail.html, replyTo: saved.email });

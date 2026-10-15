@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { seasonLinkEnabled } from '@/lib/modules/season-link';
 
 const updateEventSchema = z.object({
   name: z.string().min(1).optional(),
@@ -102,7 +103,7 @@ export async function PUT(
         status: body?.status,
         latitude: body?.latitude === '' || body?.latitude == null ? null : Number(body.latitude),
         longitude: body?.longitude === '' || body?.longitude == null ? null : Number(body.longitude),
-        temporadaId: body?.temporadaId === undefined ? undefined : body.temporadaId || null,
+        temporadaId: body?.temporadaId === undefined || !seasonLinkEnabled() ? undefined : body.temporadaId || null,
       },
     });
     return NextResponse.json(event);
@@ -135,7 +136,7 @@ export async function PATCH(
     if (body?.resetAlerts === true) data.alertsSent = '';
     if (body?.latitude !== undefined) data.latitude = body.latitude === '' || body.latitude === null ? null : Number(body.latitude);
     if (body?.longitude !== undefined) data.longitude = body.longitude === '' || body.longitude === null ? null : Number(body.longitude);
-    if (body?.temporadaId !== undefined) {
+    if (body?.temporadaId !== undefined && seasonLinkEnabled()) {
       data.temporada = body.temporadaId === null ? { disconnect: true } : { connect: { id: body.temporadaId } };
     }
     if (body?.archivado !== undefined) data.archivado = body.archivado;

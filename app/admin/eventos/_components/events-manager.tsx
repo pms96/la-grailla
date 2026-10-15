@@ -63,6 +63,8 @@ export default function EventsManager() {
   const { organizer } = useBrand();
   const [events, setEvents] = useState<EventWithCount[]>([]);
   const [temporadas, setTemporadas] = useState<Temporada[]>([]);
+  // Las temporadas son de Contabilidad: sin ese módulo la API responde 404 y el selector no se muestra.
+  const [temporadasDisponibles, setTemporadasDisponibles] = useState(false);
   const [verArchivados, setVerArchivados] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -83,7 +85,10 @@ export default function EventsManager() {
   useEffect(() => {
     fetchEvents();
     fetch('/api/admin/compras/temporadas')
-      .then((r) => r.json())
+      .then((r) => {
+        setTemporadasDisponibles(r.ok);
+        return r.json();
+      })
       .then((d) => setTemporadas(Array.isArray(d) ? d : []))
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -259,22 +264,24 @@ export default function EventsManager() {
                 <div><Label>Ciudad</Label><Input value={form?.city ?? ''} onChange={handleChange('city')} className="mt-1" /></div>
                 <div><Label>Aforo máximo</Label><Input type="number" value={form?.maxCapacity ?? 500} onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField('maxCapacity', parseInt(e?.target?.value) || 500)} className="mt-1" /></div>
               </div>
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <ShoppingCart className="h-4 w-4 text-primary" />
-                  <Label>Temporada de compras (opcional)</Label>
+              {temporadasDisponibles && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <ShoppingCart className="h-4 w-4 text-primary" />
+                    <Label>Temporada de compras (opcional)</Label>
+                  </div>
+                  <TemporadaSelector
+                    temporadas={temporadas}
+                    temporadaId={form?.temporadaId ?? null}
+                    onChange={(id) => updateField('temporadaId', id)}
+                    onTemporadaCreada={(t) => setTemporadas((prev) => [t, ...prev])}
+                    allowNone
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Vincula este evento a la temporada de Compras/Gastos de la caseta, para poder calcular el resultado económico real más adelante.
+                  </p>
                 </div>
-                <TemporadaSelector
-                  temporadas={temporadas}
-                  temporadaId={form?.temporadaId ?? null}
-                  onChange={(id) => updateField('temporadaId', id)}
-                  onTemporadaCreada={(t) => setTemporadas((prev) => [t, ...prev])}
-                  allowNone
-                />
-                <p className="text-xs text-muted-foreground">
-                  Vincula este evento a la temporada de Compras/Gastos de la caseta, para poder calcular el resultado económico real más adelante.
-                </p>
-              </div>
+              )}
               <div>
                 <Label>Máx. entradas por email (opcional)</Label>
                 <Input type="number" min={1} value={form?.maxTicketsPerEmail ?? ''} onChange={handleChange('maxTicketsPerEmail')} className="mt-1" placeholder="Sin límite" />

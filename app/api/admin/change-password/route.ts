@@ -29,8 +29,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Contraseña actual incorrecta' }, { status: 400 });
     }
     const hashedPassword = await bcrypt.hash(body.newPassword, 12);
-    await prisma.user.update({ where: { id: user.id }, data: { hashedPassword } });
-    return NextResponse.json({ success: true });
+    // Cambiar la contraseña cierra TODAS las sesiones abiertas de esta cuenta (también las de quien la hubiera robado), incluida la
+    // actual: `signOut` le dice a la pantalla que vuelva a la de entrada.
+    await prisma.user.update({ where: { id: user.id }, data: { hashedPassword, sessionsValidAfter: new Date() } });
+    return NextResponse.json({ success: true, signOut: true });
   } catch (error) {
     return handleApiError(error, 'POST /api/admin/change-password');
   }

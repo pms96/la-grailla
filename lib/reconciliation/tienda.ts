@@ -4,12 +4,15 @@ import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { sendMail } from '@/lib/mailer';
 import { escapeHtml as esc } from '@/lib/html-escape';
 import { getBrand } from '@/lib/brand/brand';
-import { alertPaidButInactiveOrder } from './shared';
+import { alertPaidButInactiveOrder, paymentMatchesOrder, type PaidInfo } from './shared';
+import { refundReturnsStock } from '@/lib/shop-order-status';
 
 /* Reconciliación de pedidos de la TIENDA (módulo Tienda): marcar pagado, liberar stock al caducar, anular y reembolsar. */
 
 /** Marca un pedido de tienda como pagado y envía el email de confirmación (una sola vez). */
-export async function completeShopOrder(orderId: string): Promise<void> {
+export async function completeShopOrder(orderId: string, paid?: PaidInfo): Promise<void> {
+  // Si la pasarela dice cuánto cobró y no cuadra con el pedido, no se marca como pagado (ver paymentMatchesOrder).
+  if (!(await paymentMatchesOrder('tienda', orderId, paid))) return;
   const { count } = await prisma.shopOrder.updateMany({
     where: { id: orderId, status: 'PENDING' },
     data: { status: 'PAID' },
@@ -150,7 +153,7 @@ export async function invalidateShopOrder(
 
   if (mode === 'REFUNDED' && paidWithRealGateway && order.paymentProvider && order.paymentId) {
     try {
-      const provider = await getPaymentProviderByName(order.paymentProvider);
+      const provider = await getPaymentProviderByName(order.paymentProvider, 'tienda');
       const refund = await provider.refund(order.paymentId, order.totalAmount, `refund_${order.id}`);
       if (!refund.success) {
         await prisma.shopOrder.update({ where: { id: shopOrderId }, data: { status: order.status } });
@@ -165,13 +168,16 @@ export async function invalidateShopOrder(
     }
   }
 
-  const { releaseShopStock } = await import('@/lib/product-stock');
-  await prisma.$transaction((tx) =>
-    releaseShopStock(
-      tx,
-      (order.items ?? []).map((i) => ({ productId: i.productId, quantity: i.quantity, size: i.size, color: i.color }))
-    )
-  );
+  // Con la mercancía ya enviada o entregada el dinero se devuelve pero el stock NO se repone (no ha vuelto al almacén).
+  if (mode === 'CANCELLED' || refundReturnsStock(order.status)) {
+    const { releaseShopStock } = await import('@/lib/product-stock');
+    await prisma.$transaction((tx) =>
+      releaseShopStock(
+        tx,
+        (order.items ?? []).map((i) => ({ productId: i.productId, quantity: i.quantity, size: i.size, color: i.color }))
+      )
+    );
+  }
 
   return { success: true, status: mode };
 }

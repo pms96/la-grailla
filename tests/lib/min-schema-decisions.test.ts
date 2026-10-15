@@ -22,7 +22,7 @@ afterEach(() => {
   for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
 });
 
-const MIN = '20261009090000_reconcile_queue';
+const MIN = '20261015120000_access_roles';
 
 describe('migraciones posteriores a FRONT_MIN_SCHEMA', () => {
   it('las anteriores o iguales no necesitan decisión', () => {

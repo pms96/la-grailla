@@ -219,6 +219,8 @@ describe('sesión por cliente', () => {
   });
 
   it('el callback de sesión rechaza un token de otro cliente y uno sin `tid` salvo en el legacy', async () => {
+    // La sesión ahora se contrasta con la BD del cliente: el usuario del token tiene que existir en ella.
+    await tenantClient('a').user.upsert({ where: { id: 'u' }, update: {}, create: { id: 'u', email: 'u-isolation@cliente.test', role: 'ADMIN' } });
     const session = { user: {}, expires: 'x' } as never;
     const run = (slot: 'a' | 'b', token: Record<string, unknown>, over = {}) =>
       withTenantForTest(slot, () => authOptions.callbacks!.session!({ session, token } as never), over) as unknown as Promise<{ user?: { role?: string } }>;

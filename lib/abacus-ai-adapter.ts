@@ -203,7 +203,7 @@ export class AbacusAIAdapter implements AbacusAIProvider {
 
   async generateVideoPrompt(input: GenerateVideoPromptInput): Promise<GenerateVideoPromptResult> {
     const OpenAI = (await import('openai')).default;
-    const client = new OpenAI({ baseURL: 'https://routellm.abacus.ai/v1', apiKey: this.apiKey });
+    const client = new OpenAI({ baseURL: 'https://routellm.abacus.ai/v1', apiKey: this.apiKey, timeout: 45_000, maxRetries: 0 });
 
     const completion = await client.chat.completions.create({
       model: 'route-llm',
@@ -226,7 +226,7 @@ export class AbacusAIAdapter implements AbacusAIProvider {
 
   async extractArticulosFromImage(input: ExtractArticulosFromImageInput): Promise<ExtractArticulosFromImageResult> {
     const OpenAI = (await import('openai')).default;
-    const client = new OpenAI({ baseURL: 'https://routellm.abacus.ai/v1', apiKey: this.apiKey });
+    const client = new OpenAI({ baseURL: 'https://routellm.abacus.ai/v1', apiKey: this.apiKey, timeout: 45_000, maxRetries: 0 });
 
     const completion = await client.chat.completions.create({
       model: 'route-llm',

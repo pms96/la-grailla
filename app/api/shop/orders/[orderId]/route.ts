@@ -33,10 +33,10 @@ export async function GET(
       order.paymentId
     ) {
       try {
-        const provider = await getPaymentProviderByName(order.paymentProvider);
+        const provider = await getPaymentProviderByName(order.paymentProvider, 'tienda');
         const result = await provider.verifyPayment(order.paymentId);
         if (result.success) {
-          await completeShopOrder(order.id);
+          await completeShopOrder(order.id, result);
           order = await prisma.shopOrder.findUnique({
             where: { id: order.id },
             include: { items: { include: { product: true } } },

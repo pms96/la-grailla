@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { seasonLinkEnabled } from '@/lib/modules/season-link';
 import { syncProductVariants } from '@/lib/product-stock';
 
 const variantStockSchema = z.object({
@@ -17,7 +18,8 @@ const variantStockSchema = z.object({
 const createProductSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
-  price: z.coerce.number().optional(),
+  // 0 = producto gratis; negativo daba pedidos con total negativo. El tope evita desbordar el Decimal(10,2) con un 500.
+  price: z.coerce.number().min(0).max(100_000).optional(),
   imageUrl: z.string().optional().nullable(),
   images: z.array(z.string()).optional(),
   category: z.string().optional(),
@@ -65,7 +67,7 @@ export async function POST(request: Request) {
           sizes: body?.sizes || null,
           colors: body?.colors || null,
           isActive: body?.isActive ?? true,
-          temporadaId: body?.temporadaId || null,
+          temporadaId: seasonLinkEnabled() ? body?.temporadaId || null : null,
         },
       });
       await syncProductVariants(tx, created.id, created.sizes, created.colors, body.variants);

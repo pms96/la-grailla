@@ -1,4 +1,9 @@
 export const dynamic = 'force-dynamic';
+// La llamada a la IA tiene su propio límite (ver abacus-ai-adapter) por debajo de este: así el error se captura aquí y no lo mata Vercel.
+export const maxDuration = 60;
+
+/** Una generación que lleva más de esto "en curso" se da por muerta (la función murió) y se puede reintentar. */
+const STALE_CLAIM_MS = 5 * 60_000;
 
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
@@ -33,7 +38,9 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const claim = await prisma.sponsor.updateMany({
       where: {
         id: sponsorId,
-        isGenerating: false,
+        // `updatedAt` se renueva al reclamar: pasado STALE_CLAIM_MS sin terminar, el claim se da por muerto y se puede reintentar
+        // (antes el sponsor quedaba "generando" para siempre si Vercel mataba la función antes del `catch`).
+        OR: [{ isGenerating: false }, { isGenerating: true, updatedAt: { lt: new Date(Date.now() - STALE_CLAIM_MS) } }],
         generationCount: { lt: sponsor.maxGenerations },
         status: { in: ['LISTO_PARA_GENERAR', 'PROMPT_GENERADO'] },
       },

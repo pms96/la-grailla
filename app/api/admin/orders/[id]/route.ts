@@ -84,6 +84,7 @@ export async function PATCH(
           { status: 422 }
         );
       }
+      let paid: { amount?: number; currency?: string } | undefined;
       try {
         const provider = await getPaymentProviderByName(existing.paymentProvider);
         const verification = await provider.verifyPayment(existing.paymentId);
@@ -93,13 +94,14 @@ export async function PATCH(
             { status: 422 }
           );
         }
+        paid = { amount: verification.amount, currency: verification.currency };
       } catch (err) {
         return NextResponse.json(
           { error: err instanceof Error ? err.message : 'Error al consultar la pasarela de pago' },
           { status: 422 }
         );
       }
-      await completeOrder(params?.id, getBaseUrl(request));
+      await completeOrder(params?.id, getBaseUrl(request), paid);
     } else if (body.action === 'complete') {
       // Marcado manual — el admin ya ha comprobado el cobro fuera de la app
       // (extracto bancario, panel de Stripe...), normalmente porque el

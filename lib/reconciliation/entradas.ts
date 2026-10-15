@@ -3,7 +3,7 @@ import type { OrderStatus, TicketStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { sendTicketsEmail } from '@/lib/tickets';
-import { alertPaidButInactiveOrder } from './shared';
+import { alertPaidButInactiveOrder, paymentMatchesOrder, type PaidInfo } from './shared';
 
 /* Reconciliación de pedidos de ENTRADAS (módulo Entradas): marcar pagado, liberar aforo al caducar, anular y reembolsar. Los pedidos de
  * la tienda están en ./tienda.ts: una web con solo Tienda no carga nada de entradas (PDF, wallet, aforo). */
@@ -19,7 +19,9 @@ import { alertPaidButInactiveOrder } from './shared';
 // a la vez, solo uno de los dos gana la transición y el resto no reescribe
 // nada. Tras completar (o si ya estaba COMPLETED sin email), intenta enviar
 // las entradas: el comprador no debe depender de volver a /confirmacion.
-export async function completeOrder(orderId: string, baseUrl?: string): Promise<void> {
+export async function completeOrder(orderId: string, baseUrl?: string, paid?: PaidInfo): Promise<void> {
+  // Si la pasarela dice cuánto cobró y no cuadra con el pedido, no se completa (ver paymentMatchesOrder).
+  if (!(await paymentMatchesOrder('entradas', orderId, paid))) return;
   const result = await prisma.$transaction(async (tx) => {
     const { count } = await tx.order.updateMany({
       where: { id: orderId, status: 'PENDING' },

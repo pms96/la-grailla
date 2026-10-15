@@ -25,10 +25,15 @@ export default function PedidosPage() {
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<string>('all');
   const [temporadas, setTemporadas] = useState<Temporada[]>([]);
+  // Las temporadas son de Contabilidad: sin ese módulo la API responde 404 y el selector no se muestra.
+  const [temporadasDisponibles, setTemporadasDisponibles] = useState(false);
 
   useEffect(() => {
     fetch('/api/admin/compras/temporadas')
-      .then((r) => r.json())
+      .then((r) => {
+        setTemporadasDisponibles(r.ok);
+        return r.json();
+      })
       .then((d) => setTemporadas(Array.isArray(d) ? d : []))
       .catch(() => {});
   }, []);
@@ -140,13 +145,15 @@ export default function PedidosPage() {
                       }
                     }}
                   />
-                  <TemporadaSelector
-                    temporadas={temporadas}
-                    temporadaId={order?.temporadaId ?? null}
-                    onChange={(id) => updateOrder(order?.id, { temporadaId: id })}
-                    onTemporadaCreada={(t) => setTemporadas((prev) => [t, ...prev])}
-                    allowNone
-                  />
+                  {temporadasDisponibles && (
+                    <TemporadaSelector
+                      temporadas={temporadas}
+                      temporadaId={order?.temporadaId ?? null}
+                      onChange={(id) => updateOrder(order?.id, { temporadaId: id })}
+                      onTemporadaCreada={(t) => setTemporadas((prev) => [t, ...prev])}
+                      allowNone
+                    />
+                  )}
                 </div>
               </CardContent>
             </Card>

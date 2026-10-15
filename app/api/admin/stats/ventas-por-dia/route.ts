@@ -7,6 +7,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { addDays, buildVentasPorDia, madridDayStart } from '@/lib/ventas-por-dia';
+import { isModuleEnabled } from '@/lib/modules/runtime';
 
 const dayParam = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const querySchema = z.object({
@@ -54,7 +55,8 @@ export async function GET(request: Request) {
       }),
       // La caja manual no se registra por evento, así que con filtro de
       // evento no se compara. Ingreso.fecha es medianoche UTC del día elegido.
-      eventId
+      // La caja manual es de Contabilidad: sin ese módulo no se lee, aunque queden ingresos de antes en la BD.
+      eventId || !isModuleEnabled('contabilidad')
         ? Promise.resolve(null)
         : prisma.ingreso.findMany({
             where: {

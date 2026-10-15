@@ -8,6 +8,8 @@ import { getInstallationSecret, isLegacyTenant } from '@/lib/tenant/installation
 import { sessionCookieName, SESSION_COOKIE_HOST } from '@/lib/tenant/session-cookie';
 import { isDevHost } from '@/lib/tenant/dev-host';
 import { isPlatformMode } from '@/lib/tenant/mode';
+import { loadUserAccess } from '@/lib/access-roles';
+import { modulesKey } from '@/lib/modules/access';
 
 const baseOptions: NextAuthOptions = {
   // Sin adapter a propósito: la sesión es JWT y el único proveedor es
@@ -51,6 +53,13 @@ const baseOptions: NextAuthOptions = {
         token.role = user.role;
         // Defensa en profundidad: además de que el secreto es distinto por cliente, el token lleva su cliente.
         if (isPlatformMode()) token.tid = requireTenant().tenantId;
+        // Cuándo se inició ESTA sesión. No se usa `iat`: NextAuth lo renueva cada vez que se lee la sesión, y una sesión vieja que siga
+        // abierta se saltaría la revocación.
+        token.sia = Date.now();
+        // Permisos por módulo. El middleware (sin BD) los lee del token; el servidor los contrasta con la BD en cada lectura (abajo).
+        const access = await loadUserAccess(user.id);
+        token.mods = access?.modules ?? undefined;
+        token.mk = modulesKey(access?.modules ?? null);
       }
       return token;
     },
@@ -60,8 +69,30 @@ const baseOptions: NextAuthOptions = {
         return { expires: session.expires } as typeof session;
       }
       if (session.user && token?.id) {
-        session.user.id = token.id as string;
-        session.user.role = token.role as string;
+        let access: Awaited<ReturnType<typeof loadUserAccess>> = null;
+        let lookupFailed = false;
+        try {
+          access = await loadUserAccess(token.id as string);
+        } catch (err) {
+          // Un fallo de la BD no debe dejar sin sesión al personal de puerta en plena noche de evento: se cae al token, como antes.
+          lookupFailed = true;
+          console.error('[auth] No se pudo contrastar la sesión con la BD; se usa el token:', err instanceof Error ? err.message : err);
+        }
+        if (!lookupFailed) {
+          // El usuario ya no existe, o su sesión se inició antes de que la revocaran, o le cambiaron los permisos con la sesión
+          // abierta (hay que entrar de nuevo para que el token lleve los nuevos): sin usuario.
+          const startedAt = (token.sia as number | undefined) ?? 0;
+          if (!access) return { expires: session.expires } as typeof session;
+          if (access.sessionsValidAfter && startedAt < access.sessionsValidAfter.getTime()) return { expires: session.expires } as typeof session;
+          if (((token.mk as string | undefined) ?? '*') !== modulesKey(access.modules)) return { expires: session.expires } as typeof session;
+          session.user.id = token.id as string;
+          session.user.role = access.role; // el rol de HOY, no el que llevaba el token al iniciar sesión
+          session.user.modules = access.modules;
+        } else {
+          session.user.id = token.id as string;
+          session.user.role = token.role as string;
+          session.user.modules = (token.mods as string[] | undefined) ?? null;
+        }
       }
       return session;
     },

@@ -71,6 +71,9 @@ const CONFIG_DEFAULTS: Record<string, string> = {
   phomemo_confirm_every_chunks: '8',
 };
 
+/** Todas las claves con valor por defecto (para el test que obliga a declarar el módulo dueño de cada una: lib/config-ownership.ts). */
+export const CONFIG_DEFAULT_KEYS: readonly string[] = Object.keys(CONFIG_DEFAULTS);
+
 /** Dirección fija de La Grailla: el destinatario de los avisos de operación en la instalación única. */
 const LEGACY_OPERATOR_EMAIL = 'grupolagrailla@gmail.com';
 
@@ -101,10 +104,19 @@ function configDefault(key: string): string {
  *  Instalación única: La Grailla, como siempre. Modo plataforma: el `admin_email` DEL CLIENTE (el cliente legacy, el suyo o el de
  *  La Grailla si no guardó ninguno) y vacío si un cliente nuevo no lo configuró (quien llama no envía): un aviso con datos
  *  personales nunca puede salir hacia otro cliente. */
-export async function getOperatorEmail(): Promise<string> {
+export async function getOperatorEmail(scope?: NotificationScope): Promise<string> {
+  // Un módulo puede tener su propio destinatario (quien lleva la tienda recibe lo de la tienda): `notify_email_<módulo>`. Vacío o
+  // ausente = el de administración, como hasta ahora.
+  if (scope) {
+    const own = (await getConfig(`notify_email_${scope}`)).trim();
+    if (own) return own;
+  }
   if (!isPlatformMode()) return LEGACY_OPERATOR_EMAIL;
   return (await getConfig('admin_email')).trim();
 }
+
+/** Módulos con destinatario propio de avisos (`notify_email_<scope>` en la configuración). */
+export type NotificationScope = 'contacto' | 'entradas' | 'tienda' | 'sponsors';
 
 // Una credencial cifrada que no se puede abrir NO debe confundirse con "sin
 // configurar": se registra con el nombre de la clave (nunca el valor) y, según
@@ -144,6 +156,15 @@ export async function getConfigOrThrow(key: string): Promise<string> {
     return configDefault(key);
   }
   return decryptConfigValue(key, raw, true);
+}
+
+/** ¿Existe la fila de esta clave? (distinto de "tiene valor": una clave guardada vacía o en «mock» existe). */
+export async function hasConfigRow(key: string): Promise<boolean> {
+  try {
+    return (await prisma.appConfig.findUnique({ where: { key }, select: { key: true } })) !== null;
+  } catch {
+    return false;
+  }
 }
 
 export async function getConfigs(keys: string[]): Promise<Record<string, string>> {

@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     `;
 
     // Sin destinatario configurado (cliente nuevo sin admin_email) la solicitud queda guardada y no se avisa a nadie más.
-    const operatorEmail = await getOperatorEmail();
+    const operatorEmail = await getOperatorEmail('sponsors');
     if (operatorEmail) {
       await sendMail({
         subject: `Nueva solicitud de patrocinio: ${companyName}`,

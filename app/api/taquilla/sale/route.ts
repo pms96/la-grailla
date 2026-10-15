@@ -88,8 +88,9 @@ export async function POST(request: Request) {
       // simultáneas no puedan leer stock/aforo obsoleto y sobrevender.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${eventId}))`;
 
+      // Solo tipos de ESTE evento: antes se aceptaba el de otro evento, se vendía contra el aforo equivocado y subía el contador ajeno.
       const freshTicketTypes = await tx.ticketType.findMany({
-        where: { id: { in: Array.from(requestedQuantities.keys()) } },
+        where: { id: { in: Array.from(requestedQuantities.keys()) }, eventId },
       });
 
       let totalAmount = 0;

@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { seasonLinkEnabled } from '@/lib/modules/season-link';
 
 const createEventSchema = z.object({
   name: z.string().min(1),
@@ -57,7 +58,8 @@ export async function GET(request: Request) {
         // tickets: excluye CANCELLED/REFUNDED para que represente entradas emitidas/vendidas,
         // no el histórico completo de tickets creados alguna vez.
         _count: { select: { tickets: { where: { status: { notIn: ['CANCELLED', 'REFUNDED'] } } }, orders: true } },
-        temporada: { select: { id: true, nombre: true } },
+        // El nombre de la temporada es de Contabilidad: sin ese módulo no se devuelve.
+        ...(seasonLinkEnabled() ? { temporada: { select: { id: true, nombre: true } } } : {}),
       },
       orderBy: { date: 'desc' },
     });
@@ -149,7 +151,7 @@ export async function POST(request: Request) {
         latitude: body?.latitude === '' || body?.latitude == null ? null : Number(body.latitude),
         longitude: body?.longitude === '' || body?.longitude == null ? null : Number(body.longitude),
         alertThresholds: body?.alertThresholds ?? '80,95,100',
-        temporadaId: body?.temporadaId || null,
+        temporadaId: seasonLinkEnabled() ? body?.temporadaId || null : null,
       },
     });
     return NextResponse.json(event);

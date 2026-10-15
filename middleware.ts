@@ -2,6 +2,7 @@ import { withAuth, type NextRequestWithAuth } from 'next-auth/middleware';
 import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server';
 import { isCrossOriginMutation, isOriginCheckExempt } from '@/lib/origin-check';
 import { isAuthorizedStaffRequest } from '@/lib/staff-paths';
+import { pathAllowedForModules } from '@/lib/modules/access';
 import { isPlatformMode } from '@/lib/tenant/mode';
 import { platformMiddleware } from '@/lib/tenant/middleware';
 
@@ -34,6 +35,13 @@ const legacyMiddleware = withAuth(
     // callback `authorized` (que por defecto redirige a la pantalla de login).
     if (!isAuthorizedStaffRequest(path, token?.role)) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+
+    // Permisos por módulo (roles restringidos): ver lib/modules/access.ts. Sin `mods` en el token es el propietario.
+    if (token?.role === 'ADMIN' && !pathAllowedForModules(path, Array.isArray(token.mods) ? (token.mods as string[]) : null)) {
+      return path.startsWith('/api/')
+        ? NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 })
+        : NextResponse.redirect(new URL('/admin', req.url));
     }
 
     return NextResponse.next();

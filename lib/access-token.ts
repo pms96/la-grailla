@@ -94,6 +94,12 @@ export async function isStaffSession(): Promise<boolean> {
   return role === 'ADMIN' || role === 'TAQUILLA';
 }
 
+/** Solo ADMIN: para lo que el personal de puerta (TAQUILLA) no debe ver ni tocar (borradores, sponsors). */
+export async function isAdminSession(): Promise<boolean> {
+  const session = await getServerSession(authOptions);
+  return session?.user?.role === 'ADMIN';
+}
+
 /** Token de pedido válido o sesión staff. */
 export async function allowOrderAccess(
   orderId: string,
@@ -146,14 +152,14 @@ export function sponsorAccessQuery(sponsorId: string, tokenVersion: number): str
   return `t=${encodeURIComponent(signSponsorAccess(sponsorId, tokenVersion))}`;
 }
 
-/** Token de sponsor válido (con su versión vigente) o sesión de admin/taquilla. */
+/** Token de sponsor válido (con su versión vigente) o sesión de ADMIN. La taquilla no gestiona patrocinios. */
 export async function allowSponsorAccess(
   sponsorId: string,
   tokenVersion: number,
   token: string | null | undefined
 ): Promise<boolean> {
   if (verifySponsorAccess(sponsorId, tokenVersion, token)) return true;
-  return isStaffSession();
+  return isAdminSession();
 }
 
 export function getTokenFromRequest(request: Request): string | null {

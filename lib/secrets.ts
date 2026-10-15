@@ -30,6 +30,10 @@ export const SENSITIVE_CONFIG_KEYS = [
   'stripe_secret_key',
   'stripe_webhook_secret',
   'sumup_api_key',
+  // Cuenta de cobro propia de la Tienda (no comparte la de Entradas).
+  'shop_stripe_secret_key',
+  'shop_stripe_webhook_secret',
+  'shop_sumup_api_key',
   'google_wallet_service_account',
   'apple_wallet_cert_p12_base64',
   'apple_wallet_cert_password',

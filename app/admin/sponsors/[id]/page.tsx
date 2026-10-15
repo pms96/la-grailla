@@ -88,6 +88,8 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(true);
   const [temporadas, setTemporadas] = useState<Temporada[]>([]);
+  // Las temporadas son de Contabilidad: sin ese módulo la API responde 404 y el selector no se muestra.
+  const [temporadasDisponibles, setTemporadasDisponibles] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [promptDraft, setPromptDraft] = useState({ promptEs: '', promptEn: '' });
   const [brandContextDraft, setBrandContextDraft] = useState('');
@@ -122,7 +124,10 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
 
   useEffect(() => {
     fetch('/api/admin/compras/temporadas')
-      .then((r) => r.json())
+      .then((r) => {
+        setTemporadasDisponibles(r.ok);
+        return r.json();
+      })
       .then((d) => setTemporadas(Array.isArray(d) ? d : []))
       .catch(() => {});
   }, []);
@@ -341,13 +346,15 @@ export default function SponsorDetailPage({ params }: { params: { id: string } }
                 {busy === 'accept' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Aceptar y crear portal
               </Button>
             )}
-            <TemporadaSelector
-              temporadas={temporadas}
-              temporadaId={detail.temporadaId}
-              onChange={(id) => updateLead({ temporadaId: id })}
-              onTemporadaCreada={(t) => setTemporadas((prev) => [t, ...prev])}
-              allowNone
-            />
+            {temporadasDisponibles && (
+              <TemporadaSelector
+                temporadas={temporadas}
+                temporadaId={detail.temporadaId}
+                onChange={(id) => updateLead({ temporadaId: id })}
+                onTemporadaCreada={(t) => setTemporadas((prev) => [t, ...prev])}
+                allowNone
+              />
+            )}
           </div>
 
           <div>
