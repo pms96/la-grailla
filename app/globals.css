@@ -247,3 +247,10 @@
 [data-template='tipo'] > header {
   box-shadow: none;
 }
+
+/* Tipografías de titulares que solo existen en peso 400: los títulos y tarjetas genéricos llevan `font-bold`, y el navegador los pintaría con una
+ * negrita falsa (ensanchada y borrosa). El layout público marca la fuente con `data-display-font`. */
+[data-display-font='instrument-serif'] .font-display,
+[data-display-font='bebas-neue'] .font-display {
+  font-weight: 400;
+}

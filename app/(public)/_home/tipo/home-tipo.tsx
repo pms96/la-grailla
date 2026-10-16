@@ -44,7 +44,7 @@ export function TipoHero({ brandName, hero, featured }: { brandName: string; her
         <div className="mx-auto grid max-w-[1600px] items-end gap-10 px-4 pb-10 pt-10 md:grid-cols-12 md:gap-x-8 md:px-8 md:pb-16 md:pt-16">
           <div className="md:col-span-8">
             {eyebrow && <p className="tp-label mb-5 opacity-80 md:mb-8">{eyebrow}</p>}
-            <h1 className="tp-title" data-size={titleSize(headline)}>
+            <h1 className="tp-title" data-size={titleSize(headline, true)}>
               <TipoWords text={headline} />
             </h1>
 

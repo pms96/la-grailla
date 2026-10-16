@@ -14,6 +14,8 @@ import { Container } from '@/components/layouts/container';
 import { MobileBuyBar } from './_components/mobile-buy-bar';
 import { AgeWarningGate } from './_components/age-warning-gate';
 import { ReloadButton } from '@/components/reload-button';
+import { getBrand } from '@/lib/brand/brand';
+import { PageBanner, hasBanner } from '../../_templates/page-banner';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
@@ -87,6 +89,26 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
   const eventEnded = hasEventEnded(event?.date);
   const ageWarningMessage = getEventAgeWarningMessage(event ?? { ageWarningEnabled: false });
 
+  // Las plantillas nuevas (marquesina, galería, tipo) llevan su propia cabecera; Feria y Editorial conservan la de siempre.
+  const brand = await getBrand();
+  const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  const banner = hasBanner(brand.template) ? (
+    <PageBanner
+      template={brand.template}
+      brandName={brand.name}
+      title={event?.name ?? ''}
+      imageUrl={event?.imageUrl}
+      seed={event?.slug}
+      italicAccent={brand.theme?.fonts.display === 'instrument-serif'}
+      facts={[
+        { label: 'Fecha', value: capital(dateStr) },
+        { label: 'Horario', value: [event?.doorsOpen, event?.endTime].filter(Boolean).join(' — ') },
+        { label: 'Lugar', value: [event?.venue, event?.city].filter(Boolean).join(', ') },
+        { label: 'Edad mínima', value: `+${event?.minAge ?? 18}` },
+      ].filter((f) => f.value)}
+    />
+  ) : null;
+
   const ticketsCard = (
     <Card id="entradas">
       <CardContent className="p-6">
@@ -151,7 +173,8 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
 
   return (
     <>
-      {/* Cartel full-bleed — mismo lenguaje visual que el hero de home */}
+      {banner ?? (
+      /* Cartel full-bleed — mismo lenguaje visual que el hero de home */
       <div className="relative overflow-hidden min-h-[42vh] md:min-h-[48vh] flex items-end">
         {event?.imageUrl ? (
           <>
@@ -188,8 +211,9 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
           </FadeIn>
         </Container>
       </div>
+      )}
 
-      <Container size="lg">
+      <Container size={banner ? 'xl' : 'lg'}>
         {/* pb-24 en móvil: hueco para la barra fija de compra */}
         <div className="py-8 pb-28 lg:pb-8">
           <div className="grid lg:grid-cols-3 gap-8">

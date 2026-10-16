@@ -6,8 +6,7 @@ import { Container } from '@/components/layouts/container';
 export default function EventoDetailLoading() {
   return (
     <>
-      <div className="relative overflow-hidden min-h-[42vh] md:min-h-[48vh] flex items-end">
-        <div className="absolute inset-0 hero-gradient" />
+      <div className="relative overflow-hidden min-h-[42vh] md:min-h-[48vh] flex items-end border-b border-border/40">
         <Container size="lg" className="relative w-full pb-8 pt-28">
           <SkeletonPulse className="h-10 md:h-14 w-2/3 max-w-lg mb-4" />
           <div className="flex flex-wrap gap-3 mt-4">

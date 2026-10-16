@@ -16,7 +16,7 @@ import { titleSize, type TemplateEvent } from '../event-view';
 export type HomeMarquesinaProps = HomeTemplateProps;
 
 /** El titular partido en palabras: cada una sube desde su máscara (ver `.mq-word` en marquesina.css). El texto sigue siendo un único <h1>. */
-function Words({ text }: { text: string }) {
+export function Words({ text }: { text: string }) {
   const words = text.trim().split(/\s+/);
   return (
     <>

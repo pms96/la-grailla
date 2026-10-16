@@ -3,6 +3,8 @@ import { Container } from '@/components/layouts/container';
 import { FadeIn } from '@/components/ui/animate';
 import ShopGrid from './_components/shop-grid';
 import { getBrand } from '@/lib/brand/brand';
+import { getConfigs } from '@/lib/config';
+import { PageBanner, hasBanner } from '../_templates/page-banner';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
@@ -12,7 +14,29 @@ export async function generateMetadata() {
   return { title: 'Tienda', description: `Tienda oficial de ${name}.` };
 }
 
-export default function TiendaPage() {
+export default async function TiendaPage() {
+  const brand = await getBrand();
+  // Plantillas nuevas (marquesina, galería, tipo): cabecera propia con los textos que el cliente ha escrito en Configuración → Contenido.
+  if (hasBanner(brand.template)) {
+    const copy = await getConfigs(['home_shop_title', 'home_shop_subtitle']);
+    return (
+      <>
+        <PageBanner
+          template={brand.template}
+          brandName={brand.name}
+          title={copy.home_shop_title || 'Tienda'}
+          lead={copy.home_shop_subtitle || 'Elige talla y color antes de pagar.'}
+          italicAccent={brand.theme?.fonts.display === 'instrument-serif'}
+        />
+        <Container size="xl">
+          <div className="py-10">
+            <ShopGrid />
+          </div>
+        </Container>
+      </>
+    );
+  }
+
   return (
     <Container size="lg">
       <div className="py-8">

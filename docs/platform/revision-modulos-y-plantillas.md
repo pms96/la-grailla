@@ -258,6 +258,14 @@ Cada una lleva un preset de fuente, radio y modo, y todo su contenido sale de to
 
 **Pendiente de Tipo:** como las otras dos, la ficha del evento, `/tienda`, `/sponsors` y el menú siguen con la estética de Feria. Las secciones de servicios, proyectos, equipo y FAQ necesitan antes el núcleo configurable (fase D).
 
+**Páginas interiores con la plantilla (2026-10-16).** Antes, un cliente con Marquesina, Galería o Tipo tenía portada propia y, al entrar en un evento, la tienda o patrocinio, volvía a ver Feria (degradado, pegatina y **textos fijos de La Grailla**: «Noches que no se pierden», «Tu marca en la caseta», «PROGRAMACIÓN»). Ahora hay una **cabecera de página común por plantilla** (`app/(public)/_templates/page-banner.tsx`: `PageBanner`, `hasBanner`) y un marco para textos legales (`legal-shell.tsx`). Se usa en la **ficha del evento**, **tienda**, **patrocinio** y las **tres páginas legales**, solo con las plantillas nuevas: **Feria y Editorial conservan su cabecera y el mismo marcado** (comprobado con las páginas de La Grailla en un servidor aislado: mismas marcas, HTTP 200). Todo el texto sale de la configuración del cliente (`home_shop_*`, `home_sponsors_cta_*`); nada fijo de ninguna marca. Los esqueletos de carga (`eventos/loading.tsx`, `[slug]/loading.tsx`) pasan a ser neutros, sin textos ni estilo de Feria (**esto sí cambia para La Grailla**: su estado de carga es más sobrio).
+- **Fuera a propósito:** compra, sala de espera, checkout y confirmaciones (modo «calma» del plan: sin adornos de plantilla), el panel y el acceso de personal.
+- **Tipografías sin negrita:** Instrument Serif y Bebas Neue solo existen en peso 400. El layout público marca la fuente (`data-display-font`) y una regla global evita la negrita falsa en los títulos de las tarjetas.
+- **Palabras largas:** `titleSize(texto, wide)` ahora cuenta la **palabra más larga**, no solo el total de letras («Merchandising» se salía y la máscara la recortaba); «tipo» usa umbrales para tipografía ancha, y sus palabras tienen salida de emergencia (`overflow-wrap`).
+- **Sin cambio de datos ni de API.**
+
+**Pendiente tras esto:** el menú y el pie siguen siendo los de siempre (usan tokens, no hay problema funcional); Editorial sigue con la cabecera de Feria en las páginas interiores; las tres plantillas importan sus tres CSS en esas rutas (unos pocos KB extra también para Feria: conviene separarlos si se mide un coste); no se ha medido Lighthouse.
+
 **Siguientes:** Cine, Drop y Estudio (ver 4.3), más las secciones configurables del núcleo, que desbloquean Estudio.
 
 ---

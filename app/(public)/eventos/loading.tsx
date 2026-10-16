@@ -1,4 +1,3 @@
-import { Music } from 'lucide-react';
 import { SkeletonPulse } from '@/components/ui/animate';
 import { Container } from '@/components/layouts/container';
 
@@ -7,20 +6,13 @@ import { Container } from '@/components/layouts/container';
 export default function EventosLoading() {
   return (
     <div className="relative">
-      <div className="relative overflow-hidden border-b border-border/40">
-        <div className="absolute inset-0 hero-gradient opacity-80" />
-        <div className="absolute inset-0 texture-noise" />
-        <Container size="lg" className="relative">
-          <div className="py-14 md:py-20">
-            <div className="inline-flex brand-sticker text-xs text-lima border-lima/60 shadow-lima/30 mb-5 gap-1.5">
-              <Music className="h-3.5 w-3.5" /> PROGRAMACIÓN
-            </div>
-            <h1 className="font-display text-4xl md:text-6xl font-bold tracking-tight mb-4 max-w-2xl leading-[0.95]">
-              Noches que no se pierden
-            </h1>
-            <p className="text-muted-foreground text-lg max-w-xl">
-              Elige fecha, compra online y llega con el QR listo.
-            </p>
+      {/* Cabecera neutra: este esqueleto lo ve cualquier cliente y cada plantilla tiene su propia cabecera, así que no lleva texto ni estilo de ninguna. */}
+      <div className="border-b border-border/40" role="status" aria-busy="true" aria-label="Cargando la programación">
+        <Container size="lg">
+          <div className="space-y-4 py-14 md:py-20">
+            <SkeletonPulse className="h-4 w-28" />
+            <SkeletonPulse className="h-12 w-3/4 max-w-xl md:h-16" />
+            <SkeletonPulse className="h-5 w-1/2 max-w-md" />
           </div>
         </Container>
       </div>

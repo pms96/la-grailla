@@ -4,6 +4,8 @@ import { Handshake, Building2, Users, Megaphone } from 'lucide-react';
 import { FadeIn, SlideIn } from '@/components/ui/animate';
 import SponsorForm from './_components/sponsor-form';
 import { getBrand } from '@/lib/brand/brand';
+import { getConfigs } from '@/lib/config';
+import { PageBanner, hasBanner, type BannerTemplate } from '../_templates/page-banner';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
@@ -13,13 +15,29 @@ export async function generateMetadata() {
   return { title: 'Patrocinio', description: `Tu marca en ${name}. Llega a miles de asistentes y sé parte del evento.` };
 }
 
-export default function SponsorsPage() {
+export default async function SponsorsPage() {
+  const brand = await getBrand();
+  // Plantillas nuevas (marquesina, galería, tipo): cabecera propia con los textos del cliente (los mismos que usa su portada) en lugar del
+  // titular fijo de Feria.
+  const banner = hasBanner(brand.template);
+  const copy = banner ? await getConfigs(['home_sponsors_cta_title', 'home_sponsors_cta_subtitle']) : null;
   return (
-    <Container size="lg">
+    <>
+    {banner && copy && (
+      <PageBanner
+        template={brand.template as BannerTemplate}
+        brandName={brand.name}
+        title={copy.home_sponsors_cta_title || 'Patrocinio'}
+        lead={copy.home_sponsors_cta_subtitle || 'Cuéntanos qué buscas y te respondemos con opciones concretas.'}
+        italicAccent={brand.theme?.fonts.display === 'instrument-serif'}
+      />
+    )}
+    <Container size={banner ? 'xl' : 'lg'}>
       <div className="py-10">
         {/* Layout B2B: propuesta + formulario lado a lado en desktop */}
         <div className="grid lg:grid-cols-12 gap-10 lg:gap-12 items-start">
           <div className="lg:col-span-5 space-y-8">
+            {!banner && (
             <FadeIn>
               <div className="inline-flex brand-sticker text-xs text-lima border-lima/60 shadow-lima/30 mb-4 gap-1.5">
                 <Handshake className="h-3.5 w-3.5" /> PARA MARCAS
@@ -32,6 +50,7 @@ export default function SponsorsPage() {
                 concretas — sin formularios eternos.
               </p>
             </FadeIn>
+            )}
 
             <div className="space-y-4">
               <SlideIn from="left">
@@ -92,5 +111,6 @@ export default function SponsorsPage() {
         </div>
       </div>
     </Container>
+    </>
   );
 }

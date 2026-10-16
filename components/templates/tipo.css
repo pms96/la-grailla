@@ -41,8 +41,14 @@
   margin-top: -0.2em;
   padding-bottom: 0.08em;
 }
+.tp-word {
+  max-width: 100%;
+}
 .tp-word > span {
   display: inline-block;
+  /* Red de seguridad: si una palabra aun así no cabe, se parte en lugar de quedar recortada por su máscara. */
+  max-width: 100%;
+  overflow-wrap: anywhere;
   /* Visible en el HTML del servidor: la animación solo desplaza la palabra desde abajo. */
   animation: tp-rise 650ms var(--ease-out) both;
   animation-delay: calc(var(--i, 0) * 60ms);

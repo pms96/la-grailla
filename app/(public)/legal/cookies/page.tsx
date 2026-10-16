@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 
 import { getConfig } from '@/lib/config';
 import { getBrand } from '@/lib/brand/brand';
-import { Container } from '@/components/layouts/container';
+import { LegalShell } from '../../_templates/legal-shell';
 
 export const metadata = {
   title: 'Política de cookies',
@@ -14,9 +14,7 @@ export default async function CookiesPolicyPage() {
   const mailto = brand.contactEmail;
 
   return (
-    <Container className="py-16">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <h1 className="font-display text-3xl md:text-4xl font-bold tracking-tight">Política de cookies</h1>
+    <LegalShell title="Política de cookies" brand={brand}>
         {text ? (
           <div className="whitespace-pre-line text-muted-foreground leading-relaxed">{text}</div>
         ) : (
@@ -36,7 +34,6 @@ export default async function CookiesPolicyPage() {
             </p>
           </div>
         )}
-      </div>
-    </Container>
+    </LegalShell>
   );
 }

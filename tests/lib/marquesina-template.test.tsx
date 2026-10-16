@@ -82,6 +82,25 @@ describe('titleSize', () => {
     expect(titleSize('Noche de Verano 2026')).toBe('m');
     expect(titleSize('Festival Internacional de Música Electrónica')).toBe('s');
   });
+
+  it('una palabra larga no se parte: manda la palabra más larga, no solo el total de letras', () => {
+    // «Merchandising» son 13 letras en una sola palabra: con el tamaño «l» se saldría de su columna y la máscara la recortaría.
+    expect(titleSize('Merchandising')).toBe('s');
+    expect(titleSize('Programación')).toBe('m');
+    expect(titleSize('Tienda')).toBe('l');
+    expect(titleSize('La casa de Bernarda Alba')).toBe('m'); // 24 letras pero ninguna palabra larga
+  });
+
+  it('con una tipografía ancha (tipo) el mismo nombre necesita un tamaño menor', () => {
+    expect(titleSize('Programa', true)).toBe('m');
+    expect(titleSize('Programación', true)).toBe('s');
+    expect(titleSize('Tienda', true)).toBe('l');
+    // Nunca mayor que con una tipografía estrecha, para ninguna longitud.
+    const order = { l: 0, m: 1, s: 2 } as const;
+    for (const t of ['A', 'Verano', 'Noche de Verano', 'Merchandising', 'Festival Internacional de Música Electrónica', 'Superlongnombreenunapalabra']) {
+      expect(order[titleSize(t, true)]).toBeGreaterThanOrEqual(order[titleSize(t)]);
+    }
+  });
 });
 
 describe('Marquee', () => {

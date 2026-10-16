@@ -61,8 +61,16 @@ export function toTemplateEvent(e: EventInput): TemplateEvent {
   };
 }
 
-/** Tamaño del titular según su longitud: un nombre largo a 17vw se saldría de la pantalla. */
-export function titleSize(text: string): 'l' | 'm' | 's' {
-  const n = text.trim().length;
-  return n > 28 ? 's' : n > 14 ? 'm' : 'l';
+/**
+ * Tamaño del titular según su longitud: un nombre largo a 17vw se saldría de la pantalla. Cuenta también la palabra MÁS LARGA, porque una
+ * palabra no se parte: «Merchandising» ocupa lo mismo en una línea de 13 letras que en un titular de 13 letras, y la máscara por palabras la
+ * recortaría si no cabe. `wide`: tipografías anchas (la de «tipo», Montserrat pesada), que necesitan un tamaño menor para la misma palabra.
+ */
+export function titleSize(text: string, wide = false): 'l' | 'm' | 's' {
+  const clean = text.trim();
+  const longestWord = clean.split(/\s+/).reduce((max, w) => Math.max(max, w.length), 0);
+  const [toSmall, toMedium] = wide ? [10, 7] : [13, 10];
+  if (clean.length > 28 || longestWord >= toSmall) return 's';
+  if (clean.length > 14 || longestWord >= toMedium) return 'm';
+  return 'l';
 }
