@@ -113,6 +113,21 @@ function Preview({ theme, mode }: { theme: SiteTheme; mode: 'light' | 'dark' }) 
             Sáb 14 nov / Tu sala / Entradas / Sáb 14 nov
           </div>
         </div>
+      ) : theme.template === 'tipo' ? (
+        <div>
+          <div className="flex items-end justify-between gap-3 px-4 pb-4 pt-6" style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
+            <h3 className="break-words text-4xl leading-[0.9]" style={{ fontFamily: display, fontWeight: 800, letterSpacing: '-0.04em' }}>{theme.brand.name || 'Tu marca'}</h3>
+            <span className="grid h-14 w-14 shrink-0 grid-cols-2 grid-rows-2" aria-hidden>
+              <span className="rounded-full" style={{ background: 'hsl(var(--accent))' }} />
+              <span style={{ background: 'hsl(var(--primary-foreground))' }} />
+              <span style={{ background: 'hsl(var(--foreground))' }} />
+              <span className="rounded-tl-full" style={{ background: 'hsl(var(--accent))' }} />
+            </span>
+          </div>
+          <div className="whitespace-nowrap px-4 py-2 text-sm font-extrabold uppercase" style={{ background: 'hsl(var(--foreground))', color: 'hsl(var(--background))', fontFamily: display }}>
+            Sáb 14 nov / Tu sala / Entradas / Sáb 14 nov
+          </div>
+        </div>
       ) : theme.template === 'galeria' ? (
         <div className="px-4 pb-6 pt-6">
           <p className="mb-3 text-xs uppercase tracking-[0.14em]" style={{ color: 'hsl(var(--muted-foreground))' }}>Próximo evento</p>

@@ -16,6 +16,7 @@ import { HeroEditorial } from './_home/hero-editorial';
 import type { HeroProps } from './_home/hero';
 import { HomeMarquesina } from './_home/marquesina/home-marquesina';
 import { HomeGaleria } from './_home/galeria/home-galeria';
+import { HomeTipo } from './_home/tipo/home-tipo';
 import { toTemplateEvent } from './_home/event-view';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
@@ -100,8 +101,8 @@ export default async function HomePage() {
     stickerImage: brand.stickerImage,
   };
   // Plantillas nuevas (marquesina, galería): otra composición completa de la portada (Feria y Editorial siguen por el camino de siempre).
-  if (brand.template === 'marquesina' || brand.template === 'galeria') {
-    const Home = brand.template === 'galeria' ? HomeGaleria : HomeMarquesina;
+  if (brand.template === 'marquesina' || brand.template === 'galeria' || brand.template === 'tipo') {
+    const Home = brand.template === 'galeria' ? HomeGaleria : brand.template === 'tipo' ? HomeTipo : HomeMarquesina;
     return (
       <Home
         brandName={brand.name}

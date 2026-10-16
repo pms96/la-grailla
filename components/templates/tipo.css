@@ -1,0 +1,168 @@
+/* Plantilla «tipo»: para quien no tiene fotos. Titular pesado y enorme, bloques de color y formas geométricas generadas en lugar de imágenes.
+ * Todo sale de los tokens del tema del cliente (colores, tipografías, radio); aquí no hay ningún color ni fuente fijos.
+ *
+ * Movimiento: el titular sube por palabras desde su máscara y, con puntero fino, la forma de cada fila gira un cuarto de vuelta al pasar por
+ * encima. Solo transform y color, curva --ease-out; todo con su rama prefers-reduced-motion. */
+
+/* ── Titular ───────────────────────────────────────────────────────────────────────────────────────── */
+.tp-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 0.9;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  font-size: clamp(3rem, 20vw, 7rem);
+}
+.tp-title[data-size='m'] {
+  font-size: clamp(2.75rem, 15vw, 5.25rem);
+}
+.tp-title[data-size='s'] {
+  font-size: clamp(2.25rem, 11vw, 3.75rem);
+}
+@media (min-width: 768px) {
+  .tp-title {
+    font-size: clamp(4rem, 11vw, 10rem);
+  }
+  .tp-title[data-size='m'] {
+    font-size: clamp(3.5rem, 8.5vw, 8rem);
+  }
+  .tp-title[data-size='s'] {
+    font-size: clamp(2.75rem, 6vw, 5.5rem);
+  }
+}
+.tp-word {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: top;
+  /* La máscara recorta lo que sobresale: con interlineado < 1 las tildes (Á, Ó) y la de la Ñ quedaban cortadas. Se agranda la zona visible
+   * por arriba y se compensa con un margen negativo para que la altura de la línea no cambie. */
+  padding-top: 0.2em;
+  margin-top: -0.2em;
+  padding-bottom: 0.08em;
+}
+.tp-word > span {
+  display: inline-block;
+  /* Visible en el HTML del servidor: la animación solo desplaza la palabra desde abajo. */
+  animation: tp-rise 650ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+@keyframes tp-rise {
+  from {
+    transform: translateY(105%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.tp-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* Titulares de sección: la misma tipografía pesada, más pequeños que el de la cabecera (solo uno es «enorme» por página). */
+.tp-heading {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+}
+
+/* ── Bloques de color ──────────────────────────────────────────────────────────────────────────────── */
+.tp-hero {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+.tp-accent {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+/* Cinta invertida: tinta sobre papel al revés. */
+.tp-band {
+  background: hsl(var(--foreground));
+  color: hsl(var(--background));
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  font-size: clamp(1.25rem, 3.4vw, 2.5rem);
+  line-height: 1;
+  padding-block: 0.7em;
+}
+
+/* ── Programa: filas con filete grueso ─────────────────────────────────────────────────────────────── */
+.tp-row {
+  border-top: 3px solid hsl(var(--foreground));
+  transition:
+    background-color 200ms var(--ease-out),
+    color 200ms var(--ease-out);
+}
+.tp-list > li:last-child .tp-row {
+  border-bottom: 3px solid hsl(var(--foreground));
+}
+.tp-row:focus-visible {
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: -3px;
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+.tp-muted {
+  color: hsl(var(--muted-foreground));
+}
+.tp-row:focus-visible .tp-muted {
+  color: inherit;
+  opacity: 0.8;
+}
+.tp-day {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  line-height: 0.85;
+}
+.tp-name {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 0.95;
+  /* Una palabra larga («contemporánea») en una columna estrecha de móvil: se parte con guion en vez de salirse de la fila. */
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+.tp-tile {
+  transition: transform 500ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .tp-row:hover {
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
+  }
+  .tp-row:hover .tp-muted {
+    color: inherit;
+    opacity: 0.8;
+  }
+  .tp-row:hover .tp-tile {
+    transform: rotate(90deg);
+  }
+  .tp-link:hover .tp-arrow {
+    transform: translate(0.5rem, -0.5rem);
+  }
+}
+.tp-arrow {
+  transition: transform 200ms var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tp-word > span {
+    animation: none;
+  }
+  .tp-row,
+  .tp-tile,
+  .tp-arrow {
+    transition: none;
+  }
+  .tp-row:hover .tp-tile {
+    transform: none;
+  }
+}

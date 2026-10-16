@@ -14,7 +14,7 @@ import { z } from 'zod';
 export const THEME_VERSION = 1 as const;
 
 // ── Catálogo cerrado ────────────────────────────────────────────────────────────────────────────────────────────────
-export const TEMPLATES = ['feria', 'editorial', 'marquesina', 'galeria'] as const;
+export const TEMPLATES = ['feria', 'editorial', 'marquesina', 'galeria', 'tipo'] as const;
 export type TemplateKey = (typeof TEMPLATES)[number];
 export const TEMPLATE_LABELS: Record<TemplateKey, { label: string; description: string }> = {
   feria: { label: 'Feria', description: 'Festiva: degradados, pegatinas de borde grueso y botones redondeados.' },
@@ -26,6 +26,10 @@ export const TEMPLATE_LABELS: Record<TemplateKey, { label: string; description: 
   galeria: {
     label: 'Galería',
     description: 'Clara y con mucho aire: tipografía con serifa enorme, programa numerado y fotos que se revelan al bajar. Para cultura, gastronomía y clubs privados.',
+  },
+  tipo: {
+    label: 'Tipo',
+    description: 'Sin fotos: titular pesado y enorme, bloques de color y formas geométricas propias de cada evento. Para quien solo tiene tipografía y color.',
   },
 };
 
@@ -65,6 +69,12 @@ export const TEMPLATE_PRESETS: Partial<Record<TemplateKey, { mode: ModeKey; radi
     radius: 'recto',
     fonts: { display: 'instrument-serif', body: 'dm-sans' },
     note: 'modo claro, esquinas rectas y Instrument Serif para el titular',
+  },
+  tipo: {
+    mode: 'light',
+    radius: 'recto',
+    fonts: { display: 'montserrat', body: 'inter' },
+    note: 'modo claro, esquinas rectas y Montserrat para el titular',
   },
 };
 

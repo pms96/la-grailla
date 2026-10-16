@@ -254,7 +254,11 @@ Cada una lleva un preset de fuente, radio y modo, y todo su contenido sale de to
 
 **Pendiente de Galería:** igual que Marquesina (ficha del evento, `/tienda`, `/sponsors`, `eventos/loading.tsx` y el menú siguen con la estética de Feria); no se ha medido Lighthouse; no se ha visto Apariencia en el navegador. El parallax solo funciona en navegadores con `animation-timeline` (Chromium; Safari y Firefox ven la foto quieta).
 
-**Siguientes:** Cine, Drop, Estudio y Tipo (ver 4.3), más las secciones configurables del núcleo para Estudio y Tipo.
+**Tipo: hecha la primera versión** (portada y `/eventos`). Para quien no tiene fotos: bloque de color con el titular enorme (Montserrat 800), cinta invertida (tinta sobre papel), programa en filas con filete grueso de 3 px y bloques de color para tienda, texto propio y patrocinio. En lugar de fotos, **formas geométricas generadas** (`tipo/shapes.ts`, composición tipo Bauhaus en una cuadrícula de n×n): salen del nombre del evento con un generador con semilla (xmur3 + mulberry32), así que son únicas por evento y **idénticas en servidor y navegador y entre peticiones** (sin `Math.random`; la caché del CDN no se rompe). Los colores de las formas son siempre tokens del tema. Con puntero fino la fila se tiñe del acento y la forma gira un cuarto de vuelta. Toda de servidor. Verificada en navegador (escritorio y móvil) y con 21 tests. Cosas que salieron al verla: costuras de antialiasing entre celdas contiguas (se tapan con un trazo de 0,25 del mismo color) y una palabra larga («contemporánea») que se salía de su columna en móvil (ahora se parte con guion y los tamaños de móvil son menores).
+
+**Pendiente de Tipo:** como las otras dos, la ficha del evento, `/tienda`, `/sponsors` y el menú siguen con la estética de Feria. Las secciones de servicios, proyectos, equipo y FAQ necesitan antes el núcleo configurable (fase D).
+
+**Siguientes:** Cine, Drop y Estudio (ver 4.3), más las secciones configurables del núcleo, que desbloquean Estudio.
 
 ---
 
