@@ -18,6 +18,8 @@ import { HomeMarquesina } from './_home/marquesina/home-marquesina';
 import { HomeGaleria } from './_home/galeria/home-galeria';
 import { HomeTipo } from './_home/tipo/home-tipo';
 import { toTemplateEvent } from './_home/event-view';
+import { ContentSections } from './_home/sections/content-sections';
+import { getContentSections } from '@/lib/content/load';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
@@ -63,6 +65,9 @@ export default async function HomePage() {
     'home_sponsors_cta_title',
     'home_sponsors_cta_subtitle',
   ]);
+
+  // Servicios, proyectos, equipo y preguntas frecuentes del cliente (núcleo): cada una solo existe si tiene elementos.
+  const sections = await getContentSections();
 
   const featured = events[0] ?? null;
   const rest = events.slice(1);
@@ -114,6 +119,7 @@ export default async function HomePage() {
         hasTienda={modules.includes('tienda')}
         hasSponsors={modules.includes('sponsors')}
         contactEnabled={copy.contact_form_enabled === 'true'}
+        sections={sections}
         copy={{
           shopTitle: copy.home_shop_title,
           shopSubtitle: copy.home_shop_subtitle,
@@ -278,6 +284,8 @@ export default async function HomePage() {
       </section>
       )}
 
+      <ContentSections template={brand.template} sections={sections} slot="before-about" />
+
       {/* Sobre nosotros — sección del núcleo; solo aparece si el cliente ha escrito el texto (Configuración → Contenido) */}
       {copy.home_about_text && (
         <section id="sobre-nosotros" className="max-w-[1200px] mx-auto px-4 py-16 md:py-20">
@@ -291,6 +299,8 @@ export default async function HomePage() {
           </FadeIn>
         </section>
       )}
+
+      <ContentSections template={brand.template} sections={sections} slot="after-about" />
 
       {/* Patrocinio — terciario */}
       {modules.includes('sponsors') && (

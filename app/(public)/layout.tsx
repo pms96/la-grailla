@@ -4,9 +4,11 @@ import CookieBanner from '@/components/cookie-banner';
 import { getActiveModules } from '@/lib/modules/runtime';
 import { getBrand } from '@/lib/brand/brand';
 import { isContactFormEnabled } from '@/lib/contact';
+import { getContentSections } from '@/lib/content/load';
+import { sectionAnchors } from './_home/sections/content-sections';
 
 export default async function PublicLayout({ children }: { children: React.ReactNode }) {
-  const [brand, contactEnabled] = await Promise.all([getBrand(), isContactFormEnabled()]);
+  const [brand, contactEnabled, sections] = await Promise.all([getBrand(), isContactFormEnabled(), getContentSections()]);
   return (
     <div className="min-h-screen flex flex-col" data-template={brand.template} data-display-font={brand.theme?.fonts.display}>
       <a
@@ -15,7 +17,7 @@ export default async function PublicLayout({ children }: { children: React.React
       >
         Saltar al contenido
       </a>
-      <PublicNav modules={getActiveModules()} sticker={brand.template === 'feria' ? brand.sticker : ''} contact={contactEnabled} />
+      <PublicNav modules={getActiveModules()} sticker={brand.template === 'feria' ? brand.sticker : ''} contact={contactEnabled} anchors={sectionAnchors(sections)} />
       <main id="main-content" className="flex-1 pt-16">{children}</main>
       <PublicFooter contact={contactEnabled} />
       <CookieBanner />

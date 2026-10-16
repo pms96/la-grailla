@@ -7,6 +7,7 @@ import { ReloadButton } from '@/components/reload-button';
 import '@/components/templates/tipo.css';
 import { titleSize, type TemplateEvent } from '../event-view';
 import type { HomeTemplateProps } from '../template-props';
+import { ContentSections } from '../sections/content-sections';
 import { Composition } from './composition';
 import { EventList } from './event-list';
 
@@ -137,12 +138,16 @@ export function HomeTipo(p: HomeTipoProps) {
 
       {p.hasTienda && <BlockLink href="/tienda" title={p.copy.shopTitle || 'Tienda'} text={p.copy.shopSubtitle || `Lleva ${p.brandName} contigo.`} tone="accent" />}
 
+      <ContentSections template="tipo" sections={p.sections} slot="before-about" />
+
       {p.copy.aboutText && (
         <section id="sobre-nosotros" className="mx-auto grid max-w-[1600px] gap-6 px-4 py-14 md:grid-cols-12 md:gap-8 md:px-8 md:py-24">
           <h2 className="tp-label md:col-span-3">{p.copy.aboutTitle || `Sobre ${p.brandName}`}</h2>
           <p className="tp-heading whitespace-pre-line text-3xl leading-[1.12] md:col-span-9 md:text-5xl md:leading-[1.1]">{p.copy.aboutText}</p>
         </section>
       )}
+
+      <ContentSections template="tipo" sections={p.sections} slot="after-about" />
 
       {p.hasSponsors && <BlockLink href="/sponsors" title={p.copy.sponsorsTitle || '¿Quieres patrocinar nuestros eventos?'} text={p.copy.sponsorsSubtitle} tone="line" />}
 

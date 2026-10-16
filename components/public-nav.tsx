@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { Menu, X, Music, ShoppingBag, Handshake, Mail } from 'lucide-react';
+import { Menu, X, Music, ShoppingBag, Handshake, Mail, LayoutList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/logo';
 import { useBrand } from '@/components/brand-provider';
@@ -21,9 +21,29 @@ const allLinks = [
   { href: '/sponsors', label: 'Patrocinio', icon: Handshake },
 ];
 
-export default function PublicNav({ modules, sticker, contact }: { modules?: readonly ModuleKey[]; sticker?: string; contact?: boolean } = {}) {
+type NavProps = {
+  modules?: readonly ModuleKey[];
+  sticker?: string;
+  contact?: boolean;
+  /** Enlaces a las secciones de contenido del cliente (servicios, proyectos…) que tengan elementos. */
+  anchors?: readonly { href: string; label: string }[];
+};
+
+export default function PublicNav({ modules, sticker, contact, anchors = [] }: NavProps = {}) {
   const { name } = useBrand();
-  const links = [...allLinks.filter((l) => !modules || isLinkVisible(l.href, modules)), ...(contact ? [{ href: '/#contacto', label: 'Contacto', icon: Mail }] : [])];
+  const links = [
+    ...allLinks.filter((l) => !modules || isLinkVisible(l.href, modules)),
+    ...anchors.map((a) => ({ ...a, icon: LayoutList })),
+    ...(contact ? [{ href: '/#contacto', label: 'Contacto', icon: Mail }] : []),
+  ];
+  // Con más enlaces (las secciones del cliente se suman a los de los módulos) la fila ya no cabe a 768 px: se pliega antes. Hasta 4 enlaces,
+  // igual que siempre; 5-6, por debajo de 1024 px; 7 o más, siempre en el botón de menú. Se decide aquí, con clases fijas, para que Tailwind las vea.
+  const fold =
+    links.length <= 4
+      ? { bar: 'hidden md:flex', toggle: 'md:hidden' }
+      : links.length <= 6
+        ? { bar: 'hidden lg:flex', toggle: 'lg:hidden' }
+        : { bar: 'hidden', toggle: '' };
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const pathname = usePathname() ?? '';
@@ -57,7 +77,7 @@ export default function PublicNav({ modules, sticker, contact }: { modules?: rea
         </Link>
 
         {/* Desktop */}
-        <nav className="hidden md:flex items-center gap-1">
+        <nav className={cn('items-center gap-1', fold.bar)}>
           {links.map((l) => {
             const isActive = pathname?.startsWith(l.href);
             return (
@@ -79,7 +99,7 @@ export default function PublicNav({ modules, sticker, contact }: { modules?: rea
         </nav>
 
         {/* Mobile toggle */}
-        <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setOpen(!open)} aria-label="Menú">
+        <Button variant="ghost" size="icon" className={fold.toggle} onClick={() => setOpen(!open)} aria-label="Menú">
           <AnimatePresence mode="wait" initial={false}>
             <motion.span
               key={open ? 'close' : 'open'}
@@ -103,7 +123,7 @@ export default function PublicNav({ modules, sticker, contact }: { modules?: rea
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: reduceMotion ? 0 : -8 }}
             transition={{ duration: 0.2, ease: EASE_OUT }}
-            className="md:hidden border-t border-border/50 bg-background/95 backdrop-blur-xl overflow-hidden"
+            className={cn('border-t border-border/50 bg-background/95 backdrop-blur-xl overflow-hidden', fold.toggle)}
           >
             <nav className="flex flex-col p-4 gap-1">
               {links.map((l) => (

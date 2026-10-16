@@ -6,6 +6,7 @@ import { ContactForm } from '@/components/contact-form';
 import { ReloadButton } from '@/components/reload-button';
 import '@/components/templates/marquesina.css';
 import type { HomeTemplateProps } from '../template-props';
+import { ContentSections } from '../sections/content-sections';
 import { EventRows } from './event-rows';
 import { titleSize, type TemplateEvent } from '../event-view';
 
@@ -118,12 +119,16 @@ export function HomeMarquesina(p: HomeMarquesinaProps) {
         </Link>
       )}
 
+      <ContentSections template="marquesina" sections={p.sections} slot="before-about" />
+
       {p.copy.aboutText && (
         <section id="sobre-nosotros" className="mx-auto grid max-w-[1600px] gap-6 px-4 py-14 md:grid-cols-12 md:gap-8 md:px-8 md:py-24">
           <h2 className="mq-eyebrow md:col-span-3">{p.copy.aboutTitle || `Sobre ${p.brandName}`}</h2>
           <p className="whitespace-pre-line text-2xl leading-snug md:col-span-9 md:text-4xl">{p.copy.aboutText}</p>
         </section>
       )}
+
+      <ContentSections template="marquesina" sections={p.sections} slot="after-about" />
 
       {p.hasSponsors && (
         <Link

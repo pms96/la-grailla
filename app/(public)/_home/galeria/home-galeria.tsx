@@ -6,6 +6,7 @@ import { ReloadButton } from '@/components/reload-button';
 import '@/components/templates/galeria.css';
 import { titleSize, type TemplateEvent } from '../event-view';
 import type { HomeTemplateProps } from '../template-props';
+import { ContentSections } from '../sections/content-sections';
 import { EventEntries } from './event-entries';
 
 /* Portada de la plantilla «galería»: clara, con mucho aire y una serifa enorme. Una cabecera (nombre del evento, sus datos y la foto), el
@@ -153,6 +154,8 @@ export function HomeGaleria(p: HomeGaleriaProps) {
 
       {p.hasTienda && <LinkSection label="Tienda" href="/tienda" title={p.copy.shopTitle || 'Tienda'} text={p.copy.shopSubtitle || `Lleva ${p.brandName} contigo.`} size="l" />}
 
+      <ContentSections template="galeria" sections={p.sections} slot="before-about" />
+
       {p.copy.aboutText && (
         <section id="sobre-nosotros" className="border-t border-border">
           <div className="mx-auto grid max-w-[1400px] gap-6 px-5 py-14 md:grid-cols-12 md:gap-x-8 md:px-10 md:py-28">
@@ -161,6 +164,8 @@ export function HomeGaleria(p: HomeGaleriaProps) {
           </div>
         </section>
       )}
+
+      <ContentSections template="galeria" sections={p.sections} slot="after-about" />
 
       {p.hasSponsors && (
         <LinkSection label="Marcas" href="/sponsors" title={p.copy.sponsorsTitle || '¿Quieres patrocinar nuestros eventos?'} text={p.copy.sponsorsSubtitle} size="m" />

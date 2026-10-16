@@ -1,5 +1,6 @@
 import type { ModuleKey } from '@grailla/contracts';
 import { ownerEnabled } from '@/lib/modules/registry';
+import { SECTION_CONFIG_KEYS, SECTION_KINDS, invalidSectionValue, sectionKindOfKey } from '@/lib/content/sections';
 
 /* A qué módulo(s) pertenece cada clave de configuración (AppConfig). Es pura y no importa Prisma.
  *
@@ -28,6 +29,8 @@ export const CONFIG_KEY_OWNERS: Readonly<Record<string, Owners>> = Object.fromEn
     'cookies_banner_enabled', 'maps_provider', 'contact_form_enabled', 'notify_email_contacto',
     'home_hero_badge_fallback', 'home_hero_subtitle_1', 'home_hero_subtitle_2', 'home_about_title', 'home_about_text',
     'footer_tagline', 'footer_copyright',
+    // Secciones de contenido de la portada (servicios, proyectos, equipo, preguntas frecuentes): un JSON por sección, ver lib/content/sections.ts.
+    ...SECTION_KINDS.map((k) => SECTION_CONFIG_KEYS[k]),
   ]),
   // Entradas: su cuenta de cobro, la comisión, los límites de compra y la impresora de taquilla.
   ...owned(ENTRADAS, [
@@ -106,6 +109,9 @@ const RULES: Record<string, Rule> = {
 export function invalidConfigValue(key: string, value: string): string | null {
   const v = value.trim();
   if (v === '') return null;
+  // Secciones de contenido de la portada: JSON con sus propios límites (ver lib/content/sections.ts).
+  const sectionKind = sectionKindOfKey(key);
+  if (sectionKind) return invalidSectionValue(v, sectionKind);
   const rule = RULES[key];
   if (!rule) return null;
   switch (rule.kind) {

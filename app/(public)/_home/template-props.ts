@@ -1,5 +1,6 @@
 import type { HeroProps } from './hero';
 import type { TemplateEvent } from './event-view';
+import type { SectionsData } from './sections/content-sections';
 
 /** Lo que cualquier portada de plantilla nueva (marquesina, galería…) recibe de la página: datos ya cargados y formateados, ningún acceso a BD. */
 export type HomeTemplateProps = {
@@ -11,6 +12,8 @@ export type HomeTemplateProps = {
   hasTienda: boolean;
   hasSponsors: boolean;
   contactEnabled: boolean;
+  /** Servicios, proyectos, equipo y preguntas frecuentes del cliente (núcleo); una sección sin elementos no se pinta. */
+  sections?: SectionsData;
   /** La tipografía de titulares del cliente tiene cursiva real (si no, una plantilla no la simula con una oblicua sintética). */
   italicAccent?: boolean;
   /** Textos editables en Configuración → Contenido; vacíos = cada plantilla usa su texto neutro. */

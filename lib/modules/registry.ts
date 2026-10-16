@@ -25,6 +25,7 @@ const rules: Rule[] = [
   { prefix: '/admin/usuarios', owner: 'nucleo' },
   { prefix: '/admin/apariencia', owner: 'nucleo' },
   { prefix: '/admin/mensajes', owner: 'nucleo' },
+  { prefix: '/admin/secciones', owner: 'nucleo' },
   { prefix: '/api/auth', owner: 'nucleo' },
   { prefix: '/api/signup', owner: 'nucleo' },
   { prefix: '/api/cron', owner: 'nucleo' },
