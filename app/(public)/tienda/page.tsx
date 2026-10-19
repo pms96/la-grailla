@@ -5,6 +5,9 @@ import ShopGrid from './_components/shop-grid';
 import { getBrand } from '@/lib/brand/brand';
 import { getConfigs } from '@/lib/config';
 import { PageBanner, hasBanner } from '../_templates/page-banner';
+import { DropShop } from '../_home/drop/drop-shop';
+import { getShopProducts } from '@/lib/shop/products';
+import type { ShopProductView } from '@/lib/shop/product-view';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
@@ -14,8 +17,31 @@ export async function generateMetadata() {
   return { title: 'Tienda', description: `Tienda oficial de ${name}.` };
 }
 
-export default async function TiendaPage() {
+export default async function TiendaPage({ searchParams }: { searchParams?: { categoria?: string | string[] } }) {
   const brand = await getBrand();
+  // «drop»: la tienda se renderiza en servidor (listado con filtros por URL y una ficha por producto). El resto de plantillas conservan la de siempre.
+  if (brand.template === 'drop') {
+    const copy = await getConfigs(['home_shop_title', 'home_shop_subtitle']);
+    let products: ShopProductView[] = [];
+    let loadError = false;
+    try {
+      products = await getShopProducts();
+    } catch (error) {
+      console.error('[TiendaPage] Error al cargar los productos:', error);
+      loadError = true;
+    }
+    const raw = searchParams?.categoria;
+    return (
+      <DropShop
+        brandName={brand.name}
+        title={copy.home_shop_title || 'Tienda'}
+        lead={copy.home_shop_subtitle || 'Elige talla y color antes de pagar.'}
+        products={products}
+        category={typeof raw === 'string' ? raw.slice(0, 80) : null}
+        loadError={loadError}
+      />
+    );
+  }
   // Plantillas nuevas (marquesina, galería, tipo): cabecera propia con los textos que el cliente ha escrito en Configuración → Contenido.
   if (hasBanner(brand.template)) {
     const copy = await getConfigs(['home_shop_title', 'home_shop_subtitle']);

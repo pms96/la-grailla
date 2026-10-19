@@ -14,7 +14,7 @@ import { z } from 'zod';
 export const THEME_VERSION = 1 as const;
 
 // ── Catálogo cerrado ────────────────────────────────────────────────────────────────────────────────────────────────
-export const TEMPLATES = ['feria', 'editorial', 'marquesina', 'galeria', 'tipo', 'estudio', 'cine'] as const;
+export const TEMPLATES = ['feria', 'editorial', 'marquesina', 'galeria', 'tipo', 'estudio', 'cine', 'drop'] as const;
 export type TemplateKey = (typeof TEMPLATES)[number];
 export const TEMPLATE_LABELS: Record<TemplateKey, { label: string; description: string }> = {
   feria: { label: 'Feria', description: 'Festiva: degradados, pegatinas de borde grueso y botones redondeados.' },
@@ -38,6 +38,10 @@ export const TEMPLATE_LABELS: Record<TemplateKey, { label: string; description: 
   cine: {
     label: 'Cine',
     description: 'Oscura y cinematográfica: vídeo a pantalla completa en la cabecera, cartelera en un riel horizontal y el cartel que crece de la tarjeta a la ficha del evento. Para conciertos y promotoras con vídeo.',
+  },
+  drop: {
+    label: 'Drop',
+    description: 'Para comercio y marca: bloques de color, producto grande con etiqueta de precio, riel de novedades y una ficha propia por producto, con el producto siguiendo al cursor y un «Añadido» al comprar.',
   },
 };
 
@@ -96,6 +100,12 @@ export const TEMPLATE_PRESETS: Partial<Record<TemplateKey, { mode: ModeKey; radi
     radius: 'recto',
     fonts: { display: 'playfair-display', body: 'inter' },
     note: 'modo oscuro, esquinas rectas y Playfair Display para el titular',
+  },
+  drop: {
+    mode: 'light',
+    radius: 'suave',
+    fonts: { display: 'poppins', body: 'inter' },
+    note: 'modo claro, esquinas suaves y Poppins para el titular',
   },
 };
 

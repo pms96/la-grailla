@@ -19,6 +19,8 @@ import { HomeGaleria } from './_home/galeria/home-galeria';
 import { HomeTipo } from './_home/tipo/home-tipo';
 import { HomeEstudio } from './_home/estudio/home-estudio';
 import { HomeCine } from './_home/cine/home-cine';
+import { HomeDrop } from './_home/drop/home-drop';
+import { getShopProducts } from '@/lib/shop/products';
 import { toTemplateEvent } from './_home/event-view';
 import { ContentSections } from './_home/sections/content-sections';
 import { getContentSections } from '@/lib/content/load';
@@ -108,8 +110,10 @@ export default async function HomePage() {
     stickerImage: brand.stickerImage,
   };
   // Plantillas nuevas (marquesina, galería): otra composición completa de la portada (Feria y Editorial siguen por el camino de siempre).
-  if (brand.template === 'marquesina' || brand.template === 'galeria' || brand.template === 'tipo' || brand.template === 'estudio' || brand.template === 'cine') {
-    const Home = { marquesina: HomeMarquesina, galeria: HomeGaleria, tipo: HomeTipo, estudio: HomeEstudio, cine: HomeCine }[brand.template];
+  if (brand.template === 'marquesina' || brand.template === 'galeria' || brand.template === 'tipo' || brand.template === 'estudio' || brand.template === 'cine' || brand.template === 'drop') {
+    const Home = { marquesina: HomeMarquesina, galeria: HomeGaleria, tipo: HomeTipo, estudio: HomeEstudio, cine: HomeCine, drop: HomeDrop }[brand.template];
+    // La portada de «drop» enseña productos: solo se leen con esa plantilla y con el módulo Tienda (un fallo de lectura deja la portada sin riel, no la rompe).
+    const products = brand.template === 'drop' && modules.includes('tienda') ? await getShopProducts().catch(() => []) : undefined;
     return (
       <Home
         brandName={brand.name}
@@ -123,6 +127,7 @@ export default async function HomePage() {
         contactEnabled={copy.contact_form_enabled === 'true'}
         sections={sections}
         media={{ video: brand.heroVideo, poster: brand.heroPoster }}
+        products={products}
         copy={{
           shopTitle: copy.home_shop_title,
           shopSubtitle: copy.home_shop_subtitle,

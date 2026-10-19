@@ -1,6 +1,7 @@
 import type { HeroProps } from './hero';
 import type { TemplateEvent } from './event-view';
 import type { SectionsData } from './sections/content-sections';
+import type { ShopProductView } from '@/lib/shop/product-view';
 
 /** Lo que cualquier portada de plantilla nueva (marquesina, galería…) recibe de la página: datos ya cargados y formateados, ningún acceso a BD. */
 export type HomeTemplateProps = {
@@ -16,6 +17,8 @@ export type HomeTemplateProps = {
   sections?: SectionsData;
   /** Vídeo y póster de la cabecera de la plantilla «cine» (subidos por el cliente en Apariencia); las demás plantillas los ignoran. */
   media?: { video: string | null; poster: string | null };
+  /** Productos de la tienda para la portada de la plantilla «drop» (solo se cargan con esa plantilla y con el módulo Tienda); las demás los ignoran. */
+  products?: readonly ShopProductView[];
   /** La tipografía de titulares del cliente tiene cursiva real (si no, una plantilla no la simula con una oblicua sintética). */
   italicAccent?: boolean;
   /** Textos editables en Configuración → Contenido; vacíos = cada plantilla usa su texto neutro. */

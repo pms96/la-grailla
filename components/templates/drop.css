@@ -1,0 +1,420 @@
+/* Plantilla «drop»: para comercio y marca (tienda). Bloques de color, producto grande y una etiqueta de precio como firma. Todo sale de los tokens
+ * del tema del cliente (colores, tipografías, radio); aquí no hay ningún color ni fuente fijos.
+ *
+ * Movimiento: el producto sigue al cursor dentro de su tarjeta (puntero fino), el botón de añadir cambia de estado («Añadido») y el botón del
+ * carrito da un pequeño salto al sumar. Solo transform, opacity y color, curva --ease-out. Todo tiene su rama prefers-reduced-motion y el hover
+ * va tras (hover: hover) and (pointer: fine). */
+
+/* ── Tipografía ────────────────────────────────────────────────────────────────────────────────────────── */
+.dp-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 0.94;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  font-size: clamp(2.75rem, 12vw, 4.5rem);
+}
+.dp-title[data-size='m'] {
+  font-size: clamp(2.5rem, 10vw, 3.75rem);
+}
+.dp-title[data-size='s'] {
+  font-size: clamp(2rem, 8vw, 3rem);
+}
+@media (min-width: 768px) {
+  .dp-title {
+    font-size: clamp(4rem, 8.5vw, 8.5rem);
+  }
+  .dp-title[data-size='m'] {
+    font-size: clamp(3.5rem, 6.5vw, 6.5rem);
+  }
+  .dp-title[data-size='s'] {
+    font-size: clamp(2.5rem, 4.6vw, 4.5rem);
+  }
+}
+.dp-heading {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  text-wrap: balance;
+  font-size: clamp(1.875rem, 5vw, 3.25rem);
+}
+.dp-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+/* Entrada de la cabecera: cada bloque sube un poco. Visible en el HTML del servidor (solo se desplaza). */
+.dp-rise {
+  animation: dp-rise 600ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 80ms);
+}
+@keyframes dp-rise {
+  from {
+    transform: translateY(0.75rem);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* ── Bloques de color ──────────────────────────────────────────────────────────────────────────────────── */
+[data-tone='primary'] {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+[data-tone='accent'] {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+[data-tone='muted'] {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+[data-tone='ink'] {
+  background: hsl(var(--foreground));
+  color: hsl(var(--background));
+}
+
+/* Etiqueta de precio: ligeramente torcida, como una etiqueta de tienda. */
+.dp-tag {
+  display: inline-block;
+  padding: 0.3rem 0.75rem;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.125rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: hsl(var(--accent-foreground));
+  background: hsl(var(--accent));
+  border-radius: var(--radius);
+  transform: rotate(-4deg);
+}
+.dp-tag-lg {
+  font-size: 1.5rem;
+  padding: 0.4rem 1rem;
+}
+
+/* ── Tarjeta de producto ───────────────────────────────────────────────────────────────────────────────── */
+.dp-card {
+  display: block;
+}
+.dp-card-media {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  border-radius: var(--radius);
+}
+.dp-card-media img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* El producto se desplaza hacia el cursor (--dx, --dy entre -1 y 1); en reposo, quieto. */
+  transform: translate3d(calc(var(--dx, 0) * 12px), calc(var(--dy, 0) * 12px), 0) scale(var(--s, 1));
+  transition: transform 240ms var(--ease-out);
+}
+.dp-card-media[data-hover='true'] {
+  --s: 1.08;
+}
+.dp-card-media .dp-tag {
+  position: absolute;
+  left: 0.75rem;
+  bottom: 0.75rem;
+}
+/* Sin imagen: el nombre del producto arriba sobre el bloque de color (abajo va la etiqueta de precio). */
+.dp-noimg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  padding: 1rem;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.75rem;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+.dp-badge {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: hsl(var(--background));
+  background: hsl(var(--foreground));
+  border-radius: var(--radius);
+}
+.dp-card-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  font-size: 1.25rem;
+  text-wrap: balance;
+}
+.dp-card:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 4px;
+}
+
+/* ── Riel de novedades ─────────────────────────────────────────────────────────────────────────────────── */
+.dp-rail {
+  --dp-gutter: 1.25rem;
+  overflow-x: auto;
+  padding-inline: var(--dp-gutter);
+  padding-bottom: 1rem;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: var(--dp-gutter);
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+@media (min-width: 768px) {
+  .dp-rail {
+    --dp-gutter: max(2.5rem, calc((100% - 1400px) / 2 + 2.5rem));
+  }
+}
+.dp-rail:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
+.dp-rail-list {
+  display: flex;
+  gap: 1rem;
+  width: max-content;
+}
+.dp-rail-item {
+  flex: 0 0 auto;
+  width: clamp(12.5rem, 56vw, 17rem);
+  scroll-snap-align: start;
+}
+
+/* ── Ficha de producto ─────────────────────────────────────────────────────────────────────────────────── */
+.dp-strip {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.dp-strip:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+.dp-strip > li {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+}
+@media (min-width: 768px) {
+  .dp-strip > li {
+    flex-basis: 86%;
+  }
+  .dp-strip > li:only-child {
+    flex-basis: 100%;
+  }
+}
+.dp-strip-media {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  border-radius: var(--radius);
+}
+.dp-strip-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.dp-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  padding: 0.55rem 1rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: hsl(var(--foreground));
+  background: transparent;
+  border: 2px solid hsl(var(--foreground));
+  border-radius: var(--radius);
+  transition:
+    background-color 150ms var(--ease-out),
+    color 150ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+.dp-chip[aria-pressed='true'],
+.dp-chip[aria-current='true'] {
+  color: hsl(var(--background));
+  background: hsl(var(--foreground));
+}
+.dp-chip:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.dp-chip:disabled {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+.dp-chip:focus-visible,
+.dp-add:focus-visible,
+.dp-cart:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+
+/* Botón de añadir: tres estados (normal, «Añadido» un momento, y el aviso de error va en texto aparte). */
+.dp-add {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 3.5rem;
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.125rem;
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
+  border-radius: var(--radius);
+  transition:
+    background-color 200ms var(--ease-out),
+    color 200ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+.dp-add:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.dp-add:disabled {
+  opacity: 0.5;
+}
+.dp-add[data-state='added'] {
+  color: hsl(var(--accent-foreground));
+  background: hsl(var(--accent));
+}
+.dp-add > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition:
+    transform 200ms var(--ease-out),
+    opacity 200ms var(--ease-out);
+}
+.dp-add > [data-when='added'] {
+  position: absolute;
+  opacity: 0;
+  transform: translateY(0.75rem);
+}
+.dp-add[data-state='added'] > [data-when='idle'] {
+  opacity: 0;
+  transform: translateY(-0.75rem);
+}
+.dp-add[data-state='added'] > [data-when='added'] {
+  opacity: 1;
+  transform: none;
+}
+
+/* Botón principal sobre un bloque de color: tinta sobre papel, para que se vea en cualquier color de marca. */
+.dp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 3.25rem;
+  padding: 0 1.75rem;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.0625rem;
+  color: hsl(var(--background));
+  background: hsl(var(--foreground));
+  border-radius: var(--radius);
+  transition:
+    opacity 150ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+.dp-btn:active {
+  transform: scale(0.98);
+}
+.dp-btn:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+
+/* ── Carrito ───────────────────────────────────────────────────────────────────────────────────────────── */
+.dp-cart {
+  position: fixed;
+  right: 1rem;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  height: 3.5rem;
+  padding: 0 1.25rem;
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: hsl(var(--background));
+  background: hsl(var(--foreground));
+  border-radius: 999px;
+  transition: transform 120ms var(--ease-out);
+}
+.dp-cart:active {
+  transform: scale(0.97);
+}
+.dp-cart[data-bump='true'] {
+  animation: dp-bump 320ms var(--ease-out);
+}
+@keyframes dp-bump {
+  40% {
+    transform: scale(1.12);
+  }
+}
+.dp-cart-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.4rem;
+  font-size: 0.8125rem;
+  color: hsl(var(--accent-foreground));
+  background: hsl(var(--accent));
+  border-radius: 999px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dp-btn:hover {
+    opacity: 0.88;
+  }
+  .dp-chip:hover:not(:disabled):not([aria-pressed='true']):not([aria-current='true']) {
+    background: hsl(var(--muted));
+  }
+  .dp-add:hover:not(:disabled):not([data-state='added']) {
+    background: hsl(var(--primary) / 0.88);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dp-rise {
+    animation: none;
+  }
+  .dp-card-media img,
+  .dp-chip,
+  .dp-btn,
+  .dp-add,
+  .dp-add > span,
+  .dp-cart {
+    transition: none;
+  }
+  .dp-cart[data-bump='true'] {
+    animation: none;
+  }
+}

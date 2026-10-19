@@ -16,6 +16,7 @@ import { EventosGaleria } from '../_home/galeria/eventos-galeria';
 import { EventosTipo } from '../_home/tipo/eventos-tipo';
 import { EventosEstudio } from '../_home/estudio/eventos-estudio';
 import { EventosCine } from '../_home/cine/eventos-cine';
+import { EventosDrop } from '../_home/drop/eventos-drop';
 import { toTemplateEvent } from '../_home/event-view';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
@@ -46,6 +47,9 @@ export default async function EventosPage() {
   const brand = await getBrand();
   if (brand.template === 'marquesina') {
     return <EventosMarquesina brandName={brand.name} events={events.map(toTemplateEvent)} loadError={loadError} />;
+  }
+  if (brand.template === 'drop') {
+    return <EventosDrop brandName={brand.name} events={events.map(toTemplateEvent)} loadError={loadError} />;
   }
   if (brand.template === 'cine') {
     return <EventosCine brandName={brand.name} events={events.map(toTemplateEvent)} loadError={loadError} />;

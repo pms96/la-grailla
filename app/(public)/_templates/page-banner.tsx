@@ -12,6 +12,7 @@ import { Composition } from '../_home/tipo/composition';
 import { sentenceSize } from '../_home/estudio/home-estudio';
 import { CineTransitions, posterTransitionName } from '../_home/cine/transitions';
 import '@/components/templates/cine.css';
+import '@/components/templates/drop.css';
 import '@/components/templates/estudio.css';
 import { cn } from '@/lib/utils';
 
@@ -21,7 +22,7 @@ import { cn } from '@/lib/utils';
  *
  * Todo el texto lo pone la página (nada fijo de ninguna marca). La compra y la sala de espera no la usan a propósito: van en modo «calma». */
 
-export const BANNER_TEMPLATES = ['marquesina', 'galeria', 'tipo', 'estudio', 'cine'] as const;
+export const BANNER_TEMPLATES = ['marquesina', 'galeria', 'tipo', 'estudio', 'cine', 'drop'] as const;
 export type BannerTemplate = (typeof BANNER_TEMPLATES)[number];
 
 /** ¿Esta plantilla tiene cabecera propia? Si no, la página sigue con la suya de siempre. */
@@ -250,8 +251,48 @@ function BannerCine({ brandName, title, eyebrow, lead, facts = [], imageUrl, see
   );
 }
 
+/** «drop»: bloque de color con el título grande, los datos como etiquetas con borde y, si hay imagen (el cartel del evento), a la derecha. */
+function BannerDrop({ brandName, title, eyebrow, lead, facts = [], imageUrl, compact = false }: PageBannerProps) {
+  const photo = !compact && imageUrl;
+  return (
+    <section data-tone="primary">
+      <div className={cn('mx-auto max-w-[1400px] px-5 md:px-10', compact ? 'pb-8 pt-10 md:pb-12 md:pt-14' : 'pb-10 pt-10 md:pb-16 md:pt-16')}>
+        <div className={photo ? 'grid items-center gap-8 md:grid-cols-12 md:gap-x-10' : undefined}>
+          <div className={photo ? 'md:col-span-8' : undefined}>
+            <p className="dp-label mb-5 md:mb-8">{eyebrow ?? brandName}</p>
+            <h1 className="dp-title" data-size={compact ? 's' : titleSize(title)}>
+              {title}
+            </h1>
+            {lead && <p className="mt-6 max-w-xl text-lg opacity-90">{lead}</p>}
+            {facts.length > 0 && (
+              <ul className="mt-6 flex flex-wrap gap-2">
+                {facts.map((f) => (
+                  <li key={f.label} className="rounded border-2 border-current px-3 py-1 text-xs font-bold uppercase tracking-wide">
+                    <span className="sr-only">{f.label}: </span>
+                    {f.value}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {photo && (
+            <div className="md:col-span-4">
+              <div className="dp-card-media" data-tone="accent">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={imageUrl} alt={`Cartel de ${title}`} fetchPriority="high" />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function PageBanner(props: PageBannerProps) {
   switch (props.template) {
+    case 'drop':
+      return <BannerDrop {...props} />;
     case 'cine':
       return <BannerCine {...props} />;
     case 'estudio':

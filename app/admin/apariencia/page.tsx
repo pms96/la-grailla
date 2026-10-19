@@ -129,6 +129,20 @@ function Preview({ theme, mode }: { theme: SiteTheme; mode: 'light' | 'dark' }) 
             Sáb 14 nov / Tu sala / Entradas / Sáb 14 nov
           </div>
         </div>
+      ) : theme.template === 'drop' ? (
+        <div>
+          <div className="px-4 pb-5 pt-6" style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] opacity-75">{theme.brand.name || 'Tu marca'}</p>
+            <h3 className="text-4xl leading-[0.94]" style={{ fontFamily: display, fontWeight: 700, letterSpacing: '-0.04em' }}>{theme.brand.tagline || 'Tu tienda'}</h3>
+          </div>
+          <div className="flex gap-2 px-4 py-4" aria-hidden>
+            {['hsl(var(--primary))', 'hsl(var(--accent))', 'hsl(var(--muted))'].map((bg, i) => (
+              <span key={i} className="relative block h-24 flex-1 rounded-md" style={{ background: bg }}>
+                <span className="absolute bottom-1.5 left-1.5 -rotate-3 rounded px-1.5 text-xs font-bold" style={{ background: 'hsl(var(--accent))', color: 'hsl(var(--accent-foreground))', fontFamily: display }}>19,00€</span>
+              </span>
+            ))}
+          </div>
+        </div>
       ) : theme.template === 'cine' ? (
         <div className="relative overflow-hidden px-4 pb-5 pt-14">
           <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at 70% 10%, hsl(var(--primary) / 0.4), transparent 60%)' }} aria-hidden />

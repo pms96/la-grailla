@@ -246,7 +246,8 @@
 [data-template='galeria'] > header,
 [data-template='tipo'] > header,
 [data-template='estudio'] > header,
-[data-template='cine'] > header {
+[data-template='cine'] > header,
+[data-template='drop'] > header {
   box-shadow: none;
 }
 

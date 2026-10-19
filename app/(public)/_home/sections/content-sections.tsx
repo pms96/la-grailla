@@ -79,6 +79,16 @@ const LOOKS: Record<TemplateKey, Look> = {
     rule: 'border-border',
     frame: 'bg-muted',
   },
+  drop: {
+    wrap: 'mx-auto max-w-[1400px] px-5 py-14 md:px-10 md:py-24',
+    title: 'dp-heading',
+    intro: 'mt-4 max-w-xl text-lg text-muted-foreground',
+    itemTitle: 'font-display text-2xl font-bold tracking-tight md:text-3xl',
+    meta: 'dp-label',
+    text: 'text-muted-foreground',
+    rule: 'border-border',
+    frame: 'rounded-lg bg-muted',
+  },
   cine: {
     wrap: 'mx-auto max-w-[1600px] border-t border-border px-5 py-14 md:px-10 md:py-24',
     title: 'cn-heading',
