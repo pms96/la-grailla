@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import type { TemplateKey } from '@/lib/brand/theme';
 import { SECTION_DEFS, hasContent, type ContentSection, type SectionItem, type SectionKind } from '@/lib/content/sections';
 import { Composition } from '../tipo/composition';
+import { ProjectIndex } from '../estudio/project-index';
 
 /* Las secciones de contenido que escribe el cliente (servicios, proyectos, equipo, preguntas frecuentes) con el aire de cada plantilla.
  * Es el MISMO contenido y la MISMA estructura en todas; cambian la tipografía, los filetes y el tamaño de los titulares, siempre con las
@@ -74,6 +75,16 @@ const LOOKS: Record<TemplateKey, Look> = {
     intro: 'mt-4 max-w-xl text-lg text-muted-foreground',
     itemTitle: 'gl-serif text-2xl md:text-3xl',
     meta: 'gl-label',
+    text: 'text-muted-foreground',
+    rule: 'border-border',
+    frame: 'bg-muted',
+  },
+  estudio: {
+    wrap: 'mx-auto max-w-[1400px] border-t border-border px-5 py-14 md:px-10 md:py-24',
+    title: 'es-heading',
+    intro: 'mt-4 max-w-xl text-lg text-muted-foreground',
+    itemTitle: 'font-display text-2xl font-medium tracking-tight md:text-3xl',
+    meta: 'font-mono text-xs uppercase tracking-wider text-muted-foreground',
     text: 'text-muted-foreground',
     rule: 'border-border',
     frame: 'bg-muted',
@@ -192,6 +203,14 @@ const showFrames = (items: readonly SectionItem[], template: TemplateKey) => tem
 function Proyectos({ section, template }: { section: ContentSection; template: TemplateKey }) {
   const look = LOOKS[template];
   const frames = showFrames(section.items, template);
+  // «estudio»: los proyectos son su índice (filas grandes con la imagen siguiendo al cursor), no una rejilla de tarjetas.
+  if (template === 'estudio') {
+    return (
+      <Shell kind="proyectos" section={section} template={template} layout="stack">
+        <ProjectIndex items={section.items} />
+      </Shell>
+    );
+  }
   return (
     <Shell kind="proyectos" section={section} template={template} layout="stack">
       <ul className="grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
@@ -258,12 +277,13 @@ function Faq({ section, template }: { section: ContentSection; template: Templat
   );
 }
 
-/** Las secciones de un tramo de la portada (antes o después de «Sobre nosotros»). Sin contenido en ninguna, no pinta nada. */
-export function ContentSections({ template, sections, slot }: { template: TemplateKey; sections?: SectionsData; slot: SectionSlot }) {
+/** Las secciones de un tramo de la portada (antes o después de «Sobre nosotros»), o las que pida `kinds` en ese orden (la plantilla «estudio»
+ *  pone los proyectos antes que los servicios). Sin contenido en ninguna, no pinta nada. */
+export function ContentSections({ template, sections, slot = 'before-about', kinds }: { template: TemplateKey; sections?: SectionsData; slot?: SectionSlot; kinds?: readonly SectionKind[] }) {
   if (!sections) return null;
   return (
     <>
-      {SLOT_KINDS[slot].map((kind) => {
+      {(kinds ?? SLOT_KINDS[slot]).map((kind) => {
         const section = sections[kind];
         if (!hasContent(section)) return null;
         switch (kind) {

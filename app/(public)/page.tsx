@@ -17,6 +17,7 @@ import type { HeroProps } from './_home/hero';
 import { HomeMarquesina } from './_home/marquesina/home-marquesina';
 import { HomeGaleria } from './_home/galeria/home-galeria';
 import { HomeTipo } from './_home/tipo/home-tipo';
+import { HomeEstudio } from './_home/estudio/home-estudio';
 import { toTemplateEvent } from './_home/event-view';
 import { ContentSections } from './_home/sections/content-sections';
 import { getContentSections } from '@/lib/content/load';
@@ -106,8 +107,8 @@ export default async function HomePage() {
     stickerImage: brand.stickerImage,
   };
   // Plantillas nuevas (marquesina, galería): otra composición completa de la portada (Feria y Editorial siguen por el camino de siempre).
-  if (brand.template === 'marquesina' || brand.template === 'galeria' || brand.template === 'tipo') {
-    const Home = brand.template === 'galeria' ? HomeGaleria : brand.template === 'tipo' ? HomeTipo : HomeMarquesina;
+  if (brand.template === 'marquesina' || brand.template === 'galeria' || brand.template === 'tipo' || brand.template === 'estudio') {
+    const Home = { marquesina: HomeMarquesina, galeria: HomeGaleria, tipo: HomeTipo, estudio: HomeEstudio }[brand.template];
     return (
       <Home
         brandName={brand.name}

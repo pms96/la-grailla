@@ -128,6 +128,21 @@ function Preview({ theme, mode }: { theme: SiteTheme; mode: 'light' | 'dark' }) 
             Sáb 14 nov / Tu sala / Entradas / Sáb 14 nov
           </div>
         </div>
+      ) : theme.template === 'estudio' ? (
+        <div className="px-4 pb-5 pt-6">
+          <p className="mb-3 text-xs uppercase tracking-[0.14em]" style={{ color: 'hsl(var(--muted-foreground))' }}>{theme.brand.name || 'Tu marca'}</p>
+          <h3 className="text-3xl leading-[1.02]" style={{ fontFamily: display, fontWeight: 500, letterSpacing: '-0.035em' }}>
+            {theme.brand.tagline || 'Una frase que cuente qué hacéis'}
+          </h3>
+          <div className="mt-5 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
+            {['Proyecto uno', 'Proyecto dos'].map((name, i) => (
+              <div key={name} className="flex items-baseline justify-between gap-3 border-b py-2" style={{ borderColor: 'hsl(var(--border))', opacity: i === 0 ? 1 : 0.4 }}>
+                <span className="text-lg" style={{ fontFamily: display, fontWeight: 500, letterSpacing: '-0.03em' }}>{name}</span>
+                <span className="text-[10px] uppercase tracking-wider" style={{ color: 'hsl(var(--muted-foreground))' }}>Cliente · 2025</span>
+              </div>
+            ))}
+          </div>
+        </div>
       ) : theme.template === 'galeria' ? (
         <div className="px-4 pb-6 pt-6">
           <p className="mb-3 text-xs uppercase tracking-[0.14em]" style={{ color: 'hsl(var(--muted-foreground))' }}>Próximo evento</p>

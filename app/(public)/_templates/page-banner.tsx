@@ -9,6 +9,9 @@ import { Words as MarquesinaWords } from '../_home/marquesina/home-marquesina';
 import { GaleriaTitle } from '../_home/galeria/home-galeria';
 import { TipoWords } from '../_home/tipo/home-tipo';
 import { Composition } from '../_home/tipo/composition';
+import { sentenceSize } from '../_home/estudio/home-estudio';
+import '@/components/templates/estudio.css';
+import { cn } from '@/lib/utils';
 
 /* Cabecera de las páginas interiores (ficha del evento, tienda, patrocinio, textos legales) de las plantillas nuevas. Hasta ahora esas páginas
  * llevaban siempre la cabecera de Feria (degradado, pegatina y textos fijos), así que un cliente con «marquesina», «galería» o «tipo» tenía una
@@ -16,7 +19,7 @@ import { Composition } from '../_home/tipo/composition';
  *
  * Todo el texto lo pone la página (nada fijo de ninguna marca). La compra y la sala de espera no la usan a propósito: van en modo «calma». */
 
-export const BANNER_TEMPLATES = ['marquesina', 'galeria', 'tipo'] as const;
+export const BANNER_TEMPLATES = ['marquesina', 'galeria', 'tipo', 'estudio'] as const;
 export type BannerTemplate = (typeof BANNER_TEMPLATES)[number];
 
 /** ¿Esta plantilla tiene cabecera propia? Si no, la página sigue con la suya de siempre. */
@@ -168,8 +171,47 @@ function BannerTipo({ brandName, title, eyebrow, lead, facts = [], seed, compact
   );
 }
 
+function BannerEstudio({ brandName, title, eyebrow, lead, facts = [], imageUrl, compact = false }: PageBannerProps) {
+  const photo = !compact && imageUrl;
+  return (
+    <section>
+      <div className={cn('mx-auto max-w-[1400px] px-5 md:px-10', compact ? 'pb-8 pt-10 md:pb-12 md:pt-16' : 'pb-12 pt-12 md:pb-20 md:pt-24')}>
+        <div className={photo ? 'grid gap-10 md:grid-cols-12 md:items-end md:gap-x-8' : undefined}>
+          <div className={photo ? 'md:col-span-7' : undefined}>
+            <p className="es-label mb-6 md:mb-10">{eyebrow ?? brandName}</p>
+            <h1 className="es-title" data-size={compact ? 's' : sentenceSize(title)}>
+              {title}
+            </h1>
+            {lead && <p className="mt-6 max-w-xl text-lg text-muted-foreground">{lead}</p>}
+          </div>
+          {photo && (
+            <div className="md:col-span-5">
+              <div className="aspect-[4/3] overflow-hidden bg-muted">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={imageUrl} alt={`Cartel de ${title}`} className="h-full w-full object-cover" fetchPriority="high" />
+              </div>
+            </div>
+          )}
+        </div>
+        {facts.length > 0 && (
+          <dl className="mt-10 grid gap-x-10 gap-y-5 border-t border-border pt-6 sm:grid-cols-2 md:mt-14 md:grid-cols-4">
+            {facts.map((f) => (
+              <div key={f.label}>
+                <dt className="es-label">{f.label}</dt>
+                <dd className="mt-1.5 text-base">{f.value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function PageBanner(props: PageBannerProps) {
   switch (props.template) {
+    case 'estudio':
+      return <BannerEstudio {...props} />;
     case 'galeria':
       return <BannerGaleria {...props} />;
     case 'tipo':

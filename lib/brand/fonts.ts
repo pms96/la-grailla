@@ -1,4 +1,4 @@
-import { Fredoka, Space_Grotesk, Space_Mono, Inter, DM_Sans, Poppins, Montserrat, Playfair_Display, Bebas_Neue, Instrument_Serif } from 'next/font/google';
+import { Fredoka, Space_Grotesk, Space_Mono, Inter, DM_Sans, Poppins, Montserrat, Playfair_Display, Bebas_Neue, Instrument_Serif, Bricolage_Grotesque } from 'next/font/google';
 
 /* Catálogo cerrado de tipografías (lib/brand/theme.ts → FONT_CATALOG). `next/font` exige declarar cada familia en el ámbito del módulo y con
  * argumentos literales (no admite spread ni variables), así que no se pueden cargar familias arbitrarias por cliente: un cliente elige entre
@@ -18,7 +18,10 @@ const bebas = Bebas_Neue({ subsets: ['latin'], variable: '--f-bebas-neue', weigh
 // Solo existe en peso 400, con romana y cursiva (la plantilla «galería» usa la cursiva para destacar una palabra).
 const instrumentSerif = Instrument_Serif({ subsets: ['latin'], variable: '--f-instrument-serif', weight: '400', style: ['normal', 'italic'], preload: false, display: 'swap' });
 
+// Variable (200-800): la plantilla «estudio» la usa en titulares grandes con peso medio.
+const bricolage = Bricolage_Grotesque({ subsets: ['latin'], variable: '--f-bricolage-grotesque', preload: false, display: 'swap' });
+
 /** Clases que definen las variables de todas las familias del catálogo; van en <body>. */
-export const fontVariableClasses = [fredoka, spaceGrotesk, spaceMono, inter, dmSans, poppins, montserrat, playfair, bebas, instrumentSerif]
+export const fontVariableClasses = [fredoka, spaceGrotesk, spaceMono, inter, dmSans, poppins, montserrat, playfair, bebas, instrumentSerif, bricolage]
   .map((f) => f.variable)
   .join(' ');

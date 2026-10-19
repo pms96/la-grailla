@@ -1,0 +1,203 @@
+/* Plantilla «estudio»: para empresas de servicios, estudios y agencias. Todo sale de los tokens del tema del cliente (colores, tipografías,
+ * radio); aquí no hay ningún color ni fuente fijos.
+ *
+ * Lo único que se mueve de verdad es el índice de proyectos: con puntero fino las demás filas se atenúan, la fila activa se desplaza un poco y
+ * se subraya con el acento, y la imagen del proyecto aparece junto al cursor con un recorte desde arriba. Solo transform, opacity y clip-path,
+ * curva --ease-out. Todo tiene su rama prefers-reduced-motion, y el hover va tras (hover: hover) and (pointer: fine). */
+
+/* ── Titular: una frase que explica qué hacéis ─────────────────────────────────────────────────────────── */
+.es-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  font-size: clamp(2.5rem, 11vw, 4.25rem);
+}
+.es-title[data-size='m'] {
+  font-size: clamp(2.25rem, 9vw, 3.5rem);
+}
+.es-title[data-size='s'] {
+  font-size: clamp(1.875rem, 7.5vw, 2.75rem);
+}
+@media (min-width: 768px) {
+  .es-title {
+    font-size: clamp(3.5rem, 7.2vw, 7.5rem);
+  }
+  .es-title[data-size='m'] {
+    font-size: clamp(3rem, 5.6vw, 5.75rem);
+  }
+  .es-title[data-size='s'] {
+    font-size: clamp(2.25rem, 4.2vw, 4rem);
+  }
+}
+
+/* Títulos de sección: la misma familia, más pequeños (solo el titular de la cabecera es «grande» en cada página). */
+.es-heading {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  text-wrap: balance;
+  font-size: clamp(1.875rem, 5vw, 3.25rem);
+}
+
+/* Etiqueta pequeña en la tipografía de datos del sistema. */
+.es-label {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+
+/* Entrada de la cabecera: cada bloque sube un poco. Visible en el HTML del servidor (solo se desplaza), así que sin CSS ni JS se lee igual. */
+.es-rise {
+  animation: es-rise 650ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 80ms);
+}
+@keyframes es-rise {
+  from {
+    transform: translateY(0.75rem);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* Enlace principal de la cabecera: la flecha se adelanta. */
+.es-cta .es-arrow {
+  transition: transform 200ms var(--ease-out);
+}
+
+/* ── Índice de proyectos / filas ───────────────────────────────────────────────────────────────────────── */
+.es-list {
+  border-top: 1px solid hsl(var(--border));
+}
+.es-row {
+  position: relative;
+  display: block;
+  border-bottom: 1px solid hsl(var(--border));
+  transition: opacity 250ms var(--ease-out);
+}
+/* Subrayado del acento que crece desde la izquierda. */
+.es-row::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 2px;
+  background: hsl(var(--accent));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 400ms var(--ease-out);
+}
+.es-row-title {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  font-size: clamp(1.75rem, 6vw, 2.5rem);
+  transition: transform 300ms var(--ease-out);
+}
+@media (min-width: 768px) {
+  .es-row-title {
+    font-size: clamp(2.25rem, 4.4vw, 4.25rem);
+  }
+}
+/* Versión menor para las filas de la agenda: sus nombres son frases más largas que el de un proyecto. */
+.es-row-title-sm {
+  font-size: clamp(1.5rem, 5.5vw, 2rem);
+}
+@media (min-width: 768px) {
+  .es-row-title-sm {
+    font-size: clamp(1.75rem, 2.9vw, 2.75rem);
+  }
+}
+.es-row:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
+.es-row:focus-visible::after {
+  transform: scaleX(1);
+}
+.es-row:focus-visible .es-row-title {
+  transform: translateX(0.5rem);
+}
+
+/* ── Imagen que sigue al cursor (solo puntero fino) ────────────────────────────────────────────────────── */
+.es-preview {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  width: 22rem;
+  pointer-events: none;
+  /* Se coloca con transform desde JS. */
+  will-change: transform;
+}
+.es-preview-card {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: hsl(var(--muted));
+  /* Recorte desde arriba: cerrada = línea en la base, abierta = imagen entera. */
+  clip-path: inset(100% 0 0 0);
+  transition: clip-path 280ms var(--ease-out);
+}
+.es-preview[data-on='true'] .es-preview-card {
+  clip-path: inset(0 0 0 0);
+}
+.es-preview-card img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 160ms var(--ease-out);
+}
+.es-preview-card img[data-active='true'] {
+  opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  /* Las demás filas se atenúan mientras se mira una. `:has` es una mejora: sin él, simplemente no se atenúan. */
+  .es-list:has(.es-row:hover) .es-row:not(:hover) {
+    opacity: 0.35;
+  }
+  .es-row:hover::after {
+    transform: scaleX(1);
+  }
+  .es-row:hover .es-row-title {
+    transform: translateX(0.5rem);
+  }
+  .es-cta:hover .es-arrow {
+    transform: translate(0.25rem, -0.25rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .es-rise {
+    animation: none;
+  }
+  .es-row,
+  .es-row::after,
+  .es-row-title,
+  .es-cta .es-arrow,
+  .es-preview-card,
+  .es-preview-card img {
+    transition: none;
+  }
+  .es-row:hover .es-row-title,
+  .es-row:focus-visible .es-row-title {
+    transform: none;
+  }
+  .es-list:has(.es-row:hover) .es-row:not(:hover) {
+    opacity: 1;
+  }
+}

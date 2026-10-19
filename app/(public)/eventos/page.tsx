@@ -14,6 +14,7 @@ import { getBrand } from '@/lib/brand/brand';
 import { EventosMarquesina } from '../_home/marquesina/eventos-marquesina';
 import { EventosGaleria } from '../_home/galeria/eventos-galeria';
 import { EventosTipo } from '../_home/tipo/eventos-tipo';
+import { EventosEstudio } from '../_home/estudio/eventos-estudio';
 import { toTemplateEvent } from '../_home/event-view';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
@@ -44,6 +45,9 @@ export default async function EventosPage() {
   const brand = await getBrand();
   if (brand.template === 'marquesina') {
     return <EventosMarquesina brandName={brand.name} events={events.map(toTemplateEvent)} loadError={loadError} />;
+  }
+  if (brand.template === 'estudio') {
+    return <EventosEstudio brandName={brand.name} events={events.map(toTemplateEvent)} loadError={loadError} />;
   }
   if (brand.template === 'tipo') {
     return <EventosTipo brandName={brand.name} events={events.map(toTemplateEvent)} loadError={loadError} />;

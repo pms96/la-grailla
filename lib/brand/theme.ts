@@ -14,7 +14,7 @@ import { z } from 'zod';
 export const THEME_VERSION = 1 as const;
 
 // ── Catálogo cerrado ────────────────────────────────────────────────────────────────────────────────────────────────
-export const TEMPLATES = ['feria', 'editorial', 'marquesina', 'galeria', 'tipo'] as const;
+export const TEMPLATES = ['feria', 'editorial', 'marquesina', 'galeria', 'tipo', 'estudio'] as const;
 export type TemplateKey = (typeof TEMPLATES)[number];
 export const TEMPLATE_LABELS: Record<TemplateKey, { label: string; description: string }> = {
   feria: { label: 'Feria', description: 'Festiva: degradados, pegatinas de borde grueso y botones redondeados.' },
@@ -31,9 +31,13 @@ export const TEMPLATE_LABELS: Record<TemplateKey, { label: string; description: 
     label: 'Tipo',
     description: 'Sin fotos: titular pesado y enorme, bloques de color y formas geométricas propias de cada evento. Para quien solo tiene tipografía y color.',
   },
+  estudio: {
+    label: 'Estudio',
+    description: 'Para empresas de servicios, estudios y agencias: un titular que explica qué hacéis, el índice de proyectos con la imagen siguiendo al cursor, servicios, equipo y preguntas frecuentes.',
+  },
 };
 
-export const FONT_KEYS = ['fredoka', 'space-grotesk', 'inter', 'dm-sans', 'poppins', 'montserrat', 'playfair-display', 'bebas-neue', 'instrument-serif'] as const;
+export const FONT_KEYS = ['fredoka', 'space-grotesk', 'inter', 'dm-sans', 'poppins', 'montserrat', 'playfair-display', 'bebas-neue', 'instrument-serif', 'bricolage-grotesque'] as const;
 export type FontKey = (typeof FONT_KEYS)[number];
 /** `cssVar`: la variable que define `next/font` para esa familia (ver lib/brand/fonts.ts). Los valores NO vienen del cliente. */
 export const FONT_CATALOG: Record<FontKey, { label: string; cssVar: string; roles: readonly ('display' | 'body')[] }> = {
@@ -46,6 +50,7 @@ export const FONT_CATALOG: Record<FontKey, { label: string; cssVar: string; role
   'playfair-display': { label: 'Playfair Display (serif elegante)', cssVar: '--f-playfair-display', roles: ['display'] },
   'bebas-neue': { label: 'Bebas Neue (cartel)', cssVar: '--f-bebas-neue', roles: ['display'] },
   'instrument-serif': { label: 'Instrument Serif (serif de galería)', cssVar: '--f-instrument-serif', roles: ['display'] },
+  'bricolage-grotesque': { label: 'Bricolage Grotesque (con carácter)', cssVar: '--f-bricolage-grotesque', roles: ['display', 'body'] },
 };
 export const DEFAULT_FONTS = { display: 'fredoka', body: 'space-grotesk' } as const satisfies { display: FontKey; body: FontKey };
 
@@ -75,6 +80,12 @@ export const TEMPLATE_PRESETS: Partial<Record<TemplateKey, { mode: ModeKey; radi
     radius: 'recto',
     fonts: { display: 'montserrat', body: 'inter' },
     note: 'modo claro, esquinas rectas y Montserrat para el titular',
+  },
+  estudio: {
+    mode: 'light',
+    radius: 'recto',
+    fonts: { display: 'bricolage-grotesque', body: 'inter' },
+    note: 'modo claro, esquinas rectas y Bricolage Grotesque para el titular',
   },
 };
 
