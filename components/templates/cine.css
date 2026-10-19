@@ -1,0 +1,284 @@
+/* Plantilla «cine»: oscura y cinematográfica. Todo sale de los tokens del tema del cliente (colores, tipografías, radio); aquí no hay ningún
+ * color ni fuente fijos.
+ *
+ * Movimiento: el vídeo de la cabecera deriva un poco al bajar (solo con animation-timeline, mejora progresiva), el cartel de cada tarjeta se
+ * acerca con puntero fino y el cartel crece de la tarjeta a la ficha del evento con una View Transition entre páginas (ver transitions.tsx).
+ * Solo transform, opacity y clip-path, curva --ease-out. Todo tiene su rama prefers-reduced-motion y el hover va tras
+ * (hover: hover) and (pointer: fine). */
+
+/* ── Tipografía ────────────────────────────────────────────────────────────────────────────────────────── */
+.cn-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 0.98;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  font-size: clamp(2.75rem, 13vw, 5rem);
+}
+.cn-title[data-size='m'] {
+  font-size: clamp(2.5rem, 11vw, 4.25rem);
+}
+.cn-title[data-size='s'] {
+  font-size: clamp(2rem, 8.5vw, 3.25rem);
+}
+@media (min-width: 768px) {
+  .cn-title {
+    font-size: clamp(4rem, 9vw, 9rem);
+  }
+  .cn-title[data-size='m'] {
+    font-size: clamp(3.5rem, 7vw, 7rem);
+  }
+  .cn-title[data-size='s'] {
+    font-size: clamp(2.5rem, 5vw, 4.5rem);
+  }
+}
+.cn-heading {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.05;
+  text-wrap: balance;
+  font-size: clamp(1.875rem, 5vw, 3.5rem);
+}
+.cn-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+
+/* Entrada de la cabecera: cada bloque sube un poco. Visible en el HTML del servidor (solo se desplaza). */
+.cn-rise {
+  animation: cn-rise 700ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+@keyframes cn-rise {
+  from {
+    transform: translateY(1rem);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* ── Cabecera con vídeo ────────────────────────────────────────────────────────────────────────────────── */
+.cn-hero {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  min-height: min(86svh, 56rem);
+  background: hsl(var(--background));
+}
+.cn-hero-media {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+}
+.cn-hero-media img,
+.cn-hero-media video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* El vídeo entra con un fundido cuando ya tiene imagen; hasta entonces (o sin él) se ve el póster. */
+.cn-hero-media video {
+  opacity: 0;
+  transition: opacity 700ms var(--ease-out);
+}
+.cn-hero-media video[data-ready='true'] {
+  opacity: 1;
+}
+/* Velo del color de fondo: el texto se lee siempre, con cualquier vídeo y en modo claro u oscuro. */
+.cn-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(to top, hsl(var(--background)) 0%, hsl(var(--background) / 0.8) 30%, hsl(var(--background) / 0.35) 62%, hsl(var(--background) / 0.5) 100%);
+}
+/* Sin vídeo ni póster: un resplandor del color principal en lugar de un fondo plano. */
+.cn-hero[data-bare='true'] .cn-hero-media {
+  background: radial-gradient(ellipse at 70% 20%, hsl(var(--primary) / 0.35), transparent 60%);
+}
+.cn-media-toggle {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background) / 0.7);
+  border: 1px solid hsl(var(--border));
+  backdrop-filter: blur(6px);
+  transition: background-color 200ms var(--ease-out);
+}
+.cn-media-toggle:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+@media (min-width: 768px) {
+  .cn-media-toggle {
+    right: 2.5rem;
+    bottom: 2.5rem;
+  }
+}
+
+/* Deriva del vídeo al bajar: solo transform y solo donde el navegador sabe animar con el scroll. */
+@supports (animation-timeline: scroll()) {
+  .cn-hero-media {
+    animation: cn-drift linear both;
+    animation-timeline: scroll(root block);
+    animation-range: 0 90svh;
+  }
+}
+@keyframes cn-drift {
+  to {
+    transform: translateY(10svh) scale(1.08);
+  }
+}
+
+/* ── Cartelera: riel horizontal con encaje ─────────────────────────────────────────────────────────────── */
+.cn-rail {
+  /* Misma sangría que el resto de la página (px-5 en móvil, px-10 desde 768 px dentro de un contenedor de 1600 px): el primer cartel alinea con el título. */
+  --cn-gutter: 1.25rem;
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  padding-inline: var(--cn-gutter);
+  padding-bottom: 1rem;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: var(--cn-gutter);
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+@media (min-width: 768px) {
+  .cn-rail {
+    --cn-gutter: max(2.5rem, calc((100% - 1600px) / 2 + 2.5rem));
+  }
+}
+.cn-rail:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
+/* La lista va dentro de la región desplazable: así sigue siendo una lista para los lectores de pantalla. Cada elemento es un punto de encaje. */
+.cn-rail-list {
+  display: flex;
+  gap: 1rem;
+  width: max-content;
+}
+.cn-rail-item {
+  flex: 0 0 auto;
+  width: clamp(13.5rem, 60vw, 19rem);
+  scroll-snap-align: start;
+}
+.cn-card {
+  display: block;
+}
+.cn-poster {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  background: hsl(var(--muted));
+}
+.cn-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 600ms var(--ease-out);
+}
+/* Sin cartel: el nombre del evento sobre un bloque del color principal. */
+.cn-poster-blank {
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  padding: 1rem;
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  line-height: 1.05;
+  color: hsl(var(--primary-foreground));
+  background: linear-gradient(160deg, hsl(var(--primary)), hsl(var(--primary) / 0.55));
+}
+.cn-badge {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background) / 0.82);
+  border: 1px solid hsl(var(--border));
+}
+.cn-card-name {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  font-size: 1.375rem;
+  text-wrap: balance;
+}
+.cn-card:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 4px;
+}
+.cn-ctrl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  transition:
+    background-color 200ms var(--ease-out),
+    opacity 200ms var(--ease-out);
+}
+.cn-ctrl:disabled {
+  opacity: 0.35;
+}
+.cn-ctrl:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cn-card:hover .cn-poster img {
+    transform: scale(1.04);
+  }
+  .cn-ctrl:not(:disabled):hover,
+  .cn-media-toggle:hover {
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cn-rise {
+    animation: none;
+  }
+  .cn-hero-media {
+    animation: none;
+  }
+  .cn-hero-media video,
+  .cn-poster img,
+  .cn-ctrl,
+  .cn-media-toggle {
+    transition: none;
+  }
+  .cn-card:hover .cn-poster img {
+    transform: none;
+  }
+}

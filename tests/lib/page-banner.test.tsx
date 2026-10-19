@@ -26,7 +26,7 @@ const base = (template: PageBannerProps['template'], over: Partial<PageBannerPro
 
 describe('hasBanner', () => {
   it('solo las plantillas nuevas tienen cabecera propia; Feria y Editorial conservan la de cada página', () => {
-    expect(BANNER_TEMPLATES).toEqual(['marquesina', 'galeria', 'tipo', 'estudio']);
+    expect(BANNER_TEMPLATES).toEqual(['marquesina', 'galeria', 'tipo', 'estudio', 'cine']);
     expect(hasBanner('feria')).toBe(false);
     expect(hasBanner('editorial')).toBe(false);
     for (const t of BANNER_TEMPLATES) expect(hasBanner(t)).toBe(true);

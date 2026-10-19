@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Save, RotateCcw, Palette, Type, Image as ImageIcon, LayoutTemplate, Sparkles, TriangleAlert } from 'lucide-react';
+import { Loader2, Save, RotateCcw, Palette, Type, Image as ImageIcon, LayoutTemplate, Sparkles, TriangleAlert, Film } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { PageHeader } from '@/components/layouts/page-header';
 import { cn } from '@/lib/utils';
 import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
+import { VideoUploadField } from '@/app/admin/_components/video-upload-field';
 import {
   FONT_CATALOG, FONT_KEYS, MODES, RADII, RADIUS_VALUE, TEMPLATES, TEMPLATE_LABELS, TEMPLATE_PRESETS,
   deriveTokens, hexToHsl, hslToHex, themeContrastIssues, themeContrastWarnings,
@@ -126,6 +127,17 @@ function Preview({ theme, mode }: { theme: SiteTheme; mode: 'light' | 'dark' }) 
           </div>
           <div className="whitespace-nowrap px-4 py-2 text-sm font-extrabold uppercase" style={{ background: 'hsl(var(--foreground))', color: 'hsl(var(--background))', fontFamily: display }}>
             Sáb 14 nov / Tu sala / Entradas / Sáb 14 nov
+          </div>
+        </div>
+      ) : theme.template === 'cine' ? (
+        <div className="relative overflow-hidden px-4 pb-5 pt-14">
+          <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at 70% 10%, hsl(var(--primary) / 0.4), transparent 60%)' }} aria-hidden />
+          <p className="relative mb-2 text-xs uppercase tracking-[0.2em]" style={{ color: 'hsl(var(--muted-foreground))' }}>Próximo evento</p>
+          <h3 className="relative text-4xl leading-[0.98]" style={{ fontFamily: display, fontWeight: 500, letterSpacing: '-0.02em' }}>{theme.brand.name || 'Tu marca'}</h3>
+          <div className="relative mt-5 flex gap-2" aria-hidden>
+            {[0, 1, 2].map((i) => (
+              <span key={i} className="block h-20 w-14 shrink-0" style={{ background: i === 0 ? 'hsl(var(--primary))' : 'hsl(var(--muted))' }} />
+            ))}
           </div>
         </div>
       ) : theme.template === 'estudio' ? (
@@ -436,6 +448,25 @@ export default function AparienciaPage() {
             </div>
             <p className="text-xs text-muted-foreground">Sin logo, la web muestra el nombre como marca de texto. Los PDFs y los pases de wallet necesitan un logo en PNG o JPEG.</p>
           </CardContent></Card>
+
+          {theme.template === 'cine' && (
+            <Card><CardContent className="space-y-4 p-6">
+              <h2 className="flex items-center gap-2 font-display text-lg font-semibold"><Film className="h-4 w-4 text-primary" /> Cabecera con vídeo</h2>
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div>
+                  <Label>Vídeo de la cabecera</Label>
+                  <p className="mb-2 text-xs text-muted-foreground">MP4 o WebM, sin sonido, de 10 a 30 segundos y hasta 40 MB. Se reproduce en bucle y mudo.</p>
+                  <VideoUploadField value={theme.assets.heroVideo ?? ''} onChange={(url) => setAssets({ heroVideo: url || undefined })} label="vídeo de la cabecera" />
+                </div>
+                <div>
+                  <Label>Imagen de la cabecera (póster)</Label>
+                  <p className="mb-2 text-xs text-muted-foreground">Se ve mientras carga el vídeo y a quien pide menos movimiento o tiene el ahorro de datos. Recomendado: un fotograma del vídeo.</p>
+                  <ImageUploadField value={theme.assets.heroPoster ?? ''} onChange={(url) => setAssets({ heroPoster: url || undefined })} prefix="brand" accept="image/png,image/jpeg" label="imagen de la cabecera" />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">Sin vídeo ni imagen, la cabecera muestra un resplandor del color principal.</p>
+            </CardContent></Card>
+          )}
         </div>
 
         <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">

@@ -245,7 +245,8 @@
  * serena. El layout público marca la plantilla con `data-template`; solo queda el filo inferior que ya trae la barra. */
 [data-template='galeria'] > header,
 [data-template='tipo'] > header,
-[data-template='estudio'] > header {
+[data-template='estudio'] > header,
+[data-template='cine'] > header {
   box-shadow: none;
 }
 

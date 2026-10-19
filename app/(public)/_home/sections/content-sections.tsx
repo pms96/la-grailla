@@ -79,6 +79,16 @@ const LOOKS: Record<TemplateKey, Look> = {
     rule: 'border-border',
     frame: 'bg-muted',
   },
+  cine: {
+    wrap: 'mx-auto max-w-[1600px] border-t border-border px-5 py-14 md:px-10 md:py-24',
+    title: 'cn-heading',
+    intro: 'mt-4 max-w-xl text-lg text-muted-foreground',
+    itemTitle: 'font-display text-2xl font-medium tracking-tight md:text-3xl',
+    meta: 'cn-label',
+    text: 'text-muted-foreground',
+    rule: 'border-border',
+    frame: 'bg-muted',
+  },
   estudio: {
     wrap: 'mx-auto max-w-[1400px] border-t border-border px-5 py-14 md:px-10 md:py-24',
     title: 'es-heading',

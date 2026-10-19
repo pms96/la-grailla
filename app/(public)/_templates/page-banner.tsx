@@ -10,6 +10,8 @@ import { GaleriaTitle } from '../_home/galeria/home-galeria';
 import { TipoWords } from '../_home/tipo/home-tipo';
 import { Composition } from '../_home/tipo/composition';
 import { sentenceSize } from '../_home/estudio/home-estudio';
+import { CineTransitions, posterTransitionName } from '../_home/cine/transitions';
+import '@/components/templates/cine.css';
 import '@/components/templates/estudio.css';
 import { cn } from '@/lib/utils';
 
@@ -19,7 +21,7 @@ import { cn } from '@/lib/utils';
  *
  * Todo el texto lo pone la página (nada fijo de ninguna marca). La compra y la sala de espera no la usan a propósito: van en modo «calma». */
 
-export const BANNER_TEMPLATES = ['marquesina', 'galeria', 'tipo', 'estudio'] as const;
+export const BANNER_TEMPLATES = ['marquesina', 'galeria', 'tipo', 'estudio', 'cine'] as const;
 export type BannerTemplate = (typeof BANNER_TEMPLATES)[number];
 
 /** ¿Esta plantilla tiene cabecera propia? Si no, la página sigue con la suya de siempre. */
@@ -208,8 +210,50 @@ function BannerEstudio({ brandName, title, eyebrow, lead, facts = [], imageUrl, 
   );
 }
 
+/** «cine»: título grande y, en la ficha del evento, el cartel a la derecha con el mismo nombre de transición que su tarjeta (`seed` es el slug del
+ *  evento): al llegar desde la cartelera, el cartel crece de la tarjeta a este sitio. */
+function BannerCine({ brandName, title, eyebrow, lead, facts = [], imageUrl, seed, compact = false }: PageBannerProps) {
+  const poster = !compact && imageUrl;
+  return (
+    <section>
+      <CineTransitions />
+      <div className={cn('mx-auto max-w-[1600px] px-5 md:px-10', compact ? 'pb-8 pt-10 md:pb-12 md:pt-16' : 'pb-12 pt-12 md:pb-20 md:pt-20')}>
+        <div className={poster ? 'grid gap-10 md:grid-cols-12 md:items-end md:gap-x-10' : undefined}>
+          <div className={poster ? 'md:col-span-7 lg:col-span-8' : undefined}>
+            <p className="cn-label mb-5 md:mb-8">{eyebrow ?? brandName}</p>
+            <h1 className="cn-title" data-size={compact ? 's' : titleSize(title)}>
+              {title}
+            </h1>
+            {lead && <p className="mt-6 max-w-xl text-lg text-muted-foreground">{lead}</p>}
+            {facts.length > 0 && (
+              <dl className="mt-8 grid gap-x-10 gap-y-5 border-t border-border pt-6 sm:grid-cols-2 md:mt-12 xl:grid-cols-4">
+                {facts.map((f) => (
+                  <div key={f.label}>
+                    <dt className="cn-label">{f.label}</dt>
+                    <dd className="mt-1.5 text-base">{f.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </div>
+          {poster && (
+            <div className="md:col-span-5 lg:col-span-4">
+              <div className="cn-poster" style={seed ? { ['viewTransitionName' as string]: posterTransitionName(seed) } : undefined}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={imageUrl} alt={`Cartel de ${title}`} fetchPriority="high" />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function PageBanner(props: PageBannerProps) {
   switch (props.template) {
+    case 'cine':
+      return <BannerCine {...props} />;
     case 'estudio':
       return <BannerEstudio {...props} />;
     case 'galeria':

@@ -14,6 +14,8 @@ export type HomeTemplateProps = {
   contactEnabled: boolean;
   /** Servicios, proyectos, equipo y preguntas frecuentes del cliente (núcleo); una sección sin elementos no se pinta. */
   sections?: SectionsData;
+  /** Vídeo y póster de la cabecera de la plantilla «cine» (subidos por el cliente en Apariencia); las demás plantillas los ignoran. */
+  media?: { video: string | null; poster: string | null };
   /** La tipografía de titulares del cliente tiene cursiva real (si no, una plantilla no la simula con una oblicua sintética). */
   italicAccent?: boolean;
   /** Textos editables en Configuración → Contenido; vacíos = cada plantilla usa su texto neutro. */

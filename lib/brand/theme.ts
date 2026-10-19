@@ -14,7 +14,7 @@ import { z } from 'zod';
 export const THEME_VERSION = 1 as const;
 
 // ── Catálogo cerrado ────────────────────────────────────────────────────────────────────────────────────────────────
-export const TEMPLATES = ['feria', 'editorial', 'marquesina', 'galeria', 'tipo', 'estudio'] as const;
+export const TEMPLATES = ['feria', 'editorial', 'marquesina', 'galeria', 'tipo', 'estudio', 'cine'] as const;
 export type TemplateKey = (typeof TEMPLATES)[number];
 export const TEMPLATE_LABELS: Record<TemplateKey, { label: string; description: string }> = {
   feria: { label: 'Feria', description: 'Festiva: degradados, pegatinas de borde grueso y botones redondeados.' },
@@ -34,6 +34,10 @@ export const TEMPLATE_LABELS: Record<TemplateKey, { label: string; description: 
   estudio: {
     label: 'Estudio',
     description: 'Para empresas de servicios, estudios y agencias: un titular que explica qué hacéis, el índice de proyectos con la imagen siguiendo al cursor, servicios, equipo y preguntas frecuentes.',
+  },
+  cine: {
+    label: 'Cine',
+    description: 'Oscura y cinematográfica: vídeo a pantalla completa en la cabecera, cartelera en un riel horizontal y el cartel que crece de la tarjeta a la ficha del evento. Para conciertos y promotoras con vídeo.',
   },
 };
 
@@ -87,6 +91,12 @@ export const TEMPLATE_PRESETS: Partial<Record<TemplateKey, { mode: ModeKey; radi
     fonts: { display: 'bricolage-grotesque', body: 'inter' },
     note: 'modo claro, esquinas rectas y Bricolage Grotesque para el titular',
   },
+  cine: {
+    mode: 'dark',
+    radius: 'recto',
+    fonts: { display: 'playfair-display', body: 'inter' },
+    note: 'modo oscuro, esquinas rectas y Playfair Display para el titular',
+  },
 };
 
 // ── Esquema ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -118,6 +128,17 @@ export function isBrandAssetUrl(raw: string): boolean {
 }
 const assetUrl = z.string().max(500).refine(isBrandAssetUrl, 'URL de imagen no válida');
 
+/** Vídeo de cabecera (plantilla «cine»): solo de Blob y solo MP4 o WebM, que son los que reproduce cualquier navegador sin plugins. */
+export function isBrandVideoUrl(raw: string): boolean {
+  if (!isBrandAssetUrl(raw) || raw.startsWith('/')) return false;
+  try {
+    return /\.(mp4|webm)$/i.test(decodeURIComponent(new URL(raw).pathname));
+  } catch {
+    return false;
+  }
+}
+const videoUrl = z.string().max(500).refine(isBrandVideoUrl, 'El vídeo debe ser un MP4 o WebM subido desde el panel');
+
 const text = (max: number) => z.string().trim().max(max);
 
 export const themeSchema = z.object({
@@ -143,6 +164,9 @@ export const themeSchema = z.object({
       logoOnLight: assetUrl.optional(),
       favicon: assetUrl.optional(),
       ogImage: assetUrl.optional(),
+      /** Vídeo y póster de la cabecera de la plantilla «cine». El póster es lo que se ve mientras carga o si el visitante pide menos movimiento. */
+      heroVideo: videoUrl.optional(),
+      heroPoster: assetUrl.optional(),
     })
     .default({}),
   brand: z.object({

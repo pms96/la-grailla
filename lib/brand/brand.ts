@@ -48,6 +48,9 @@ export type Brand = {
   logoOnLight: string | null;
   favicon: string | null;
   ogImage: string | null;
+  /** Vídeo y póster de la cabecera de la plantilla «cine» (Blob del cliente); null = sin ellos. */
+  heroVideo: string | null;
+  heroPoster: string | null;
   /** Pegatina decorativa de la portada «feria» (solo La Grailla tiene una). */
   stickerImage: string | null;
 };
@@ -144,6 +147,8 @@ export function resolveBrand(theme: SiteTheme | null, legacy: boolean, contactEm
       logoOnLight: LA_GRAILLA_SEED.logoOnLight,
       favicon: LA_GRAILLA_SEED.favicon,
       ogImage: LA_GRAILLA_SEED.ogImage,
+      heroVideo: null,
+      heroPoster: null,
       stickerImage: LA_GRAILLA_SEED.stickerImage,
     };
   }
@@ -166,6 +171,8 @@ export function resolveBrand(theme: SiteTheme | null, legacy: boolean, contactEm
     logoOnLight: t.assets.logoOnLight ?? seed?.logoOnLight ?? null,
     favicon: t.assets.favicon ?? seed?.favicon ?? null,
     ogImage: t.assets.ogImage ?? seed?.ogImage ?? null,
+    heroVideo: t.assets.heroVideo ?? null,
+    heroPoster: t.assets.heroPoster ?? null,
     stickerImage: seed?.stickerImage ?? null,
   };
 }
