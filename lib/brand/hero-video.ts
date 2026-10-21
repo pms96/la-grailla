@@ -5,8 +5,17 @@
  * servidor solo decide si ese navegador puede subir ESA ruta, con ESE tipo y hasta ESE tamaño: la ruta lleva siempre el prefijo del cliente. */
 
 export const HERO_VIDEO_TYPES = ['video/mp4', 'video/webm'] as const;
-/** Un vídeo de cabecera tiene que ser ligero: se descarga en segundo plano en la portada. */
-export const HERO_VIDEO_MAX_BYTES = 40 * 1024 * 1024;
+/** Un vídeo de cabecera tiene que ser ligero: se descarga en segundo plano en la portada. 12 MB da para ~20 s en 1080p bien comprimido. */
+export const HERO_VIDEO_MAX_BYTES = 12 * 1024 * 1024;
+
+/** Ancho mínimo de pantalla (px) en el que se reproduce el vídeo: por debajo (móvil) se queda la imagen de la cabecera y no se descarga el vídeo. */
+export const HERO_VIDEO_MIN_WIDTH = 768;
+
+/** ¿Debe reproducirse solo el vídeo en este dispositivo? No con movimiento reducido, ahorro de datos, pantalla estrecha ni conexión 2G/3G. */
+export function shouldAutoplayHeroVideo(env: { reducedMotion: boolean; saveData: boolean; effectiveType: string; wideScreen: boolean }): boolean {
+  if (env.reducedMotion || env.saveData || !env.wideScreen) return false;
+  return !/(^|-)[23]g$/.test(env.effectiveType);
+}
 
 /** Carpeta de Blob donde va el vídeo de cabecera de un cliente (`tenantPrefix` es `{tenantId}/` en modo plataforma y vacío en instalación única). */
 export function heroVideoBlobPrefix(tenantPrefix: string): string {

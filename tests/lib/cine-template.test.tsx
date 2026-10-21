@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { FONT_CATALOG, TEMPLATES, TEMPLATE_LABELS, TEMPLATE_PRESETS, isBrandVideoUrl, parseTheme } from '@/lib/brand/theme';
-import { HERO_VIDEO_MAX_BYTES, heroVideoBlobPrefix, heroVideoFileProblem, isHeroVideoPath } from '@/lib/brand/hero-video';
+import { HERO_VIDEO_MAX_BYTES, HERO_VIDEO_MIN_WIDTH, heroVideoBlobPrefix, heroVideoFileProblem, isHeroVideoPath, shouldAutoplayHeroVideo } from '@/lib/brand/hero-video';
 import { toTemplateEvent, type EventInput } from '@/app/(public)/_home/event-view';
 import { CineHero, HomeCine, type HomeCineProps } from '@/app/(public)/_home/cine/home-cine';
 import { EventosCine } from '@/app/(public)/_home/cine/eventos-cine';
@@ -80,6 +80,28 @@ describe('reglas de subida del vídeo', () => {
     expect(heroVideoFileProblem({ type: 'video/webm', size: HERO_VIDEO_MAX_BYTES })).toBeNull();
     expect(heroVideoFileProblem({ type: 'video/quicktime', size: 1000 })).toMatch(/MP4 o WebM/);
     expect(heroVideoFileProblem({ type: 'video/mp4', size: HERO_VIDEO_MAX_BYTES + 1 })).toMatch(/pesa demasiado/);
+  });
+
+  it('el máximo es de 12 MB: un vídeo de cabecera se baja en segundo plano en la portada', () => {
+    expect(HERO_VIDEO_MAX_BYTES).toBe(12 * 1024 * 1024);
+    expect(heroVideoFileProblem({ type: 'video/mp4', size: 13 * 1024 * 1024 })).toMatch(/máximo 12 MB/);
+  });
+});
+
+describe('cuándo se reproduce solo el vídeo de cabecera', () => {
+  const ok = { reducedMotion: false, saveData: false, effectiveType: '4g', wideScreen: true };
+
+  it('sí en pantalla ancha, con buena conexión y sin pedir menos movimiento (también si el navegador no informa de la conexión)', () => {
+    expect(shouldAutoplayHeroVideo(ok)).toBe(true);
+    expect(shouldAutoplayHeroVideo({ ...ok, effectiveType: '' })).toBe(true);
+    expect(HERO_VIDEO_MIN_WIDTH).toBe(768);
+  });
+
+  it('no con movimiento reducido, ahorro de datos, pantalla estrecha ni conexión 2G o 3G', () => {
+    expect(shouldAutoplayHeroVideo({ ...ok, reducedMotion: true })).toBe(false);
+    expect(shouldAutoplayHeroVideo({ ...ok, saveData: true })).toBe(false);
+    expect(shouldAutoplayHeroVideo({ ...ok, wideScreen: false })).toBe(false);
+    for (const slow of ['slow-2g', '2g', '3g']) expect(shouldAutoplayHeroVideo({ ...ok, effectiveType: slow }), slow).toBe(false);
   });
 });
 

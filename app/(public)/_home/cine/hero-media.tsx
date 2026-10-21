@@ -2,14 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Pause, Play } from 'lucide-react';
+import { HERO_VIDEO_MIN_WIDTH, shouldAutoplayHeroVideo } from '@/lib/brand/hero-video';
 import '@/components/templates/cine.css';
 
 type Connection = { saveData?: boolean; effectiveType?: string };
 
 /**
  * Fondo de la cabecera de «cine»: el póster (una imagen normal, que es lo que cuenta para la carga) y, encima, el vídeo del cliente.
- * El vídeo NO se pide hasta que el navegador ya ha pintado y solo si procede: no si el visitante pide menos movimiento, ni con el ahorro de
- * datos activado, ni con una conexión 2G. Se pausa cuando sale de pantalla y siempre hay un botón para pausarlo (un vídeo que se mueve solo
+ * El vídeo NO se pide hasta que la página ha terminado de cargar y el navegador está en reposo, y solo si procede: no si el visitante pide menos
+ * movimiento, ni con el ahorro de datos, ni con una conexión 2G/3G, ni en pantallas estrechas (móvil: se queda el póster). Se pausa cuando sale de pantalla y siempre hay un botón para pausarlo (un vídeo que se mueve solo
  * debe poder detenerse). Sin vídeo, o sin JavaScript, queda el póster.
  */
 export function HeroMedia({ video, poster }: { video: string | null; poster: string | null }) {
@@ -20,10 +21,29 @@ export function HeroMedia({ video, poster }: { video: string | null; poster: str
 
   useEffect(() => {
     if (!video) return;
-    const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const conn = (navigator as Navigator & { connection?: Connection }).connection;
-    if (calm || conn?.saveData || /(^|-)2g$/.test(conn?.effectiveType ?? '')) return;
-    setEnabled(true);
+    const play = shouldAutoplayHeroVideo({
+      reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      saveData: Boolean(conn?.saveData),
+      effectiveType: conn?.effectiveType ?? '',
+      wideScreen: window.matchMedia(`(min-width: ${HERO_VIDEO_MIN_WIDTH}px)`).matches,
+    });
+    if (!play) return;
+    // No antes de que la página haya terminado de cargar (póster, tipografías y carteles) y el navegador esté en reposo: el vídeo es lo último.
+    let idle: number | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const start = () => setEnabled(true);
+    const whenIdle = () => {
+      if ('requestIdleCallback' in window) idle = window.requestIdleCallback(start, { timeout: 2000 });
+      else timer = setTimeout(start, 300);
+    };
+    if (document.readyState === 'complete') whenIdle();
+    else window.addEventListener('load', whenIdle, { once: true });
+    return () => {
+      window.removeEventListener('load', whenIdle);
+      if (idle !== undefined) window.cancelIdleCallback(idle);
+      if (timer !== undefined) clearTimeout(timer);
+    };
   }, [video]);
 
   useEffect(() => {

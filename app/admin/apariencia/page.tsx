@@ -469,7 +469,7 @@ export default function AparienciaPage() {
               <div className="grid gap-6 sm:grid-cols-2">
                 <div>
                   <Label>Vídeo de la cabecera</Label>
-                  <p className="mb-2 text-xs text-muted-foreground">MP4 o WebM, sin sonido, de 10 a 30 segundos y hasta 40 MB. Se reproduce en bucle y mudo.</p>
+                  <p className="mb-2 text-xs text-muted-foreground">MP4 o WebM, sin sonido, de 10 a 20 segundos y hasta 12 MB. Se reproduce en bucle y mudo, solo en pantallas grandes: en el móvil se ve la imagen de la cabecera.</p>
                   <VideoUploadField value={theme.assets.heroVideo ?? ''} onChange={(url) => setAssets({ heroVideo: url || undefined })} label="vídeo de la cabecera" />
                 </div>
                 <div>

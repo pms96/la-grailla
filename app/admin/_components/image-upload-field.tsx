@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Loader2, Upload, X, ImageOff } from 'lucide-react';
 import { toast } from 'sonner';
+import { prepareImageForUpload } from '@/lib/images/prepare-upload';
 
 type ImageUploadFieldProps = {
   value: string;
@@ -30,7 +31,8 @@ export function ImageUploadField({ value, onChange, prefix, className, fit = 'co
     setUploading(true);
     try {
       const formData = new FormData();
-      formData.append('file', file);
+      // Se reduce antes de subir (lado mayor 1600 px): la web sirve las imágenes tal cual, sin optimizarlas.
+      formData.append('file', await prepareImageForUpload(file));
       formData.append('prefix', prefix);
       const res = await fetch('/api/admin/upload', { method: 'POST', body: formData });
       const data = await res.json();
