@@ -104,6 +104,13 @@ const nextConfig = {
         source,
         headers: [{ key: 'Vercel-CDN-Cache-Control', value: 'max-age=60, stale-while-revalidate=30' }],
       })),
+      // Ficheros de marca (logo, pegatinas, banda del wallet). Sin hash en el nombre y reemplazables, así que nada de
+      // `immutable` ni caducidades de un año: 1 día fresco y hasta 7 días sirviendo la copia vieja mientras se revalida
+      // en segundo plano. Sin esto Next los sirve con max-age=0.
+      {
+        source: '/brand/:path*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' }],
+      },
     ];
   },
   webpack: (config, { isServer }) => {

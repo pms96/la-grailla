@@ -20,7 +20,7 @@ export function MobileBuyBar({ slug, minPrice, soldOut, taquillaOnly = false, ta
   const label = taquillaOnlyLabel || 'Solo en taquilla';
   return (
     <div
-      className="sticky-purchase-bar fixed bottom-0 inset-x-0 z-40 lg:hidden border-t border-border/60 bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-8px_rgb(0_0_0_/0.35)] transition-[bottom] duration-200"
+      className="sticky-purchase-bar fixed bottom-0 inset-x-0 z-40 lg:hidden border-t border-border/60 bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-8px_rgb(0_0_0_/0.35)] transition-transform duration-200"
       style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
       role="region"
       aria-label={ended ? 'Evento finalizado' : taquillaOnly ? label : soldOut ? 'Entradas agotadas' : 'Comprar entradas'}
