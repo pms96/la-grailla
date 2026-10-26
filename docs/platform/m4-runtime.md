@@ -60,7 +60,7 @@ petición ──► middleware (edge) ──────────────
 
 1. Panel con su registro de desarrollo: `npm run dev:registry` (en `apps/control-panel`).
 2. Registrar clientes con `npm run tenant:register -- … --verified --publish` apuntando a BDs locales (ver `m3-control-panel.md`), p. ej. hosts `a.localhost` y `b.localhost`.
-3. Front: variables de arriba más valores **señuelo** para las globales (`DATABASE_URL=postgresql://…@señuelo.invalid`, `NEXTAUTH_URL=https://nunca-usar.invalid`, `NEXTAUTH_SECRET=NUNCA-USAR…`) y `next dev`. Si algo aún dependiera de ellas, se vería.
+3. Front: variables de arriba más valores **señuelo** para las globales (`DATABASE_URL=postgresql://…@señuelo.invalid`, `NEXTAUTH_SECRET=NUNCA-USAR…`) y `next dev`. Si algo aún dependiera de ellas, se vería. **`NEXTAUTH_URL` NO se pone ni como señuelo**: desde next-auth 4.24.15 la variable manda sobre el host de la petición (también con `VERCEL` o `AUTH_TRUST_HOST`), y la `url` del JSON de login y el `callbackUrl` de `/api/auth/providers` apuntarían al señuelo.
 4. `http://a.localhost:<puerto>` y `http://b.localhost:<puerto>` (Chrome resuelve `*.localhost`).
 
 ## Qué se comprobó

@@ -31,6 +31,8 @@ module.exports = {
   distDir: process.env.NEXT_DIST_DIR || '.next',
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
+  // El panel no tiene configuración de ESLint ni lo instala: sin esto, `next build` avisa «ESLint must be installed in order to run during builds».
+  eslint: { ignoreDuringBuilds: true },
   experimental: {
     // @grailla/contracts vive fuera de esta carpeta (../../packages/contracts).
     externalDir: true,
