@@ -71,7 +71,7 @@ describe('PATCH /api/admin/orders/[id] — verify y complete', () => {
   it('rechaza a quien no es admin', async () => {
     vi.mocked(getServerSession).mockResolvedValueOnce({ user: { id: 'u1', role: 'TAQUILLA' } } as never);
     const order = await createPendingOrder(null);
-    const res = await patchOrder(patchRequest('verify'), { params: { id: order.id } });
+    const res = await patchOrder(patchRequest('verify'), { params: Promise.resolve({ id: order.id }) });
     expect(res.status).toBe(401);
   });
 
@@ -80,7 +80,7 @@ describe('PATCH /api/admin/orders/[id] — verify y complete', () => {
     const order = await createPendingOrder(paymentId);
     vi.stubGlobal('fetch', mockSumUpFetch({ [paymentId]: 'PAID' }));
 
-    const res = await patchOrder(patchRequest('verify'), { params: { id: order.id } });
+    const res = await patchOrder(patchRequest('verify'), { params: Promise.resolve({ id: order.id }) });
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.status).toBe('COMPLETED');
@@ -94,7 +94,7 @@ describe('PATCH /api/admin/orders/[id] — verify y complete', () => {
     const order = await createPendingOrder(paymentId);
     vi.stubGlobal('fetch', mockSumUpFetch({ [paymentId]: 'PENDING' }));
 
-    const res = await patchOrder(patchRequest('verify'), { params: { id: order.id } });
+    const res = await patchOrder(patchRequest('verify'), { params: Promise.resolve({ id: order.id }) });
     expect(res.status).toBe(422);
 
     const updated = await prisma.order.findUnique({ where: { id: order.id } });
@@ -103,13 +103,13 @@ describe('PATCH /api/admin/orders/[id] — verify y complete', () => {
 
   it('verify: rechaza si el pedido no tiene pago asociado en ninguna pasarela', async () => {
     const order = await createPendingOrder(null);
-    const res = await patchOrder(patchRequest('verify'), { params: { id: order.id } });
+    const res = await patchOrder(patchRequest('verify'), { params: Promise.resolve({ id: order.id }) });
     expect(res.status).toBe(422);
   });
 
   it('complete: marca como pagado sin consultar la pasarela y envía las entradas', async () => {
     const order = await createPendingOrder(null);
-    const res = await patchOrder(patchRequest('complete'), { params: { id: order.id } });
+    const res = await patchOrder(patchRequest('complete'), { params: Promise.resolve({ id: order.id }) });
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.status).toBe('COMPLETED');
@@ -121,7 +121,7 @@ describe('PATCH /api/admin/orders/[id] — verify y complete', () => {
   it('complete: rechaza un pedido que ya no está pendiente', async () => {
     const order = await createPendingOrder(null);
     await prisma.order.update({ where: { id: order.id }, data: { status: 'CANCELLED' } });
-    const res = await patchOrder(patchRequest('complete'), { params: { id: order.id } });
+    const res = await patchOrder(patchRequest('complete'), { params: Promise.resolve({ id: order.id }) });
     expect(res.status).toBe(422);
   });
 });

@@ -10,7 +10,11 @@ import { isDeletableBlobUrl } from '@/lib/blob-url';
 // El sponsor puede eliminar sus propios materiales mientras el pipeline
 // siga abierto — mismo criterio que editar (logo/datos/creatividad): una
 // vez aprobado o rechazado, la solicitud está cerrada y ya no se toca.
-export async function DELETE(request: Request, { params }: { params: { sponsorId: string; assetId: string } }) {
+export async function DELETE(
+  request: Request,
+  props: { params: Promise<{ sponsorId: string; assetId: string }> }
+) {
+  const params = await props.params;
   try {
     const sponsorId = params?.sponsorId;
     const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } });

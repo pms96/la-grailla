@@ -4,6 +4,7 @@ import type { Brand } from '@/lib/brand/brand';
 import { TEMPLATES } from '@/lib/brand/theme';
 import { BANNER_TEMPLATES, PageBanner, hasBanner, type PageBannerProps } from '@/app/(public)/_templates/page-banner';
 import { LegalShell } from '@/app/(public)/_templates/legal-shell';
+import { BLOB_PUBLIC_HOST, attr, expectOptimized, withBlobHost } from '../helpers/blob-host';
 
 // Los tipos de JSX.Element y de renderToStaticMarkup vienen de versiones distintas de @types/react: se unifican aquí.
 const render = (node: unknown) => renderToStaticMarkup(node as Parameters<typeof renderToStaticMarkup>[0]);
@@ -152,4 +153,28 @@ describe('LegalShell', () => {
       expect(html.indexOf('</h1>')).toBeLessThan(html.indexOf('Texto legal'));
     }
   });
+});
+
+describe('PageBanner con imágenes de Blob y la optimización activa (BLOB_PUBLIC_HOST)', () => {
+  const blob = `https://${BLOB_PUBLIC_HOST}/t1/events/e1/cartel.jpg`;
+  for (const template of BANNER_TEMPLATES.filter((t) => t !== 'tipo')) {
+    it(`${template}: el cartel pide variantes de /_next/image y conserva la prioridad y el texto alternativo`, () => {
+      const html = withBlobHost(() => render(<PageBanner {...base(template, { imageUrl: blob })} />));
+      expectOptimized(html, blob);
+      expect(html.match(/<img /g)).toHaveLength(1);
+      expect(html).toContain('fetchPriority="high"');
+      expect(html).toContain('alt="Cartel de Noche de Verano"');
+      // el cartel nunca ocupa más del ancho de la ventana
+      expect(attr(html, 'sizes')).toMatch(/100vw$/);
+    });
+
+    it(`${template}: sin la variable, o con una imagen que no es del store, el src es el original`, () => {
+      const sin = withBlobHost(() => render(<PageBanner {...base(template, { imageUrl: blob })} />), null);
+      expect(sin).toContain(`src="${blob}"`);
+      expect(sin).not.toContain('srcSet');
+      const ajena = withBlobHost(() => render(<PageBanner {...base(template)} />));
+      expect(ajena).toContain('src="https://example.com/cartel.jpg"');
+      expect(ajena).not.toContain('_next/image');
+    });
+  }
 });

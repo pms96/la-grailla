@@ -1,4 +1,5 @@
 import { Marquee } from '@/components/ui/marquee';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { Container } from '@/components/layouts/container';
 import '@/components/templates/marquesina.css';
 import '@/components/templates/galeria.css';
@@ -86,7 +87,7 @@ function BannerMarquesina({ brandName, title, eyebrow, lead, facts = [], imageUr
               <div className="aspect-[4/5] overflow-hidden border-2 border-foreground bg-muted">
                 {/* img nativo: los carteles pueden ser subidas o URLs externas sin lista de dominios. */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={imageUrl} alt={`Cartel de ${title}`} className="h-full w-full object-cover" fetchPriority="high" />
+                <img {...blobImgProps(imageUrl, { sizes: IMG_SIZES.poster4 })} alt={`Cartel de ${title}`} className="h-full w-full object-cover" fetchPriority="high" />
               </div>
             </div>
           )}
@@ -129,7 +130,7 @@ function BannerGaleria({ brandName, title, eyebrow, lead, facts = [], imageUrl, 
               <div className="md:col-span-6 md:col-start-7">
                 <div className="gl-frame" data-hero>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={imageUrl} alt={`Cartel de ${title}`} fetchPriority="high" />
+                  <img {...blobImgProps(imageUrl, { sizes: IMG_SIZES.poster6 })} alt={`Cartel de ${title}`} fetchPriority="high" />
                 </div>
               </div>
             )}
@@ -192,7 +193,7 @@ function BannerEstudio({ brandName, title, eyebrow, lead, facts = [], imageUrl, 
             <div className="md:col-span-5">
               <div className="aspect-[4/3] overflow-hidden bg-muted">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={imageUrl} alt={`Cartel de ${title}`} className="h-full w-full object-cover" fetchPriority="high" />
+                <img {...blobImgProps(imageUrl, { sizes: IMG_SIZES.poster5 })} alt={`Cartel de ${title}`} className="h-full w-full object-cover" fetchPriority="high" />
               </div>
             </div>
           )}
@@ -242,7 +243,7 @@ function BannerCine({ brandName, title, eyebrow, lead, facts = [], imageUrl, see
             <div className="md:col-span-5 lg:col-span-4">
               <div className="cn-poster" style={seed ? { ['viewTransitionName' as string]: posterTransitionName(seed) } : undefined}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={imageUrl} alt={`Cartel de ${title}`} fetchPriority="high" />
+                <img {...blobImgProps(imageUrl, { sizes: IMG_SIZES.posterCine })} alt={`Cartel de ${title}`} fetchPriority="high" />
               </div>
             </div>
           )}
@@ -280,7 +281,7 @@ function BannerDrop({ brandName, title, eyebrow, lead, facts = [], imageUrl, com
             <div className="md:col-span-4">
               <div className="dp-card-media" data-tone="accent">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={imageUrl} alt={`Cartel de ${title}`} fetchPriority="high" />
+                <img {...blobImgProps(imageUrl, { sizes: IMG_SIZES.poster4 })} alt={`Cartel de ${title}`} fetchPriority="high" />
               </div>
             </div>
           )}
@@ -322,7 +323,7 @@ function BannerEditorial({ brandName, title, eyebrow, lead, facts = [], imageUrl
           {photo && (
             <div className="md:col-span-5">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={imageUrl} alt={`Cartel de ${title}`} className="aspect-[4/5] w-full rounded-md border border-border object-cover" fetchPriority="high" />
+              <img {...blobImgProps(imageUrl, { sizes: IMG_SIZES.poster5 })} alt={`Cartel de ${title}`} className="aspect-[4/5] w-full rounded-md border border-border object-cover" fetchPriority="high" />
             </div>
           )}
         </div>

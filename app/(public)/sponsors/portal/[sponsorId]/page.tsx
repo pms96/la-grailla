@@ -3,13 +3,14 @@ import SponsorPortalClient from './_components/sponsor-portal-client';
 
 export const dynamic = 'force-dynamic';
 
-export default function SponsorPortalPage({
-  params,
-  searchParams,
-}: {
-  params: { sponsorId: string };
-  searchParams?: { t?: string };
-}) {
+export default async function SponsorPortalPage(
+  props: {
+    params: Promise<{ sponsorId: string }>;
+    searchParams?: Promise<{ t?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   return (
     <Container size="md">
       <div className="py-8">

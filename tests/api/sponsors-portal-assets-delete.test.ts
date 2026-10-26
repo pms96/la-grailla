@@ -50,7 +50,7 @@ describe('DELETE /api/sponsors/portal/[sponsorId]/assets/[assetId]', () => {
     const asset = await prisma.sponsorAsset.create({
       data: { sponsorId, url: 'https://test-store.public.blob.vercel-storage.com/sin-token.png', fileType: 'image/png', fileName: 'sin-token.png', fileSize: 10 },
     });
-    const res = await deleteAsset(deleteRequest(), { params: { sponsorId, assetId: asset.id } });
+    const res = await deleteAsset(deleteRequest(), { params: Promise.resolve({ sponsorId, assetId: asset.id }) });
     expect(res.status).toBe(401);
     await prisma.sponsorAsset.delete({ where: { id: asset.id } });
   });
@@ -63,7 +63,7 @@ describe('DELETE /api/sponsors/portal/[sponsorId]/assets/[assetId]', () => {
       data: { sponsorId, url: 'https://test-store.public.blob.vercel-storage.com/con-token.png', fileType: 'image/png', fileName: 'con-token.png', fileSize: 10 },
     });
 
-    const res = await deleteAsset(deleteRequest(token), { params: { sponsorId, assetId: asset.id } });
+    const res = await deleteAsset(deleteRequest(token), { params: Promise.resolve({ sponsorId, assetId: asset.id }) });
     expect(res.status).toBe(200);
     expect(delMock).toHaveBeenCalledWith('https://test-store.public.blob.vercel-storage.com/con-token.png');
 
@@ -88,7 +88,7 @@ describe('DELETE /api/sponsors/portal/[sponsorId]/assets/[assetId]', () => {
 
     const sponsor = await prisma.sponsor.findUniqueOrThrow({ where: { id: sponsorId } });
     const token = signSponsorAccess(sponsorId, sponsor.portalTokenVersion);
-    const res = await deleteAsset(deleteRequest(token), { params: { sponsorId, assetId: otherAsset.id } });
+    const res = await deleteAsset(deleteRequest(token), { params: Promise.resolve({ sponsorId, assetId: otherAsset.id }) });
     expect(res.status).toBe(404);
 
     await prisma.sponsorAsset.deleteMany({ where: { id: otherAsset.id } });
@@ -105,7 +105,7 @@ describe('DELETE /api/sponsors/portal/[sponsorId]/assets/[assetId]', () => {
     });
     const token = signSponsorAccess(sponsorId, closedSponsor.portalTokenVersion);
 
-    const res = await deleteAsset(deleteRequest(token), { params: { sponsorId, assetId: asset.id } });
+    const res = await deleteAsset(deleteRequest(token), { params: Promise.resolve({ sponsorId, assetId: asset.id }) });
     expect(res.status).toBe(409);
 
     await prisma.sponsorAsset.delete({ where: { id: asset.id } });

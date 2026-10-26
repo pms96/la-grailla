@@ -12,7 +12,8 @@ import { contactReplyEmail, replySchema } from '@/lib/contact';
 /* Responder a un mensaje desde el panel. El email sale por el SMTP del cliente; si no se puede enviar, la respuesta se guarda como
  * «no enviada» (queda constancia del intento) y el mensaje NO pasa a respondido. */
 
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   try {

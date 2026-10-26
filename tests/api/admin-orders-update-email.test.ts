@@ -48,7 +48,7 @@ describe('PATCH /api/admin/orders/[id] — update-email', () => {
   it('rechaza a quien no es admin', async () => {
     vi.mocked(getServerSession).mockResolvedValueOnce({ user: { id: 'u1', role: 'TAQUILLA' } } as never);
     const order = await createOrder(`typo-${Date.now()}@example.con`);
-    const res = await patchOrder(patchRequest({ action: 'update-email', email: 'ok@example.com' }), { params: { id: order.id } });
+    const res = await patchOrder(patchRequest({ action: 'update-email', email: 'ok@example.com' }), { params: Promise.resolve({ id: order.id }) });
     expect(res.status).toBe(401);
   });
 
@@ -56,7 +56,7 @@ describe('PATCH /api/admin/orders/[id] — update-email', () => {
     const order = await createOrder(`typo-${Date.now()}@example.con`);
     const res = await patchOrder(
       patchRequest({ action: 'update-email', email: 'corregido@example.com' }),
-      { params: { id: order.id } }
+      { params: Promise.resolve({ id: order.id }) }
     );
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -70,7 +70,7 @@ describe('PATCH /api/admin/orders/[id] — update-email', () => {
     const order = await createOrder(`typo-${Date.now()}@example.con`);
     const res = await patchOrder(
       patchRequest({ action: 'update-email', email: '  espacios@example.com  ' }),
-      { params: { id: order.id } }
+      { params: Promise.resolve({ id: order.id }) }
     );
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -81,7 +81,7 @@ describe('PATCH /api/admin/orders/[id] — update-email', () => {
     const order = await createOrder(`typo-${Date.now()}@example.con`);
     const res = await patchOrder(
       patchRequest({ action: 'update-email', email: 'no-es-un-email' }),
-      { params: { id: order.id } }
+      { params: Promise.resolve({ id: order.id }) }
     );
     expect(res.status).toBe(400);
 
@@ -91,7 +91,7 @@ describe('PATCH /api/admin/orders/[id] — update-email', () => {
 
   it('rechaza sin email', async () => {
     const order = await createOrder(`typo-${Date.now()}@example.con`);
-    const res = await patchOrder(patchRequest({ action: 'update-email' }), { params: { id: order.id } });
+    const res = await patchOrder(patchRequest({ action: 'update-email' }), { params: Promise.resolve({ id: order.id }) });
     expect(res.status).toBe(422);
   });
 });

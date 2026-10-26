@@ -19,7 +19,8 @@ export async function generateMetadata() {
   return { title: 'Tienda', description: `Tienda oficial de ${name}.`, ...canonicalAlternates('/tienda') };
 }
 
-export default async function TiendaPage({ searchParams }: { searchParams?: { categoria?: string | string[] } }) {
+export default async function TiendaPage(props: { searchParams?: Promise<{ categoria?: string | string[] }> }) {
+  const searchParams = await props.searchParams;
   const brand = await getBrand();
   // «drop»: la tienda se renderiza en servidor (listado con filtros por URL y una ficha por producto). El resto de plantillas conservan la de siempre.
   if (brand.template === 'drop') {

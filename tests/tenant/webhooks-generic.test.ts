@@ -24,7 +24,7 @@ const sign = (payload: string, secret: string) => {
 const req = (provider: string, body: string, signature?: string) =>
   new Request(`http://localhost/api/webhooks/${provider}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(signature ? { 'stripe-signature': signature } : {}) }, body });
 const viaGeneric = (slot: 'a' | 'b', provider: string, body: string, signature?: string) =>
-  withTenantForTest(slot, () => generic.POST(req(provider, body, signature), { params: { provider } }));
+  withTenantForTest(slot, () => generic.POST(req(provider, body, signature), { params: Promise.resolve({ provider }) }));
 const paid = (id: string, orderId: string) => JSON.stringify({ id, type: 'checkout.session.completed', data: { object: { id: 'cs_x', payment_status: 'paid', metadata: { orderId } } } });
 const expired = (id: string, orderId: string) => JSON.stringify({ id, type: 'checkout.session.expired', data: { object: { id: 'cs_x', metadata: { orderId } } } });
 

@@ -23,7 +23,8 @@ async function load(slug: string): Promise<{ product: ShopProductView | null; fa
   }
 }
 
-export async function generateMetadata({ params }: { params: { slug: string } }) {
+export async function generateMetadata(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const [{ product }, brand] = await Promise.all([load(params?.slug), getBrand()]);
   if (!product) return { title: 'Producto' };
   const description = product.description ? product.description.replace(/\s+/g, ' ').slice(0, 160) : `${product.name}, en la tienda de ${brand.name}.`;
@@ -40,7 +41,8 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   };
 }
 
-export default async function ProductoPage({ params }: { params: { slug: string } }) {
+export default async function ProductoPage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const { product, failed } = await load(params?.slug);
   // Un fallo de lectura no es lo mismo que «no existe»: se avisa y se deja reintentar (la aplicación no tiene pantalla de error propia).
   if (failed) {

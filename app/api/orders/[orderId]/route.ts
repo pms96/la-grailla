@@ -11,10 +11,8 @@ import { withoutSeasonLink } from '@/lib/modules/season-link';
 
 const includeTicketsAndEvent = { event: true, tickets: { include: { ticketType: true } } } as const;
 
-export async function GET(
-  request: Request,
-  { params }: { params: { orderId: string } }
-) {
+export async function GET(request: Request, props: { params: Promise<{ orderId: string }> }) {
+  const params = await props.params;
   try {
     const orderId = params?.orderId;
     if (!(await allowOrderAccess(orderId, getTokenFromRequest(request)))) {

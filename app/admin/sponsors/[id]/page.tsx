@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import type { Temporada } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -83,7 +84,9 @@ type Detail = {
   portalUrl: string | null;
 };
 
-export default function SponsorDetailPage({ params }: { params: { id: string } }) {
+// Next 15 entrega `params` como Promise; en un componente cliente con React 18 no existe `use()`, así que se lee con useParams() (mismo valor, síncrono).
+export default function SponsorDetailPage() {
+  const params = useParams<{ id: string }>();
   const { blobPrefix } = useBrand();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(true);

@@ -13,7 +13,8 @@ import { tenantBlobPrefix } from '@/lib/tenant/blob';
 // Vercel Blob desde el navegador — igual que en sponsors/portal/.../logo,
 // necesario para no chocar con el límite de payload (~4.5MB) de las
 // funciones serverless de Vercel al mandar el binario por esta API.
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });

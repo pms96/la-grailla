@@ -41,7 +41,7 @@ describe('PUT /api/admin/sponsors/[id] — asignar tipo de patrocinio', () => {
 
   it('rechaza a quien no es admin', async () => {
     sessionRole = null;
-    const res = await updateSponsorLead(putRequest({ sponsorType: 'evento' }), { params: { id: requestId } });
+    const res = await updateSponsorLead(putRequest({ sponsorType: 'evento' }), { params: Promise.resolve({ id: requestId }) });
     expect(res.status).toBe(401);
     sessionRole = 'ADMIN';
   });
@@ -52,7 +52,7 @@ describe('PUT /api/admin/sponsors/[id] — asignar tipo de patrocinio', () => {
   });
 
   it('permite al admin asignar el tipo de patrocinio', async () => {
-    const res = await updateSponsorLead(putRequest({ sponsorType: 'espacio' }), { params: { id: requestId } });
+    const res = await updateSponsorLead(putRequest({ sponsorType: 'espacio' }), { params: Promise.resolve({ id: requestId }) });
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.sponsorType).toBe('espacio');
@@ -62,7 +62,7 @@ describe('PUT /api/admin/sponsors/[id] — asignar tipo de patrocinio', () => {
   });
 
   it('permite cambiarlo más tarde', async () => {
-    const res = await updateSponsorLead(putRequest({ sponsorType: 'ambos' }), { params: { id: requestId } });
+    const res = await updateSponsorLead(putRequest({ sponsorType: 'ambos' }), { params: Promise.resolve({ id: requestId }) });
     expect(res.status).toBe(200);
     const lead = await prisma.sponsorRequest.findUnique({ where: { id: requestId } });
     expect(lead?.sponsorType).toBe('ambos');

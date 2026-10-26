@@ -1,4 +1,5 @@
 import '@/components/templates/cine.css';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import type { TemplateEvent } from '../event-view';
 import { RailControls } from './rail-controls';
 import { posterTransitionName } from './transitions';
@@ -6,14 +7,14 @@ import { posterTransitionName } from './transitions';
 /* Tarjeta de evento de la plantilla «cine»: el cartel y, debajo, fecha, nombre, lugar y precio. Es un enlace normal (<a>, no el de Next) para que
  * el cartel pueda crecer hasta la ficha con una View Transition entre páginas (ver transitions.tsx). Todo está también en el texto. */
 
-export function CineCard({ event: e, priority = false }: { event: TemplateEvent; priority?: boolean }) {
+export function CineCard({ event: e, priority = false, sizes = IMG_SIZES.grid4 }: { event: TemplateEvent; priority?: boolean; sizes?: string }) {
   return (
     <a href={`/eventos/${e.slug}`} className="cn-card">
       <div className="cn-poster" style={{ ['viewTransitionName' as string]: posterTransitionName(e.slug) }}>
         {e.imageUrl ? (
           // img nativo: los carteles pueden ser subidas o URLs externas sin lista de dominios.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={e.imageUrl} alt="" loading={priority ? 'eager' : 'lazy'} decoding="async" />
+          <img {...blobImgProps(e.imageUrl, { sizes })} alt="" loading={priority ? 'eager' : 'lazy'} decoding="async" />
         ) : (
           <div className="cn-poster-blank" aria-hidden>
             {e.name}
@@ -40,7 +41,7 @@ export function CineRail({ events, id = 'cartelera', label }: { events: readonly
       <ul className="cn-rail-list">
         {events.map((e, i) => (
           <li key={e.id} className="cn-rail-item">
-            <CineCard event={e} priority={i < 2} />
+            <CineCard event={e} priority={i < 2} sizes={IMG_SIZES.railCine} />
           </li>
         ))}
       </ul>

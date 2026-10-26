@@ -14,7 +14,8 @@ import { tenantBlobPrefix } from '@/lib/tenant/blob';
 // funciones serverless de Vercel rechazan payloads de más de ~4.5MB con un
 // 413 (texto plano, no JSON), lo que antes rompía cualquier vídeo real aunque
 // estuviera dentro del límite que anunciábamos nosotros mismos (50MB).
-export async function POST(request: Request, { params }: { params: { sponsorId: string } }) {
+export async function POST(request: Request, props: { params: Promise<{ sponsorId: string }> }) {
+  const params = await props.params;
   try {
     const sponsorId = params?.sponsorId;
     const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } });

@@ -29,7 +29,8 @@ async function requireAdmin() {
   return session?.user?.role === 'ADMIN';
 }
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+export async function GET(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await requireAdmin())) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   try {
     const pedido = await prisma.pedido.findUnique({ where: { id: params?.id }, include: pedidoInclude });
@@ -40,7 +41,8 @@ export async function GET(request: Request, { params }: { params: { id: string }
   }
 }
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await requireAdmin())) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   try {
     const { status: nuevoStatus } = updatePedidoSchema.parse(await request.json());

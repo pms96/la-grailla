@@ -12,7 +12,8 @@ const brandContextSchema = z.object({ brandContext: z.string() });
 // El admin investiga la marca (su web, redes, a qué se dedica) y guarda aquí
 // un resumen — sin esto la IA solo veía el logo + respuestas cortas del
 // sponsor y todos los vídeos salían con la misma estructura genérica.
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { ArrowLeft } from 'lucide-react';
 import '@/components/templates/drop.css';
 import { safeJsonLd, type ShopProductView } from '@/lib/shop/product-view';
@@ -25,7 +26,7 @@ export function DropProductPage({ product: p, jsonLd }: { product: ShopProductVi
                 <li key={src}>
                   <div className="dp-strip-media" data-tone="muted">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={src} alt={i === 0 ? p.name : `${p.name}, imagen ${i + 1}`} loading={i === 0 ? 'eager' : 'lazy'} decoding="async" fetchPriority={i === 0 ? 'high' : undefined} />
+                    <img {...blobImgProps(src, { sizes: IMG_SIZES.productStrip })} alt={i === 0 ? p.name : `${p.name}, imagen ${i + 1}`} loading={i === 0 ? 'eager' : 'lazy'} decoding="async" fetchPriority={i === 0 ? 'high' : undefined} />
                   </div>
                 </li>
               ))}

@@ -50,14 +50,14 @@ describe('DELETE /api/admin/sponsors-portal/[id]/assets/[assetId]', () => {
       data: { sponsorId, url: 'https://test-store.public.blob.vercel-storage.com/x.png', fileType: 'image/png', fileName: 'x.png', fileSize: 10 },
     });
     sessionRole = null;
-    const res = await deleteAsset(deleteRequest(), { params: { id: sponsorId, assetId: asset.id } });
+    const res = await deleteAsset(deleteRequest(), { params: Promise.resolve({ id: sponsorId, assetId: asset.id }) });
     expect(res.status).toBe(401);
     sessionRole = 'ADMIN';
     await prisma.sponsorAsset.delete({ where: { id: asset.id } });
   });
 
   it('devuelve 404 si el archivo no existe o no pertenece a este sponsor', async () => {
-    const res = await deleteAsset(deleteRequest(), { params: { id: sponsorId, assetId: 'no-existe' } });
+    const res = await deleteAsset(deleteRequest(), { params: Promise.resolve({ id: sponsorId, assetId: 'no-existe' }) });
     expect(res.status).toBe(404);
   });
 
@@ -67,7 +67,7 @@ describe('DELETE /api/admin/sponsors-portal/[id]/assets/[assetId]', () => {
       data: { sponsorId, url: 'https://test-store.public.blob.vercel-storage.com/no-vigente.png', fileType: 'image/png', fileName: 'no-vigente.png', fileSize: 10 },
     });
 
-    const res = await deleteAsset(deleteRequest(), { params: { id: sponsorId, assetId: asset.id } });
+    const res = await deleteAsset(deleteRequest(), { params: Promise.resolve({ id: sponsorId, assetId: asset.id }) });
     expect(res.status).toBe(200);
     expect(delMock).toHaveBeenCalledWith('https://test-store.public.blob.vercel-storage.com/no-vigente.png');
 
@@ -84,7 +84,7 @@ describe('DELETE /api/admin/sponsors-portal/[id]/assets/[assetId]', () => {
     });
     await prisma.sponsor.update({ where: { id: sponsorId }, data: { currentAssetId: current.id } });
 
-    const res = await deleteAsset(deleteRequest(), { params: { id: sponsorId, assetId: current.id } });
+    const res = await deleteAsset(deleteRequest(), { params: Promise.resolve({ id: sponsorId, assetId: current.id }) });
     expect(res.status).toBe(200);
 
     const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } });
@@ -100,7 +100,7 @@ describe('DELETE /api/admin/sponsors-portal/[id]/assets/[assetId]', () => {
     });
     await prisma.sponsor.update({ where: { id: sponsorId }, data: { currentAssetId: onlyOne.id } });
 
-    const res = await deleteAsset(deleteRequest(), { params: { id: sponsorId, assetId: onlyOne.id } });
+    const res = await deleteAsset(deleteRequest(), { params: Promise.resolve({ id: sponsorId, assetId: onlyOne.id }) });
     expect(res.status).toBe(200);
 
     const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } });

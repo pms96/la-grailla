@@ -14,7 +14,11 @@ import { isDeletableBlobUrl } from '@/lib/blob-url';
 // propio sponsor (ver también app/api/sponsors/portal/[sponsorId]/assets/[assetId]/route.ts).
 // Sin restricción de estado del pipeline: el admin puede limpiar materiales
 // en cualquier momento.
-export async function DELETE(_request: Request, { params }: { params: { id: string; assetId: string } }) {
+export async function DELETE(
+  _request: Request,
+  props: { params: Promise<{ id: string; assetId: string }> }
+) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });

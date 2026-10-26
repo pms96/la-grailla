@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import type { PointerEvent } from 'react';
 import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
@@ -121,7 +122,7 @@ export function EventRows({ events }: { events: readonly TemplateEvent[] }) {
               {e.imageUrl ? (
                 // img nativo: los carteles pueden ser subidas o URLs externas sin lista de dominios.
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={e.imageUrl} alt="" loading="lazy" className="h-14 w-14 object-cover md:hidden" />
+                <img {...blobImgProps(e.imageUrl, { sizes: IMG_SIZES.thumb })} alt="" loading="lazy" className="h-14 w-14 object-cover md:hidden" />
               ) : (
                 <ArrowUpRight className="h-5 w-5 md:hidden" aria-hidden />
               )}
@@ -134,7 +135,7 @@ export function EventRows({ events }: { events: readonly TemplateEvent[] }) {
         <div className="mq-poster-card">
           {seen.map((i) => (
             // eslint-disable-next-line @next/next/no-img-element
-            <img key={events[i].id} src={events[i].imageUrl ?? ''} alt="" data-active={active === i} />
+            <img key={events[i].id} {...blobImgProps(events[i].imageUrl, { sizes: IMG_SIZES.marquesinaPreview })} alt="" data-active={active === i} />
           ))}
         </div>
       </div>

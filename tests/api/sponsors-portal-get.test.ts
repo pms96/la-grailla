@@ -35,7 +35,7 @@ describe('GET /api/sponsors/portal/[sponsorId] — datos expuestos', () => {
   // filtraba adminNotes (notas internas del equipo, nunca pensadas para el
   // sponsor) a quien solo tiene el token público del portal.
   it('no expone adminNotes ni otros campos de gestión interna', async () => {
-    const res = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
+    const res = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: Promise.resolve({ sponsorId }) });
     const data = await res.json();
     expect(data.sponsorRequest.adminNotes).toBeUndefined();
     expect(data.sponsorRequest.temporadaId).toBeUndefined();
@@ -43,7 +43,7 @@ describe('GET /api/sponsors/portal/[sponsorId] — datos expuestos', () => {
   });
 
   it('expone el tipo de patrocinio elegido', async () => {
-    const res = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
+    const res = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: Promise.resolve({ sponsorId }) });
     const data = await res.json();
     expect(data.sponsorRequest.companyName).toBe('Portal Datos SL');
     expect(data.sponsorRequest.sponsorType).toBe('evento');
@@ -93,14 +93,14 @@ describe('GET /api/sponsors/portal/[sponsorId] — vídeo final condicionado al 
   });
 
   it('nunca expone el texto del prompt', async () => {
-    const res = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
+    const res = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: Promise.resolve({ sponsorId }) });
     const data = await res.json();
     expect(data.videoPrompt).toBeUndefined();
     expect(JSON.stringify(data)).not.toContain('Texto interno del prompt');
   });
 
   it('no muestra el vídeo final si no está marcado como pagado, aunque esté aprobado', async () => {
-    const res = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
+    const res = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: Promise.resolve({ sponsorId }) });
     const data = await res.json();
     expect(data.isPaid).toBe(false);
     expect(data.finalVideo).toBeNull();
@@ -108,7 +108,7 @@ describe('GET /api/sponsors/portal/[sponsorId] — vídeo final condicionado al 
 
   it('muestra el vídeo final una vez marcado como pagado', async () => {
     await prisma.sponsor.update({ where: { id: sponsorId }, data: { isPaid: true, paidAmount: 30, paidAt: new Date() } });
-    const res = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
+    const res = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: Promise.resolve({ sponsorId }) });
     const data = await res.json();
     expect(data.isPaid).toBe(true);
     expect(data.finalVideo?.url).toBe('https://test-store.public.blob.vercel-storage.com/final.mp4');

@@ -9,6 +9,7 @@ import { ProjectIndex } from '@/app/(public)/_home/estudio/project-index';
 import { ContentSections } from '@/app/(public)/_home/sections/content-sections';
 import { PageBanner } from '@/app/(public)/_templates/page-banner';
 import { parseSection, type ContentSection, type SectionKind } from '@/lib/content/sections';
+import { attr, expectOptimized, withBlobHost } from '../helpers/blob-host';
 
 // Los tipos de JSX.Element y de renderToStaticMarkup vienen de versiones distintas de @types/react: se unifican aquí.
 const render = (node: unknown) => renderToStaticMarkup(node as Parameters<typeof renderToStaticMarkup>[0]);
@@ -226,5 +227,19 @@ describe('PageBanner con «estudio»', () => {
     const html = render(<PageBanner template="estudio" brandName="Estudio" title="Aviso legal" imageUrl="https://example.com/c.jpg" compact />);
     expect(html).not.toContain('<img');
     expect(html).toContain('data-size="s"');
+  });
+});
+
+describe('ProjectIndex con la optimización de imágenes activa (BLOB_PUBLIC_HOST)', () => {
+  it('la miniatura de 56 px pide la variante de 96 px y conserva loading y clases', () => {
+    const html = withBlobHost(() => render(<ProjectIndex items={projects.items} />));
+    expectOptimized(html, BLOB);
+    expect(attr(html, 'sizes')).toBe('96px');
+    expect(html).toContain('loading="lazy"');
+    expect(html).toContain('class="h-14 w-14 object-cover md:hidden"');
+  });
+
+  it('sin la variable el src es el original', () => {
+    expect(withBlobHost(() => render(<ProjectIndex items={projects.items} />), null)).toContain(`src="${BLOB}"`);
   });
 });

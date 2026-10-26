@@ -22,7 +22,8 @@ const confirmSchema = z.object({
   fileSize: z.number().int().positive(),
 });
 
-export async function POST(request: Request, { params }: { params: { sponsorId: string } }) {
+export async function POST(request: Request, props: { params: Promise<{ sponsorId: string }> }) {
+  const params = await props.params;
   try {
     const sponsorId = params?.sponsorId;
     const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } });

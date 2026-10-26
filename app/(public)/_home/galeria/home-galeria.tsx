@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { ArrowUpRight, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ContactForm } from '@/components/contact-form';
@@ -87,7 +88,7 @@ export function GaleriaHero({ brandName, hero, featured, italic = false }: { bra
               <div className="gl-frame" data-hero>
                 {/* img nativo: los carteles pueden ser subidas o URLs externas sin lista de dominios. */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={featured.imageUrl} alt={`Cartel de ${featured.name}`} fetchPriority="high" />
+                <img {...blobImgProps(featured.imageUrl, { sizes: IMG_SIZES.poster6 })} alt={`Cartel de ${featured.name}`} fetchPriority="high" />
               </div>
             ) : (
               <div className="gl-frame gl-frame--blank" aria-hidden>

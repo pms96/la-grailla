@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
 import { EVENT_GRACE_PERIOD_MS } from '@/lib/active-event';
 import { getEventDemandLevel } from '@/lib/ticket-availability';
@@ -142,7 +143,7 @@ export default async function EventosPage() {
                         <div className="md:col-span-3 aspect-[16/9] md:aspect-auto md:min-h-[320px] bg-gradient-to-br from-primary/25 via-primary/5 to-lima/5 relative flex items-center justify-center">
                           {featured.imageUrl ? (
                             <img
-                              src={featured.imageUrl}
+                              {...blobImgProps(featured.imageUrl, { sizes: IMG_SIZES.feature3of5 })}
                               alt={featured.name}
                               className="object-cover w-full h-full transition-transform duration-slow ease-out group-hover:scale-[1.04]"
                             />
@@ -239,7 +240,7 @@ function EventCard({ event }: { event: EventWithTicketTypes }) {
         <div className="aspect-[16/9] bg-gradient-to-br from-primary/20 via-primary/5 to-lima/5 relative flex items-center justify-center">
           {event?.imageUrl ? (
             <img
-              src={event.imageUrl}
+              {...blobImgProps(event.imageUrl, { sizes: IMG_SIZES.grid3 })}
               alt={event?.name ?? ''}
               className="object-cover w-full h-full transition-transform duration-slow ease-out group-hover:scale-[1.04]"
             />

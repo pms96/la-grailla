@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { FadeIn } from '@/components/ui/animate';
 import { Logo } from '@/components/logo';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import type { HeroProps } from './hero';
 
 const CTA_ICONS = { ticket: Ticket, shop: ShoppingBag, mail: Mail } as const;
@@ -18,7 +19,7 @@ export function HeroFeria({ brandName, featured, badge, title, subtitle, primary
       {featured?.imageUrl ? (
         <>
           {/* img nativo: las URLs de cartel pueden ser externas / uploads sin domain allowlist */}
-          <img src={featured.imageUrl} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover" />
+          <img {...blobImgProps(featured.imageUrl, { sizes: IMG_SIZES.full })} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-background/30" />
           <div className="absolute inset-0 bg-gradient-to-r from-background/90 via-background/40 to-transparent" />
         </>

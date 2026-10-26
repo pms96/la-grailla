@@ -133,7 +133,7 @@ describe('Vínculo con la temporada — es cosa de Contabilidad', () => {
   };
   const patchEvent = async (id: string, body: unknown, modules: string[]) => {
     const { PATCH } = await import('@/app/api/admin/events/[id]/route');
-    return withTenantForTest('a', () => PATCH(new Request('http://a.cliente.test/api/admin/events/x', { method: 'PATCH', body: JSON.stringify(body) }), { params: { id } }), { modules });
+    return withTenantForTest('a', () => PATCH(new Request('http://a.cliente.test/api/admin/events/x', { method: 'PATCH', body: JSON.stringify(body) }), { params: Promise.resolve({ id }) }), { modules });
   };
 
   it('sin Contabilidad, el listado de eventos no devuelve el nombre de la temporada', async () => {

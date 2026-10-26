@@ -61,7 +61,7 @@ describe('AUDIT — DELETE /api/admin/events/[id] con Order/Ticket dependientes'
   });
 
   it('devuelve 409 (no 500) en vez de reventar por la clave foránea', async () => {
-    const res = await deleteEvent(deleteRequest(), { params: { id: event.id } });
+    const res = await deleteEvent(deleteRequest(), { params: Promise.resolve({ id: event.id }) });
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.error).toMatch(/no se puede eliminar/i);
@@ -76,7 +76,7 @@ describe('AUDIT — DELETE /api/admin/events/[id] con Order/Ticket dependientes'
 
   it('un evento sin pedidos/entradas sí se puede borrar', async () => {
     const emptyEvent = await createTestEvent();
-    const res = await deleteEvent(deleteRequest(), { params: { id: emptyEvent.id } });
+    const res = await deleteEvent(deleteRequest(), { params: Promise.resolve({ id: emptyEvent.id }) });
     expect(res.status).toBe(200);
     const stillExists = await prisma.event.findUnique({ where: { id: emptyEvent.id } });
     expect(stillExists).toBeNull();

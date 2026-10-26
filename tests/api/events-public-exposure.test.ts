@@ -58,11 +58,11 @@ describe('API pública de eventos — borradores y campos internos', () => {
 
   it('el detalle de un borrador da 404 a un anónimo y 200 a un admin', async () => {
     asAnonymous();
-    const anon = await getEvent(new Request('http://localhost'), { params: { slug: draft.slug } });
+    const anon = await getEvent(new Request('http://localhost'), { params: Promise.resolve({ slug: draft.slug }) });
     expect(anon.status).toBe(404);
 
     asRole('ADMIN');
-    const admin = await getEvent(new Request('http://localhost'), { params: { slug: draft.slug } });
+    const admin = await getEvent(new Request('http://localhost'), { params: Promise.resolve({ slug: draft.slug }) });
     expect(admin.status).toBe(200);
   });
 
@@ -70,7 +70,7 @@ describe('API pública de eventos — borradores y campos internos', () => {
     asAnonymous();
     const list = (await (await listEvents(new Request('http://localhost/api/events'))).json()) as Record<string, unknown>[];
     const fromList = list.find((e) => e.id === published.id)!;
-    const detail = (await (await getEvent(new Request('http://localhost'), { params: { slug: published.slug } })).json()) as Record<string, unknown>;
+    const detail = (await (await getEvent(new Request('http://localhost'), { params: Promise.resolve({ slug: published.slug }) })).json()) as Record<string, unknown>;
     for (const body of [fromList, detail]) {
       for (const key of ['alertsSent', 'alertThresholds', 'alertAt80', 'alertAt95', 'temporadaId', 'archivado']) {
         expect(body[key], key).toBeUndefined();

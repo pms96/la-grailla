@@ -8,10 +8,8 @@ import { handleApiError } from '@/lib/api-error';
 import { allowShopOrderAccess, getTokenFromRequest } from '@/lib/access-token';
 import { withoutSeasonLink } from '@/lib/modules/season-link';
 
-export async function GET(
-  request: Request,
-  { params }: { params: { orderId: string } }
-) {
+export async function GET(request: Request, props: { params: Promise<{ orderId: string }> }) {
+  const params = await props.params;
   try {
     const orderId = params?.orderId;
     if (!(await allowShopOrderAccess(orderId, getTokenFromRequest(request)))) {

@@ -66,7 +66,7 @@ describe('AUDIT — GET /api/shop/orders/[orderId] requiere autorización', () =
 
   it('no debe devolver datos del comprador sin token ni sesión', async () => {
     const res = await getShopOrder(new Request(`http://localhost/api/shop/orders/${orderId}`), {
-      params: { orderId },
+      params: Promise.resolve({ orderId }),
     });
 
     // Comportamiento esperado tras el fix: 401, igual que /api/orders/[orderId] sin token.

@@ -8,7 +8,8 @@ import { handleApiError } from '@/lib/api-error';
 
 // El admin confirma explícitamente que ha revisado el logo y la descripción
 // antes de gastar uno de los 3 intentos de generación disponibles.
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });

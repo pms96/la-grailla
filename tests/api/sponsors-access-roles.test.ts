@@ -37,7 +37,7 @@ describe('Portal del sponsor — quién entra y qué ve', () => {
     await prisma.sponsorRequest.deleteMany({ where: { id: sponsorRequestId } });
   });
 
-  const call = () => getSponsorPortal(new Request('http://localhost'), { params: { sponsorId } });
+  const call = () => getSponsorPortal(new Request('http://localhost'), { params: Promise.resolve({ sponsorId }) });
   const asRole = (role: string | null) =>
     vi.mocked(getServerSession).mockResolvedValue((role ? { user: { id: 'u-test', role } } : null) as never);
 

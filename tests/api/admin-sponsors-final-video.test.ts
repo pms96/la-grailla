@@ -71,7 +71,7 @@ describe('POST /api/admin/sponsors-portal/[id]/final-video/upload-token', () => 
 
   it('rechaza a quien no es admin', async () => {
     sessionRole = null;
-    const res = await getUploadToken(tokenRequest(`sponsors/${sponsorId}/final-video/x.mp4`), { params: { id: sponsorId } });
+    const res = await getUploadToken(tokenRequest(`sponsors/${sponsorId}/final-video/x.mp4`), { params: Promise.resolve({ id: sponsorId }) });
     expect(res.status).toBe(401);
     sessionRole = 'ADMIN';
   });
@@ -80,12 +80,12 @@ describe('POST /api/admin/sponsors-portal/[id]/final-video/upload-token', () => 
   // esta comprobación, se podría pedir un token válido para escribir en la
   // carpeta de vídeo final de OTRO sponsor.
   it('rechaza un pathname fuera de la carpeta de este sponsor', async () => {
-    const res = await getUploadToken(tokenRequest(`sponsors/otro-sponsor-id/final-video/x.mp4`), { params: { id: sponsorId } });
+    const res = await getUploadToken(tokenRequest(`sponsors/otro-sponsor-id/final-video/x.mp4`), { params: Promise.resolve({ id: sponsorId }) });
     expect(res.status).toBe(500);
   });
 
   it('emite un token con formatos ampliados y tamaño máximo mayor que el de referencia', async () => {
-    const res = await getUploadToken(tokenRequest(`sponsors/${sponsorId}/final-video/x.mp4`), { params: { id: sponsorId } });
+    const res = await getUploadToken(tokenRequest(`sponsors/${sponsorId}/final-video/x.mp4`), { params: Promise.resolve({ id: sponsorId }) });
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.allowedContentTypes).toEqual(expect.arrayContaining(['video/mp4', 'video/x-matroska', 'video/x-msvideo']));
@@ -121,7 +121,7 @@ describe('POST/DELETE /api/admin/sponsors-portal/[id]/final-video (confirmación
     sessionRole = null;
     const res = await uploadFinalVideo(
       confirmRequest({ url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/final-video/final.mp4`, fileName: 'final.mp4', fileSize: 123 }),
-      { params: { id: sponsorId } }
+      { params: Promise.resolve({ id: sponsorId }) }
     );
     expect(res.status).toBe(401);
     sessionRole = 'ADMIN';
@@ -130,7 +130,7 @@ describe('POST/DELETE /api/admin/sponsors-portal/[id]/final-video (confirmación
   it('rechaza una URL que no pertenece a este sponsor', async () => {
     const res = await uploadFinalVideo(
       confirmRequest({ url: `https://test-store.public.blob.vercel-storage.com/sponsors/otro-sponsor-id/final-video/final.mp4`, fileName: 'final.mp4', fileSize: 123 }),
-      { params: { id: sponsorId } }
+      { params: Promise.resolve({ id: sponsorId }) }
     );
     expect(res.status).toBe(400);
   });
@@ -141,7 +141,7 @@ describe('POST/DELETE /api/admin/sponsors-portal/[id]/final-video (confirmación
   it('confirma el vídeo pero el portal público no lo expone hasta estar aprobado', async () => {
     const res = await uploadFinalVideo(
       confirmRequest({ url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/final-video/final.mp4`, fileName: 'final.mp4', fileSize: 123 }),
-      { params: { id: sponsorId } }
+      { params: Promise.resolve({ id: sponsorId }) }
     );
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -149,7 +149,7 @@ describe('POST/DELETE /api/admin/sponsors-portal/[id]/final-video (confirmación
     expect(data.finalVideoFileName).toBe('final.mp4');
 
     const token = signSponsorAccess(sponsorId, data.portalTokenVersion);
-    const portalRes = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
+    const portalRes = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: Promise.resolve({ sponsorId }) });
     const portalData = await portalRes.json();
     expect(portalData.finalVideo).toBeNull();
   });
@@ -159,7 +159,7 @@ describe('POST/DELETE /api/admin/sponsors-portal/[id]/final-video (confirmación
   it('aprobado pero sin pagar: el portal sigue sin exponer el vídeo', async () => {
     const sponsor = await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'APROBADO_PARA_VIDEO', isPaid: false } });
     const token = signSponsorAccess(sponsorId, sponsor.portalTokenVersion);
-    const portalRes = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
+    const portalRes = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: Promise.resolve({ sponsorId }) });
     const portalData = await portalRes.json();
     expect(portalData.finalVideo).toBeNull();
   });
@@ -167,7 +167,7 @@ describe('POST/DELETE /api/admin/sponsors-portal/[id]/final-video (confirmación
   it('el portal público expone el vídeo una vez aprobado y pagado', async () => {
     const sponsor = await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'APROBADO_PARA_VIDEO', isPaid: true } });
     const token = signSponsorAccess(sponsorId, sponsor.portalTokenVersion);
-    const portalRes = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
+    const portalRes = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: Promise.resolve({ sponsorId }) });
     const portalData = await portalRes.json();
     expect(portalData.finalVideo?.url).toContain('https://test-store.public.blob.vercel-storage.com/');
     expect(portalData.finalVideo?.fileName).toBe('final.mp4');
@@ -177,7 +177,7 @@ describe('POST/DELETE /api/admin/sponsors-portal/[id]/final-video (confirmación
     delMock.mockClear();
     const res = await uploadFinalVideo(
       confirmRequest({ url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/final-video/final-v2.mp4`, fileName: 'final-v2.mp4', fileSize: 456 }),
-      { params: { id: sponsorId } }
+      { params: Promise.resolve({ id: sponsorId }) }
     );
     expect(res.status).toBe(200);
     expect(delMock).toHaveBeenCalledTimes(1);
@@ -187,7 +187,7 @@ describe('POST/DELETE /api/admin/sponsors-portal/[id]/final-video (confirmación
 
   it('elimina el vídeo final', async () => {
     delMock.mockClear();
-    const res = await deleteFinalVideo(new Request('http://localhost', { method: 'DELETE' }), { params: { id: sponsorId } });
+    const res = await deleteFinalVideo(new Request('http://localhost', { method: 'DELETE' }), { params: Promise.resolve({ id: sponsorId }) });
     expect(res.status).toBe(200);
     expect(delMock).toHaveBeenCalledTimes(1);
     const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } });

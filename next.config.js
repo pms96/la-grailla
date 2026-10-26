@@ -25,9 +25,29 @@ function latestMigration() {
   }
 }
 
+/**
+ * Optimización de imágenes de Vercel Blob (docs/platform/optimizacion-imagenes.md). Solo se activa si existe la variable NO secreta
+ * BLOB_PUBLIC_HOST con el hostname exacto del store de la plataforma (`<id>.public.blob.vercel-storage.com`) y IMAGES_UNOPTIMIZED no vale 1.
+ * Sin ella (o con un valor que no tenga esa forma) todo queda como antes: `images.unoptimized`. Nunca `domains` ni comodines.
+ * La expresión regular se repite en lib/images/blob-image.ts (este fichero es CommonJS y no puede importar TypeScript).
+ */
+const BLOB_HOST_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.public\.blob\.vercel-storage\.com$/;
+function blobPublicHost() {
+  const raw = (process.env.BLOB_PUBLIC_HOST || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (!BLOB_HOST_RE.test(raw)) {
+    console.warn('BLOB_PUBLIC_HOST no tiene la forma <id>.public.blob.vercel-storage.com (solo el hostname, sin https:// ni barras): imágenes sin optimizar.');
+    return '';
+  }
+  return raw;
+}
+const imagesOff = process.env.IMAGES_UNOPTIMIZED === '1';
+const blobHost = imagesOff ? '' : blobPublicHost();
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  env: { FRONT_SCHEMA_EXPECTED: latestMigration() },
+  // BLOB_PUBLIC_HOST e IMAGES_UNOPTIMIZED no son secretos: se fijan en el build y llegan al servidor y al navegador (lib/images/blob-image.ts).
+  env: { FRONT_SCHEMA_EXPECTED: latestMigration(), BLOB_PUBLIC_HOST: blobHost, IMAGES_UNOPTIMIZED: imagesOff ? '1' : '' },
   distDir: process.env.NEXT_DIST_DIR || '.next',
   output: process.env.NEXT_OUTPUT_MODE,
   poweredByHeader: false,
@@ -35,7 +55,19 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
-  images: { unoptimized: true },
+  images: blobHost
+    ? {
+        // Solo WebP: menos variantes por imagen y menos CPU en la primera visita. AVIF = añadir 'image/avif' aquí (un cambio de una línea).
+        formats: ['image/webp'],
+        // El origen mide como mucho 1600 px (la subida lo reduce en el navegador).
+        deviceSizes: [640, 828, 1200, 1600],
+        imageSizes: [96, 256, 384],
+        qualities: [75],
+        // 31 días: las URLs llevan un UUID y no se reescriben.
+        minimumCacheTTL: 2678400,
+        remotePatterns: [{ protocol: 'https', hostname: blobHost, port: '', pathname: '/**', search: '' }],
+      }
+    : { unoptimized: true },
   async redirects() {
     return [
       { source: '/patrocinio', destination: '/sponsors', permanent: true },

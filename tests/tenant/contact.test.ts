@@ -24,7 +24,7 @@ let usersRoute: typeof import('@/app/api/admin/users/route');
 const valid = { name: 'Lucía Pérez', email: 'lucia@example.com', phone: '600 111 222', subject: 'Reserva de grupo', message: 'Somos 20 personas, ¿tenéis hueco el sábado?', consentAccepted: true as const };
 const post = (body: unknown, ip = '203.0.113.7') =>
   new Request('http://localhost/api/contact', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-vercel-forwarded-for': ip }, body: JSON.stringify(body) });
-const ctx = (id: string) => ({ params: { id } });
+const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 const json = (method: string, body: unknown) => new Request('http://localhost', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 async function submit(slot: 'a' | 'b', body: unknown = valid, ip?: string) {
@@ -285,11 +285,11 @@ describe('usuarios con un solo rol salvo con Entradas', () => {
     const { id } = await created.json();
     const { PUT } = await import('@/app/api/admin/users/[id]/route');
     const edit = (modules: string[], role?: string) =>
-      withTenantForTest('a', () => PUT(json('PUT', { name: 'Nuevo nombre', ...(role ? { role } : {}) }), { params: { id } }), { modules });
+      withTenantForTest('a', () => PUT(json('PUT', { name: 'Nuevo nombre', ...(role ? { role } : {}) }), { params: Promise.resolve({ id }) }), { modules });
     expect((await edit(['nucleo'], 'TAQUILLA')).status).toBe(200);
     // …pero no se puede ASIGNAR taquilla a otra persona sin el módulo.
     const other = await (await withTenantForTest('a', () => create('ADMIN'), { modules: ['nucleo'] })).json();
-    const toOther = await withTenantForTest('a', () => PUT(json('PUT', { role: 'TAQUILLA' }), { params: { id: other.id } }), { modules: ['nucleo'] });
+    const toOther = await withTenantForTest('a', () => PUT(json('PUT', { role: 'TAQUILLA' }), { params: Promise.resolve({ id: other.id }) }), { modules: ['nucleo'] });
     expect(toOther.status).toBe(400);
   });
 

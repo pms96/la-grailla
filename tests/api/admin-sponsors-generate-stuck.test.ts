@@ -54,7 +54,7 @@ describe('Generación de vídeo IA — un claim colgado se recupera', () => {
   async function stuckSince(minutes: number) {
     await prisma.$executeRaw`UPDATE "Sponsor" SET "isGenerating" = true, "generationCount" = 1, "status" = 'LISTO_PARA_GENERAR', "updatedAt" = ${new Date(Date.now() - minutes * 60_000)} WHERE id = ${sponsorId}`;
   }
-  const call = () => generate(new Request('http://localhost', { method: 'POST' }), { params: { id: sponsorId } });
+  const call = () => generate(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: sponsorId }) });
 
   it('una generación en curso hace pocos segundos sigue bloqueando (409)', async () => {
     await stuckSince(0.5);

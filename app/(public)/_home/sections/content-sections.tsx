@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { Plus } from 'lucide-react';
 import '@/components/templates/marquesina.css';
 import '@/components/templates/galeria.css';
@@ -198,14 +199,14 @@ function Servicios({ section, template }: { section: ContentSection; template: T
 
 /** Imagen de una tarjeta. «tipo» no usa fotos y pone una forma generada; el resto, la imagen subida o, si a ese elemento le falta y a otros no,
  *  sus iniciales (un hueco vacío parecería un fallo). */
-function Thumb({ item, template, ratio }: { item: SectionItem; template: TemplateKey; ratio: string }) {
+function Thumb({ item, template, ratio, sizes }: { item: SectionItem; template: TemplateKey; ratio: string; sizes: string }) {
   const look = LOOKS[template];
   return (
     <div className={cn('overflow-hidden', ratio, look.frame)}>
       {item.imageUrl ? (
         // img nativo: son subidas del cliente a Blob (la CSP ya las admite) y no hay lista de dominios de next/image.
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={item.imageUrl} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+        <img {...blobImgProps(item.imageUrl, { sizes })} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
       ) : template === 'tipo' ? (
         <Composition seed={item.title} n={3} palette={['accent', 'primary', 'ink']} className="block h-full w-full" />
       ) : (
@@ -236,7 +237,7 @@ function Proyectos({ section, template }: { section: ContentSection; template: T
       <ul className="grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
         {section.items.map((item, i) => (
           <li key={i} className="relative">
-            {frames && <Thumb item={item} template={template} ratio="aspect-[4/3]" />}
+            {frames && <Thumb item={item} template={template} ratio="aspect-[4/3]" sizes={IMG_SIZES.grid3Sm} />}
             <div className={frames ? 'mt-4' : cn('pt-5', ruleTop(template), look.rule)}>
               {item.meta && <p className={cn('mb-1.5', look.meta)}>{item.meta}</p>}
               <ItemTitle item={item} className={look.itemTitle} stretch />
@@ -266,7 +267,7 @@ function Equipo({ section, template }: { section: ContentSection; template: Temp
       <ul className="grid grid-cols-2 gap-x-4 gap-y-8 md:gap-x-6 md:gap-y-10 lg:grid-cols-4">
         {section.items.map((item, i) => (
           <li key={i} className={frames ? undefined : cn('pt-5', ruleTop(template), look.rule)}>
-            {frames && <Thumb item={item} template={template} ratio="aspect-square" />}
+            {frames && <Thumb item={item} template={template} ratio="aspect-square" sizes={IMG_SIZES.grid4Lg} />}
             <h3 className={cn(frames && 'mt-4', look.itemTitle)}>{item.title}</h3>
             {item.meta && <p className={cn('mt-1.5', look.meta)}>{item.meta}</p>}
             {item.text && <p className={cn('mt-3 whitespace-pre-line text-sm', look.text)}>{item.text}</p>}

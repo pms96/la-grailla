@@ -38,7 +38,7 @@ describe('Pedidos de tienda — transiciones de estado y stock en reembolsos', (
     orderIds.push(o.id);
     return o;
   }
-  const put = (id: string, body: unknown) => putShopOrder(new Request('http://localhost', { method: 'PUT', body: JSON.stringify(body) }), { params: { id } });
+  const put = (id: string, body: unknown) => putShopOrder(new Request('http://localhost', { method: 'PUT', body: JSON.stringify(body) }), { params: Promise.resolve({ id }) });
   const stock = async () => (await prisma.productVariant.findFirst({ where: { productId, size: 'M', color: 'Negro' } }))?.stock;
   const statusOf = async (id: string) => (await prisma.shopOrder.findUnique({ where: { id } }))?.status;
 

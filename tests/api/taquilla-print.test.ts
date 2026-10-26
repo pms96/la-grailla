@@ -53,7 +53,7 @@ describe('GET /api/taquilla/print/[orderId]', () => {
 
   it('devuelve un PDF apaisado 105x70mm con una página por entrada del pedido', async () => {
     sessionRole = 'TAQUILLA';
-    const res = await printTickets(new Request('http://localhost'), { params: { orderId } });
+    const res = await printTickets(new Request('http://localhost'), { params: Promise.resolve({ orderId }) });
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('application/pdf');
 
@@ -68,27 +68,27 @@ describe('GET /api/taquilla/print/[orderId]', () => {
 
   it('permite también al rol ADMIN', async () => {
     sessionRole = 'ADMIN';
-    const res = await printTickets(new Request('http://localhost'), { params: { orderId } });
+    const res = await printTickets(new Request('http://localhost'), { params: Promise.resolve({ orderId }) });
     expect(res.status).toBe(200);
   });
 
   it('rechaza sin sesión', async () => {
     sessionRole = null;
-    const res = await printTickets(new Request('http://localhost'), { params: { orderId } });
+    const res = await printTickets(new Request('http://localhost'), { params: Promise.resolve({ orderId }) });
     expect(res.status).toBe(401);
     sessionRole = 'TAQUILLA';
   });
 
   it('rechaza un rol USER', async () => {
     sessionRole = 'USER';
-    const res = await printTickets(new Request('http://localhost'), { params: { orderId } });
+    const res = await printTickets(new Request('http://localhost'), { params: Promise.resolve({ orderId }) });
     expect(res.status).toBe(401);
     sessionRole = 'TAQUILLA';
   });
 
   it('devuelve 404 para un pedido inexistente', async () => {
     sessionRole = 'TAQUILLA';
-    const res = await printTickets(new Request('http://localhost'), { params: { orderId: 'no-existe' } });
+    const res = await printTickets(new Request('http://localhost'), { params: Promise.resolve({ orderId: 'no-existe' }) });
     expect(res.status).toBe(404);
   });
 });

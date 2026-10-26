@@ -41,7 +41,7 @@ describe('GET/PATCH /api/admin/events — vínculo con Temporada (Fase 0)', () =
   it('PATCH enlaza el evento a una temporada y GET la devuelve incluida', async () => {
     const res = await patchEvent(
       new Request('http://localhost', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id }) }),
-      { params: { id: event.id } }
+      { params: Promise.resolve({ id: event.id }) }
     );
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -55,7 +55,7 @@ describe('GET/PATCH /api/admin/events — vínculo con Temporada (Fase 0)', () =
   it('PATCH con temporadaId: null desenlaza el evento', async () => {
     const res = await patchEvent(
       new Request('http://localhost', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: null }) }),
-      { params: { id: event.id } }
+      { params: Promise.resolve({ id: event.id }) }
     );
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -65,13 +65,13 @@ describe('GET/PATCH /api/admin/events — vínculo con Temporada (Fase 0)', () =
   it('PATCH archivado marca y desmarca el evento como archivado', async () => {
     const marcado = await patchEvent(
       new Request('http://localhost', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archivado: true }) }),
-      { params: { id: event.id } }
+      { params: Promise.resolve({ id: event.id }) }
     );
     expect((await marcado.json()).archivado).toBe(true);
 
     const desmarcado = await patchEvent(
       new Request('http://localhost', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archivado: false }) }),
-      { params: { id: event.id } }
+      { params: Promise.resolve({ id: event.id }) }
     );
     expect((await desmarcado.json()).archivado).toBe(false);
   });
@@ -80,7 +80,7 @@ describe('GET/PATCH /api/admin/events — vínculo con Temporada (Fase 0)', () =
     vi.mocked(getServerSession).mockResolvedValueOnce({ user: { id: 'u1', role: 'TAQUILLA' } } as never);
     const res = await patchEvent(
       new Request('http://localhost', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archivado: true }) }),
-      { params: { id: event.id } }
+      { params: Promise.resolve({ id: event.id }) }
     );
     expect(res.status).toBe(401);
   });
@@ -122,7 +122,7 @@ describe('POST/PUT /api/admin/events — enlace con Temporada desde el formulari
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ temporadaId: temporada.id }),
         }),
-        { params: { id: event.id } }
+        { params: Promise.resolve({ id: event.id }) }
       );
       expect((await enlazado.json()).temporadaId).toBe(temporada.id);
 
@@ -132,7 +132,7 @@ describe('POST/PUT /api/admin/events — enlace con Temporada desde el formulari
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ temporadaId: null }),
         }),
-        { params: { id: event.id } }
+        { params: Promise.resolve({ id: event.id }) }
       );
       expect((await desenlazado.json()).temporadaId).toBeNull();
     } finally {

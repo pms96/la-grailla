@@ -9,7 +9,8 @@ import { getBaseUrl } from '@/lib/url';
 
 // Acción explícita "Reenviar invitación" — distinta del botón genérico
 // "Notificar por email": copy propio de reenvío, sin depender del estado actual.
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });

@@ -10,7 +10,8 @@ import WaitingRoomGate from './_components/waiting-room-gate';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ComprarPage({ params }: { params: { slug: string } }) {
+export default async function ComprarPage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   let event: EventWithTicketTypes | null = null;
   try {
     event = await prisma.event.findUnique({

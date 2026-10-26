@@ -22,7 +22,8 @@ const bodySchema = z.object({ mode: z.enum(['unpaid', 'paid', 'collaboration']) 
 // sponsor no tiene ningún pago pendiente) pero marcado con isCollaboration
 // para que /admin/gastos lo excluya de ingresosPatrocinio: fue una
 // aportación en especie, no dinero real cobrado.
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });

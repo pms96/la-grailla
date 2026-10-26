@@ -136,18 +136,18 @@ describe('eventos', () => {
   it('al cambiar el cartel se borra el anterior; al borrar el evento, el cartel', async () => {
     const ev = await saveEvent('concierto', mine('events/viejo.jpg'));
     const { PUT, DELETE } = await import('@/app/api/admin/events/[id]/route');
-    expect((await call(() => PUT(req('PUT', { imageUrl: mine('events/nuevo.jpg') }), { params: { id: ev.id } }))).status).toBe(200);
+    expect((await call(() => PUT(req('PUT', { imageUrl: mine('events/nuevo.jpg') }), { params: Promise.resolve({ id: ev.id }) }))).status).toBe(200);
     expect(deleted()).toEqual([mine('events/viejo.jpg')]);
 
     blob.del.mockClear();
-    expect((await call(() => DELETE(req('DELETE'), { params: { id: ev.id } }))).status).toBe(200);
+    expect((await call(() => DELETE(req('DELETE'), { params: Promise.resolve({ id: ev.id }) }))).status).toBe(200);
     expect(deleted()).toEqual([mine('events/nuevo.jpg')]);
   });
 
   it('editar otros campos (sin tocar el cartel) no borra nada', async () => {
     const ev = await saveEvent('concierto', mine('events/cartel.jpg'));
     const { PUT } = await import('@/app/api/admin/events/[id]/route');
-    expect((await call(() => PUT(req('PUT', { name: 'Otro nombre' }), { params: { id: ev.id } }))).status).toBe(200);
+    expect((await call(() => PUT(req('PUT', { name: 'Otro nombre' }), { params: Promise.resolve({ id: ev.id }) }))).status).toBe(200);
     expect(blob.del).not.toHaveBeenCalled();
   });
 
@@ -155,7 +155,7 @@ describe('eventos', () => {
     const ev = await saveEvent('vendido', mine('events/viejo.jpg'));
     await tenantClient('a').order.create({ data: { eventId: ev.id, buyerName: 'Ana', buyerLastName: 'Pérez', buyerEmail: 'ana@example.com', totalAmount: 15 } });
     const { PUT } = await import('@/app/api/admin/events/[id]/route');
-    expect((await call(() => PUT(req('PUT', { imageUrl: mine('events/nuevo.jpg') }), { params: { id: ev.id } }))).status).toBe(200);
+    expect((await call(() => PUT(req('PUT', { imageUrl: mine('events/nuevo.jpg') }), { params: Promise.resolve({ id: ev.id }) }))).status).toBe(200);
     expect(blob.del).not.toHaveBeenCalled();
     const stored = await tenantClient('a').event.findUnique({ where: { id: ev.id } });
     expect(stored?.imageUrl).toBe(mine('events/nuevo.jpg')); // el cambio sí se guarda
@@ -166,7 +166,7 @@ describe('eventos', () => {
     const a = await saveEvent('uno', shared);
     await saveEvent('dos', shared);
     const { PUT } = await import('@/app/api/admin/events/[id]/route');
-    await call(() => PUT(req('PUT', { imageUrl: mine('events/otro.jpg') }), { params: { id: a.id } }));
+    await call(() => PUT(req('PUT', { imageUrl: mine('events/otro.jpg') }), { params: Promise.resolve({ id: a.id }) }));
     expect(blob.del).not.toHaveBeenCalled();
   });
 });
@@ -177,12 +177,12 @@ describe('productos', () => {
       data: { name: 'Taza', slug: 'taza', price: 9, imageUrl: mine('shop/a.jpg'), images: [mine('shop/a.jpg'), mine('shop/b.jpg'), mine('shop/c.jpg')] },
     });
     const { PATCH, DELETE } = await import('@/app/api/admin/products/[id]/route');
-    const res = await call(() => PATCH(req('PATCH', { imageUrl: mine('shop/a.jpg'), images: [mine('shop/a.jpg'), mine('shop/c.jpg')] }), { params: { id: p.id } }));
+    const res = await call(() => PATCH(req('PATCH', { imageUrl: mine('shop/a.jpg'), images: [mine('shop/a.jpg'), mine('shop/c.jpg')] }), { params: Promise.resolve({ id: p.id }) }));
     expect(res.status).toBe(200);
     expect(deleted()).toEqual([mine('shop/b.jpg')]);
 
     blob.del.mockClear();
-    expect((await call(() => DELETE(req('DELETE'), { params: { id: p.id } }))).status).toBe(200);
+    expect((await call(() => DELETE(req('DELETE'), { params: Promise.resolve({ id: p.id }) }))).status).toBe(200);
     expect(blob.del).not.toHaveBeenCalled(); // «borrar» un producto solo lo desactiva: sus fotos siguen siendo suyas
   });
 });
@@ -194,7 +194,7 @@ describe('otros sitios donde puede haber una URL de Blob', () => {
     const ev = await saveEvent('con-pdf', null);
     await tenantClient('a').order.create({ data: { eventId: ev.id, buyerName: 'Ana', buyerLastName: 'Pérez', buyerEmail: 'ana@example.com', totalAmount: 9, pdfUrl: shared } });
     const { PATCH } = await import('@/app/api/admin/products/[id]/route');
-    await call(() => PATCH(req('PATCH', { imageUrl: null, images: [] }), { params: { id: p.id } }));
+    await call(() => PATCH(req('PATCH', { imageUrl: null, images: [] }), { params: Promise.resolve({ id: p.id }) }));
     expect(blob.del).not.toHaveBeenCalled();
   });
 });

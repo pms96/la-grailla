@@ -25,7 +25,7 @@ describe('GET/PATCH /api/admin/compras/temporadas — archivado (Fase 4)', () =>
   it('PATCH archivado:true la oculta del listado por defecto y no la borra', async () => {
     const patched = await patchTemporada(
       new Request('http://localhost', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archivado: true }) }),
-      { params: { id: temporada.id } }
+      { params: Promise.resolve({ id: temporada.id }) }
     );
     expect((await patched.json()).archivado).toBe(true);
 
@@ -48,7 +48,7 @@ describe('GET/PATCH /api/admin/compras/temporadas — archivado (Fase 4)', () =>
   it('PATCH archivado:false la restaura al listado por defecto', async () => {
     await patchTemporada(
       new Request('http://localhost', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archivado: false }) }),
-      { params: { id: temporada.id } }
+      { params: Promise.resolve({ id: temporada.id }) }
     );
     const listado = await getTemporadas(new Request('http://localhost'));
     const data = await listado.json();

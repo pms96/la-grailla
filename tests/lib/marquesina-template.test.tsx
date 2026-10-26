@@ -5,6 +5,7 @@ import { titleSize, toTemplateEvent, type EventInput } from '@/app/(public)/_hom
 import { EventRows } from '@/app/(public)/_home/marquesina/event-rows';
 import { HomeMarquesina, MarquesinaHero, type HomeMarquesinaProps } from '@/app/(public)/_home/marquesina/home-marquesina';
 import { Marquee } from '@/components/ui/marquee';
+import { BLOB_PUBLIC_HOST, attr, expectOptimized, withBlobHost } from '../helpers/blob-host';
 
 // Los tipos de JSX.Element y de renderToStaticMarkup vienen de versiones distintas de @types/react: se unifican aquí.
 const render = (node: unknown) => renderToStaticMarkup(node as Parameters<typeof renderToStaticMarkup>[0]);
@@ -199,5 +200,19 @@ describe('HomeMarquesina — cada sección solo con su módulo', () => {
     const vacio = render(<HomeMarquesina {...base} events={[]} />);
     expect(vacio).toContain('Aún no hay eventos publicados');
     expect(vacio).not.toContain('No hemos podido cargar');
+  });
+});
+
+describe('EventRows con la optimización de imágenes activa (BLOB_PUBLIC_HOST)', () => {
+  const blob = `https://${BLOB_PUBLIC_HOST}/t1/events/e1/cartel.jpg`;
+
+  it('la miniatura pide la variante de 96 px; las que no son del store siguen con su src', () => {
+    const rows = [toTemplateEvent(event({ imageUrl: blob })), toTemplateEvent(event({ id: 'e2', slug: 'otra', name: 'Otra' }))];
+    const html = withBlobHost(() => render(<EventRows events={rows} />));
+    expect(html.match(/<img /g)).toHaveLength(2);
+    expect(html.match(/srcSet=/g)).toHaveLength(1);
+    expectOptimized(html, blob);
+    expect(attr(html, 'sizes')).toBe('96px');
+    expect(html).toContain('src="https://example.com/cartel.jpg"');
   });
 });

@@ -11,6 +11,7 @@ import { CineTransitions, posterTransitionName } from '@/app/(public)/_home/cine
 import { ContentSections } from '@/app/(public)/_home/sections/content-sections';
 import { PageBanner } from '@/app/(public)/_templates/page-banner';
 import { parseSection } from '@/lib/content/sections';
+import { BLOB_PUBLIC_HOST, attr, expectOptimized, withBlobHost } from '../helpers/blob-host';
 
 // Los tipos de JSX.Element y de renderToStaticMarkup vienen de versiones distintas de @types/react: se unifican aquí.
 const render = (node: unknown) => renderToStaticMarkup(node as Parameters<typeof renderToStaticMarkup>[0]);
@@ -249,5 +250,41 @@ describe('/eventos y cabecera interior con «cine»', () => {
     expect(html).not.toContain('<img');
     expect(html).not.toContain('view-transition-name');
     expect(html).toContain('data-size="s"');
+  });
+});
+
+describe('imágenes de Blob con la optimización activa (BLOB_PUBLIC_HOST)', () => {
+  it('el póster del héroe pide variantes de /_next/image con la URL original codificada y mantiene la prioridad', () => {
+    expect(BLOB_PUBLIC_HOST).toBe('abc123.public.blob.vercel-storage.com'); // el mismo host que BLOB de arriba
+    const html = withBlobHost(() => render(<HeroMedia video={VIDEO} poster={POSTER} />));
+    expectOptimized(html, POSTER);
+    expect(attr(html, 'sizes')).toBe('100vw');
+    expect(html).toContain('fetchPriority="high"');
+    expect(html).not.toContain(VIDEO);
+  });
+
+  it('la tarjeta y el riel usan los sizes de su maquetación y mantienen loading', () => {
+    const blobEvent = toTemplateEvent(event({ imageUrl: `${BLOB}/t1/events/e1/cartel.jpg` }));
+    const card = withBlobHost(() => render(<CineCard event={blobEvent} />));
+    expectOptimized(card, `${BLOB}/t1/events/e1/cartel.jpg`);
+    expect(attr(card, 'sizes')).toContain('25vw');
+    expect(card).toContain('loading="lazy"');
+    const rail = withBlobHost(() => render(<CineRail events={[blobEvent]} label="Cartelera" />));
+    expect(attr(rail, 'sizes')).toBe('(min-width:507px) 304px, 60vw');
+  });
+
+  it('un cartel que no es del store de la plataforma conserva su src original, aunque la optimización esté activa', () => {
+    const html = withBlobHost(() => render(<CineCard event={toTemplateEvent(event())} />));
+    expect(html).toContain('src="https://example.com/cartel.jpg"');
+    expect(html).not.toContain('srcSet');
+    expect(html).not.toContain('_next/image');
+  });
+
+  it('con otro store de Blob, http: o sin la variable, el src es el original', () => {
+    const other = 'https://zzz999.public.blob.vercel-storage.com/t1/brand/abc-poster.jpg';
+    expect(withBlobHost(() => render(<HeroMedia video={null} poster={other} />))).toContain(`src="${other}"`);
+    const http = `http://${BLOB_PUBLIC_HOST}/t1/brand/abc-poster.jpg`;
+    expect(withBlobHost(() => render(<HeroMedia video={null} poster={http} />))).toContain(`src="${http}"`);
+    expect(withBlobHost(() => render(<HeroMedia video={null} poster={POSTER} />), null)).toContain(`src="${POSTER}"`);
   });
 });

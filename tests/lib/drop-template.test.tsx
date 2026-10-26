@@ -13,6 +13,7 @@ import { DropEvents } from '@/app/(public)/_home/drop/drop-events';
 import { EventosDrop } from '@/app/(public)/_home/drop/eventos-drop';
 import { PageBanner } from '@/app/(public)/_templates/page-banner';
 import { productJsonLd } from '@/lib/shop/product-view';
+import { BLOB_PUBLIC_HOST, attr, expectOptimized, withBlobHost } from '../helpers/blob-host';
 
 // Los tipos de JSX.Element y de renderToStaticMarkup vienen de versiones distintas de @types/react: se unifican aquí.
 const render = (node: unknown) => renderToStaticMarkup(node as Parameters<typeof renderToStaticMarkup>[0]);
@@ -256,5 +257,39 @@ describe('eventos y cabecera interior con «drop»', () => {
     const compact = render(<PageBanner template="drop" brandName="Merch" title="Aviso legal" imageUrl="https://x.test/c.jpg" compact />);
     expect(compact).not.toContain('<img');
     expect(compact).toContain('data-size="s"');
+  });
+});
+
+describe('imágenes de Blob con la optimización activa (BLOB_PUBLIC_HOST)', () => {
+  const blob = (name: string) => `https://${BLOB_PUBLIC_HOST}/t1/products/p1/${name}.jpg`;
+
+  it('la tarjeta de rejilla y la del riel usan los sizes de su maquetación', () => {
+    const p = prod({ imageUrl: blob('a') });
+    const card = withBlobHost(() => render(<DropCard product={p} tone="primary" />));
+    expectOptimized(card, blob('a'));
+    expect(attr(card, 'sizes')).toContain('25vw');
+    expect(card).toContain('loading="lazy"');
+    const rail = withBlobHost(() => render(<DropCard product={p} tone="primary" priority sizes="(min-width:486px) 272px, 56vw" />));
+    expect(attr(rail, 'sizes')).toBe('(min-width:486px) 272px, 56vw');
+    expect(rail).toContain('loading="eager"');
+  });
+
+  it('la ficha de producto optimiza cada imagen de la tira y mantiene la prioridad de la primera', () => {
+    const html = withBlobHost(() => render(<DropProductPage product={prod({ imageUrl: blob('a'), images: [blob('a'), blob('b')] })} jsonLd={{}} />));
+    expect(html.match(/<img /g)).toHaveLength(2);
+    expect(html.match(/srcSet=/g)).toHaveLength(2);
+    expect(html).toContain(`url=${encodeURIComponent(blob('a'))}&amp;w=`);
+    expect(html).toContain(`url=${encodeURIComponent(blob('b'))}&amp;w=`);
+    expect(html).not.toContain(`src="${blob('a')}"`);
+    expect(html).toContain('fetchPriority="high"');
+  });
+
+  it('sin la variable, o con otro store, el src es el original', () => {
+    const p = prod({ imageUrl: blob('a') });
+    expect(withBlobHost(() => render(<DropCard product={p} tone="primary" />), null)).toContain(`src="${blob('a')}"`);
+    const other = 'https://zzz999.public.blob.vercel-storage.com/t1/a.jpg';
+    const html = withBlobHost(() => render(<DropCard product={prod({ imageUrl: other })} tone="primary" />));
+    expect(html).toContain(`src="${other}"`);
+    expect(html).not.toContain('srcSet');
   });
 });

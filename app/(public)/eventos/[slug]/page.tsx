@@ -1,4 +1,5 @@
 import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { notFound } from 'next/navigation';
 import { hasEventEnded } from '@/lib/active-event';
 import { getEventDemandLevel } from '@/lib/ticket-availability';
@@ -24,7 +25,8 @@ import { EVENT_TIMEZONE } from '@/lib/event-time';
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
 
-export async function generateMetadata({ params }: { params: { slug: string } }) {
+export async function generateMetadata(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const [event, brand] = await Promise.all([prisma.event.findUnique({ where: { slug: params?.slug } }), getBrand()]);
   if (!event) return { title: 'Evento' };
   const description = `${event.name} en ${event.venue}, ${event.city}. Compra tus entradas online.`;
@@ -42,7 +44,8 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   };
 }
 
-export default async function EventoDetailPage({ params }: { params: { slug: string } }) {
+export default async function EventoDetailPage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   let event: EventWithTicketTypes | null = null;
   let loadError = false;
   try {
@@ -214,7 +217,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
         {event?.imageUrl ? (
           <>
             <img
-              src={event.imageUrl}
+              {...blobImgProps(event.imageUrl, { sizes: IMG_SIZES.full })}
               alt=""
               aria-hidden
               className="absolute inset-0 h-full w-full object-cover"

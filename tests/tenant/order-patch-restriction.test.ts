@@ -23,7 +23,7 @@ afterAll(async () => {
 const patch = async (action: string, license?: { phase: 'ACTIVE' | 'GRACE' | 'PANEL_BLOCKED' | 'BLOCKED'; nextPhaseChangeAt: null }, modules = ['nucleo', 'entradas']) => {
   const { PATCH } = await import('@/app/api/admin/orders/[id]/route');
   const req = new Request('http://a.cliente.test/api/admin/orders/x', { method: 'PATCH', body: JSON.stringify({ action, email: 'otro@cliente.test' }) });
-  return withTenantForTest('a', () => PATCH(req, { params: { id: 'no-existe' } }), { license, modules });
+  return withTenantForTest('a', () => PATCH(req, { params: Promise.resolve({ id: 'no-existe' }) }), { license, modules });
 };
 
 describe('PATCH /api/admin/orders/[id] bajo licencia vencida o sin módulo', () => {

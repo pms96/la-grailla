@@ -19,7 +19,8 @@ async function requireOwner() {
 }
 
 /** Editar un rol: las sesiones de quienes lo tienen se cierran solas (su sesión lleva la clave de los permisos antiguos). */
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = await requireOwner();
   if (denied) return denied;
   try {
@@ -39,7 +40,8 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 }
 
 /** Borrar un rol: se niega si alguien lo tiene (habría que dejarlo sin permisos de golpe). */
-export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = await requireOwner();
   if (denied) return denied;
   try {

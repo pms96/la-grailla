@@ -66,7 +66,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo/upload-token', () => {
   });
 
   it('rechaza sin token', async () => {
-    const res = await getUploadToken(tokenRequest('http://localhost', `sponsors/${sponsorId}/x-logo.png`), { params: { sponsorId } });
+    const res = await getUploadToken(tokenRequest('http://localhost', `sponsors/${sponsorId}/x-logo.png`), { params: Promise.resolve({ sponsorId }) });
     expect(res.status).toBe(401);
   });
 
@@ -76,7 +76,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo/upload-token', () => {
     const otherToken = signSponsorAccess('otro-sponsor-id', 1);
     const res = await getUploadToken(
       tokenRequest(`http://localhost?t=${otherToken}`, `sponsors/${sponsorId}/x-logo.png`),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(401);
   });
@@ -87,7 +87,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo/upload-token', () => {
   it('rechaza un pathname fuera de la carpeta de este sponsor', async () => {
     const res = await getUploadToken(
       tokenRequest(`http://localhost?t=${token}`, `sponsors/otro-sponsor-id/x-logo.png`),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(500);
   });
@@ -96,7 +96,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo/upload-token', () => {
     await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'RECHAZADO' } });
     const res = await getUploadToken(
       tokenRequest(`http://localhost?t=${token}`, `sponsors/${sponsorId}/x-logo.png`),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(409);
     await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'PENDIENTE_MATERIALES' } });
@@ -105,7 +105,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo/upload-token', () => {
   it('emite un token con los formatos y el tamaño máximo permitidos', async () => {
     const res = await getUploadToken(
       tokenRequest(`http://localhost?t=${token}`, `sponsors/${sponsorId}/x-logo.png`),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -146,7 +146,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo (confirmación tras subir a
   it('rechaza sin token', async () => {
     const res = await uploadLogo(
       confirmRequest('http://localhost', { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(401);
   });
@@ -154,7 +154,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo (confirmación tras subir a
   it('rechaza un tipo de archivo no permitido', async () => {
     const res = await uploadLogo(
       confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/malware.exe`, fileName: 'malware.exe', fileType: 'application/x-msdownload', fileSize: 100 }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(400);
   });
@@ -165,7 +165,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo (confirmación tras subir a
   it('rechaza una URL que no pertenece a este sponsor', async () => {
     const res = await uploadLogo(
       confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/otro-sponsor-id/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(400);
   });
@@ -173,11 +173,11 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo (confirmación tras subir a
   it('acepta un logo válido y lo deja como currentAsset', async () => {
     const res = await uploadLogo(
       confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(200);
 
-    const getRes = await getSponsor(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
+    const getRes = await getSponsor(new Request(`http://localhost?t=${token}`), { params: Promise.resolve({ sponsorId }) });
     const data = await getRes.json();
     expect(data.currentAsset?.fileName).toBe('logo.png');
   });
@@ -190,7 +190,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo (confirmación tras subir a
     await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'LISTO_PARA_GENERAR', guidedAnswers: { estilo: 'x' } } });
     const res = await uploadLogo(
       confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/logo-v2.png`, fileName: 'logo-v2.png', fileType: 'image/png', fileSize: 100 }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(200);
     const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } });
@@ -201,7 +201,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/logo (confirmación tras subir a
     await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'APROBADO_PARA_VIDEO' } });
     const res = await uploadLogo(
       confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(409);
   });
@@ -240,14 +240,14 @@ describe('varios archivos coexisten (no se reemplazan)', () => {
   it('el GET devuelve todos los archivos subidos, no solo el último', async () => {
     await uploadLogo(
       confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     await uploadLogo(
       confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/referencia.mp4`, fileName: 'referencia.mp4', fileType: 'video/mp4', fileSize: 200 }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
 
-    const res = await getSponsor(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
+    const res = await getSponsor(new Request(`http://localhost?t=${token}`), { params: Promise.resolve({ sponsorId }) });
     const data = await res.json();
     expect(data.assets).toHaveLength(2);
     const fileNames = data.assets.map((a: { fileName: string }) => a.fileName).sort();
@@ -289,11 +289,11 @@ describe('currentAsset solo se actualiza con imágenes', () => {
   it('un vídeo subido tras la imagen no reemplaza currentAsset', async () => {
     await uploadLogo(
       confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/logo.png`, fileName: 'logo.png', fileType: 'image/png', fileSize: 100 }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     await uploadLogo(
       confirmRequest(`http://localhost?t=${token}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsorId}/referencia.mp4`, fileName: 'referencia.mp4', fileType: 'video/mp4', fileSize: 200 }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
 
     const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId }, include: { currentAsset: true } });
@@ -315,7 +315,7 @@ describe('currentAsset solo se actualiza con imágenes', () => {
 
     const res = await uploadLogo(
       confirmRequest(`http://localhost?t=${videoToken}`, { url: `https://test-store.public.blob.vercel-storage.com/sponsors/${sponsor.id}/referencia.mp4`, fileName: 'referencia.mp4', fileType: 'video/mp4', fileSize: 200 }),
-      { params: { sponsorId: sponsor.id } }
+      { params: Promise.resolve({ sponsorId: sponsor.id }) }
     );
     expect(res.status).toBe(200);
 

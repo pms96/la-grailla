@@ -78,7 +78,7 @@ describe('AUDIT — reembolsar un ShopOrder debe liberar el stock reservado', ()
   });
 
   it('restaura el stock de la variante al marcar el pedido como REFUNDED', async () => {
-    const res = await updateShopOrder(putRequest({ status: 'REFUNDED' }), { params: { id: orderId } });
+    const res = await updateShopOrder(putRequest({ status: 'REFUNDED' }), { params: Promise.resolve({ id: orderId }) });
     expect(res.status).toBe(200);
 
     const variant = await prisma.productVariant.findUnique({

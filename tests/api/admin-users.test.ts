@@ -53,7 +53,7 @@ describe('PUT/DELETE /api/admin/users/[id]', () => {
   // dejando el panel sin nadie con acceso. Severidad: Alto.
   it('rechaza que un admin se quite a sí mismo el rol de administrador', async () => {
     currentSessionUserId = adminId;
-    const res = await updateUser(jsonRequest({ role: 'TAQUILLA' }), { params: { id: adminId } });
+    const res = await updateUser(jsonRequest({ role: 'TAQUILLA' }), { params: Promise.resolve({ id: adminId }) });
     expect(res.status).toBe(400);
     const data = await res.json();
     expect(data.error).toMatch(/no puedes/i);
@@ -63,7 +63,7 @@ describe('PUT/DELETE /api/admin/users/[id]', () => {
 
   it('rechaza que un admin se elimine a sí mismo', async () => {
     currentSessionUserId = adminId;
-    const res = await deleteUser(new Request('http://localhost'), { params: { id: adminId } });
+    const res = await deleteUser(new Request('http://localhost'), { params: Promise.resolve({ id: adminId }) });
     expect(res.status).toBe(400);
     const stillExists = await prisma.user.findUnique({ where: { id: adminId } });
     expect(stillExists).not.toBeNull();
@@ -78,7 +78,7 @@ describe('PUT/DELETE /api/admin/users/[id]', () => {
     currentSessionUserId = taquillaId;
     const countSpy = vi.spyOn(prisma.user, 'count').mockResolvedValueOnce(1);
     try {
-      const res = await updateUser(jsonRequest({ role: 'TAQUILLA' }), { params: { id: otherAdminId } });
+      const res = await updateUser(jsonRequest({ role: 'TAQUILLA' }), { params: Promise.resolve({ id: otherAdminId }) });
       expect(res.status).toBe(400);
       const data = await res.json();
       expect(data.error).toMatch(/último administrador/i);
@@ -93,7 +93,7 @@ describe('PUT/DELETE /api/admin/users/[id]', () => {
     currentSessionUserId = taquillaId;
     const countSpy = vi.spyOn(prisma.user, 'count').mockResolvedValueOnce(1);
     try {
-      const res = await deleteUser(new Request('http://localhost'), { params: { id: otherAdminId } });
+      const res = await deleteUser(new Request('http://localhost'), { params: Promise.resolve({ id: otherAdminId }) });
       expect(res.status).toBe(400);
       const data = await res.json();
       expect(data.error).toMatch(/último administrador/i);

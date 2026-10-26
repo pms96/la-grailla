@@ -42,7 +42,7 @@ describe('POST /api/admin/compras/pedidos/generar', () => {
     try {
       await putPlan(
         new Request('http://localhost', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id, cantidadPlanificada: 10 }) }),
-        { params: { articuloId: articulo.id } }
+        { params: Promise.resolve({ articuloId: articulo.id }) }
       );
 
       const res = await generar(
@@ -64,7 +64,7 @@ describe('POST /api/admin/compras/pedidos/generar', () => {
     try {
       await putPlan(
         new Request('http://localhost', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id, cantidadPlanificada: 4, proveedorElegidoId: proveedorCaro.id }) }),
-        { params: { articuloId: articulo.id } }
+        { params: Promise.resolve({ articuloId: articulo.id }) }
       );
 
       const res = await generar(
@@ -87,7 +87,7 @@ describe('POST /api/admin/compras/pedidos/generar', () => {
       });
       await putPlan(
         new Request('http://localhost', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id, cantidadPlanificada: 10 }) }),
-        { params: { articuloId: articulo.id } }
+        { params: Promise.resolve({ articuloId: articulo.id }) }
       );
 
       const res = await generar(
@@ -105,7 +105,7 @@ describe('POST /api/admin/compras/pedidos/generar', () => {
     try {
       await putPlan(
         new Request('http://localhost', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id, cantidadPlanificada: 10 }) }),
-        { params: { articuloId: articulo.id } }
+        { params: Promise.resolve({ articuloId: articulo.id }) }
       );
       const primera = await generar(
         new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id }) })
@@ -115,7 +115,7 @@ describe('POST /api/admin/compras/pedidos/generar', () => {
 
       await putPlan(
         new Request('http://localhost', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id, cantidadPlanificada: 25 }) }),
-        { params: { articuloId: articulo.id } }
+        { params: Promise.resolve({ articuloId: articulo.id }) }
       );
       const segunda = await generar(
         new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id }) })
@@ -140,7 +140,7 @@ describe('POST /api/admin/compras/pedidos/generar', () => {
     try {
       await putPlan(
         new Request('http://localhost', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id, cantidadPlanificada: 8, proveedorElegidoId: proveedor.id }) }),
-        { params: { articuloId: articulo.id } }
+        { params: Promise.resolve({ articuloId: articulo.id }) }
       );
 
       const res = await generar(
@@ -163,7 +163,7 @@ describe('POST /api/admin/compras/pedidos/generar', () => {
     try {
       await putPlan(
         new Request('http://localhost', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id, cantidadPlanificada: 10 }) }),
-        { params: { articuloId: articulo.id } }
+        { params: Promise.resolve({ articuloId: articulo.id }) }
       );
       const primera = await generar(
         new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id }) })
@@ -173,7 +173,7 @@ describe('POST /api/admin/compras/pedidos/generar', () => {
 
       await putPlan(
         new Request('http://localhost', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id, cantidadPlanificada: 99 }) }),
-        { params: { articuloId: articulo.id } }
+        { params: Promise.resolve({ articuloId: articulo.id }) }
       );
       const segunda = await generar(
         new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temporadaId: temporada.id }) })
@@ -201,8 +201,8 @@ describe('PATCH /api/admin/compras/pedidos/[id] — transición de estado', () =
 
       // Dos peticiones "ENVIADO" en paralelo: solo una debe ganar el updateMany condicional.
       const [r1, r2] = await Promise.all([
-        patchPedido(new Request('http://localhost', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'ENVIADO' }) }), { params: { id: pedido.id } }),
-        patchPedido(new Request('http://localhost', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'ENVIADO' }) }), { params: { id: pedido.id } }),
+        patchPedido(new Request('http://localhost', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'ENVIADO' }) }), { params: Promise.resolve({ id: pedido.id }) }),
+        patchPedido(new Request('http://localhost', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'ENVIADO' }) }), { params: Promise.resolve({ id: pedido.id }) }),
       ]);
       const statuses = [r1.status, r2.status].sort();
       expect(statuses).toEqual([200, 409]);
@@ -213,7 +213,7 @@ describe('PATCH /api/admin/compras/pedidos/[id] — transición de estado', () =
       // No se puede saltar de ENVIADO directo a... intentar "ENVIADO" de nuevo debe fallar (ya no está en BORRADOR).
       const resRepetido = await patchPedido(
         new Request('http://localhost', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'ENVIADO' }) }),
-        { params: { id: pedido.id } }
+        { params: Promise.resolve({ id: pedido.id }) }
       );
       expect(resRepetido.status).toBe(409);
     } finally {

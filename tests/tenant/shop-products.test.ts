@@ -109,10 +109,10 @@ describe('página de producto /tienda/[slug]', () => {
   it('con el módulo Tienda y un producto activo, la página responde; sin producto o sin el módulo, 404', async () => {
     await create('a', 'camiseta');
     const { default: ProductoPage } = await import('@/app/(public)/tienda/[slug]/page');
-    const ok = await asA(() => ProductoPage({ params: { slug: 'camiseta' } }), ['nucleo', 'tienda']);
+    const ok = await asA(() => ProductoPage({ params: Promise.resolve({ slug: 'camiseta' }) }), ['nucleo', 'tienda']);
     expect(ok).toBeTruthy();
-    await expect(asA(() => ProductoPage({ params: { slug: 'no-existe' } }), ['nucleo', 'tienda'])).rejects.toThrow(/NEXT_NOT_FOUND/);
+    await expect(asA(() => ProductoPage({ params: Promise.resolve({ slug: 'no-existe' }) }), ['nucleo', 'tienda'])).rejects.toThrow(/NEXT_HTTP_ERROR_FALLBACK;404/);
     // Sin Tienda el producto existe en la BD, pero la ficha no se sirve.
-    await expect(asA(() => ProductoPage({ params: { slug: 'camiseta' } }), ['nucleo', 'entradas'])).rejects.toThrow(/NEXT_NOT_FOUND/);
+    await expect(asA(() => ProductoPage({ params: Promise.resolve({ slug: 'camiseta' }) }), ['nucleo', 'entradas'])).rejects.toThrow(/NEXT_HTTP_ERROR_FALLBACK;404/);
   });
 });

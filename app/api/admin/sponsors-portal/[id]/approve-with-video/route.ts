@@ -15,7 +15,8 @@ class NoVideoError extends Error {}
 // vez de forzar una generación por IA que siempre fallaría, esto salta
 // directamente a APROBADO_PARA_VIDEO usando el propio vídeo del sponsor
 // como vídeo final (el admin puede reemplazarlo después si lo edita).
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });

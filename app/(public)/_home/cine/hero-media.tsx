@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { Pause, Play } from 'lucide-react';
 import { HERO_VIDEO_MIN_WIDTH, shouldAutoplayHeroVideo } from '@/lib/brand/hero-video';
 import '@/components/templates/cine.css';
@@ -84,7 +85,7 @@ export function HeroMedia({ video, poster }: { video: string | null; poster: str
         {poster && (
           // img nativo: son subidas del cliente a Blob y no hay lista de dominios de next/image.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={poster} alt="" fetchPriority="high" decoding="async" />
+          <img {...blobImgProps(poster, { sizes: IMG_SIZES.full })} alt="" fetchPriority="high" decoding="async" />
         )}
         {video && <video ref={ref} muted loop playsInline preload="none" data-ready={ready} onPlaying={() => setReady(true)} />}
       </div>

@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { TEMPLATES } from '@/lib/brand/theme';
 import { parseSection, type ContentSection, type SectionKind } from '@/lib/content/sections';
 import { ContentSections, sectionAnchors, type SectionsData, type SectionSlot } from '@/app/(public)/_home/sections/content-sections';
+import { attr, expectOptimized, withBlobHost } from '../helpers/blob-host';
 
 // Los tipos de JSX.Element y de renderToStaticMarkup vienen de versiones distintas de @types/react: se unifican aquí.
 const render = (node: unknown) => renderToStaticMarkup(node as Parameters<typeof renderToStaticMarkup>[0]);
@@ -167,5 +168,28 @@ describe('sectionAnchors: enlaces del menú', () => {
       { href: '/#servicios', label: 'Qué hacemos' },
       { href: '/#preguntas-frecuentes', label: 'Preguntas frecuentes' },
     ]);
+  });
+});
+
+describe('imágenes de Blob con la optimización activa (BLOB_PUBLIC_HOST)', () => {
+  it('las miniaturas piden variantes de /_next/image con la URL original codificada, sin perder clases ni loading', () => {
+    const html = withBlobHost(() => render(<ContentSections template="feria" slot="before-about" sections={{ proyectos: sample.proyectos }} />));
+    expect(html.match(/<img /g)).toHaveLength(1);
+    expectOptimized(html, BLOB);
+    expect(attr(html, 'sizes')).toBe('(min-width:1024px) 33vw, (min-width:640px) 50vw, 100vw');
+    expect(html).toContain('loading="lazy"');
+    expect(html).toContain('class="h-full w-full object-cover"');
+  });
+
+  it('el equipo usa su rejilla de 2 / 4 columnas', () => {
+    const html = withBlobHost(() => render(<ContentSections template="feria" slot="after-about" sections={{ equipo: sample.equipo }} />));
+    expectOptimized(html, BLOB);
+    expect(attr(html, 'sizes')).toBe('(min-width:1024px) 25vw, 50vw');
+  });
+
+  it('sin la variable el src sigue siendo el original', () => {
+    const html = withBlobHost(() => render(<ContentSections template="feria" slot="before-about" sections={{ proyectos: sample.proyectos }} />), null);
+    expect(html).toContain(`src="${BLOB}"`);
+    expect(html).not.toContain('srcSet');
   });
 });

@@ -13,7 +13,8 @@ async function isAdmin() {
   return (await getServerSession(authOptions))?.user?.role === 'ADMIN';
 }
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(_req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await isAdmin())) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   try {
     const message = await prisma.contactMessage.findUnique({
@@ -27,7 +28,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   }
 }
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await isAdmin())) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   try {
     const { status } = patchSchema.parse(await request.json());
@@ -40,7 +42,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 }
 
 /** Borrado definitivo (derecho de supresión del interesado). Se llevan consigo sus respuestas. */
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await isAdmin())) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   try {
     const res = await prisma.contactMessage.deleteMany({ where: { id: params.id } });

@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { headers } from 'next/headers';
+import { headers, type UnsafeUnwrappedHeaders } from 'next/headers';
 import { isPlatformMode, legacyTenantId } from './mode';
 import { platformContextKey, verifyContext } from './context-verify';
 import { CONTEXT_HEADER, type TenantContext } from './context-types';
@@ -63,7 +63,10 @@ export function resetVerifiedContextForTests(): void {
 function fromRequestHeader(): TenantContext | null {
   let raw: string | null;
   try {
-    raw = headers().get(CONTEXT_HEADER);
+    // Next 15: `headers()` es una Promise, pero en 15.x sigue permitiendo el acceso síncrono (solo avisa en `next dev`). Aquí tiene que ser
+    // síncrono: `prisma` es un Proxy que resuelve el cliente de forma síncrona (~95 sitios y dos `$transaction([...])`). Next 16 elimina el
+    // acceso síncrono: antes de subir a 16 hay que rediseñar este punto (ver docs/platform/subida-next-15.md).
+    raw = (headers() as unknown as UnsafeUnwrappedHeaders).get(CONTEXT_HEADER);
   } catch (err) {
     // Una página estática que lee `headers()` lanza DynamicServerError para que Next la haga dinámica: no es "sin cliente".
     if ((err as { digest?: unknown } | null)?.digest === 'DYNAMIC_SERVER_USAGE') throw err;

@@ -9,7 +9,8 @@ import { getBaseUrl } from '@/lib/url';
 
 // Único disparador de aviso genérico de estado — el rechazo automático vive
 // en reject/route.ts, la invitación inicial y el reenvío en sus propias rutas.
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });

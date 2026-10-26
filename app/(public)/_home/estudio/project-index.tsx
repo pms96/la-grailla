@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import type { PointerEvent, ReactNode } from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import '@/components/templates/estudio.css';
@@ -100,7 +101,7 @@ export function ProjectIndex({ items }: { items: readonly SectionItem[] }) {
           {item.imageUrl ? (
             // img nativo: son subidas del cliente a Blob (la CSP ya las admite) y no hay lista de dominios de next/image.
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={item.imageUrl} alt="" loading="lazy" decoding="async" className="h-14 w-14 object-cover md:hidden" />
+            <img {...blobImgProps(item.imageUrl, { sizes: IMG_SIZES.thumb })} alt="" loading="lazy" decoding="async" className="h-14 w-14 object-cover md:hidden" />
           ) : null}
           {item.href && <ArrowUpRight className={item.imageUrl ? 'hidden h-6 w-6 md:block' : 'h-5 w-5 md:h-6 md:w-6'} aria-hidden />}
         </div>
@@ -131,7 +132,7 @@ export function ProjectIndex({ items }: { items: readonly SectionItem[] }) {
         <div className="es-preview-card">
           {seen.map((i) => (
             // eslint-disable-next-line @next/next/no-img-element
-            <img key={i} src={items[i]?.imageUrl ?? ''} alt="" data-active={active === i} />
+            <img key={i} {...blobImgProps(items[i]?.imageUrl, { sizes: IMG_SIZES.estudioPreview })} alt="" data-active={active === i} />
           ))}
         </div>
       </div>

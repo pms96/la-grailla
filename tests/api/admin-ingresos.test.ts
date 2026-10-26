@@ -73,7 +73,7 @@ describe('CRUD /api/admin/ingresos', () => {
     const created = await createIngreso(jsonRequest('http://localhost', 'POST', { temporadaId, concepto: 'Otros', importe: 50, fecha: '2026-09-27' }));
     const { id } = await created.json();
 
-    const res = await updateIngreso(jsonRequest('http://localhost', 'PATCH', { importe: 75 }), { params: { id } });
+    const res = await updateIngreso(jsonRequest('http://localhost', 'PATCH', { importe: 75 }), { params: Promise.resolve({ id }) });
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.importe).toBe(75);
@@ -83,7 +83,7 @@ describe('CRUD /api/admin/ingresos', () => {
     const created = await createIngreso(jsonRequest('http://localhost', 'POST', { temporadaId, concepto: 'Comida', importe: 40, fecha: '2026-09-27' }));
     const { id } = await created.json();
 
-    const res = await deleteIngreso(jsonRequest('http://localhost', 'DELETE'), { params: { id } });
+    const res = await deleteIngreso(jsonRequest('http://localhost', 'DELETE'), { params: Promise.resolve({ id }) });
     expect(res.status).toBe(200);
 
     const found = await prisma.ingreso.findUnique({ where: { id } });

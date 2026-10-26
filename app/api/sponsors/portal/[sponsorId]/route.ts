@@ -5,7 +5,8 @@ import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
 import { allowSponsorAccess, getTokenFromRequest } from '@/lib/access-token';
 
-export async function GET(request: Request, { params }: { params: { sponsorId: string } }) {
+export async function GET(request: Request, props: { params: Promise<{ sponsorId: string }> }) {
+  const params = await props.params;
   try {
     const sponsorId = params?.sponsorId;
     // portalTokenVersion se necesita ANTES de poder verificar el token —

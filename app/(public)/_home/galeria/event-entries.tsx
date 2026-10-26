@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { ArrowUpRight } from 'lucide-react';
 import '@/components/templates/galeria.css';
 import { cn } from '@/lib/utils';
@@ -32,7 +33,7 @@ export function EventEntries({ events }: { events: readonly TemplateEvent[] }) {
                   <div className="gl-frame" data-reveal>
                     {/* img nativo: los carteles pueden ser subidas o URLs externas sin lista de dominios. */}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={e.imageUrl} alt="" loading="lazy" />
+                    <img {...blobImgProps(e.imageUrl, { sizes: IMG_SIZES.poster4 })} alt="" loading="lazy" />
                   </div>
                 ) : (
                   <div className="gl-frame gl-frame--blank" data-reveal aria-hidden>

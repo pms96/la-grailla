@@ -36,7 +36,8 @@ async function requireAdmin() {
   return session?.user?.role === 'ADMIN';
 }
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await requireAdmin())) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   try {
     const body = updateProductSchema.parse(await request.json());
@@ -82,7 +83,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await requireAdmin())) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   try {
     await prisma.product.update({ where: { id: params?.id }, data: { isActive: false } });

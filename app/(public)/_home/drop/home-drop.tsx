@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import type { CSSProperties } from 'react';
 import { ArrowUpRight, WifiOff } from 'lucide-react';
 import { ContactForm } from '@/components/contact-form';
@@ -62,7 +63,7 @@ export function DropHero({ brandName, hero, hasTienda, featured }: { brandName: 
               <Tilt className="dp-card-media" tone="accent">
                 {featured.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={featured.imageUrl} alt="" loading="eager" decoding="async" fetchPriority="high" />
+                  <img {...blobImgProps(featured.imageUrl, { sizes: IMG_SIZES.poster5 })} alt="" loading="eager" decoding="async" fetchPriority="high" />
                 ) : (
                   <span className="dp-noimg" aria-hidden>
                     {featured.name}
@@ -118,7 +119,7 @@ export function HomeDrop(p: HomeDropProps) {
             <ul className="dp-rail-list">
               {rail.map((x, i) => (
                 <li key={x.id} className="dp-rail-item">
-                  <DropCard product={x} tone={toneAt(i)} priority={i < 3} />
+                  <DropCard product={x} tone={toneAt(i)} priority={i < 3} sizes={IMG_SIZES.railDrop} />
                 </li>
               ))}
             </ul>

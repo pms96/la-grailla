@@ -7,10 +7,8 @@ import { authOptions } from '@/lib/auth';
 import { buildTicketsPdfForRoll } from '@/lib/ticket-pdf';
 import { handleApiError } from '@/lib/api-error';
 
-export async function GET(
-  request: Request,
-  { params }: { params: { orderId: string } }
-) {
+export async function GET(request: Request, props: { params: Promise<{ orderId: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   const role = session?.user?.role ?? '';
   if (!session?.user || !['ADMIN', 'TAQUILLA'].includes(role)) {

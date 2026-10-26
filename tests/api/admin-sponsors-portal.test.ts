@@ -88,7 +88,7 @@ describe('POST /api/admin/sponsors-portal/[id]/generate', () => {
   // adaptador cae al mock — el endpoint debe seguir escribiendo el log y el
   // prompt como si fuera una generación real.
   it('genera un prompt (mock) y pasa a PROMPT_GENERADO', async () => {
-    const res = await generate(new Request('http://localhost', { method: 'POST' }), { params: { id: sponsorId } });
+    const res = await generate(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: sponsorId }) });
     const data = await res.json();
     expect(res.status).toBe(200);
     expect(data.success).toBe(true);
@@ -107,14 +107,14 @@ describe('POST /api/admin/sponsors-portal/[id]/generate', () => {
 
   // AUDIT: límite de coste — un sponsor no puede generar más de 3 veces.
   it('rechaza generar una cuarta vez tras agotar el límite de 3 intentos', async () => {
-    await generate(new Request('http://localhost', { method: 'POST' }), { params: { id: sponsorId } });
-    const res3 = await generate(new Request('http://localhost', { method: 'POST' }), { params: { id: sponsorId } });
+    await generate(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: sponsorId }) });
+    const res3 = await generate(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: sponsorId }) });
     expect(res3.status).toBe(200);
 
     const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } });
     expect(sponsor?.generationCount).toBe(3);
 
-    const res4 = await generate(new Request('http://localhost', { method: 'POST' }), { params: { id: sponsorId } });
+    const res4 = await generate(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: sponsorId }) });
     expect(res4.status).toBe(409);
     const afterFourth = await prisma.sponsor.findUnique({ where: { id: sponsorId } });
     expect(afterFourth?.generationCount).toBe(3);
@@ -127,8 +127,8 @@ describe('POST /api/admin/sponsors-portal/[id]/generate', () => {
     const created = await createSponsorReadyToGenerate();
     try {
       const [r1, r2] = await Promise.all([
-        generate(new Request('http://localhost', { method: 'POST' }), { params: { id: created.sponsorId } }),
-        generate(new Request('http://localhost', { method: 'POST' }), { params: { id: created.sponsorId } }),
+        generate(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: created.sponsorId }) }),
+        generate(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: created.sponsorId }) }),
       ]);
       const statuses = [r1.status, r2.status].sort();
       // Ambas pueden devolver 200 si se serializan una detrás de otra (no hay
@@ -151,7 +151,7 @@ describe('flujo de aprobación/rechazo/notificación', () => {
     const created = await createSponsorReadyToGenerate();
     requestId = created.requestId;
     sponsorId = created.sponsorId;
-    await generate(new Request('http://localhost', { method: 'POST' }), { params: { id: sponsorId } });
+    await generate(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: sponsorId }) });
   });
 
   afterAll(async () => {
@@ -159,7 +159,7 @@ describe('flujo de aprobación/rechazo/notificación', () => {
   });
 
   it('aprueba un prompt generado', async () => {
-    const res = await approve(new Request('http://localhost', { method: 'POST' }), { params: { id: sponsorId } });
+    const res = await approve(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: sponsorId }) });
     expect(res.status).toBe(200);
     const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } });
     expect(sponsor?.status).toBe('APROBADO_PARA_VIDEO');
@@ -172,7 +172,7 @@ describe('flujo de aprobación/rechazo/notificación', () => {
   // explícitamente — este es ese disparador manual.
   it('notifica al sponsor por email solo cuando se pulsa el botón', async () => {
     sendMailMock.mockClear();
-    const res = await notify(new Request('http://localhost', { method: 'POST' }), { params: { id: sponsorId } });
+    const res = await notify(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: sponsorId }) });
     const data = await res.json();
     expect(res.status).toBe(200);
     expect(data.success).toBe(true);
@@ -184,13 +184,13 @@ describe('flujo de aprobación/rechazo/notificación', () => {
 describe('POST /api/admin/sponsors-portal/[id]/ready — control de rol', () => {
   it('rechaza a un usuario que no es ADMIN', async () => {
     vi.mocked(getServerSession).mockResolvedValueOnce({ user: { id: 'u1', role: 'USER' } } as never);
-    const res = await markReady(new Request('http://localhost', { method: 'POST' }), { params: { id: 'irrelevant' } });
+    const res = await markReady(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: 'irrelevant' }) });
     expect(res.status).toBe(401);
   });
 
   it('rechaza también a TAQUILLA (esto es gestión de patrocinios, no acceso)', async () => {
     vi.mocked(getServerSession).mockResolvedValueOnce({ user: { id: 'u2', role: 'TAQUILLA' } } as never);
-    const res = await reject(new Request('http://localhost', { method: 'POST' }), { params: { id: 'irrelevant' } });
+    const res = await reject(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: 'irrelevant' }) });
     expect(res.status).toBe(401);
   });
 });

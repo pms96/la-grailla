@@ -124,7 +124,7 @@ describe('rechazo, reenvío y regeneración de enlace', () => {
   // automáticamente, sin depender de un segundo clic en "Notificar".
   it('rechazar envía el email automáticamente y lo registra en SponsorEmailLog', async () => {
     sendMailMock.mockClear();
-    const res = await reject(adminRequest(), { params: { id: sponsorId } });
+    const res = await reject(adminRequest(), { params: Promise.resolve({ id: sponsorId }) });
     const data = await res.json();
     expect(res.status).toBe(200);
     expect(data.rejectionEmailSuccess).toBe(true);
@@ -138,13 +138,13 @@ describe('rechazo, reenvío y regeneración de enlace', () => {
   });
 
   it('rechazar un sponsor ya rechazado devuelve 409 (guarda de estado)', async () => {
-    const res = await reject(adminRequest(), { params: { id: sponsorId } });
+    const res = await reject(adminRequest(), { params: Promise.resolve({ id: sponsorId }) });
     expect(res.status).toBe(409);
   });
 
   it('reenviar invitación usa un tipo de email distinto de la invitación inicial', async () => {
     sendMailMock.mockClear();
-    const res = await resendInvite(adminRequest(), { params: { id: sponsorId } });
+    const res = await resendInvite(adminRequest(), { params: Promise.resolve({ id: sponsorId }) });
     const data = await res.json();
     expect(res.status).toBe(200);
     expect(data.success).toBe(true);
@@ -162,7 +162,7 @@ describe('rechazo, reenvío y regeneración de enlace', () => {
     const before = await prisma.sponsor.findUnique({ where: { id: sponsorId } });
     const staleVersion = before!.portalTokenVersion;
 
-    const res = await regenerateToken(adminRequest(), { params: { id: sponsorId } });
+    const res = await regenerateToken(adminRequest(), { params: Promise.resolve({ id: sponsorId }) });
     const data = await res.json();
     expect(res.status).toBe(200);
     expect(data.portalUrl).toContain('/sponsors/portal/');
@@ -218,7 +218,7 @@ describe('alta manual sin email', () => {
 
   it('reenviar invitación sin email no revienta y no manda nada', async () => {
     sendMailMock.mockClear();
-    const res = await resendInvite(adminRequest(), { params: { id: sponsorId } });
+    const res = await resendInvite(adminRequest(), { params: Promise.resolve({ id: sponsorId }) });
     const data = await res.json();
     expect(res.status).toBe(200);
     expect(data.success).toBe(false);
@@ -227,7 +227,7 @@ describe('alta manual sin email', () => {
 
   it('rechazar sin email actualiza el estado pero no manda ni registra ningún email', async () => {
     sendMailMock.mockClear();
-    const res = await reject(adminRequest(), { params: { id: sponsorId } });
+    const res = await reject(adminRequest(), { params: Promise.resolve({ id: sponsorId }) });
     const data = await res.json();
     expect(res.status).toBe(200);
     expect(data.rejectionEmailSuccess).toBe(false);

@@ -6,10 +6,8 @@ import { handleApiError } from '@/lib/api-error';
 import { isAdminSession } from '@/lib/access-token';
 import { toPublicEvent } from '@/lib/public-event';
 
-export async function GET(
-  request: Request,
-  { params }: { params: { slug: string } }
-) {
+export async function GET(request: Request, props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   try {
     const event = await prisma.event.findUnique({
       where: { slug: params?.slug },

@@ -68,10 +68,10 @@ describe('Roles personalizados', () => {
   it('editar un rol cambia sus módulos', async () => {
     const role = await db().accessRole.create({ data: { name: 'Equipo', modules: ['tienda'] } });
     const { PUT } = await roleById();
-    const res = await asTenant(() => PUT(json('PUT', { name: 'Equipo', modules: ['tienda', 'contabilidad'] }), { params: { id: role.id } }));
+    const res = await asTenant(() => PUT(json('PUT', { name: 'Equipo', modules: ['tienda', 'contabilidad'] }), { params: Promise.resolve({ id: role.id }) }));
     expect(res.status).toBe(200);
     expect((await db().accessRole.findUnique({ where: { id: role.id } }))?.modules).toEqual(['tienda', 'contabilidad']);
-    expect((await asTenant(() => PUT(json('PUT', { name: 'X', modules: ['tienda'] }), { params: { id: 'noexiste' } }))).status).toBe(404);
+    expect((await asTenant(() => PUT(json('PUT', { name: 'X', modules: ['tienda'] }), { params: Promise.resolve({ id: 'noexiste' }) }))).status).toBe(404);
   });
 
   it('borrar un rol sin usuarios lo elimina; con usuarios se niega', async () => {
@@ -79,8 +79,8 @@ describe('Roles personalizados', () => {
     const usado = await db().accessRole.create({ data: { name: 'Usado', modules: ['tienda'] } });
     await db().user.create({ data: { email: 'gestor@cliente.test', role: 'ADMIN', accessRole: `c_${usado.id}` } });
     const { DELETE } = await roleById();
-    expect((await asTenant(() => DELETE(json('DELETE'), { params: { id: libre.id } }))).status).toBe(200);
-    const res = await asTenant(() => DELETE(json('DELETE'), { params: { id: usado.id } }));
+    expect((await asTenant(() => DELETE(json('DELETE'), { params: Promise.resolve({ id: libre.id }) }))).status).toBe(200);
+    const res = await asTenant(() => DELETE(json('DELETE'), { params: Promise.resolve({ id: usado.id }) }));
     expect(res.status).toBe(409);
     expect(await db().accessRole.count()).toBe(1);
   });
@@ -121,19 +121,19 @@ describe('Asignar un rol a un usuario', () => {
   it('cambiar el rol de un usuario lo guarda; no puedes cambiarte el tuyo ni dejar al cliente sin propietario', async () => {
     const gestor = await db().user.create({ data: { email: 'g@cliente.test', role: 'ADMIN' } });
     const { PUT } = await userById();
-    expect((await asTenant(() => PUT(json('PUT', { accessRole: 'tienda' }), { params: { id: gestor.id } }))).status).toBe(200);
+    expect((await asTenant(() => PUT(json('PUT', { accessRole: 'tienda' }), { params: Promise.resolve({ id: gestor.id }) }))).status).toBe(200);
     expect((await db().user.findUnique({ where: { id: gestor.id } }))?.accessRole).toBe('tienda');
     // Volver a propietario con null.
-    expect((await asTenant(() => PUT(json('PUT', { accessRole: null }), { params: { id: gestor.id } }))).status).toBe(200);
+    expect((await asTenant(() => PUT(json('PUT', { accessRole: null }), { params: Promise.resolve({ id: gestor.id }) }))).status).toBe(200);
     // A uno mismo no.
-    expect((await asTenant(() => PUT(json('PUT', { accessRole: 'tienda' }), { params: { id: ownerId } }))).status).toBe(400);
+    expect((await asTenant(() => PUT(json('PUT', { accessRole: 'tienda' }), { params: Promise.resolve({ id: ownerId }) }))).status).toBe(400);
   });
 
   it('no se puede restringir al último propietario', async () => {
     const otro = await db().user.create({ data: { email: 'otro@cliente.test', role: 'ADMIN', accessRole: 'tienda' } });
     state.session = { user: { id: otro.id, role: 'ADMIN', modules: null } }; // quien actúa (simulado) no es el propietario único
     const { PUT } = await userById();
-    const res = await asTenant(() => PUT(json('PUT', { accessRole: 'tienda' }), { params: { id: ownerId } }));
+    const res = await asTenant(() => PUT(json('PUT', { accessRole: 'tienda' }), { params: Promise.resolve({ id: ownerId }) }));
     expect(res.status).toBe(400);
   });
 
@@ -151,8 +151,8 @@ describe('Asignar un rol a un usuario', () => {
     const { PUT, DELETE } = await userById();
     expect((await asTenant(() => GET())).status).toBe(403);
     expect((await asTenant(() => POST(json('POST', { email: 'x@cliente.test', password: 'clave-larga-1', role: 'ADMIN' })))).status).toBe(403);
-    expect((await asTenant(() => PUT(json('PUT', { accessRole: null }), { params: { id: ownerId } }))).status).toBe(403);
-    expect((await asTenant(() => DELETE(json('DELETE'), { params: { id: ownerId } }))).status).toBe(403);
+    expect((await asTenant(() => PUT(json('PUT', { accessRole: null }), { params: Promise.resolve({ id: ownerId }) }))).status).toBe(403);
+    expect((await asTenant(() => DELETE(json('DELETE'), { params: Promise.resolve({ id: ownerId }) }))).status).toBe(403);
   });
 });
 
@@ -160,14 +160,14 @@ describe('Revocar sesiones', () => {
   it('restablecer la contraseña de alguien le cierra las sesiones abiertas', async () => {
     const u = await db().user.create({ data: { email: 'v@cliente.test', role: 'ADMIN' } });
     const { PUT } = await userById();
-    expect((await asTenant(() => PUT(json('PUT', { password: 'otra-clave-larga' }), { params: { id: u.id } }))).status).toBe(200);
+    expect((await asTenant(() => PUT(json('PUT', { password: 'otra-clave-larga' }), { params: Promise.resolve({ id: u.id }) }))).status).toBe(200);
     expect((await db().user.findUnique({ where: { id: u.id } }))?.sessionsValidAfter).not.toBeNull();
   });
 
   it('cambiar el rol de alguien también le cierra las sesiones', async () => {
     const u = await db().user.create({ data: { email: 'v2@cliente.test', role: 'ADMIN' } });
     const { PUT } = await userById();
-    await asTenant(() => PUT(json('PUT', { accessRole: 'tienda' }), { params: { id: u.id } }));
+    await asTenant(() => PUT(json('PUT', { accessRole: 'tienda' }), { params: Promise.resolve({ id: u.id }) }));
     expect((await db().user.findUnique({ where: { id: u.id } }))?.sessionsValidAfter).not.toBeNull();
   });
 

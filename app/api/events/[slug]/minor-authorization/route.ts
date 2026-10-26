@@ -5,10 +5,8 @@ import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
 import { buildMinorAuthorizationPdf } from '@/lib/minor-authorization-pdf';
 
-export async function GET(
-  request: Request,
-  { params }: { params: { slug: string } }
-) {
+export async function GET(request: Request, props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   try {
     const event = await prisma.event.findUnique({ where: { slug: params?.slug } });
 

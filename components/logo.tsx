@@ -13,10 +13,11 @@ type LogoProps = {
 };
 
 function Mark({ src, name, hidden, className, priority }: { src: string; name: string; hidden?: boolean; className?: string; priority?: boolean }) {
-  // Los logos propios de la instalación (/brand/…) pasan por next/image; los de Blob son URLs externas y van con <img> (las imágenes no se optimizan).
+  // Los logos propios de la instalación (/brand/…) pasan por next/image pero SIN el optimizador (`unoptimized`): son estáticos que ya se sirven con caché
+  // y se muestran a ~50 px desde un PNG de 1200 px, así que el optimizador pediría anchos enormes. Los de Blob son URLs externas y van con <img>.
   if (src.startsWith('/')) {
     return (
-      <Image src={src} alt={hidden ? '' : name} aria-hidden={hidden} width={1200} height={791} priority={priority} className={cn('w-auto object-contain', className)} />
+      <Image src={src} alt={hidden ? '' : name} aria-hidden={hidden} width={1200} height={791} unoptimized priority={priority} className={cn('w-auto object-contain', className)} />
     );
   }
   // eslint-disable-next-line @next/next/no-img-element

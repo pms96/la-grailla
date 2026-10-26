@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import '@/components/templates/drop.css';
 import type { ShopProductView } from '@/lib/shop/product-view';
 import { Tilt } from './tilt';
@@ -11,14 +12,14 @@ export const toneAt = (i: number) => TONES[i % TONES.length]!;
 
 export const priceLabel = (price: number) => `${price.toFixed(2)}€`;
 
-export function DropCard({ product: p, tone, priority = false }: { product: ShopProductView; tone: string; priority?: boolean }) {
+export function DropCard({ product: p, tone, priority = false, sizes = IMG_SIZES.grid4 }: { product: ShopProductView; tone: string; priority?: boolean; sizes?: string }) {
   return (
     <Link href={p.path} className="dp-card">
       <Tilt className="dp-card-media" tone={tone}>
         {p.imageUrl ? (
           // img nativo: las imágenes de producto son subidas a Blob o URLs externas sin lista de dominios.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={p.imageUrl} alt="" loading={priority ? 'eager' : 'lazy'} decoding="async" />
+          <img {...blobImgProps(p.imageUrl, { sizes })} alt="" loading={priority ? 'eager' : 'lazy'} decoding="async" />
         ) : (
           <span className="dp-noimg" aria-hidden>
             {p.name}

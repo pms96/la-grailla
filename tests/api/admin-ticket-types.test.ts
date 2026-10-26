@@ -51,7 +51,7 @@ describe('DELETE /api/admin/ticket-types/[id]', () => {
       },
     });
 
-    const res = await deleteTicketType(new Request('http://localhost'), { params: { id: ticketType.id } });
+    const res = await deleteTicketType(new Request('http://localhost'), { params: Promise.resolve({ id: ticketType.id }) });
     expect(res.status).toBe(400);
     const data = await res.json();
     expect(data.error).toMatch(/entradas vendidas/i);
@@ -62,7 +62,7 @@ describe('DELETE /api/admin/ticket-types/[id]', () => {
 
   it('permite borrar un tipo de entrada sin ventas', async () => {
     const ticketType = await createTicketType(event.id);
-    const res = await deleteTicketType(new Request('http://localhost'), { params: { id: ticketType.id } });
+    const res = await deleteTicketType(new Request('http://localhost'), { params: Promise.resolve({ id: ticketType.id }) });
     expect(res.status).toBe(200);
     const gone = await prisma.ticketType.findUnique({ where: { id: ticketType.id } });
     expect(gone).toBeNull();

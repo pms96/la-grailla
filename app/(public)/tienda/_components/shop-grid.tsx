@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import type { Product, ProductVariant } from '@prisma/client';
 import type { WithNumberFields } from '@/lib/prisma';
 import Link from 'next/link';
@@ -266,7 +267,7 @@ export default function ShopGrid() {
               <Card variant="interactive" className="overflow-hidden group h-full flex flex-col">
                 <div className="aspect-square bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
                   {product?.imageUrl ? (
-                    <img src={product.imageUrl} alt={product?.name ?? ''} className="object-cover w-full h-full" />
+                    <img {...blobImgProps(product.imageUrl, { sizes: IMG_SIZES.grid3 })} alt={product?.name ?? ''} className="object-cover w-full h-full" />
                   ) : (
                     <ShoppingBag className="h-12 w-12 text-primary/40" />
                   )}
@@ -420,7 +421,7 @@ export default function ShopGrid() {
                     {gallery.map((src, i) => (
                       <CarouselItem key={i}>
                         <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-muted">
-                          <img src={src} alt={selected?.name ?? ''} className="h-full w-full object-cover" />
+                          <img {...blobImgProps(src, { sizes: IMG_SIZES.dialog })} alt={selected?.name ?? ''} className="h-full w-full object-cover" />
                         </div>
                       </CarouselItem>
                     ))}

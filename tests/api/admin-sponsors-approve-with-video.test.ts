@@ -50,7 +50,7 @@ describe('POST /api/admin/sponsors-portal/[id]/approve-with-video', () => {
 
   it('rechaza a quien no es admin', async () => {
     sessionRole = null;
-    const res = await approveWithVideo(postRequest(), { params: { id: sponsorId } });
+    const res = await approveWithVideo(postRequest(), { params: Promise.resolve({ id: sponsorId }) });
     expect(res.status).toBe(401);
     sessionRole = 'ADMIN';
   });
@@ -68,14 +68,14 @@ describe('POST /api/admin/sponsors-portal/[id]/approve-with-video', () => {
     const otherSponsor = await prisma.sponsor.create({
       data: { sponsorRequestId: otherRequest.id, status: 'LISTO_PARA_GENERAR' },
     });
-    const res = await approveWithVideo(postRequest(), { params: { id: otherSponsor.id } });
+    const res = await approveWithVideo(postRequest(), { params: Promise.resolve({ id: otherSponsor.id }) });
     expect(res.status).toBe(400);
     await prisma.sponsor.deleteMany({ where: { id: otherSponsor.id } });
     await prisma.sponsorRequest.deleteMany({ where: { id: otherRequest.id } });
   });
 
   it('aprueba usando el vídeo del sponsor como vídeo final', async () => {
-    const res = await approveWithVideo(postRequest(), { params: { id: sponsorId } });
+    const res = await approveWithVideo(postRequest(), { params: Promise.resolve({ id: sponsorId }) });
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.status).toBe('APROBADO_PARA_VIDEO');
@@ -84,7 +84,7 @@ describe('POST /api/admin/sponsors-portal/[id]/approve-with-video', () => {
   });
 
   it('rechaza si ya no está en un estado válido (ya aprobado)', async () => {
-    const res = await approveWithVideo(postRequest(), { params: { id: sponsorId } });
+    const res = await approveWithVideo(postRequest(), { params: Promise.resolve({ id: sponsorId }) });
     expect(res.status).toBe(409);
   });
 });

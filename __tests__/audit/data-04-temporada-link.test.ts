@@ -71,38 +71,38 @@ describe('DATA-04 — vínculo opcional con Temporada en Product/ShopOrder/Spons
   });
 
   it('Product: PATCH enlaza y desenlaza la temporada', async () => {
-    const linked = await patchProduct(patchRequest({ temporadaId: temporada.id }), { params: { id: product.id } });
+    const linked = await patchProduct(patchRequest({ temporadaId: temporada.id }), { params: Promise.resolve({ id: product.id }) });
     expect(linked.status).toBe(200);
     expect((await linked.json()).temporadaId).toBe(temporada.id);
 
-    const unlinked = await patchProduct(patchRequest({ temporadaId: null }), { params: { id: product.id } });
+    const unlinked = await patchProduct(patchRequest({ temporadaId: null }), { params: Promise.resolve({ id: product.id }) });
     expect(unlinked.status).toBe(200);
     expect((await unlinked.json()).temporadaId).toBeNull();
   });
 
   it('ShopOrder: PUT enlaza y desenlaza la temporada', async () => {
-    const linked = await putShopOrder(putRequest({ temporadaId: temporada.id }), { params: { id: shopOrder.id } });
+    const linked = await putShopOrder(putRequest({ temporadaId: temporada.id }), { params: Promise.resolve({ id: shopOrder.id }) });
     expect(linked.status).toBe(200);
     expect((await linked.json()).temporadaId).toBe(temporada.id);
 
-    const unlinked = await putShopOrder(putRequest({ temporadaId: null }), { params: { id: shopOrder.id } });
+    const unlinked = await putShopOrder(putRequest({ temporadaId: null }), { params: Promise.resolve({ id: shopOrder.id }) });
     expect(unlinked.status).toBe(200);
     expect((await unlinked.json()).temporadaId).toBeNull();
   });
 
   it('ShopOrder: PUT sin temporadaId en el body no toca el vínculo existente', async () => {
-    await putShopOrder(putRequest({ temporadaId: temporada.id }), { params: { id: shopOrder.id } });
-    const res = await putShopOrder(putRequest({ trackingNumber: 'ABC123' }), { params: { id: shopOrder.id } });
+    await putShopOrder(putRequest({ temporadaId: temporada.id }), { params: Promise.resolve({ id: shopOrder.id }) });
+    const res = await putShopOrder(putRequest({ trackingNumber: 'ABC123' }), { params: Promise.resolve({ id: shopOrder.id }) });
     expect(res.status).toBe(200);
     expect((await res.json()).temporadaId).toBe(temporada.id);
   });
 
   it('SponsorRequest: PUT enlaza y desenlaza la temporada', async () => {
-    const linked = await putSponsor(putRequest({ temporadaId: temporada.id }), { params: { id: sponsorRequest.id } });
+    const linked = await putSponsor(putRequest({ temporadaId: temporada.id }), { params: Promise.resolve({ id: sponsorRequest.id }) });
     expect(linked.status).toBe(200);
     expect((await linked.json()).temporadaId).toBe(temporada.id);
 
-    const unlinked = await putSponsor(putRequest({ temporadaId: null }), { params: { id: sponsorRequest.id } });
+    const unlinked = await putSponsor(putRequest({ temporadaId: null }), { params: Promise.resolve({ id: sponsorRequest.id }) });
     expect(unlinked.status).toBe(200);
     expect((await unlinked.json()).temporadaId).toBeNull();
   });

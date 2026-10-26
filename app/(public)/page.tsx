@@ -1,4 +1,5 @@
 import { getActiveModules } from '@/lib/modules/runtime';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import Link from 'next/link';
 import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
 import { getConfigs } from '@/lib/config';
@@ -226,7 +227,7 @@ export default async function HomePage() {
                         <div className="aspect-[16/9] bg-gradient-to-br from-primary/20 via-primary/5 to-lima/5 relative flex items-center justify-center">
                           {event?.imageUrl ? (
                             <img
-                              src={event.imageUrl}
+                              {...blobImgProps(event.imageUrl, { sizes: IMG_SIZES.grid3 })}
                               alt={event?.name ?? ''}
                               className="object-cover w-full h-full"
                             />

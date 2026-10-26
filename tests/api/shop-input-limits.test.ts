@@ -43,7 +43,7 @@ describe('Tienda — límites de precio y cantidad', () => {
   });
 
   it('actualizar un producto con precio negativo da 400 y no cambia el precio', async () => {
-    const res = await updateProduct(json('PATCH', { price: -1 }), { params: { id: productId } });
+    const res = await updateProduct(json('PATCH', { price: -1 }), { params: Promise.resolve({ id: productId }) });
     expect(res.status).toBe(400);
     expect((await prisma.product.findUnique({ where: { id: productId } }))?.price).toBe(20);
   });
@@ -54,9 +54,9 @@ describe('Tienda — límites de precio y cantidad', () => {
   });
 
   it('un precio normal y el 0 (producto gratis) siguen funcionando', async () => {
-    const res = await updateProduct(json('PATCH', { price: 0 }), { params: { id: productId } });
+    const res = await updateProduct(json('PATCH', { price: 0 }), { params: Promise.resolve({ id: productId }) });
     expect(res.status).toBe(200);
-    await updateProduct(json('PATCH', { price: 20 }), { params: { id: productId } });
+    await updateProduct(json('PATCH', { price: 20 }), { params: Promise.resolve({ id: productId }) });
   });
 
   it('una línea de pedido con cantidad enorme se rechaza con 400', async () => {

@@ -7,7 +7,8 @@ import SetPasswordForm from './_components/set-password-form';
 export const metadata: Metadata = { title: 'Crea tu contraseña', referrer: 'no-referrer', robots: { index: false, follow: false } };
 export const dynamic = 'force-dynamic';
 
-export default function SetPasswordPage({ searchParams }: { searchParams: { token?: string | string[] } }) {
+export default async function SetPasswordPage(props: { searchParams: Promise<{ token?: string | string[] }> }) {
+  const searchParams = await props.searchParams;
   const token = typeof searchParams.token === 'string' ? searchParams.token : '';
   return (
     <AuthLayout variant="sober" title="Crea tu contraseña" description="Con ella entrarás a la administración de tu web">

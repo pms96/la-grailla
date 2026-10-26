@@ -5,6 +5,7 @@ import { toTemplateEvent, type EventInput } from '@/app/(public)/_home/event-vie
 import { EventEntries } from '@/app/(public)/_home/galeria/event-entries';
 import { EventosGaleria } from '@/app/(public)/_home/galeria/eventos-galeria';
 import { GaleriaHero, GaleriaTitle, HomeGaleria, type HomeGaleriaProps } from '@/app/(public)/_home/galeria/home-galeria';
+import { BLOB_PUBLIC_HOST, attr, expectOptimized, withBlobHost } from '../helpers/blob-host';
 
 // Los tipos de JSX.Element y de renderToStaticMarkup vienen de versiones distintas de @types/react: se unifican aquí.
 const render = (node: unknown) => renderToStaticMarkup(node as Parameters<typeof renderToStaticMarkup>[0]);
@@ -171,5 +172,33 @@ describe('HomeGaleria y EventosGaleria — cada sección solo con su módulo', (
     expect(ok).toContain('N.º 01');
     expect(render(<EventosGaleria brandName="Sala Rodrigo" events={[]} loadError />)).toContain('No hemos podido cargar la programación');
     expect(render(<EventosGaleria brandName="Sala Rodrigo" events={[]} loadError={false} />)).toContain('Todavía no hay fechas publicadas');
+  });
+});
+
+describe('imágenes de Blob con la optimización activa (BLOB_PUBLIC_HOST)', () => {
+  const blob = `https://${BLOB_PUBLIC_HOST}/t1/events/e1/cartel.jpg`;
+  const hero = { badge: '', title: 'Sala Rodrigo', subtitle: 'Música en directo', primaryCta: null };
+
+  it('el cartel del héroe pide variantes de /_next/image, mantiene la prioridad y el texto alternativo', () => {
+    const html = withBlobHost(() => render(<GaleriaHero brandName="Sala Rodrigo" hero={hero} featured={toTemplateEvent(event({ imageUrl: blob }))} />));
+    expectOptimized(html, blob);
+    expect(attr(html, 'sizes')).toBe('(min-width:1400px) 640px, (min-width:768px) 50vw, 100vw');
+    expect(html).toContain('fetchPriority="high"');
+    expect(html).toContain('alt="Cartel de Noche de Verano"');
+  });
+
+  it('las entradas optimizan solo las fotos del store y siguen siendo perezosas', () => {
+    const rows = [toTemplateEvent(event({ imageUrl: blob })), toTemplateEvent(event({ id: 'e2', slug: 'otra', name: 'Otra' }))];
+    const html = withBlobHost(() => render(<EventEntries events={rows} />));
+    expect(html.match(/<img /g)).toHaveLength(2);
+    expect(html.match(/srcSet=/g)).toHaveLength(1);
+    expect(html).toContain('src="https://example.com/cartel.jpg"');
+    expect(html.match(/loading="lazy"/g)).toHaveLength(2);
+  });
+
+  it('sin la variable el src es el original', () => {
+    const html = withBlobHost(() => render(<GaleriaHero brandName="Sala Rodrigo" hero={hero} featured={toTemplateEvent(event({ imageUrl: blob }))} />), null);
+    expect(html).toContain(`src="${blob}"`);
+    expect(html).not.toContain('srcSet');
   });
 });

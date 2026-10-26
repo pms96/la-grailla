@@ -6,7 +6,8 @@ import { isPlatformMode } from '@/lib/tenant/mode';
 // petición, así que el handler se crea por petición.
 const legacyHandler = NextAuth(authOptions);
 
-type RouteContext = { params: { nextauth: string[] } };
+// Next 15: `params` es una Promise (next-auth 4.24.11 ya la espera con `await context.params`).
+type RouteContext = { params: Promise<{ nextauth: string[] }> };
 
 async function handler(req: Request, ctx: RouteContext) {
   if (!isPlatformMode()) return legacyHandler(req, ctx);

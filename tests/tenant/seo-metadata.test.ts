@@ -94,7 +94,7 @@ describe('URL canónica por cliente', () => {
   it('la ficha de producto, abierta por id, apunta a la ruta del slug', async () => {
     const p = await tenantClient('a').product.create({ data: { name: 'Taza', slug: 'taza', price: 9, isActive: true } });
     const { generateMetadata } = await import('@/app/(public)/tienda/[slug]/page');
-    const byId = (await asA(() => generateMetadata({ params: { slug: p.id } }))) as { alternates?: { canonical?: string } };
+    const byId = (await asA(() => generateMetadata({ params: Promise.resolve({ slug: p.id }) }))) as { alternates?: { canonical?: string } };
     expect(byId.alternates?.canonical).toBe('https://a.cliente.es/tienda/taza');
   });
 });
@@ -112,10 +112,10 @@ describe('imagen social de la ficha (Open Graph y Twitter)', () => {
     await createEvent('a', 'con-cartel', { imageUrl: 'https://abc123.public.blob.vercel-storage.com/a/cartel.jpg' });
     await createEvent('a', 'sin-cartel', { imageUrl: null });
     const { generateMetadata } = await import('@/app/(public)/eventos/[slug]/page');
-    const withPoster = (await asA(() => generateMetadata({ params: { slug: 'con-cartel' } }))) as Meta;
+    const withPoster = (await asA(() => generateMetadata({ params: Promise.resolve({ slug: 'con-cartel' }) }))) as Meta;
     expect(withPoster.openGraph?.images?.[0]?.url).toBe('https://abc123.public.blob.vercel-storage.com/a/cartel.jpg');
     expect(withPoster.twitter?.images).toEqual(['https://abc123.public.blob.vercel-storage.com/a/cartel.jpg']);
-    const without = (await asA(() => generateMetadata({ params: { slug: 'sin-cartel' } }))) as Meta;
+    const without = (await asA(() => generateMetadata({ params: Promise.resolve({ slug: 'sin-cartel' }) }))) as Meta;
     expect(without.openGraph?.images?.[0]?.url).toBe(OG);
     expect(without.twitter?.images).toEqual([OG]);
     expect(without.openGraph).toMatchObject({ title: 'Evento sin-cartel', siteName: 'Sala' }); // el openGraph de la página sustituye al raíz: va completo
@@ -126,7 +126,7 @@ describe('imagen social de la ficha (Open Graph y Twitter)', () => {
     await withBrandImage();
     await tenantClient('a').product.create({ data: { name: 'Taza', slug: 'taza', price: 9, isActive: true } });
     const { generateMetadata } = await import('@/app/(public)/tienda/[slug]/page');
-    const meta = (await asA(() => generateMetadata({ params: { slug: 'taza' } }))) as Meta;
+    const meta = (await asA(() => generateMetadata({ params: Promise.resolve({ slug: 'taza' }) }))) as Meta;
     expect(meta.openGraph?.images?.[0]?.url).toBe(OG);
     expect(meta.twitter?.images).toEqual([OG]);
   });
@@ -134,7 +134,7 @@ describe('imagen social de la ficha (Open Graph y Twitter)', () => {
   it('sin cartel ni imagen de marca no se inventa ninguna imagen', async () => {
     await createEvent('a', 'sin-nada', { imageUrl: null });
     const { generateMetadata } = await import('@/app/(public)/eventos/[slug]/page');
-    const meta = (await asA(() => generateMetadata({ params: { slug: 'sin-nada' } }))) as Meta;
+    const meta = (await asA(() => generateMetadata({ params: Promise.resolve({ slug: 'sin-nada' }) }))) as Meta;
     expect(meta.openGraph?.images).toBeUndefined();
     expect(meta.twitter).toBeUndefined();
   });
@@ -144,7 +144,7 @@ describe('ficha de evento: robots y datos estructurados', () => {
   it('un evento ya pasado sigue con sus datos pero sin ofertas de compra', async () => {
     await createEvent('a', 'pasado', { date: new Date('2020-01-01T20:00:00Z') });
     const { default: Page } = await import('@/app/(public)/eventos/[slug]/page');
-    const [ld] = ldScripts(await asA(() => Page({ params: { slug: 'pasado' } }))) as Array<Record<string, any>>;
+    const [ld] = ldScripts(await asA(() => Page({ params: Promise.resolve({ slug: 'pasado' }) }))) as Array<Record<string, any>>;
     expect(ld?.['@type']).toBe('Event');
     expect(ld?.offers).toBeUndefined();
   });
@@ -152,11 +152,11 @@ describe('ficha de evento: robots y datos estructurados', () => {
   it('un evento publicado: canónica, indexable y con JSON-LD de Event (fecha, lugar, oferta, dominio del cliente)', async () => {
     await createEvent('a', 'concierto');
     const { generateMetadata, default: Page } = await import('@/app/(public)/eventos/[slug]/page');
-    const meta = (await asA(() => generateMetadata({ params: { slug: 'concierto' } }))) as { alternates?: { canonical?: string }; robots?: unknown };
+    const meta = (await asA(() => generateMetadata({ params: Promise.resolve({ slug: 'concierto' }) }))) as { alternates?: { canonical?: string }; robots?: unknown };
     expect(meta.alternates?.canonical).toBe('https://a.cliente.es/eventos/concierto');
     expect(meta.robots).toBeUndefined();
 
-    const tree = await asA(() => Page({ params: { slug: 'concierto' } }));
+    const tree = await asA(() => Page({ params: Promise.resolve({ slug: 'concierto' }) }));
     const [ld] = ldScripts(tree) as Array<Record<string, any>>;
     expect(ld?.['@type']).toBe('Event');
     expect(ld?.startDate).toBe('2030-05-01T20:00:00.000Z');
@@ -167,9 +167,9 @@ describe('ficha de evento: robots y datos estructurados', () => {
   it('un borrador se puede abrir por URL pero lleva noindex y no publica datos estructurados', async () => {
     await createEvent('a', 'borrador', { status: 'DRAFT' });
     const { generateMetadata, default: Page } = await import('@/app/(public)/eventos/[slug]/page');
-    const meta = (await asA(() => generateMetadata({ params: { slug: 'borrador' } }))) as { robots?: { index?: boolean } };
+    const meta = (await asA(() => generateMetadata({ params: Promise.resolve({ slug: 'borrador' }) }))) as { robots?: { index?: boolean } };
     expect(meta.robots?.index).toBe(false);
-    const tree = await asA(() => Page({ params: { slug: 'borrador' } }));
+    const tree = await asA(() => Page({ params: Promise.resolve({ slug: 'borrador' }) }));
     expect(ldScripts(tree)).toHaveLength(0);
   });
 
@@ -178,7 +178,7 @@ describe('ficha de evento: robots y datos estructurados', () => {
     await tenantClient('a').appConfig.create({ data: { key: 'site_theme', value: feria, label: 'x', group: 'brand' } });
     await createEvent('a', 'madrugada', { date: new Date('2030-05-01T23:30:00Z') }); // 02/05/2030 01:30 en Madrid (CEST)
     const { default: Page } = await import('@/app/(public)/eventos/[slug]/page');
-    const shown = texts(await asA(() => Page({ params: { slug: 'madrugada' } }))).join(' ');
+    const shown = texts(await asA(() => Page({ params: Promise.resolve({ slug: 'madrugada' }) }))).join(' ');
     expect(shown).toMatch(/2 de mayo de 2030/);
     expect(shown).not.toMatch(/1 de mayo de 2030/);
   });
@@ -189,8 +189,8 @@ describe('ficha de evento: robots y datos estructurados', () => {
     await createEvent('a', 'sin-horas');
     await createEvent('a', 'con-horas', { doorsOpen: '21:00', endTime: '03:00' });
     const { default: Page } = await import('@/app/(public)/eventos/[slug]/page');
-    const without = texts(await asA(() => Page({ params: { slug: 'sin-horas' } })));
-    const withTimes = texts(await asA(() => Page({ params: { slug: 'con-horas' } })));
+    const without = texts(await asA(() => Page({ params: Promise.resolve({ slug: 'sin-horas' }) })));
+    const withTimes = texts(await asA(() => Page({ params: Promise.resolve({ slug: 'con-horas' }) })));
     expect(without.some((t) => t.trim() === '—')).toBe(false);
     expect(withTimes).toContain('21:00 — 03:00');
   });

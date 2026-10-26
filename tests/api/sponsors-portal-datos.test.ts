@@ -50,7 +50,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/datos', () => {
   it('rechaza sin token', async () => {
     const res = await saveDatos(
       jsonRequest('http://localhost', { companyName: 'X', contactName: 'Y', sponsorType: 'evento' }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(401);
   });
@@ -58,7 +58,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/datos', () => {
   it('permite guardar sin email (solo completa nombre/contacto/tipo)', async () => {
     const res = await saveDatos(
       jsonRequest(`http://localhost?t=${token}`, { companyName: 'Datos Incompletos SL', contactName: 'Rocío Actualizada', sponsorType: 'espacio' }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -77,7 +77,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/datos', () => {
         sponsorType: 'evento',
         email: 'rocio@example.com',
       }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(400);
 
@@ -98,7 +98,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/datos', () => {
         phone: '600123456',
         consentAccepted: true,
       }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -108,7 +108,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/datos', () => {
     const after = await prisma.sponsorRequest.findUnique({ where: { id: sponsorRequestId } });
     expect(after?.consentAt).not.toBeNull();
 
-    const portalRes = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: { sponsorId } });
+    const portalRes = await getSponsorPortal(new Request(`http://localhost?t=${token}`), { params: Promise.resolve({ sponsorId }) });
     const portalData = await portalRes.json();
     expect(portalData.sponsorRequest.email).toBe('rocio@example.com');
   });
@@ -122,7 +122,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/datos', () => {
         email: 'rocio@example.com',
         message: 'Actualizo mi mensaje',
       }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -137,7 +137,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/datos', () => {
         sponsorType: 'evento',
         email: 'no-es-un-email',
       }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(400);
   });
@@ -146,7 +146,7 @@ describe('POST /api/sponsors/portal/[sponsorId]/datos', () => {
     await prisma.sponsor.update({ where: { id: sponsorId }, data: { status: 'RECHAZADO' } });
     const res = await saveDatos(
       jsonRequest(`http://localhost?t=${token}`, { companyName: 'X', contactName: 'Y', sponsorType: 'evento' }),
-      { params: { sponsorId } }
+      { params: Promise.resolve({ sponsorId }) }
     );
     expect(res.status).toBe(409);
   });

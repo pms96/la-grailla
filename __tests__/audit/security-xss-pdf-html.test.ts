@@ -52,7 +52,7 @@ describe('AUDIT — pdf-html escapa el nombre del titular', () => {
     process.env.NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET || 'test-secret-for-access-token-vitest';
     const token = signOrderAccess(orderId);
     const res = await getPdfHtml(new Request(`http://localhost/api/tickets/${orderId}/pdf-html?t=${token}`), {
-      params: { orderId },
+      params: Promise.resolve({ orderId }),
     });
     expect(res.status).toBe(200);
     const html = await res.text();

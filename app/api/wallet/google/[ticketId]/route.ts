@@ -7,7 +7,8 @@ import { handleApiError } from '@/lib/api-error';
 import { allowTicketAccess, getTokenFromRequest } from '@/lib/access-token';
 import { isModuleEnabled } from '@/lib/modules/runtime';
 
-export async function GET(request: Request, { params }: { params: { ticketId: string } }) {
+export async function GET(request: Request, props: { params: Promise<{ ticketId: string }> }) {
+  const params = await props.params;
   try {
     // El pase es de una entrada: sin Entradas no se consulta ni se delata si existe.
     if (!isModuleEnabled('entradas')) {

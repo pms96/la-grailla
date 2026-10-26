@@ -21,7 +21,8 @@ function isStaff(role: string | undefined): boolean {
   return role === 'ADMIN' || role === 'TAQUILLA';
 }
 
-export async function POST(request: Request, { params }: { params: { orderId: string } }) {
+export async function POST(request: Request, props: { params: Promise<{ orderId: string }> }) {
+  const params = await props.params;
   try {
     const limit = await rateLimit('send-tickets', getClientIp(request), 5, 60_000);
     if (!limit.ok) {

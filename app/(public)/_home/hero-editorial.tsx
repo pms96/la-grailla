@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FadeIn } from '@/components/ui/animate';
@@ -63,7 +64,7 @@ export function HeroEditorial({ brandName, featured, badge, title, subtitle, pri
         {featured?.imageUrl ? (
           <FadeIn className="md:col-span-5">
             {/* img nativo: las URLs de cartel pueden ser externas / uploads sin domain allowlist */}
-            <img src={featured.imageUrl} alt={featured.name} className="w-full aspect-[4/5] object-cover rounded-md border border-border" />
+            <img {...blobImgProps(featured.imageUrl, { sizes: IMG_SIZES.poster5 })} alt={featured.name} className="w-full aspect-[4/5] object-cover rounded-md border border-border" />
           </FadeIn>
         ) : (
           <FadeIn className="hidden md:flex md:col-span-4 md:justify-end">

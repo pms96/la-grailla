@@ -172,11 +172,11 @@ async function readAll(active: readonly Mod[]): Promise<Snapshot> {
     if (owner === null || !ownerEnabled(owner, active)) continue;
     const loader = loaders['../../' + r.file.replace(/\\/g, '/')];
     expect(loader, `no se encuentra ${r.file}`).toBeTruthy();
-    const mod = (await loader()) as { GET: (req: Request, ctx: { params: Record<string, string | string[]> }) => Promise<Response> | Response };
+    const mod = (await loader()) as { GET: (req: Request, ctx: { params: Promise<Record<string, string | string[]>> }) => Promise<Response> | Response };
     let body: string;
     try {
       const res = await Promise.race([
-        withTenantForTest('a', () => mod.GET(new Request(`http://a.cliente.test${r.url}`), { params: r.params }), { modules: [...active] }),
+        withTenantForTest('a', () => mod.GET(new Request(`http://a.cliente.test${r.url}`), { params: Promise.resolve(r.params) }), { modules: [...active] }),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 20_000)),
       ]);
       const type = res.headers.get('content-type') ?? '';
