@@ -35,7 +35,7 @@ export default async function PublicFooter({ contact = false }: { contact?: bool
               {show('/sponsors') && <Link href="/sponsors" className="text-muted-foreground hover:text-primary transition-colors">Patrocinio</Link>}
               {contact && <Link href="/#contacto" className="text-muted-foreground hover:text-primary transition-colors">Contacto</Link>}
             </div>
-            <div className="site-footer__legal flex gap-4 text-xs text-muted-foreground/80">
+            <div className="site-footer__legal flex gap-4 text-xs text-muted-foreground">
               <Link href="/legal/aviso-legal" className="hover:text-primary transition-colors">Aviso legal</Link>
               <Link href="/legal/privacidad" className="hover:text-primary transition-colors">Privacidad</Link>
               <Link href="/legal/cookies" className="hover:text-primary transition-colors">Cookies</Link>

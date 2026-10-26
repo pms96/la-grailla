@@ -257,6 +257,8 @@ export default function ShopGrid() {
         </Button>
       </div>
 
+      {/* Los nombres de producto son h3: sin este h2 (oculto) se saltaría un nivel bajo el h1 de la página. */}
+      <h2 className="sr-only">Productos</h2>
       <Stagger staggerDelay={0.08}>
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6 pb-24 md:pb-0">
           {products.map((product, index) => (

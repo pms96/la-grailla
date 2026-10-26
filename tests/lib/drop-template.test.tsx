@@ -206,7 +206,9 @@ describe('HomeDrop', () => {
     expect(html.match(/<h1/g)).toHaveLength(1);
     expect(html).toContain('href="/tienda"');
     expect(html).toContain('Ir a la tienda');
-    expect(html).toMatch(/class="dp-card" aria-label="Camiseta oficial, 19.00€"/);
+    // La tarjeta destacada no lleva aria-label propio (no coincidía con el texto visible): su nombre sale del precio y del nombre que se ven.
+    expect(html).not.toMatch(/class="dp-card" aria-label=/);
+    expect(html).toMatch(/dp-tag dp-tag-lg">19\.00€<\/span>[\s\S]*?Camiseta oficial/);
     expect(ids(html)).toContain('novedades');
     expect(html).toContain('class="dp-rail"');
     expect(html.match(/class="dp-rail-item"/g)).toHaveLength(3);

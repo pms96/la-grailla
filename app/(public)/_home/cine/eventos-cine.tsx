@@ -38,13 +38,17 @@ export function EventosCine({ brandName, events, loadError }: EventosTemplatePro
             </Link>
           </div>
         ) : (
-          <ul className="grid grid-cols-2 gap-x-4 gap-y-10 md:grid-cols-3 md:gap-x-6 lg:grid-cols-4">
-            {events.map((e, i) => (
-              <li key={e.id}>
-                <CineCard event={e} priority={i < 4} />
-              </li>
-            ))}
-          </ul>
+          <>
+            {/* Los nombres de las tarjetas son h3: sin este h2 (oculto) se saltaría un nivel bajo el h1. */}
+            <h2 className="sr-only">Próximas fechas</h2>
+            <ul className="grid grid-cols-2 gap-x-4 gap-y-10 md:grid-cols-3 md:gap-x-6 lg:grid-cols-4">
+              {events.map((e, i) => (
+                <li key={e.id}>
+                  <CineCard event={e} priority={i < 4} />
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </section>
     </div>

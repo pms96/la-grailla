@@ -63,6 +63,8 @@ export function DropShop({
           </div>
         ) : (
           <>
+            {/* Los nombres de producto son h3: sin este h2 (oculto) se saltaría un nivel bajo el h1. */}
+            <h2 className="sr-only">Productos</h2>
             {categories.length > 1 && (
               <nav aria-label="Categorías" className="mb-8 flex flex-wrap gap-2">
                 <Link href="/tienda" className="dp-chip" aria-current={active === '' ? 'true' : undefined}>

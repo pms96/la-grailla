@@ -57,7 +57,8 @@ export function DropHero({ brandName, hero, hasTienda, featured }: { brandName: 
 
         {featured && (
           <div className="dp-rise md:col-span-5" style={rise(2)}>
-            <Link href={featured.path} className="dp-card" aria-label={`${featured.name}, ${priceLabel(featured.price)}`}>
+            {/* Sin aria-label: el nombre accesible sale del texto visible (precio y nombre), como exige «etiqueta en el nombre». */}
+            <Link href={featured.path} className="dp-card">
               <Tilt className="dp-card-media" tone="accent">
                 {featured.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element

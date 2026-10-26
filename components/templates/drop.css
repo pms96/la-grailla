@@ -45,7 +45,8 @@
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  opacity: 0.75;
+  /* 0,92: con 0,75 sobre el bloque del color de la marca el contraste bajaba de 4,5:1 (Lighthouse: 3,88:1 con un morado vivo). */
+  opacity: 0.92;
 }
 
 /* Entrada de la cabecera: cada bloque sube un poco. Visible en el HTML del servidor (solo se desplaza). */

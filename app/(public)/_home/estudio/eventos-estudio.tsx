@@ -36,7 +36,11 @@ export function EventosEstudio({ brandName, events, loadError }: EventosTemplate
             </Link>
           </div>
         ) : (
-          <EventList events={events} />
+          <>
+            {/* Los nombres de la agenda son h3: sin este h2 (oculto) se saltaría un nivel bajo el h1. */}
+            <h2 className="sr-only">Próximas fechas</h2>
+            <EventList events={events} />
+          </>
         )}
       </section>
     </div>
