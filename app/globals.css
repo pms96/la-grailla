@@ -197,9 +197,12 @@
   }
   .dark .texture-noise::before { opacity: 0.06; }
 
-  /* Barras de compra/pago: suben cuando el banner de cookies está abierto */
+  /* Barras de compra/pago: suben cuando el banner de cookies está abierto.
+     Se desplazan con transform (no con `bottom`): el banner aparece tras la
+     hidratación y mover la barra por layout contaba como CLS (~0,066 en móvil).
+     El aspecto final es idéntico: la barra queda justo encima del banner. */
   html[data-cookies-open="true"] .sticky-purchase-bar {
-    bottom: var(--cookie-banner-h, 0px);
+    transform: translateY(calc(-1 * var(--cookie-banner-h, 0px)));
   }
 }
 

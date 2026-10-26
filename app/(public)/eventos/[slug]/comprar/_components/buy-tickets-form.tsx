@@ -464,7 +464,7 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
 
       {/* CTA sticky móvil */}
       <div
-        className="sticky-purchase-bar fixed bottom-0 inset-x-0 z-40 md:hidden border-t border-border/60 bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-8px_rgb(0_0_0_/0.35)] transition-[bottom] duration-200"
+        className="sticky-purchase-bar fixed bottom-0 inset-x-0 z-40 md:hidden border-t border-border/60 bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-8px_rgb(0_0_0_/0.35)] transition-transform duration-200"
         style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
       >
         <div className="max-w-[1200px] mx-auto px-4 pt-3 flex items-center gap-3">

@@ -308,7 +308,7 @@ export default function ShopGrid() {
 
       {/* FAB móvil — zona del pulgar */}
       <div
-        className="sticky-purchase-bar fixed bottom-0 inset-x-0 z-40 md:hidden pointer-events-none transition-[bottom] duration-200"
+        className="sticky-purchase-bar fixed bottom-0 inset-x-0 z-40 md:hidden pointer-events-none transition-transform duration-200"
         style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
       >
         <div className="max-w-[1200px] mx-auto px-4 flex justify-end pointer-events-auto">
