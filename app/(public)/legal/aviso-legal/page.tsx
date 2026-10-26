@@ -4,10 +4,11 @@ export const dynamic = 'force-dynamic';
 import { getConfig } from '@/lib/config';
 import { getBrand } from '@/lib/brand/brand';
 import { LegalShell } from '../../_templates/legal-shell';
+import { canonicalAlternates } from '@/lib/seo/canonical';
 
-export const metadata = {
-  title: 'Aviso legal',
-};
+export function generateMetadata() {
+  return { title: 'Aviso legal', ...canonicalAlternates('/legal/aviso-legal') };
+}
 
 export default async function AvisoLegalPage() {
   const [text, brand] = await Promise.all([getConfig('legal_notice'), getBrand()]);

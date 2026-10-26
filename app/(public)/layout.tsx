@@ -6,6 +6,8 @@ import { getBrand } from '@/lib/brand/brand';
 import { isContactFormEnabled } from '@/lib/contact';
 import { getContentSections } from '@/lib/content/load';
 import { sectionAnchors } from './_home/sections/content-sections';
+// Menú y pie de cada plantilla: están en todas las páginas, así que su CSS carga desde el layout y no desde las rutas de cada plantilla.
+import '@/components/templates/shell.css';
 
 export default async function PublicLayout({ children }: { children: React.ReactNode }) {
   const [brand, contactEnabled, sections] = await Promise.all([getBrand(), isContactFormEnabled(), getContentSections()]);

@@ -10,6 +10,7 @@ import { THEME_CONFIG_KEY, getEditableTheme } from '@/lib/brand/brand';
 import { LEGACY_FIXED_ASSETS, parseTheme, themeContrastIssues, themeSchema, type SiteTheme } from '@/lib/brand/theme';
 import { isBlobUrlUnder, parseBlobUrl } from '@/lib/blob-url';
 import { tenantBlobPrefix } from '@/lib/tenant/blob';
+import { releaseUnusedBlobs } from '@/lib/blob-cleanup';
 import { isLegacyTenant } from '@/lib/tenant/context';
 
 /* Apariencia (tema de marca del cliente). Solo ADMIN. El tema se valida con el mismo esquema que se usa al leer, y los recursos
@@ -26,6 +27,19 @@ function assetBelongsToTenant(url: string): boolean {
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   return session?.user?.role === 'ADMIN';
+}
+
+/** Los logos NO se borran nunca al sustituirlos: los emails de entradas ya enviados los llevan incrustados por URL y el pase de Google Wallet los guarda
+ *  por URL, así que borrar uno rompería la imagen de mensajes y pases ya emitidos. Pesan poco; el vídeo, el póster, el favicon y la imagen social sí. */
+const KEPT_ASSETS = new Set(['logoOnDark', 'logoOnLight']);
+
+/** Los recursos borrables del tema guardado hasta ahora, para saber cuáles dejan de usarse tras un cambio. */
+async function storedAssets(): Promise<string[]> {
+  const row = await prisma.appConfig.findUnique({ where: { key: THEME_CONFIG_KEY } });
+  const previous = row?.value ? parseTheme(row.value) : null;
+  return Object.entries(previous?.assets ?? {})
+    .filter(([field, url]) => !KEPT_ASSETS.has(field) && typeof url === 'string')
+    .map(([, url]) => url as string);
 }
 
 export async function GET() {
@@ -58,6 +72,7 @@ export async function PUT(request: Request) {
 
     // Lo que se guarda es lo ya validado y normalizado, nunca el cuerpo tal cual.
     const value = JSON.stringify(parseTheme(theme));
+    const before = await storedAssets();
     await prisma.appConfig.upsert({
       where: { key: THEME_CONFIG_KEY },
       update: { value },
@@ -65,6 +80,8 @@ export async function PUT(request: Request) {
     });
     // En una instalación única las páginas estáticas se regeneran; en modo plataforma todo es dinámico.
     revalidatePath('/', 'layout');
+    // Un logo o vídeo sustituido ya no lo usa nadie: se borra de Blob (si algo falla, queda huérfano como antes; el guardado no se ve afectado).
+    await releaseUnusedBlobs(before, Object.values(theme.assets));
     return NextResponse.json({ success: true });
   } catch (error) {
     return handleApiError(error, 'PUT /api/admin/theme');
@@ -75,8 +92,10 @@ export async function PUT(request: Request) {
 export async function DELETE() {
   if (!(await requireAdmin())) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   try {
+    const before = await storedAssets();
     await prisma.appConfig.deleteMany({ where: { key: THEME_CONFIG_KEY } });
     revalidatePath('/', 'layout');
+    await releaseUnusedBlobs(before, []);
     return NextResponse.json({ success: true });
   } catch (error) {
     return handleApiError(error, 'DELETE /api/admin/theme');

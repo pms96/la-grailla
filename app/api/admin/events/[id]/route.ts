@@ -8,6 +8,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { seasonLinkEnabled } from '@/lib/modules/season-link';
+import { releaseUnusedBlobs } from '@/lib/blob-cleanup';
 
 const updateEventSchema = z.object({
   name: z.string().min(1).optional(),
@@ -60,6 +61,8 @@ export async function PUT(
   }
   try {
     const body = updateEventSchema.parse(await request.json());
+    // Si cambia el cartel, el anterior se borra de Blob cuando ya está guardado el nuevo.
+    const previous = body?.imageUrl !== undefined ? await prisma.event.findUnique({ where: { id: params?.id }, select: { imageUrl: true } }) : null;
     const event = await prisma.event.update({
       where: { id: params?.id },
       data: {
@@ -106,6 +109,10 @@ export async function PUT(
         temporadaId: body?.temporadaId === undefined || !seasonLinkEnabled() ? undefined : body.temporadaId || null,
       },
     });
+    // Con pedidos hechos, el cartel anterior puede estar en emails enviados y en pases de Google Wallet (los dos lo guardan por URL): no se borra.
+    if (previous && (await prisma.order.count({ where: { eventId: event.id } })) === 0) {
+      await releaseUnusedBlobs([previous.imageUrl], [event.imageUrl]);
+    }
     return NextResponse.json(event);
   } catch (error) {
     return handleApiError(error, 'PUT /api/admin/events/[id]');
@@ -161,7 +168,10 @@ export async function DELETE(
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
   try {
+    const previous = await prisma.event.findUnique({ where: { id: params?.id }, select: { imageUrl: true } });
     await prisma.event.delete({ where: { id: params?.id } });
+    // El cartel de un evento borrado ya no lo usa nadie (solo se llega aquí si el borrado ha salido bien).
+    await releaseUnusedBlobs([previous?.imageUrl], []);
     return NextResponse.json({ success: true });
   } catch (error) {
     return handleApiError(error, 'DELETE /api/admin/events/[id]');

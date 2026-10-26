@@ -1,0 +1,194 @@
+/* Menú y pie de página de cada plantilla. Hasta ahora eran los de Feria para todas (iconos, botones con fondo, un pie genérico): cada plantilla tenía
+ * portada y cabeceras propias y, alrededor, el marco de siempre. Aquí se les da el lenguaje de cada una, reutilizando sus mismos rótulos y tipografías.
+ *
+ * - Feria y Editorial NO se tocan: son el marco original (y el de partida de un cliente nuevo).
+ * - Todo sale de los tokens del tema del cliente (colores, tipografías); no hay ningún color ni fuente fijos.
+ * - Se carga desde el layout público (el menú y el pie están en TODAS las páginas), no desde las rutas de cada plantilla.
+ * - El marcado lleva clases `site-*` solo como enganche; el layout marca la plantilla con `data-template`.
+ * - Sin movimiento nuevo: el hover solo cambia color y, tras (hover: hover) and (pointer: fine), para no dejar «hover pegado» en táctil. */
+
+/* ── Menú ─────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/* Fuera los iconos de Feria: estas plantillas rotulan solo con tipografía. */
+:is([data-template='marquesina'], [data-template='galeria'], [data-template='tipo'], [data-template='estudio'], [data-template='cine'], [data-template='drop']) .site-nav-icon {
+  display: none;
+}
+
+/* Base común: rótulo pequeño en mayúsculas, sin caja ni esquinas; el enlace activo se marca abajo (o a la izquierda en el menú móvil). */
+:is([data-template='marquesina'], [data-template='galeria'], [data-template='tipo'], [data-template='estudio'], [data-template='cine']) .site-header .site-nav-link {
+  height: 2.25rem;
+  padding-inline: 0.75rem;
+  border-radius: 0;
+  background: transparent;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+:is([data-template='marquesina'], [data-template='galeria'], [data-template='tipo'], [data-template='estudio'], [data-template='cine']) .site-header .site-nav-link:hover {
+  background: transparent;
+}
+@media (hover: hover) and (pointer: fine) {
+  :is([data-template='marquesina'], [data-template='galeria'], [data-template='tipo'], [data-template='estudio'], [data-template='cine'], [data-template='drop']) .site-header .site-nav-link:hover {
+    color: hsl(var(--foreground));
+  }
+}
+:is([data-template='marquesina'], [data-template='galeria'], [data-template='tipo'], [data-template='estudio'], [data-template='cine']) .site-header .site-nav-link[data-active='true'] {
+  background: transparent;
+  color: hsl(var(--foreground));
+}
+
+/* Lo propio de cada una. */
+[data-template='marquesina'] .site-header .site-nav-link,
+[data-template='estudio'] .site-header .site-nav-link {
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+[data-template='estudio'] .site-header .site-nav-link {
+  letter-spacing: 0.12em;
+}
+[data-template='tipo'] .site-header .site-nav-link {
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+[data-template='cine'] .site-header .site-nav-link {
+  letter-spacing: 0.2em;
+}
+[data-template='marquesina'] .site-header .site-nav-link[data-active='true'] {
+  box-shadow: inset 0 -2px 0 hsl(var(--accent));
+}
+[data-template='tipo'] .site-header .site-nav-link[data-active='true'] {
+  box-shadow: inset 0 -3px 0 hsl(var(--primary));
+}
+[data-template='galeria'] .site-header .site-nav-link[data-active='true'],
+[data-template='estudio'] .site-header .site-nav-link[data-active='true'] {
+  box-shadow: inset 0 -1px 0 currentColor;
+}
+[data-template='cine'] .site-header .site-nav-link[data-active='true'] {
+  box-shadow: inset 0 -1px 0 hsl(var(--accent));
+}
+
+/* «drop»: píldoras; la activa, en el color de la marca. Su cabecera de página es un bloque del color de la marca que llega hasta arriba, así que
+ * la barra lleva fondo propio desde el principio (transparente, los enlaces se leían mal sobre el color) y los enlaces, en color de texto. */
+[data-template='drop'] .site-header {
+  background: hsl(var(--background) / 0.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid hsl(var(--border));
+}
+[data-template='drop'] .site-header .site-nav-link {
+  padding-inline: 1rem;
+  border-radius: 9999px;
+  background: transparent;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+[data-template='drop'] .site-header .site-nav-link:hover {
+  background: hsl(var(--primary) / 0.1);
+}
+[data-template='drop'] .site-header .site-nav-link[data-active='true'] {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+/* Menú desplegable del móvil: más alto para el dedo, y el activo con una barra a la izquierda en lugar de subrayado. */
+:is([data-template='marquesina'], [data-template='galeria'], [data-template='tipo'], [data-template='estudio'], [data-template='cine'], [data-template='drop']) .site-header .site-nav-menu .site-nav-link {
+  height: 2.75rem;
+}
+:is([data-template='marquesina'], [data-template='galeria'], [data-template='tipo'], [data-template='estudio'], [data-template='cine']) .site-header .site-nav-menu .site-nav-link[data-active='true'] {
+  box-shadow: inset 3px 0 0 currentColor;
+}
+
+/* ── Pie ──────────────────────────────────────────────────────────────────────────────────────────────── */
+
+:is([data-template='marquesina'], [data-template='galeria'], [data-template='tipo'], [data-template='estudio'], [data-template='cine'], [data-template='drop']) .site-footer {
+  background: transparent;
+  border-top: 1px solid hsl(var(--border));
+}
+:is([data-template='marquesina'], [data-template='galeria'], [data-template='tipo'], [data-template='estudio'], [data-template='cine'], [data-template='drop']) .site-footer__inner {
+  padding-block: 3rem;
+}
+
+/* Con muchos enlaces o un © largo, que salten de línea y queden centrados en lugar de desbordar (Feria y Editorial siguen con su pie de siempre). */
+:is([data-template='marquesina'], [data-template='galeria'], [data-template='tipo'], [data-template='estudio'], [data-template='cine'], [data-template='drop']) .site-footer :is(.site-footer__links, .site-footer__legal) {
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 0.5rem;
+}
+:is([data-template='marquesina'], [data-template='galeria'], [data-template='tipo'], [data-template='estudio'], [data-template='cine'], [data-template='drop']) .site-footer__copy {
+  text-align: center;
+}
+@media (min-width: 768px) {
+  :is([data-template='marquesina'], [data-template='galeria'], [data-template='tipo'], [data-template='estudio'], [data-template='cine'], [data-template='drop']) .site-footer__copy {
+    text-align: right;
+  }
+}
+
+/* Rótulos en mayúsculas (los enlaces, el aviso legal y el © heredan el tamaño de su contenedor). */
+:is([data-template='marquesina'], [data-template='galeria'], [data-template='tipo'], [data-template='estudio'], [data-template='cine']) .site-footer :is(.site-footer__links, .site-footer__legal, .site-footer__copy) {
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+[data-template='marquesina'] .site-footer :is(.site-footer__links, .site-footer__legal, .site-footer__copy, .site-footer__tagline),
+[data-template='estudio'] .site-footer :is(.site-footer__links, .site-footer__legal, .site-footer__copy) {
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+[data-template='cine'] .site-footer :is(.site-footer__links, .site-footer__legal, .site-footer__copy) {
+  letter-spacing: 0.2em;
+}
+
+/* La frase del pie con la tipografía de titulares de cada plantilla. */
+[data-template='galeria'] .site-footer .site-footer__tagline,
+[data-template='cine'] .site-footer .site-footer__tagline,
+[data-template='tipo'] .site-footer .site-footer__tagline,
+[data-template='drop'] .site-footer .site-footer__tagline {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  line-height: 1.25;
+  color: hsl(var(--foreground));
+}
+[data-template='tipo'] .site-footer .site-footer__tagline {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+[data-template='drop'] .site-footer .site-footer__tagline {
+  font-weight: 700;
+}
+[data-template='marquesina'] .site-footer .site-footer__tagline {
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* El filo superior pesa según la plantilla. */
+[data-template='marquesina'] .site-footer {
+  border-top: 2px solid hsl(var(--foreground));
+}
+[data-template='tipo'] .site-footer {
+  border-top: 4px solid hsl(var(--foreground));
+}
+[data-template='drop'] .site-footer {
+  border-top: 2px solid hsl(var(--foreground));
+}
+[data-template='cine'] .site-footer {
+  background: hsl(var(--background));
+}
+
+/* «drop»: el botón flotante del carrito ocupa la esquina inferior; el pie deja hueco para que no tape el © ni los enlaces legales. */
+[data-template='drop'] .site-footer__inner {
+  padding-bottom: 5.5rem;
+}
+
+/* «drop»: los enlaces del pie, como píldoras con borde. */
+[data-template='drop'] .site-footer .site-footer__links a {
+  padding: 0.25rem 0.875rem;
+  border: 1.5px solid hsl(var(--foreground) / 0.25);
+  border-radius: 9999px;
+}
+@media (hover: hover) and (pointer: fine) {
+  [data-template='drop'] .site-footer .site-footer__links a:hover {
+    border-color: hsl(var(--primary));
+  }
+}

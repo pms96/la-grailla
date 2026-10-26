@@ -18,11 +18,12 @@ import { cn } from '@/lib/utils';
 
 /* Cabecera de las páginas interiores (ficha del evento, tienda, patrocinio, textos legales) de las plantillas nuevas. Hasta ahora esas páginas
  * llevaban siempre la cabecera de Feria (degradado, pegatina y textos fijos), así que un cliente con «marquesina», «galería» o «tipo» tenía una
- * portada propia y, al entrar en cualquier página, volvía a ver Feria. Feria y Editorial NO pasan por aquí: cada página conserva su cabecera.
+ * portada propia y, al entrar en cualquier página, volvía a ver Feria. Solo Feria NO pasa por aquí: cada página conserva su cabecera de siempre (la de La Grailla). Editorial, que es la plantilla de partida de
+ * un cliente nuevo, también la tiene: sin ella, un cliente neutro vería en cada página interior un degradado y textos de feria.
  *
  * Todo el texto lo pone la página (nada fijo de ninguna marca). La compra y la sala de espera no la usan a propósito: van en modo «calma». */
 
-export const BANNER_TEMPLATES = ['marquesina', 'galeria', 'tipo', 'estudio', 'cine', 'drop'] as const;
+export const BANNER_TEMPLATES = ['editorial', 'marquesina', 'galeria', 'tipo', 'estudio', 'cine', 'drop'] as const;
 export type BannerTemplate = (typeof BANNER_TEMPLATES)[number];
 
 /** ¿Esta plantilla tiene cabecera propia? Si no, la página sigue con la suya de siempre. */
@@ -289,8 +290,51 @@ function BannerDrop({ brandName, title, eyebrow, lead, facts = [], imageUrl, com
   );
 }
 
+/** «editorial»: la misma sobriedad que su portada (sin degradados ni adornos): rótulo en mayúsculas, titular grande, los datos en una línea
+ *  separada por barras y, si hay cartel, a la derecha. */
+function BannerEditorial({ brandName, title, eyebrow, lead, facts = [], imageUrl, compact = false }: PageBannerProps) {
+  const photo = !compact && imageUrl;
+  return (
+    <section className="border-b border-border">
+      <div className={cn('mx-auto max-w-[1200px] px-4', compact ? 'py-10 md:py-14' : 'py-12 md:py-20')}>
+        <div className={photo ? 'grid gap-10 md:grid-cols-12 md:items-end' : undefined}>
+          <div className={photo ? 'md:col-span-7' : undefined}>
+            <p className="mb-5 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground md:mb-6">{eyebrow ?? brandName}</p>
+            <h1
+              className={cn('font-display font-semibold tracking-tight text-balance leading-[1.04]', compact ? 'text-3xl md:text-4xl' : 'text-4xl sm:text-5xl md:text-6xl')}
+              data-size={compact ? 's' : titleSize(title)}
+            >
+              {title}
+            </h1>
+            {lead && <p className="mt-5 max-w-xl text-lg text-muted-foreground">{lead}</p>}
+            {facts.length > 0 && (
+              <dl className="mt-6 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-base text-muted-foreground">
+                {facts.map((f, i) => (
+                  <div key={f.label} className="flex items-baseline gap-2">
+                    {i > 0 && <span aria-hidden className="text-border">/</span>}
+                    <dt className="sr-only">{f.label}</dt>
+                    <dd>{f.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </div>
+          {photo && (
+            <div className="md:col-span-5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={imageUrl} alt={`Cartel de ${title}`} className="aspect-[4/5] w-full rounded-md border border-border object-cover" fetchPriority="high" />
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function PageBanner(props: PageBannerProps) {
   switch (props.template) {
+    case 'editorial':
+      return <BannerEditorial {...props} />;
     case 'drop':
       return <BannerDrop {...props} />;
     case 'cine':

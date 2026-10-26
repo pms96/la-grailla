@@ -9,6 +9,8 @@ import { handleApiError } from '@/lib/api-error';
 import { SECRET_MASK, encryptSecret, isSensitiveConfigKey, isWriteOnlyConfigKey } from '@/lib/secrets';
 import { isConfigKeyAllowed, invalidConfigValue } from '@/lib/config-ownership';
 import { getActiveModules } from '@/lib/modules/runtime';
+import { SECTION_CONFIG_KEYS, SECTION_KINDS, sectionImageUrls } from '@/lib/content/sections';
+import { releaseUnusedBlobs } from '@/lib/blob-cleanup';
 
 const updateConfigSchema = z.object({
   configs: z
@@ -22,6 +24,9 @@ const updateConfigSchema = z.object({
     )
     .default([]),
 });
+
+/** ¿Es la clave de una sección de contenido (servicios, proyectos, equipo, FAQ)? */
+const sectionKind = (key: string) => SECTION_KINDS.find((k) => SECTION_CONFIG_KEYS[k] === key);
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -83,6 +88,9 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: errors.map((e) => `${e.key}: ${e.reason}`).join('; '), errors }, { status: 400 });
     }
 
+    // Imágenes de las secciones de contenido antes de guardar: las que se sustituyan o se quiten ya no las usa nadie.
+    const sectionsBefore = await prisma.appConfig.findMany({ where: { key: { in: accepted.map((c) => c.key).filter((k) => sectionKind(k)) } } });
+
     for (const cfg of accepted) {
       const value = isSensitiveConfigKey(cfg.key) ? encryptSecret(cfg.value, cfg.key) : cfg.value;
       await prisma.appConfig.upsert({
@@ -91,6 +99,13 @@ export async function PUT(request: Request) {
         create: { key: cfg.key, value, label: cfg.label ?? cfg.key, group: cfg.group ?? 'general' },
       });
     }
+
+    const imagesBefore = sectionsBefore.flatMap((row) => sectionImageUrls(row.value, sectionKind(row.key)!));
+    const imagesAfter = accepted.flatMap((c) => {
+      const kind = sectionKind(c.key);
+      return kind ? sectionImageUrls(c.value, kind) : [];
+    });
+    await releaseUnusedBlobs(imagesBefore, imagesAfter);
     return NextResponse.json({ success: true, ignored });
   } catch (error) {
     return handleApiError(error, 'PUT /api/admin/config');

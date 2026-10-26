@@ -1,10 +1,11 @@
 import { getEventDemandLevel } from '@/lib/ticket-availability';
 import { getOnlineSalesClosedLabel } from '@/lib/online-sales-closed';
+import { EVENT_TIMEZONE } from '@/lib/event-time';
 
 /* Lo que las plantillas de portada nuevas (marquesina, galería…) necesitan de un evento, ya formateado en el servidor (las fechas son de
  * Madrid, como las entradas y los pases de wallet: un evento a las 00:30 no puede aparecer el día anterior). Módulo puro, sin React. */
 
-const TZ = 'Europe/Madrid';
+const TZ = EVENT_TIMEZONE;
 
 export type TemplateEvent = {
   id: string;

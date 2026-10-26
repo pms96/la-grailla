@@ -2,7 +2,7 @@ import { Container } from '@/components/layouts/container';
 import type { Brand } from '@/lib/brand/brand';
 import { PageBanner, hasBanner } from './page-banner';
 
-/** Marco de las páginas legales. Con las plantillas nuevas lleva su cabecera (versión compacta); con Feria y Editorial, el mismo marcado de siempre. */
+/** Marco de las páginas legales. Todas las plantillas llevan su cabecera (versión compacta) salvo Feria, que conserva el mismo marcado de siempre. */
 export function LegalShell({ title, brand, children }: { title: string; brand: Brand; children: React.ReactNode }) {
   if (hasBanner(brand.template)) {
     return (

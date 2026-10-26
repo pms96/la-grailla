@@ -23,6 +23,8 @@ import { HomeDrop } from './_home/drop/home-drop';
 import { getShopProducts } from '@/lib/shop/products';
 import { toTemplateEvent } from './_home/event-view';
 import { ContentSections } from './_home/sections/content-sections';
+import { canonicalAlternates } from '@/lib/seo/canonical';
+import { EVENT_TIMEZONE } from '@/lib/event-time';
 import { getContentSections } from '@/lib/content/load';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
@@ -30,6 +32,10 @@ export const dynamic = 'force-dynamic';
 
 /** Sin el módulo Entradas no hay eventos que cargar (ni error). */
 class SkipEvents extends Error {}
+
+export function generateMetadata() {
+  return canonicalAlternates('/');
+}
 
 export default async function HomePage() {
   // Cada sección de módulo solo aparece si el cliente lo tiene (en una instalación única, todos).
@@ -80,6 +86,7 @@ export default async function HomePage() {
         weekday: 'long',
         day: 'numeric',
         month: 'long',
+        timeZone: EVENT_TIMEZONE,
       })
     : '';
   const featuredPrice = featured?.ticketTypes?.[0]?.price;
@@ -206,7 +213,7 @@ export default async function HomePage() {
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {rest.map((event, index) => {
                 const dateStr = event?.date
-                  ? new Date(event.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+                  ? new Date(event.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: EVENT_TIMEZONE })
                   : '';
                 const minPrice = event?.ticketTypes?.[0]?.price;
                 return (

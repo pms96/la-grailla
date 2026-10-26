@@ -230,7 +230,7 @@ export default function ConfirmationClient({
   }
 
   const dateStr = validOrder?.event?.date
-    ? new Date(validOrder.event.date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    ? new Date(validOrder.event.date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Madrid' })
     : '';
 
   return (
@@ -409,8 +409,9 @@ function TicketCarousel({
   const tickets = order?.tickets ?? [];
   const qrCodes = useTicketQrCodes(tickets.map((t) => t?.qrCode ?? '').filter(Boolean));
   const eventDate = order?.event?.date ? new Date(order.event.date) : null;
+  // Día y mes del evento en hora de Madrid (no la del visitante): el mismo día que ve arriba y que lleva la entrada.
   const shortDate = eventDate
-    ? `${String(eventDate.getDate()).padStart(2, '0')}.${String(eventDate.getMonth() + 1).padStart(2, '0')}`
+    ? eventDate.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Madrid' }).replace('/', '.')
     : '';
   const hasWallet = wallet.google || wallet.apple;
 

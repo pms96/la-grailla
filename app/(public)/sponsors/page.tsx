@@ -6,13 +6,14 @@ import SponsorForm from './_components/sponsor-form';
 import { getBrand } from '@/lib/brand/brand';
 import { getConfigs } from '@/lib/config';
 import { PageBanner, hasBanner, type BannerTemplate } from '../_templates/page-banner';
+import { canonicalAlternates } from '@/lib/seo/canonical';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
 
 export async function generateMetadata() {
   const { name } = await getBrand();
-  return { title: 'Patrocinio', description: `Tu marca en ${name}. Llega a miles de asistentes y sé parte del evento.` };
+  return { title: 'Patrocinio', description: `Tu marca en ${name}. Llega a miles de asistentes y sé parte del evento.`, ...canonicalAlternates('/sponsors') };
 }
 
 export default async function SponsorsPage() {

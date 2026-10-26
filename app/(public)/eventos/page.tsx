@@ -18,6 +18,8 @@ import { EventosEstudio } from '../_home/estudio/eventos-estudio';
 import { EventosCine } from '../_home/cine/eventos-cine';
 import { EventosDrop } from '../_home/drop/eventos-drop';
 import { toTemplateEvent } from '../_home/event-view';
+import { canonicalAlternates } from '@/lib/seo/canonical';
+import { EVENT_TIMEZONE } from '@/lib/event-time';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
@@ -27,6 +29,7 @@ export async function generateMetadata() {
   return {
     title: 'Eventos',
     description: `Descubre los próximos eventos de ${name} y compra tus entradas online.`,
+    ...canonicalAlternates('/eventos'),
   };
 }
 
@@ -191,6 +194,7 @@ function EventMeta({ event }: { event: EventWithTicketTypes }) {
         day: 'numeric',
         month: 'short',
         year: 'numeric',
+        timeZone: EVENT_TIMEZONE,
       })
     : '';
   const minPrice = event?.ticketTypes?.[0]?.price;

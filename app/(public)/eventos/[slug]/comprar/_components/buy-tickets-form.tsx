@@ -67,6 +67,7 @@ function formatEventDate(date: string | Date | undefined): string {
       weekday: 'short',
       day: 'numeric',
       month: 'short',
+      timeZone: 'Europe/Madrid',
     });
   } catch {
     return '';

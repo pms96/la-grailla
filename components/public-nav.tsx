@@ -58,7 +58,7 @@ export default function PublicNav({ modules, sticker, contact, anchors = [] }: N
   return (
     <header
       className={cn(
-        'fixed top-0 left-0 right-0 z-50 transition-all duration-300',
+        'site-header fixed top-0 left-0 right-0 z-50 transition-all duration-300',
         scrolled
           ? 'bg-background/90 backdrop-blur-xl border-b border-border/50 shadow-lg'
           : 'bg-transparent'
@@ -77,7 +77,7 @@ export default function PublicNav({ modules, sticker, contact, anchors = [] }: N
         </Link>
 
         {/* Desktop */}
-        <nav className={cn('items-center gap-1', fold.bar)}>
+        <nav className={cn('site-nav items-center gap-1', fold.bar)}>
           {links.map((l) => {
             const isActive = pathname?.startsWith(l.href);
             return (
@@ -85,12 +85,13 @@ export default function PublicNav({ modules, sticker, contact, anchors = [] }: N
                 <Button
                   variant={isActive ? 'secondary' : 'ghost'}
                   size="sm"
+                  data-active={isActive}
                   className={cn(
-                    'gap-2 font-medium transition-all',
+                    'site-nav-link gap-2 font-medium transition-all',
                     isActive && 'bg-primary/10 text-primary'
                   )}
                 >
-                  <l.icon className="h-4 w-4" />
+                  <l.icon className="site-nav-icon h-4 w-4" />
                   {l.label}
                 </Button>
               </Link>
@@ -123,16 +124,17 @@ export default function PublicNav({ modules, sticker, contact, anchors = [] }: N
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: reduceMotion ? 0 : -8 }}
             transition={{ duration: 0.2, ease: EASE_OUT }}
-            className={cn('border-t border-border/50 bg-background/95 backdrop-blur-xl overflow-hidden', fold.toggle)}
+            className={cn('site-nav-menu border-t border-border/50 bg-background/95 backdrop-blur-xl overflow-hidden', fold.toggle)}
           >
             <nav className="flex flex-col p-4 gap-1">
               {links.map((l) => (
                 <Link key={l.href} href={l.href} onClick={() => setOpen(false)}>
                   <Button
                     variant={pathname?.startsWith(l.href) ? 'secondary' : 'ghost'}
-                    className="w-full justify-start gap-2"
+                    data-active={pathname?.startsWith(l.href)}
+                    className="site-nav-link w-full justify-start gap-2"
                   >
-                    <l.icon className="h-4 w-4" />
+                    <l.icon className="site-nav-icon h-4 w-4" />
                     {l.label}
                   </Button>
                 </Link>

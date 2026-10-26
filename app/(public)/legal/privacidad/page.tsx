@@ -4,10 +4,11 @@ export const dynamic = 'force-dynamic';
 import { getConfig } from '@/lib/config';
 import { getBrand } from '@/lib/brand/brand';
 import { LegalShell } from '../../_templates/legal-shell';
+import { canonicalAlternates } from '@/lib/seo/canonical';
 
-export const metadata = {
-  title: 'Política de privacidad',
-};
+export function generateMetadata() {
+  return { title: 'Política de privacidad', ...canonicalAlternates('/legal/privacidad') };
+}
 
 export default async function PrivacidadPage() {
   const [text, brand] = await Promise.all([getConfig('privacy_policy'), getBrand()]);

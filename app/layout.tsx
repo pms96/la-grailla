@@ -9,6 +9,8 @@ import { getActiveModules } from '@/lib/modules/runtime';
 import { tenantBlobPrefix } from '@/lib/tenant/blob';
 import { absoluteBrandUrl, getBrand } from '@/lib/brand/brand';
 import { fontVariableClasses } from '@/lib/brand/fonts';
+import { fallbackDescription } from '@/lib/seo/description';
+import { siteBaseUrl } from '@/lib/seo/canonical';
 import { BRAND_FONTS_ATTR, buildThemeCss } from '@/lib/brand/theme';
 import Providers from './providers';
 
@@ -27,15 +29,28 @@ function safeBlobPrefix(): string {
   }
 }
 
+// Sin cliente resuelto no hay módulos: el layout (y los metadatos) tampoco deben tirar.
+function safeModules() {
+  try {
+    return getActiveModules();
+  } catch {
+    return [];
+  }
+}
+
 // La marca (título, iconos, colores, tipografías) es del cliente que pide la página: nada de esto puede quedar fijado en el build.
 export async function generateMetadata(): Promise<Metadata> {
   const brand = await getBrand();
   const title = brand.tagline ? `${brand.name} — ${brand.tagline}` : brand.name;
   const og = absoluteBrandUrl(brand.ogImage);
   const isSeedIcons = brand.favicon === '/icon-32.png';
+  // Sin descripción ni eslogan del cliente, una frase cierta sacada de lo que ofrece el sitio (nunca el fragmento al azar del buscador).
+  const description = brand.description || fallbackDescription(brand.name, safeModules());
+  const base = siteBaseUrl();
   return {
+    ...(base ? { metadataBase: new URL(base) } : {}),
     title: { default: title, template: `%s | ${brand.name}` },
-    description: brand.description || undefined,
+    description,
     ...(!brand.favicon
       ? {
           // Sin favicon propio: una inicial sobre el color de marca. Si no, Next serviría el app/favicon.ico de La Grailla a otro cliente.
@@ -57,10 +72,14 @@ export async function generateMetadata(): Promise<Metadata> {
         }
       : {}),
     openGraph: {
+      type: 'website',
+      siteName: brand.name,
+      locale: 'es_ES',
       title,
-      description: brand.description || undefined,
+      description,
       ...(og ? { images: [{ url: og }] } : {}),
     },
+    ...(og ? { twitter: { card: 'summary_large_image' as const, title, description, images: [og] } } : {}),
   };
 }
 

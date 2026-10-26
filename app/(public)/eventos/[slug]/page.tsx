@@ -14,19 +14,31 @@ import { Container } from '@/components/layouts/container';
 import { MobileBuyBar } from './_components/mobile-buy-bar';
 import { AgeWarningGate } from './_components/age-warning-gate';
 import { ReloadButton } from '@/components/reload-button';
-import { getBrand } from '@/lib/brand/brand';
+import { absoluteBrandUrl, getBrand } from '@/lib/brand/brand';
 import { PageBanner, hasBanner } from '../../_templates/page-banner';
+import { canonicalAlternates, siteBaseUrl } from '@/lib/seo/canonical';
+import { eventJsonLd } from '@/lib/seo/event-json-ld';
+import { safeJsonLd } from '@/lib/seo/json-ld';
+import { EVENT_TIMEZONE } from '@/lib/event-time';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: { params: { slug: string } }) {
-  const event = await prisma.event.findUnique({ where: { slug: params?.slug } });
+  const [event, brand] = await Promise.all([prisma.event.findUnique({ where: { slug: params?.slug } }), getBrand()]);
   if (!event) return { title: 'Evento' };
+  const description = `${event.name} en ${event.venue}, ${event.city}. Compra tus entradas online.`;
+  // El cartel del evento y, si no tiene, la imagen social de la marca: así un evento sin cartel no se comparte sin imagen.
+  const image = event.imageUrl || absoluteBrandUrl(brand.ogImage);
   return {
     title: event.name,
-    description: `${event.name} en ${event.venue}, ${event.city}. Compra tus entradas online.`,
-    openGraph: event.imageUrl ? { images: [{ url: event.imageUrl }] } : undefined,
+    description,
+    // El `openGraph` de una página sustituye al de la marca (no se mezclan): se completa aquí entero, y Twitter con la misma imagen.
+    openGraph: { type: 'website', siteName: brand.name, locale: 'es_ES', title: event.name, description, ...(image ? { images: [{ url: image }] } : {}) },
+    ...(image ? { twitter: { card: 'summary_large_image' as const, title: event.name, description, images: [image] } } : {}),
+    ...canonicalAlternates(`/eventos/${event.slug}`),
+    // La ficha se abre por URL aunque el evento no esté publicado (borrador, finalizado, cancelado): que no entre en los buscadores.
+    ...(event.status !== 'PUBLISHED' ? { robots: { index: false, follow: false } } : {}),
   };
 }
 
@@ -67,7 +79,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
   if (!event) notFound();
 
   const dateStr = event?.date
-    ? new Date(event.date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    ? new Date(event.date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: EVENT_TIMEZONE })
     : '';
   const demand = getEventDemandLevel(event?.maxCapacity ?? 0, event?.currentCount ?? 0);
   const mapQuery =
@@ -89,7 +101,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
   const eventEnded = hasEventEnded(event?.date);
   const ageWarningMessage = getEventAgeWarningMessage(event ?? { ageWarningEnabled: false });
 
-  // Las plantillas nuevas (marquesina, galería, tipo) llevan su propia cabecera; Feria y Editorial conservan la de siempre.
+  // Todas las plantillas llevan su propia cabecera salvo Feria, que conserva la de siempre (la de La Grailla).
   const brand = await getBrand();
   const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
   const banner = hasBanner(brand.template) ? (
@@ -108,6 +120,28 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
       ].filter((f) => f.value)}
     />
   ) : null;
+
+  // Datos estructurados solo de eventos publicados (los demás llevan `noindex`).
+  const eventLd =
+    event.status === 'PUBLISHED'
+      ? eventJsonLd(
+          {
+            name: event.name,
+            slug: event.slug,
+            description: event.description,
+            venue: event.venue,
+            city: event.city,
+            address: event.address,
+            imageUrl: event.imageUrl,
+            date: event.date,
+            ticketTypes: activeTypes.map((t) => ({ name: t.name, price: Number(t.price), maxQuantity: t.maxQuantity, soldCount: t.soldCount })),
+            onlineSalesClosed: taquillaOnly,
+            ended: eventEnded,
+          },
+          brand.name,
+          siteBaseUrl(),
+        )
+      : null;
 
   const ticketsCard = (
     <Card id="entradas">
@@ -173,6 +207,7 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
 
   return (
     <>
+      {eventLd && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(eventLd) }} />}
       {banner ?? (
       /* Cartel full-bleed — mismo lenguaje visual que el hero de home */
       <div className="relative overflow-hidden min-h-[42vh] md:min-h-[48vh] flex items-end">
@@ -198,9 +233,11 @@ export default async function EventoDetailPage({ params }: { params: { slug: str
               <Badge variant="secondary" className="gap-1">
                 <Calendar className="h-3 w-3" /> {dateStr}
               </Badge>
-              <Badge variant="secondary" className="gap-1">
-                <Clock className="h-3 w-3" /> {event?.doorsOpen ?? ''} — {event?.endTime ?? ''}
-              </Badge>
+              {(event?.doorsOpen || event?.endTime) && (
+                <Badge variant="secondary" className="gap-1">
+                  <Clock className="h-3 w-3" /> {[event?.doorsOpen, event?.endTime].filter(Boolean).join(' — ')}
+                </Badge>
+              )}
               <Badge variant="secondary" className="gap-1">
                 <MapPin className="h-3 w-3" /> {event?.venue ?? ''}, {event?.city ?? ''}
               </Badge>

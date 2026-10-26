@@ -9,6 +9,7 @@ import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { seasonLinkEnabled } from '@/lib/modules/season-link';
 import { syncProductVariants } from '@/lib/product-stock';
+import { releaseUnusedBlobs } from '@/lib/blob-cleanup';
 
 const variantStockSchema = z.object({
   size: z.string().optional().nullable(),
@@ -39,6 +40,11 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   if (!(await requireAdmin())) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   try {
     const body = updateProductSchema.parse(await request.json());
+    // Si cambian las fotos, las que sobran se borran de Blob cuando ya está guardado el cambio.
+    const previous =
+      body?.imageUrl !== undefined || body?.images !== undefined
+        ? await prisma.product.findUnique({ where: { id: params?.id }, select: { imageUrl: true, images: true } })
+        : null;
     const product = await prisma.$transaction(async (tx) => {
       const data: Prisma.ProductUpdateInput = {};
       if (body?.name !== undefined) data.name = body.name;
@@ -69,6 +75,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
         include: { variants: { orderBy: [{ size: 'asc' }, { color: 'asc' }] } },
       });
     });
+    if (previous) await releaseUnusedBlobs([previous.imageUrl, ...previous.images], [product.imageUrl, ...product.images]);
     return NextResponse.json(product);
   } catch (error) {
     return handleApiError(error, 'PATCH /api/admin/products/[id]');

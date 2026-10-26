@@ -25,15 +25,14 @@ const base = (template: PageBannerProps['template'], over: Partial<PageBannerPro
 });
 
 describe('hasBanner', () => {
-  it('solo las plantillas nuevas tienen cabecera propia; Feria y Editorial conservan la de cada página', () => {
-    expect(BANNER_TEMPLATES).toEqual(['marquesina', 'galeria', 'tipo', 'estudio', 'cine', 'drop']);
+  it('todas las plantillas tienen cabecera propia salvo Feria, que conserva la de cada página (la de La Grailla)', () => {
+    expect(BANNER_TEMPLATES).toEqual(['editorial', 'marquesina', 'galeria', 'tipo', 'estudio', 'cine', 'drop']);
     expect(hasBanner('feria')).toBe(false);
-    expect(hasBanner('editorial')).toBe(false);
     for (const t of BANNER_TEMPLATES) expect(hasBanner(t)).toBe(true);
   });
 
-  it('toda plantilla del catálogo está decidida: o tiene cabecera o es una de las dos clásicas', () => {
-    const classic = ['feria', 'editorial'];
+  it('toda plantilla del catálogo está decidida: o tiene cabecera o es la clásica de Feria', () => {
+    const classic = ['feria'];
     for (const t of TEMPLATES) expect(hasBanner(t) || classic.includes(t), `plantilla sin decidir: ${t}`).toBe(true);
   });
 });
@@ -103,6 +102,25 @@ describe('PageBanner — lo propio de cada plantilla', () => {
     expect(svg('uno')).not.toBe(svg('dos'));
   });
 
+  it('editorial: sobria como su portada (sin degradado ni cinta), datos en una línea con barras y cartel 4:5 con texto alternativo', () => {
+    const html = render(<PageBanner {...base('editorial')} />);
+    expect(html).toContain('alt="Cartel de Noche de Verano"');
+    expect(html).toContain('aspect-[4/5]');
+    expect(html).toContain('<dl');
+    expect(html).toContain('>/<'); // separador decorativo entre datos
+    expect(html).toContain('aria-hidden');
+    expect(html).not.toMatch(/hero-gradient|marquee|brand-sticker|bg-gradient/);
+    // Los datos tienen su etiqueta accesible (solo para lectores de pantalla) y el primero no lleva barra delante.
+    expect(html).toMatch(/<dt class="sr-only">Fecha<\/dt><dd>Sábado, 14 de noviembre<\/dd>/);
+    expect(html.indexOf('>/<')).toBeGreaterThan(html.indexOf('Sábado, 14 de noviembre'));
+  });
+
+  it('editorial sin cartel: el titular ocupa todo el ancho (sin rejilla ni imagen)', () => {
+    const html = render(<PageBanner {...base('editorial', { imageUrl: null })} />);
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('md:grid-cols-12');
+  });
+
   it('ninguna cabecera lleva texto ni estilo fijo de La Grailla', () => {
     for (const t of BANNER_TEMPLATES) {
       const html = render(<PageBanner {...base(t)} />);
@@ -114,16 +132,14 @@ describe('PageBanner — lo propio de cada plantilla', () => {
 describe('LegalShell', () => {
   const brand = (template: Brand['template']) => ({ template, name: 'Sala Rodrigo', theme: null }) as unknown as Brand;
 
-  it('Feria y Editorial: el mismo marcado de siempre (h1 con font-display y contenido centrado)', () => {
-    for (const t of ['feria', 'editorial'] as const) {
-      const html = render(<LegalShell title="Aviso legal" brand={brand(t)}><p>Texto legal</p></LegalShell>);
-      expect(html).toContain('font-display text-3xl md:text-4xl font-bold tracking-tight');
-      expect(html).toContain('max-w-3xl mx-auto');
-      expect(html).toContain('Texto legal');
-      expect(html).not.toContain('mq-title');
-      expect(html).not.toContain('gl-title');
-      expect(html).not.toContain('tp-title');
-    }
+  it('Feria: el mismo marcado de siempre (h1 con font-display y contenido centrado)', () => {
+    const html = render(<LegalShell title="Aviso legal" brand={brand('feria')}><p>Texto legal</p></LegalShell>);
+    expect(html).toContain('font-display text-3xl md:text-4xl font-bold tracking-tight');
+    expect(html).toContain('max-w-3xl mx-auto');
+    expect(html).toContain('Texto legal');
+    expect(html).not.toContain('mq-title');
+    expect(html).not.toContain('gl-title');
+    expect(html).not.toContain('tp-title');
   });
 
   it('plantillas nuevas: cabecera compacta con el título y el texto legal debajo', () => {

@@ -167,6 +167,13 @@ export function serializeSection(section: ContentSection, kind: SectionKind): st
   return JSON.stringify(clean);
 }
 
+/** Las imágenes que usa una sección guardada (para saber cuáles dejan de usarse al editarla o quitarla). */
+export function sectionImageUrls(raw: string | null | undefined, kind: SectionKind): string[] {
+  return parseSection(raw, kind)
+    .items.map((item) => item.imageUrl)
+    .filter((url) => url !== '');
+}
+
 /** Motivo por el que el valor guardado no es válido (para rechazarlo en la API y avisar en el editor), o null si lo es. Vacío vale: la oculta.
  *  Es MÁS estricta que `parseSection`: la web tolera datos raros, pero el panel no debe guardarlos en silencio recortados. */
 export function invalidSectionValue(raw: string, kind?: SectionKind): string | null {

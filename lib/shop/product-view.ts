@@ -1,4 +1,5 @@
 import { parseProductOptions } from '@/lib/shop-cart';
+import { absoluteUrl, safeJsonLd } from '@/lib/seo/json-ld';
 
 /* Vista pública de un producto de la tienda, ya lista para pintar (servidor y navegador): números, listas de tallas y colores, stock por variante
  * y la ruta de su ficha. Módulo PURO (sin Prisma ni React): lo usan las páginas de la tienda de la plantilla «drop», el carrito y los tests.
@@ -106,7 +107,7 @@ export function lowStockNote(stock: number | null): string | null {
 
 /** JSON-LD de un producto (Schema.org) para buscadores. `baseUrl` vacío = sin direcciones absolutas. */
 export function productJsonLd(p: ShopProductView, brandName: string, baseUrl: string): Record<string, unknown> {
-  const abs = (u: string) => (/^https?:\/\//i.test(u) ? u : baseUrl ? `${baseUrl}${u}` : u);
+  const abs = (u: string) => absoluteUrl(u, baseUrl);
   return {
     '@context': 'https://schema.org',
     '@type': 'Product',
@@ -125,11 +126,5 @@ export function productJsonLd(p: ShopProductView, brandName: string, baseUrl: st
   };
 }
 
-const LINE_SEPARATORS = new RegExp('[\\u2028\\u2029]', 'g');
-
-/** Serializa JSON-LD para un <script>: escapa `<` (y los separadores de línea) para que un texto del cliente no pueda cerrar la etiqueta. */
-export function safeJsonLd(data: unknown): string {
-  return JSON.stringify(data)
-    .replace(/</g, '\\u003c')
-    .replace(LINE_SEPARATORS, (c) => `\\u${c.charCodeAt(0).toString(16)}`);
-}
+// Vive en `lib/seo` (lo comparte la ficha de evento); se reexporta para no cambiar los imports de la tienda.
+export { safeJsonLd };

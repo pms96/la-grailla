@@ -4,10 +4,11 @@ export const dynamic = 'force-dynamic';
 import { getConfig } from '@/lib/config';
 import { getBrand } from '@/lib/brand/brand';
 import { LegalShell } from '../../_templates/legal-shell';
+import { canonicalAlternates } from '@/lib/seo/canonical';
 
-export const metadata = {
-  title: 'Política de cookies',
-};
+export function generateMetadata() {
+  return { title: 'Política de cookies', ...canonicalAlternates('/legal/cookies') };
+}
 
 export default async function CookiesPolicyPage() {
   const [text, brand] = await Promise.all([getConfig('cookies_policy'), getBrand()]);

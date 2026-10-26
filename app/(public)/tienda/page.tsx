@@ -8,13 +8,15 @@ import { PageBanner, hasBanner } from '../_templates/page-banner';
 import { DropShop } from '../_home/drop/drop-shop';
 import { getShopProducts } from '@/lib/shop/products';
 import type { ShopProductView } from '@/lib/shop/product-view';
+import { canonicalAlternates } from '@/lib/seo/canonical';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
 
 export async function generateMetadata() {
   const { name } = await getBrand();
-  return { title: 'Tienda', description: `Tienda oficial de ${name}.` };
+  // Canónica sin `?categoria=`: los filtros de la tienda no son páginas distintas para el buscador.
+  return { title: 'Tienda', description: `Tienda oficial de ${name}.`, ...canonicalAlternates('/tienda') };
 }
 
 export default async function TiendaPage({ searchParams }: { searchParams?: { categoria?: string | string[] } }) {

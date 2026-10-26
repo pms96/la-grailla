@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
-import { getBrand } from '@/lib/brand/brand';
+import { absoluteBrandUrl, getBrand } from '@/lib/brand/brand';
+import { canonicalAlternates } from '@/lib/seo/canonical';
 import { getFallbackBaseUrl } from '@/lib/url';
 import { getActiveModules } from '@/lib/modules/runtime';
 import { getShopProduct } from '@/lib/shop/products';
@@ -26,10 +27,16 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   const [{ product }, brand] = await Promise.all([load(params?.slug), getBrand()]);
   if (!product) return { title: 'Producto' };
   const description = product.description ? product.description.replace(/\s+/g, ' ').slice(0, 160) : `${product.name}, en la tienda de ${brand.name}.`;
+  const image = product.imageUrl || absoluteBrandUrl(brand.ogImage);
   return {
     title: product.name,
     description,
-    openGraph: product.imageUrl ? { title: product.name, description, images: [{ url: product.imageUrl }] } : undefined,
+    // Un mismo producto se abre por slug o por id: la canónica es siempre la ruta preferida (la del slug).
+    ...canonicalAlternates(product.path),
+    // El `openGraph` de una página sustituye al de la marca (no se mezclan): se completa aquí entero, con la foto del producto (o, si no tiene, la
+    // imagen social de la marca) y Twitter con la misma.
+    openGraph: { type: 'website', siteName: brand.name, locale: 'es_ES', title: product.name, description, ...(image ? { images: [{ url: image }] } : {}) },
+    ...(image ? { twitter: { card: 'summary_large_image' as const, title: product.name, description, images: [image] } } : {}),
   };
 }
 
