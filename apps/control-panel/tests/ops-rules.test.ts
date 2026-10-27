@@ -311,3 +311,83 @@ describe('Salud: un cliente caído muestra el motivo y, aparte, las señales de 
     expect(r.problems[1]).toContain('con error de envío');
   });
 });
+
+describe('conciliación diaria con la pasarela (alerta nº 1: cobro sin pedido)', () => {
+  const gw = (over: Partial<NonNullable<OpsBlock['gateway']>> = {}): NonNullable<OpsBlock['gateway']> => ({ lastRunAt: minutesAgo(60), checked: 12, unmatched: 0, errors: 0, skipped: 0, truncated: false, ...over });
+
+  it('un front sin el campo (versión anterior) o que aún no ha corrido no genera nada', () => {
+    expect(evaluateOps(calm(), NOW, null).findings).toEqual([]);
+    expect(evaluateOps(calm({ gateway: null }), NOW, null).findings).toEqual([]);
+  });
+
+  it('todo cuadra y al día: sin señal', () => {
+    expect(evaluateOps(calm({ gateway: gw() }), NOW, null).findings).toEqual([]);
+  });
+
+  it('cualquier cobro sin pedido es un FALLO que avisa de inmediato (umbral 0)', () => {
+    const e = evaluateOps(calm({ gateway: gw({ unmatched: 1 }) }), NOW, null);
+    expect(keys(e)).toEqual(['gateway_unmatched']);
+    expect(e.findings[0].severity).toBe('critical');
+    expect(e.raise.map((f) => f.key)).toEqual(['gateway_unmatched']);
+    expect(e.findings[0].line).toContain('1 en las últimas 48 h');
+    expect(opsAlertFor(e.raise)).toMatchObject({ severity: 'critical', title: 'cobros sin pedido confirmado' });
+    expect(hasCriticalOps(e.findings[0].line)).toBe(true);
+  });
+
+  it('el mismo incidente en la pasada siguiente no vuelve a avisar; al resolverse avisa «recuperado»', () => {
+    const first = evaluateOps(calm({ gateway: gw({ unmatched: 2 }) }), NOW, null);
+    const line = first.findings.map((f) => f.line).join(' · ');
+    const again = evaluateOps(calm({ gateway: gw({ unmatched: 2 }) }), NOW + 5 * MIN, line);
+    expect(again.raise).toEqual([]);
+    const solved = evaluateOps(calm({ gateway: gw({ unmatched: 0 }) }), NOW + 10 * MIN, line);
+    expect(solved).toMatchObject({ findings: [], recovered: true });
+  });
+
+  it('cuentas de cobro sin poder consultar, o una conciliación vieja (>36 h), es un AVISO («no está al día»), no un fallo', () => {
+    const errs = evaluateOps(calm({ gateway: gw({ errors: 1 }) }), NOW, null);
+    expect(keys(errs)).toEqual(['gateway_check']);
+    expect(errs.findings[0].severity).toBe('warning');
+    expect(errs.findings[0].line).toContain('1 cuenta(s) de cobro sin poder consultar');
+    const stale = evaluateOps(calm({ gateway: gw({ lastRunAt: minutesAgo(37 * 60) }) }), NOW, null);
+    expect(keys(stale)).toEqual(['gateway_check']);
+    expect(stale.findings[0].line).toContain('hace 37 h');
+    expect(keys(evaluateOps(calm({ gateway: gw({ lastRunAt: minutesAgo(35 * 60) }) }), NOW, null))).toEqual([]);
+  });
+
+  it('cobros sin pedido Y conciliación sin hacer a la vez: dos señales, un solo aviso con el fallo mandando', () => {
+    const e = evaluateOps(calm({ gateway: gw({ unmatched: 3, errors: 1 }) }), NOW, null);
+    expect(keys(e).sort()).toEqual(['gateway_check', 'gateway_unmatched']);
+    expect(opsAlertFor(e.raise)).toMatchObject({ severity: 'critical', title: '2 señales de operación' });
+  });
+
+  it('`gateway: null` (el front no pudo leerlo en esta pasada) CONSERVA el incidente: ni falso «recuperado» ni aviso doble', () => {
+    const first = evaluateOps(calm({ gateway: gw({ unmatched: 2 }) }), NOW, null);
+    const line = first.findings.map((f) => f.line).join(' · ');
+    const blip = evaluateOps(calm({ gateway: null }), NOW + 5 * MIN, line);
+    expect(keys(blip)).toEqual(['gateway_unmatched']);
+    expect(blip).toMatchObject({ raise: [], recovered: false });
+  });
+
+  it('una pasada que no pudo consultar la pasarela (errors>0, unmatched=0) NO da por resuelto un cobro sin pedido anterior', () => {
+    const first = evaluateOps(calm({ gateway: gw({ unmatched: 1 }) }), NOW, null);
+    const line = first.findings.map((f) => f.line).join(' · ');
+    const failedPass = evaluateOps(calmAt(24 * 60 * MIN, { gateway: gw({ unmatched: 0, errors: 1 }) }), NOW + 24 * 60 * MIN, line);
+    expect(keys(failedPass).sort()).toEqual(['gateway_check', 'gateway_unmatched']);
+    expect(failedPass.raise.map((f) => f.key)).toEqual(['gateway_check']); // el cobro ya estaba avisado: no se repite como «nuevo»
+    expect(failedPass.recovered).toBe(false);
+  });
+
+  it('una lista cortada (`truncated`) es un aviso «sin hacer»: puede haber cobros sin mirar', () => {
+    const e = evaluateOps(calm({ gateway: gw({ truncated: true }) }), NOW, null);
+    expect(keys(e)).toEqual(['gateway_check']);
+    expect(e.findings[0].line).toContain('la lista de cobros se cortó');
+  });
+
+  it('si el front deja de mandar el campo (rollback), se CONSERVA lo que constaba en vez de darlo por resuelto', () => {
+    const first = evaluateOps(calm({ gateway: gw({ unmatched: 1 }) }), NOW, null);
+    const line = first.findings.map((f) => f.line).join(' · ');
+    const rolledBack = evaluateOps(calm(), NOW + 5 * MIN, line);
+    expect(keys(rolledBack)).toEqual(['gateway_unmatched']);
+    expect(rolledBack.recovered).toBe(false);
+  });
+});

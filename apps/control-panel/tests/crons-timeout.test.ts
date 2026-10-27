@@ -43,6 +43,8 @@ describe('tiempo de la llamada por tarea', () => {
     expect(RECONCILE_CALL_TIMEOUT_MS).toBeLessThan(60_000);
     expect(TENANT_JOBS['reconcile-payments'].callTimeoutMs).toBe(RECONCILE_CALL_TIMEOUT_MS);
     expect(TENANT_JOBS['cleanup-waiting-room'].callTimeoutMs).toBeUndefined();
+    // La conciliación diaria con la pasarela recorre varias páginas de la pasarela: mismo plazo largo (su función en el front dura hasta 60 s).
+    expect(TENANT_JOBS['reconcile-gateway']).toMatchObject({ intervalMs: 24 * 60 * 60_000, path: '/api/cron/reconcile-gateway', callTimeoutMs: RECONCILE_CALL_TIMEOUT_MS });
     expect(TENANT_JOBS.health.callTimeoutMs).toBeUndefined();
   });
 

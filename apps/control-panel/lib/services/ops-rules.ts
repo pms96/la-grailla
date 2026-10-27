@@ -13,8 +13,10 @@ export const PENDING_CRITICAL_MIN = 30;
 export const RECONCILE_STALE_MIN = 15;
 /** Emails sin enviar: se avisa si la señal se mantiene al menos este tiempo (dos comprobaciones seguidas), no por un tropiezo suelto. */
 export const EMAILS_SUSTAINED_MS = 10 * 60_000;
+/** La conciliación diaria con la pasarela corre cada 24 h; si la última pasada es más vieja que esto, no está corriendo (margen de un día perdido + reintentos). */
+export const GATEWAY_STALE_H = 36;
 
-export type OpsKey = 'pending' | 'pending_critical' | 'emails_unsent' | 'emails_failed' | 'reconcile_errors' | 'reconcile_stale';
+export type OpsKey = 'pending' | 'pending_critical' | 'emails_unsent' | 'emails_failed' | 'reconcile_errors' | 'reconcile_stale' | 'gateway_unmatched' | 'gateway_check';
 export type OpsSeverity = 'warning' | 'critical';
 export type OpsFinding = { key: OpsKey; severity: OpsSeverity; /** Título corto del aviso. */ title: string; /** Línea que se guarda y se muestra. */ line: string };
 
@@ -30,6 +32,8 @@ const NEEDLE: Record<OpsKey, string> = {
   emails_failed: 'emails de confirmación con error de envío',
   reconcile_errors: 'el reconcile tiene errores',
   reconcile_stale: 'el reconcile no corre',
+  gateway_unmatched: 'cobros en la pasarela sin pedido confirmado',
+  gateway_check: 'la conciliación diaria con la pasarela no está al día',
 };
 const SUSTAINED_MARK = '(sostenido)';
 /** Marca de una línea que se guardó pero cuyo aviso NO llegó a salir (tope de avisos por pasada o canal caído): en la siguiente pasada se vuelve a avisar. */
@@ -52,7 +56,7 @@ export function splitHealthError(error: string | null | undefined): { ops: strin
 
 /** ¿Alguna de las líneas de operación guardadas es de gravedad «fallo»? (la ficha y Salud pintan en rojo en lugar de en ámbar) */
 export function hasCriticalOps(error: string | null | undefined): boolean {
-  const critical: OpsKey[] = ['pending_critical', 'emails_failed', 'reconcile_errors', 'reconcile_stale'];
+  const critical: OpsKey[] = ['pending_critical', 'emails_failed', 'reconcile_errors', 'reconcile_stale', 'gateway_unmatched'];
   return splitHealthError(error).ops.some((line) => critical.some((k) => line.includes(NEEDLE[k])));
 }
 
@@ -84,6 +88,8 @@ const META: Record<OpsKey, { severity: OpsSeverity; title: string }> = {
   emails_failed: { severity: 'critical', title: 'emails con error de envío' },
   reconcile_errors: { severity: 'critical', title: 'el reconcile tiene errores' },
   reconcile_stale: { severity: 'critical', title: 'el reconcile no corre' },
+  gateway_unmatched: { severity: 'critical', title: 'cobros sin pedido confirmado' },
+  gateway_check: { severity: 'warning', title: 'conciliación con la pasarela sin hacer' },
 };
 const SINCE_RE = /desde (\d{4}-\d{2}-\d{2}T\d{2}:\d{2})Z/;
 /** Primera vez que se vio la señal de emails (a precisión de minuto), de la línea anterior; si no había, ahora. */
@@ -173,6 +179,35 @@ export function evaluateOps(ops: OpsBlock, now: number, previousError: string | 
         line: `${OPS_PREFIX}${NEEDLE.reconcile_stale} — la última pasada fue hace ${minutes((now - last) / 60_000)} min`,
       });
     }
+  }
+
+  // 5. Conciliación diaria con la pasarela (alerta nº 1 de la auditoría). `undefined` (un front anterior que no la hace) y `null` (aún no ha corrido, o el front
+  // no pudo leerla en esta pasada: no se distingue) NO aplican ninguna regla y CONSERVAN lo que ya constaba: un tropiezo de lectura no puede dar por resuelto
+  // un cobro sin pedido. Sin línea previa no hay nada que conservar (la tarea `reconcile-gateway` del propio panel cubre sus fallos seguidos).
+  const gw = ops.gateway;
+  if (gw) {
+    if (gw.unmatched > 0) {
+      findings.push({
+        key: 'gateway_unmatched',
+        severity: 'critical',
+        title: 'cobros sin pedido confirmado',
+        line: `${OPS_PREFIX}${NEEDLE.gateway_unmatched} — ${minutes(gw.unmatched)} en las últimas 48 h`,
+      });
+    }
+    const lastGw = Date.parse(gw.lastRunAt);
+    const ageH = Number.isFinite(lastGw) ? (now - lastGw) / 3_600_000 : 0;
+    // Una pasada que no pudo mirar alguna cuenta NO demuestra que ya no haya cobros sin pedido: se conserva el aviso anterior en vez de darlo por resuelto.
+    if (gw.errors > 0 && gw.unmatched === 0) carry('gateway_unmatched');
+    if (gw.errors > 0 || gw.truncated || ageH > GATEWAY_STALE_H) {
+      const why = [
+        gw.errors > 0 ? `${minutes(gw.errors)} cuenta(s) de cobro sin poder consultar` : '',
+        gw.truncated ? 'la lista de cobros se cortó (puede haber cobros sin mirar)' : '',
+        ageH > GATEWAY_STALE_H ? `la última pasada fue hace ${minutes(ageH)} h` : '',
+      ].filter(Boolean).join(', ');
+      findings.push({ key: 'gateway_check', severity: 'warning', title: 'conciliación con la pasarela sin hacer', line: `${OPS_PREFIX}${NEEDLE.gateway_check} — ${why}` });
+    }
+  } else {
+    carry('gateway_unmatched', 'gateway_check');
   }
 
   // Qué avisar: lo que antes no estaba (o escala de aviso a fallo: es otra clave); los emails, cuando pasan a «sostenido».

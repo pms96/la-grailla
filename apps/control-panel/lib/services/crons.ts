@@ -24,6 +24,8 @@ export const RECONCILE_CALL_TIMEOUT_MS = 55_000;
 
 export const TENANT_JOBS: Record<string, TenantJob> = {
   'reconcile-payments': { name: 'reconcile-payments', intervalMs: 5 * 60_000, kind: 'cron', path: '/api/cron/reconcile-payments', maxBackoffMs: 15 * 60_000, callTimeoutMs: RECONCILE_CALL_TIMEOUT_MS },
+  // Conciliación inversa pasarela → BD (alerta nº 1 de la auditoría: «cobro sin pedido»). Una vez al día por cliente; solo lectura. Un fallo se reintenta con backoff (tope 1 h).
+  'reconcile-gateway': { name: 'reconcile-gateway', intervalMs: 24 * 60 * 60_000, kind: 'cron', path: '/api/cron/reconcile-gateway', callTimeoutMs: RECONCILE_CALL_TIMEOUT_MS },
   'cleanup-waiting-room': { name: 'cleanup-waiting-room', intervalMs: 30 * 60_000, kind: 'cron', path: '/api/cron/cleanup-waiting-room' },
   health: { name: 'health', intervalMs: 5 * 60_000, kind: 'health' },
 };

@@ -25,6 +25,23 @@ export const OpsReconcileSchema = z.object({
 });
 export type OpsReconcile = z.infer<typeof OpsReconcileSchema>;
 
+/** Última conciliación diaria pasarela↔BD (alerta nº 1 de la auditoría: «cobro sin pedido»). */
+export const OpsGatewaySchema = z.object({
+  /** Cuándo terminó la última pasada. */
+  lastRunAt: isoDate,
+  /** Cobros (o, en SumUp, pedidos sin pagar) contrastados. */
+  checked: count,
+  /** Cobros pagados en la pasarela sin pedido confirmado en la BD. Debe ser 0: cualquier valor es un incidente. */
+  unmatched: count,
+  /** Cuentas de cobro que no se pudieron consultar (credencial inválida, pasarela caída). */
+  errors: count,
+  /** Cuentas con cobertura parcial (SumUp no deja detectar cobros sin pedido). */
+  skipped: count,
+  /** La lista se cortó por tope de páginas o de tiempo. */
+  truncated: z.boolean(),
+});
+export type OpsGateway = z.infer<typeof OpsGatewaySchema>;
+
 export const OpsBlockSchema = z.object({
   /** Cuándo se calculó el bloque (ISO). */
   generatedAt: isoDate,
@@ -38,6 +55,8 @@ export const OpsBlockSchema = z.object({
   emailsFailed: count.nullable(),
   /** Null = el cliente aún no ha registrado ninguna pasada. */
   reconcile: OpsReconcileSchema.nullable(),
+  /** Conciliación diaria con la pasarela. Ausente = un front anterior que no la hace; null = aún no ha corrido. */
+  gateway: OpsGatewaySchema.nullable().optional(),
 });
 export type OpsBlock = z.infer<typeof OpsBlockSchema>;
 

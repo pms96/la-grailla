@@ -116,6 +116,36 @@ export interface ConnectionTestResult {
   error?: string;
 }
 
+/** Un cobro pagado según la pasarela (sesión de Checkout), normalizado para la conciliación inversa pasarela → BD (OB-11). */
+export interface PaidSession {
+  id: string;
+  /** `metadata.orderId` con el que se creó la sesión; null si no lo lleva (no es una venta de esta plataforma). */
+  orderId: string | null;
+  /** `metadata.orderType`: `ticket` (entradas) o `shop` (tienda). */
+  orderType: string | null;
+  amount: number | null;
+  currency: string | null;
+  createdAt: Date;
+  /** El cargo consta reembolsado, total o parcialmente. */
+  refunded: boolean;
+}
+
+export interface PaidListing {
+  sessions: PaidSession[];
+  /** La lista se cortó por el tope de páginas o de tiempo: puede haber más cobros que no se han visto. */
+  truncated: boolean;
+  /** La consulta falló (clave inválida, pasarela caída…); `sessions` lleva lo que se llegó a leer. */
+  error?: string;
+}
+
+/** ¿Hay un checkout PAGADO con esta referencia (SumUp referencia el checkout con el id de NUESTRO pedido)? */
+export interface PaidByReference {
+  paid: boolean;
+  checkoutId?: string;
+  refunded: boolean;
+  error?: string;
+}
+
 export interface PaymentProvider {
   name: string;
   capabilities: ProviderCapabilities;
@@ -157,6 +187,14 @@ export interface PaymentProvider {
    * EN-07). `null` si ya no se puede pagar o no se puede saber. Nunca lanza.
    */
   resumeCheckout?(paymentId: string): Promise<string | null>;
+  /**
+   * Cobros PAGADOS creados en un intervalo (solo lectura; páginas de 100, con tope de páginas y de tiempo). Solo existe si la pasarela puede listar
+   * sus cobros con la referencia de NUESTRO pedido (Stripe: `metadata.orderId`). Es la base de la conciliación inversa diaria: un cobro sin pedido
+   * en la BD solo se ve recorriendo la pasarela. Nunca lanza.
+   */
+  listRecentPaid?(opts: { from: Date; to: Date; maxPages: number; deadline: number }): Promise<PaidListing>;
+  /** Búsqueda del cobro de un pedido por su referencia (SumUp no deja listar por fecha con referencia). Nunca lanza. */
+  findPaidByReference?(reference: string): Promise<PaidByReference>;
   // idempotencyKey (opcional): identifica de forma estable un mismo intento
   // de reembolso (p.ej. `refund_${orderId}`) para que un timeout/reintento de
   // red hacia la pasarela no acabe creando un segundo reembolso real —
@@ -184,7 +222,7 @@ export function mapStripeSessionStatus(session: { payment_status?: string | null
 }
 
 /** ¿La sesión está pagada pero su cargo consta como reembolsado, total o parcialmente? Solo se sabe si el cargo viene expandido; si no, se asume que no. */
-function stripeSessionRefunded(session: unknown): boolean {
+export function stripeSessionRefunded(session: unknown): boolean {
   const s = session as { payment_status?: string | null; payment_intent?: unknown } | null;
   if (s?.payment_status !== 'paid') return false;
   const pi = s.payment_intent;
@@ -327,6 +365,45 @@ export class StripeAdapter implements PaymentProvider {
     } catch (err) {
       // Clave caducada o mal puesta, red, Stripe caído…: NO es «no pagado». Con `UNKNOWN` nadie libera nada a partir de este resultado.
       return { success: false, paymentId, provider: 'stripe', status: 'UNKNOWN', error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  // Conciliación inversa (OB-11): sesiones de Checkout pagadas en [from, to]. `expand` anida el cargo para ver reembolsos sin una petición por sesión.
+  // Las que no llevan `metadata.orderId` no son ventas de esta plataforma (la cuenta puede usarse para otras cosas) y se devuelven con orderId null.
+  async listRecentPaid(opts: { from: Date; to: Date; maxPages: number; deadline: number }): Promise<PaidListing> {
+    const sessions: PaidSession[] = [];
+    try {
+      const Stripe = (await import('stripe')).default;
+      // Tiempo propio y sin reintentos de red: el SDK espera 80 s por defecto y la función entera dura 60 (la tarea cuenta con su `deadline`, no con el del SDK).
+      const stripe = new Stripe(this.secretKey, { apiVersion: '2024-04-10' as Stripe.LatestApiVersion, timeout: 10_000, maxNetworkRetries: 0 });
+      let startingAfter: string | undefined;
+      for (let page = 0; ; page += 1) {
+        if (page >= opts.maxPages || Date.now() >= opts.deadline) return { sessions, truncated: true };
+        const res = await stripe.checkout.sessions.list({
+          limit: 100,
+          // Solo sesiones COMPLETAS: las abiertas y las caducadas (todo intento abandonado deja una) no pueden estar pagadas y se comerían las páginas.
+          status: 'complete',
+          created: { gte: Math.floor(opts.from.getTime() / 1000), lte: Math.floor(opts.to.getTime() / 1000) },
+          expand: ['data.payment_intent.latest_charge'],
+          ...(startingAfter ? { starting_after: startingAfter } : {}),
+        });
+        for (const s of res.data) {
+          if (s.payment_status !== 'paid') continue;
+          sessions.push({
+            id: s.id,
+            orderId: s.metadata?.orderId ?? null,
+            orderType: s.metadata?.orderType ?? null,
+            amount: s.amount_total != null ? s.amount_total / 100 : null,
+            currency: s.currency ? s.currency.toUpperCase() : null,
+            createdAt: new Date(s.created * 1000),
+            refunded: stripeSessionRefunded(s),
+          });
+        }
+        if (!res.has_more || res.data.length === 0) return { sessions, truncated: false };
+        startingAfter = res.data[res.data.length - 1].id;
+      }
+    } catch (err) {
+      return { sessions, truncated: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
 
@@ -503,6 +580,26 @@ export class SumUpAdapter implements PaymentProvider {
     } catch (err) {
       // Red, timeout, clave inválida…: no es «no pagado».
       return { success: false, paymentId, provider: 'sumup', status: 'UNKNOWN', error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  // GET /v0.1/checkouts?checkout_reference=… (https://developer.sumup.com/api/checkouts/list) devuelve los checkouts con esa referencia; la nuestra es el id
+  // del pedido. Es la única forma de encontrar un cobro cuyo pedido no llegó a guardar el `paymentId`: el historial de transacciones de SumUp no lleva la referencia.
+  async findPaidByReference(reference: string): Promise<PaidByReference> {
+    try {
+      const response = await fetch(`https://api.sumup.com/v0.1/checkouts?checkout_reference=${encodeURIComponent(reference)}`, {
+        headers: { 'Authorization': `Bearer ${this.apiKey}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) return { paid: false, refunded: false, error: data?.message || `SumUp devolvió ${response.status}` };
+      const list: { id?: string; status?: string; transactions?: { status?: string }[] }[] = Array.isArray(data) ? data : [];
+      const hit = list.find((c) => c?.status === 'PAID');
+      if (!hit) return { paid: false, refunded: false };
+      const refunded = Array.isArray(hit.transactions) && hit.transactions.some((t) => t?.status === 'REFUNDED');
+      return { paid: true, checkoutId: hit.id, refunded };
+    } catch (err) {
+      return { paid: false, refunded: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
 
@@ -697,4 +794,18 @@ export async function getPaymentProvider(scope: PaymentScope = 'entradas'): Prom
   }
 
   return getPaymentProviderByName(resolvedGateway, scope);
+}
+
+/**
+ * Huella de la CUENTA de cobro de un módulo (pasarela + credencial), sin exponer la credencial; null si no hay pasarela real. Dos módulos con la
+ * misma huella cobran en la misma cuenta (Tienda hereda la de Entradas hasta que guarda la suya): la conciliación recorre cada cuenta UNA vez.
+ */
+export async function paymentAccountFingerprint(scope: PaymentScope = 'entradas'): Promise<string | null> {
+  const keys = await paymentKeys(scope);
+  const gateway = (await getConfig(keys.gateway)) || 'mock';
+  const { createHash } = await import('node:crypto');
+  const hash = (...parts: string[]) => createHash('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 16);
+  if (gateway === 'stripe') return `stripe:${hash((await getConfigOrThrow(keys.stripeSecret)).trim())}`;
+  if (gateway === 'sumup') return `sumup:${hash((await getConfigOrThrow(keys.sumupKey)).trim(), (await getConfig(keys.sumupMerchant)).trim())}`;
+  return null;
 }

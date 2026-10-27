@@ -105,7 +105,8 @@ El front (otro paquete de trabajo) añade a `GET /api/health` con el secreto de 
 
 ```
 ops: { generatedAt, pendingOldestMinutes | null, pendingOver20min, emailsUnsent, emailsFailed,
-       reconcile: { lastRunAt | null, errors, unknown, processing, stuckOver24h } | null }
+       reconcile: { lastRunAt | null, errors, unknown, processing, stuckOver24h } | null,
+       gateway?: { lastRunAt, checked, unmatched, errors, skipped, truncated } | null }
 ```
 
 Es opcional: un front anterior sin `ops` sigue siendo válido (el panel no aplica ninguna regla) y los campos que el contrato no conoce se ignoran. Un `ops` que **no** cumple el contrato no deja al cliente como «no responde»: se señala como un problema aparte («el bloque ops no cumple el contrato»), sin copiar lo recibido.
@@ -121,7 +122,19 @@ Es opcional: un front anterior sin `ops` sigue siendo válido (el panel no aplic
 | Reconcile con errores | `reconcile.errors > 0` o `unknown > 0` o `stuckOver24h > 0` | **fallo** | «el reconcile tiene errores» |
 | El reconcile no corre | `reconcile.lastRunAt` de hace más de 15 min | **fallo** | «el reconcile no corre» |
 
+| **Cobro sin pedido** | `gateway.unmatched > 0` (umbral 0) | **fallo** | «cobros sin pedido confirmado» |
+| Conciliación con la pasarela sin hacer | `gateway.errors > 0` o `gateway.lastRunAt` de hace más de 36 h | aviso | «conciliación con la pasarela sin hacer» |
+
 `reconcile.processing` (cobros en curso) no es una señal. Con `reconcile: null` o `lastRunAt: null` (nunca se ha registrado una pasada) no se avisa de que no corre: de eso ya avisa la tarea `reconcile-payments` del propio panel (3 fallos seguidos). La sostenibilidad de los emails cuenta además la antigüedad que ya descuente el front al calcular `emailsUnsent` (la auditoría usa 10 min + 15 min sostenidos).
+
+### Conciliación diaria pasarela → BD (alerta nº 1: «cobro sin pedido»)
+
+Todo lo demás parte de un pedido que existe. Un cobro cuyo pedido no existe, o existe sin confirmar, solo se ve recorriendo la **pasarela**. La tarea `reconcile-gateway` del panel (una vez al día por cliente, solo lectura; ruta `GET /api/cron/reconcile-gateway`, código en `lib/reconciliation/gateway.ts`) lo hace:
+
+- **Stripe** (cobertura completa): lista las sesiones de Checkout **pagadas** de las últimas 48 h, menos las de los últimos 45 min (aún siguen el flujo normal), y exige que cada una tenga un pedido pagado, por `paymentId` o por el `metadata.orderId` con el que se creó. `no_order` = cobrada y sin pedido; `order_not_confirmed` = su pedido sigue pendiente o cancelado. Un cargo reembolsado (total o parcial) se da por resuelto, y una sesión sin `metadata.orderId` no es de esta plataforma y se ignora (la cuenta de Stripe puede usarse para otras cosas). Una misma cuenta compartida por Entradas y Tienda se recorre una vez. **Requisito: una cuenta de Stripe por cliente** (decisión del producto): la metadata de la sesión no lleva el cliente, así que dos clientes con la MISMA cuenta verían las sesiones del otro como «sin pedido». Entradas y Tienda con claves distintas de una misma cuenta contarían el cobro dos veces. Solo sesiones completas (las abiertas y caducadas no pueden estar pagadas). Tope de 10 páginas de 100 y 30 s, con tiempo propio por llamada (10 s, sin reintentos): si se corta, `truncated`, y el panel lo avisa como «conciliación sin hacer».
+- **SumUp** (cobertura PARCIAL, `skipped = 1`): su API **no permite** listar cobros por fecha con nuestra referencia (el historial de transacciones no la lleva), así que **no se puede detectar un cobro sin pedido**. Lo que sí se hace es el sentido contrario para los pedidos sin pagar de las últimas 48 h (los 150 más recientes): se pregunta a SumUp por su checkout (por `paymentId`, o por la referencia si el pedido nunca guardó el suyo: `paid_reference_without_id`).
+
+El resultado queda en `ops_gateway_last` (bloque `ops.gateway` del health) y, si hay algo, sale **un aviso por los dos canales del operador** (correo del cliente y `PLATFORM_ALERT_URL`) con importe, id del cobro y del pedido, **sin datos del comprador**. El aviso del front sale **como mucho una vez al día** por conjunto de cobros (el límite de `alertOperator` es de 24 h desde el último aviso; un recordatorio diario exacto no está garantizado) y un cobro nuevo cambia el conjunto y avisa en el momento; el panel mantiene la señal en rojo en Salud mientras `unmatched > 0`. Una pasada que no pudo consultar alguna cuenta no da por resuelto un incidente anterior. Si la tarea no pudo mirar **ninguna** cuenta (clave inválida, pasarela caída) responde 502 y el disparador del panel la cuenta como fallo y reintenta con backoff; que haya cobros sin pedido NO es un fallo de la tarea, es el hallazgo. **Qué hacer ante el aviso:** abrir el cobro en el panel de la pasarela y confirmar o reembolsar a mano.
 
 ### Cómo avisa (sin inventar otro mecanismo)
 
@@ -187,4 +200,5 @@ Pruebas automáticas (la suite del front vacía `SENTRY_DSN`, `PLATFORM_ALERT_UR
 - El bloque `ops` lo produce otro paquete de trabajo: **hasta que se despliegue el front con `ops`, el panel no aplica ninguna regla** (no hay falsas alarmas, pero tampoco aviso). El panel y el front deben desplegarse en cualquier orden: ambos lados son compatibles hacia atrás.
 - La memoria de las señales vive en un campo de texto (`TenantHealth.error`): un front que vuelva a una versión sin `ops` deja líneas conservadas hasta que se vuelva a medir, y un «recuperado» omitido por el tope de avisos no se reintenta. La opción robusta es una columna JSON en `TenantHealth` (migración del panel).
 - `reconcile-payments` tiene 55 s de plazo en el panel (antes 20 s), por debajo de los 60 s del front: una pasada lenta ya no cuenta como fallo de la tarea, pero una llamada de 55 s ocupa más tiempo del presupuesto de la pasada del disparador (90 s), así que con muchos clientes lentos algunos esperan a la siguiente invocación (5 min).
-- Cobertura que **no** cierra este trabajo: pago cobrado sin pedido detectado por conciliación diaria con la pasarela (alerta 1 de §4 de la auditoría; `webhook.order_not_found` sigue siendo solo una línea de log), monitor externo y canario sintético tras cada despliegue (OB-15).
+- Conciliación pasarela → BD (alerta 1): con **SumUp** solo cubre el sentido BD → pasarela (no detecta un cobro SIN pedido; ver §3). Con Stripe no cubre cobros de más de 48 h ni los de los últimos 45 min, ni un pago parcial o un importe que no cuadre con el pedido (eso lo vigila `completeOrder`). **Orden de despliegue:** primero el front (trae la ruta) y luego el panel (trae la tarea): al revés, la tarea daría 404 y el panel avisaría de fallos seguidos hasta que el front se despliegue.
+- Cobertura que **no** cierra este trabajo: monitor externo y canario sintético tras cada despliegue (OB-15).

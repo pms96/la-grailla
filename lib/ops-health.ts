@@ -12,6 +12,24 @@ import { countEmailBacklog } from '@/lib/email-delivery';
  *  está en INTERNAL_CONFIG_KEYS (lib/config-ownership.ts), así que ni el GET ni el PUT de configuración la ven. */
 export const OPS_RECONCILE_KEY = 'ops_reconcile_last';
 
+/** Clave de sistema con el resultado de la última conciliación diaria pasarela↔BD (lib/reconciliation/gateway.ts). Igual que la anterior: sin migración. */
+export const OPS_GATEWAY_KEY = 'ops_gateway_last';
+
+/** Cómo terminó la última conciliación diaria con la pasarela. */
+export interface GatewaySummary {
+  lastRunAt: string;
+  /** Cobros (o pedidos sin pagar, en SumUp) contrastados. */
+  checked: number;
+  /** Cobros que no cuadran con la BD: pagados en la pasarela y sin pedido confirmado. Debe ser 0. */
+  unmatched: number;
+  /** Cuentas de cobro que no se pudieron consultar (credencial inválida, pasarela caída). */
+  errors: number;
+  /** Cuentas con cobertura parcial (SumUp: no se pueden detectar cobros SIN pedido). */
+  skipped: number;
+  /** La lista se cortó por tope de páginas o de tiempo. */
+  truncated: boolean;
+}
+
 export interface ReconcileSummary {
   lastRunAt: string;
   errors: number;
@@ -32,6 +50,8 @@ export interface OpsBlock {
   emailsFailed: number | null;
   /** Cómo terminó la última pasada del cron de reconciliación; null si aún no ha corrido o no se pudo leer. */
   reconcile: (Omit<ReconcileSummary, 'lastRunAt'> & { lastRunAt: string | null }) | null;
+  /** Última conciliación diaria con la pasarela; null si aún no ha corrido o no se pudo leer. */
+  gateway: GatewaySummary | null;
 }
 
 /** Tope de tiempo de TODO el bloque: el health lo lee el panel con un tiempo de espera corto. */
@@ -39,6 +59,23 @@ export const OPS_TIMEOUT_MS = 3000;
 const PENDING_OVER_MS = 20 * 60_000;
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : null);
+
+/** Lee y valida el resultado de la conciliación con la pasarela; cualquier cosa rara = null. */
+export function parseGatewaySummary(raw: string | null | undefined): GatewaySummary | null {
+  if (!raw) return null;
+  try {
+    const j = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof j.lastRunAt !== 'string' || Number.isNaN(Date.parse(j.lastRunAt))) return null;
+    const checked = num(j.checked);
+    const unmatched = num(j.unmatched);
+    const errors = num(j.errors);
+    const skipped = num(j.skipped);
+    if (checked === null || unmatched === null || errors === null || skipped === null) return null;
+    return { lastRunAt: new Date(j.lastRunAt).toISOString(), checked, unmatched, errors, skipped, truncated: j.truncated === true };
+  } catch {
+    return null;
+  }
+}
 
 /** Lee y valida el resumen del cron; cualquier cosa rara = null (nunca se propaga texto de la BD). */
 export function parseReconcileSummary(raw: string | null | undefined): OpsBlock['reconcile'] {
@@ -59,7 +96,7 @@ export function parseReconcileSummary(raw: string | null | undefined): OpsBlock[
 
 export async function collectOps(now = Date.now(), timeoutMs = OPS_TIMEOUT_MS): Promise<OpsBlock | null> {
   try {
-    const out: OpsBlock = { generatedAt: new Date(now).toISOString(), pendingOldestMinutes: null, pendingOver20min: null, emailsUnsent: null, emailsFailed: null, reconcile: null };
+    const out: OpsBlock = { generatedAt: new Date(now).toISOString(), pendingOldestMinutes: null, pendingOver20min: null, emailsUnsent: null, emailsFailed: null, reconcile: null, gateway: null };
     let collected = 0;
     // Una medida que falla (o no llega a tiempo) deja su campo en null; las demás siguen.
     const measure = async (fn: () => Promise<void>) => {
@@ -95,6 +132,10 @@ export async function collectOps(now = Date.now(), timeoutMs = OPS_TIMEOUT_MS): 
       measure(async () => {
         const row = await prisma.appConfig.findUnique({ where: { key: OPS_RECONCILE_KEY }, select: { value: true } });
         out.reconcile = parseReconcileSummary(row?.value);
+      }),
+      measure(async () => {
+        const row = await prisma.appConfig.findUnique({ where: { key: OPS_GATEWAY_KEY }, select: { value: true } });
+        out.gateway = parseGatewaySummary(row?.value);
       }),
     ]);
     let timer: ReturnType<typeof setTimeout> | undefined;

@@ -21,6 +21,15 @@ describe('bloque ops de la salud (contrato)', () => {
     expect(OpsBlockSchema.safeParse({ ...ok, reconcile: { ...ok.reconcile, lastRunAt: null } }).success).toBe(true);
   });
 
+  it('el bloque `gateway` (conciliación diaria con la pasarela) es opcional y, si viene, se valida', () => {
+    const gateway = { lastRunAt: '2026-10-27T09:00:00.000Z', checked: 12, unmatched: 0, errors: 0, skipped: 1, truncated: false };
+    expect(parseOpsBlock({ ...ok, gateway })).toEqual({ status: 'ok', ops: { ...ok, gateway } });
+    expect(parseOpsBlock({ ...ok, gateway: null })).toMatchObject({ status: 'ok' }); // aún no ha corrido
+    expect(parseOpsBlock(ok)).toMatchObject({ status: 'ok' }); // front anterior
+    expect(parseOpsBlock({ ...ok, gateway: { ...gateway, unmatched: -1 } })).toMatchObject({ status: 'invalid' });
+    expect(parseOpsBlock({ ...ok, gateway: { ...gateway, truncated: 'no' } })).toMatchObject({ status: 'invalid' });
+  });
+
   it('ausente (front anterior) no es un error; null tampoco', () => {
     expect(parseOpsBlock(undefined)).toEqual({ status: 'absent' });
     expect(parseOpsBlock(null)).toEqual({ status: 'absent' });

@@ -59,6 +59,8 @@ export const INTERNAL_CONFIG_KEYS: readonly string[] = [
   'apple_wallet_cert_expiry_alerted_for',
   // Resumen de la última pasada del cron de reconciliación, para el bloque `ops` de /api/health (lib/ops-health.ts). Lo escribe el cron; no es secreto.
   'ops_reconcile_last',
+  // Resultado de la última conciliación diaria con la pasarela (lib/reconciliation/gateway.ts); también lo escribe el sistema.
+  'ops_gateway_last',
 ];
 
 /** Módulos dueños de una clave, o null si no tiene dueño declarado. */
