@@ -19,6 +19,9 @@ import { captureOpsError } from '@/lib/observability/capture';
 import { orderAccessQuery, signOrderAccess } from '@/lib/access-token';
 import { hasEventEnded } from '@/lib/active-event';
 import { calculateCommission } from '@/lib/pricing';
+import { getEventAgeWarningMessage } from '@/lib/age-warning';
+import { currentVatRate } from '@/lib/fiscal';
+import { recordTermsVersion } from '@/lib/legal-terms';
 
 // DATA-01: derivado del cliente extendido (totalAmount/commission son
 // number), no de `Order` importado de '@prisma/client' (que describiría
@@ -69,6 +72,9 @@ const createOrderSchema = z.object({
     .max(MAX_TICKET_LINES_PER_ORDER),
   queueToken: z.string().optional(),
   idempotencyKey: z.string().optional(),
+  // P0-11: el servidor exige la aceptación (la casilla del formulario no es la barrera: se puede llamar a la API directamente).
+  acceptedTerms: z.boolean().optional(),
+  ageConfirmed: z.boolean().optional(),
 });
 
 export async function POST(request: Request) {
@@ -94,7 +100,7 @@ export async function POST(request: Request) {
     }
 
     const body = createOrderSchema.parse(await request.json());
-    const { eventId, buyerName, buyerLastName, buyerEmail, items, queueToken, idempotencyKey } = body;
+    const { eventId, buyerName, buyerLastName, buyerEmail, items, queueToken, idempotencyKey, acceptedTerms, ageConfirmed } = body;
 
     // Un reintento (red, doble clic, "atrás" + reenviar) con la misma clave
     // que un pedido que ya existe no debe crear un segundo pedido/cobro —
@@ -124,6 +130,22 @@ export async function POST(request: Request) {
     }
     if (hasEventEnded(event.date)) {
       return NextResponse.json({ error: 'Este evento ya ha finalizado' }, { status: 400 });
+    }
+
+    // P0-11: sin aceptación explícita de las condiciones y la privacidad no se crea el pedido; y si el evento tiene aviso de edad, hay que
+    // confirmarlo también aquí (el aviso de la ficha se salta entrando directo a /comprar). Va antes de reservar nada.
+    if (acceptedTerms !== true) {
+      return NextResponse.json(
+        { error: 'Debes aceptar las condiciones de venta y la política de privacidad para comprar.', code: 'terms_not_accepted' },
+        { status: 400 }
+      );
+    }
+    const requiresAgeConfirmation = getEventAgeWarningMessage(event) !== null;
+    if (requiresAgeConfirmation && ageConfirmed !== true) {
+      return NextResponse.json(
+        { error: 'Debes confirmar que cumples la edad mínima del evento para comprar.', code: 'age_not_confirmed' },
+        { status: 400 }
+      );
     }
 
     // Con la sala de espera activa, solo se puede comprar con un turno
@@ -171,6 +193,11 @@ export async function POST(request: Request) {
 
     const commissionStr = await getConfig('commission_percentage');
     const commissionPct = parseFloat(commissionStr) || 0;
+
+    // P0-11: versión de las condiciones que acepta (copia en LegalSnapshot) y tipo de IVA vigente, ambos al pedido. Fuera de la transacción: no
+    // alargan el cerrojo por evento.
+    const [termsVersion, vatRate] = await Promise.all([recordTermsVersion('entradas', event.conditions ?? ''), currentVatRate('entradas')]);
+    const termsAcceptedAt = new Date();
 
     // Averiguamos la pasarela ANTES de crear nada: si está mal configurada,
     // mejor fallar aquí que dejar tickets huérfanos en estado PENDING.
@@ -266,6 +293,10 @@ export async function POST(request: Request) {
               paymentProvider: paymentProvider.name,
               status: isGatewayLive ? 'PENDING' : 'COMPLETED',
               idempotencyKey: idempotencyKey ?? null,
+              termsAcceptedAt,
+              termsVersion,
+              ageConfirmedAt: requiresAgeConfirmation ? termsAcceptedAt : null,
+              vatRate,
             },
           });
         } catch (err) {

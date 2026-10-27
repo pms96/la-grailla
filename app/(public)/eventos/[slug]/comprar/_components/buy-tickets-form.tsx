@@ -26,6 +26,8 @@ import { toast } from 'sonner';
 import { FadeIn, PressScale } from '@/components/ui/animate';
 import { cn } from '@/lib/utils';
 import { calculateCommission } from '@/lib/pricing';
+import { getEventAgeWarningMessage } from '@/lib/age-warning';
+import { LegalAcceptance } from '@/components/legal-acceptance';
 
 interface TicketType {
   id: string;
@@ -52,6 +54,10 @@ export interface EventData {
   // muestra ANTES de pagar para que el total no sea una sorpresa en la
   // pasarela.
   commissionPercent?: number;
+  // Aviso de edad (misma lógica que app/api/orders: si hay aviso, el servidor exige confirmarlo) y tipo de IVA configurado, para el «IVA incluido».
+  ageWarningEnabled?: boolean;
+  ageWarningMessage?: string | null;
+  vatRate?: number | null;
 }
 
 type FieldErrors = {
@@ -59,6 +65,8 @@ type FieldErrors = {
   buyerName?: string;
   buyerLastName?: string;
   buyerEmail?: string;
+  terms?: string;
+  age?: string;
 };
 
 function formatEventDate(date: string | Date | undefined): string {
@@ -87,6 +95,8 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
   const [buyerEmail, setBuyerEmail] = useState('');
   const [errors, setErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
   // Se genera una vez por intento y se manda en cada llamada a /api/orders,
   // incluida cualquier repetición de ESE MISMO intento (reintento de red,
   // doble clic antes de que se desactive el botón) — así el servidor puede
@@ -105,6 +115,8 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
   const dateStr = formatEventDate(event?.date);
   const placeStr = [event?.venue, event?.city].filter(Boolean).join(', ');
   const minAge = event?.minAge ?? 18;
+  const ageMessage = getEventAgeWarningMessage({ ageWarningEnabled: !!event?.ageWarningEnabled, ageWarningMessage: event?.ageWarningMessage, minAge: event?.minAge });
+  const termsRef = useRef<HTMLDivElement>(null);
 
   const updateQty = (id: string, delta: number) => {
     setQuantities((prev) => {
@@ -135,6 +147,8 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
     if (!buyerLastName?.trim()) next.buyerLastName = 'Escribe tus apellidos';
     if (!buyerEmail?.trim()) next.buyerEmail = 'Escribe tu email';
     else if (!isValidEmail(buyerEmail.trim())) next.buyerEmail = 'El email no parece válido';
+    if (!acceptedTerms) next.terms = 'Para comprar tienes que aceptar las condiciones de venta y la política de privacidad';
+    if (ageMessage && !ageConfirmed) next.age = 'Confirma que cumples la edad mínima para poder comprar';
     return next;
   };
 
@@ -146,6 +160,7 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
       else if (nextErrors.buyerName) nameRef.current?.focus();
       else if (nextErrors.buyerLastName) lastNameRef.current?.focus();
       else if (nextErrors.buyerEmail) emailRef.current?.focus();
+      else termsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
 
@@ -169,6 +184,8 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
           items,
           queueToken,
           idempotencyKey: idempotencyKeyRef.current,
+          acceptedTerms,
+          ageConfirmed: ageMessage ? ageConfirmed : undefined,
         }),
       });
 
@@ -416,6 +433,25 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
                   Aquí recibirás el QR. Comprueba que esté bien escrito.
                 </p>
               )}
+            </div>
+            <div ref={termsRef} className="border-t pt-4">
+              <LegalAcceptance
+                kind="entradas"
+                accepted={acceptedTerms}
+                onAcceptedChange={(v) => {
+                  setAcceptedTerms(v);
+                  setErrors((prev) => ({ ...prev, terms: undefined }));
+                }}
+                error={errors.terms}
+                ageMessage={ageMessage}
+                ageConfirmed={ageConfirmed}
+                onAgeConfirmedChange={(v) => {
+                  setAgeConfirmed(v);
+                  setErrors((prev) => ({ ...prev, age: undefined }));
+                }}
+                ageError={errors.age}
+                vatIncluded={(event?.vatRate ?? 0) > 0}
+              />
             </div>
           </CardContent>
         </Card>

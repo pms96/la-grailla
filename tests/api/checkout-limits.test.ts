@@ -29,7 +29,7 @@ vi.mock('@/lib/mailer', async (orig) => ({ ...(await orig<typeof import('@/lib/m
  * la sesión viva y carrito de tienda que no se borra antes de pagar. */
 
 const post = (handler: (r: Request) => Promise<Response>, body: unknown, ip: string) =>
-  handler(new Request('http://localhost/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify(body) }));
+  handler(new Request('http://localhost/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify({ acceptedTerms: true, ...(body as object) }) }));
 
 /** Tope de pedidos pendientes por IP con el que se ejecutan estos tests (por configuración: el valor por defecto es 10 y el límite por minuto también). */
 const CAP = 3;

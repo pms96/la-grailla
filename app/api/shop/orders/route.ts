@@ -17,6 +17,8 @@ import { completeShopOrder } from '@/lib/reconciliation/tienda';
 import { reserveShopStock, releaseShopStock } from '@/lib/product-stock';
 import { shopOrderAccessQuery, signShopOrderAccess } from '@/lib/access-token';
 import { getBrand } from '@/lib/brand/brand';
+import { currentVatRate } from '@/lib/fiscal';
+import { recordTermsVersion } from '@/lib/legal-terms';
 
 const createShopOrderSchema = z.object({
   buyerName: z.string().min(1),
@@ -26,6 +28,8 @@ const createShopOrderSchema = z.object({
   shippingZip: z.string().min(1),
   shippingPhone: z.string().optional().nullable(),
   idempotencyKey: z.string().optional(),
+  // P0-11: el servidor exige la aceptación (la casilla del formulario no es la barrera: se puede llamar a la API directamente).
+  acceptedTerms: z.boolean().optional(),
   items: z
     .array(
       z.object({
@@ -75,6 +79,7 @@ export async function POST(request: Request) {
       shippingPhone,
       items,
       idempotencyKey,
+      acceptedTerms,
     } = body;
 
     if (idempotencyKey) {
@@ -82,11 +87,22 @@ export async function POST(request: Request) {
       if (existing) return existingOrderResponse(existing);
     }
 
+    if (acceptedTerms !== true) {
+      return NextResponse.json(
+        { error: 'Debes aceptar las condiciones de venta y la política de privacidad para comprar.', code: 'terms_not_accepted' },
+        { status: 400 }
+      );
+    }
+
     // Unidades en total por pedido (además del tope por línea y de líneas): sin él, 20 líneas de 10 unidades siguen reservando medio catálogo.
     const totalUnits = items.reduce((sum, i) => sum + (i.quantity ?? 1), 0);
     if (totalUnits > MAX_SHOP_UNITS_PER_ORDER) {
       return NextResponse.json({ error: `Máximo ${MAX_SHOP_UNITS_PER_ORDER} unidades por pedido` }, { status: 400 });
     }
+
+    // P0-11: versión de las condiciones que acepta (copia en LegalSnapshot) y tipo de IVA vigente, ambos al pedido. Fuera de la transacción.
+    const [termsVersion, vatRate] = await Promise.all([recordTermsVersion('tienda'), currentVatRate('tienda')]);
+    const termsAcceptedAt = new Date();
 
     // ¿Hay pasarela real? Si no (o si no se puede saber), el cupo por IP se aplica igual: el pedido sin pasarela nace pagado y no ocupa hueco.
     const gatewayIsLive = await getPaymentProvider('tienda').then((p) => p.name !== 'mock').catch(() => true);
@@ -151,6 +167,9 @@ export async function POST(request: Request) {
             totalAmount,
             status: 'PENDING',
             idempotencyKey: idempotencyKey ?? null,
+            termsAcceptedAt,
+            termsVersion,
+            vatRate,
             items: { create: itemsData },
           },
           include: { items: true },

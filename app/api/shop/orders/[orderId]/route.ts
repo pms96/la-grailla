@@ -13,6 +13,7 @@ import { LATE_PAYMENT_WINDOW_MS, checkCancelledOrderPayment } from '@/lib/reconc
 import type { PaymentCheck } from '@/lib/confirmation-state';
 import { SHOP_PAID_STATUSES, getEmailState } from '@/lib/email-delivery';
 import { buyerEmailView } from '@/lib/order-email';
+import { buildFiscalView } from '@/lib/fiscal';
 
 export async function GET(request: Request, props: { params: Promise<{ orderId: string }> }) {
   const params = await props.params;
@@ -74,7 +75,9 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
 
     // Estado REAL del email para la pantalla (ver /api/orders/[orderId]).
     const emailDelivery = (SHOP_PAID_STATUSES as readonly string[]).includes(order.status) ? buyerEmailView(await getEmailState('tienda', order.id)) : null;
-    return NextResponse.json({ ...withoutSeasonLink(order), paymentCheck, emailDelivery });
+    // P0-11: datos del vendedor e IVA del justificante (solo con el pedido pagado).
+    const fiscal = (SHOP_PAID_STATUSES as readonly string[]).includes(order.status) ? await buildFiscalView(order.totalAmount, order.vatRate) : null;
+    return NextResponse.json({ ...withoutSeasonLink(order), paymentCheck, emailDelivery, fiscal });
   } catch (error) {
     return handleApiError(error, 'GET /api/shop/orders/[orderId]');
   }

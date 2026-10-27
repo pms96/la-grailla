@@ -280,6 +280,13 @@ model Order {
   // reconcileCheckedAt (nulos primero) para que unos pedidos atascados en cabeza no dejen sin atender a los nuevos.
   reconcileCheckedAt DateTime?
   reconcileAttempts  Int           @default(0)
+  // P0-11: qué aceptó el comprador y cuándo. `termsVersion` es el hash de LegalSnapshot (los textos exactos vigentes en ese momento);
+  // `ageConfirmedAt` solo si el evento tenía aviso de edad. Null en pedidos anteriores y en ventas de taquilla (en persona).
+  termsAcceptedAt    DateTime?
+  termsVersion       String?
+  ageConfirmedAt     DateTime?
+  // Tipo de IVA (%) vigente al crear el pedido, para desglosar el justificante sin que un cambio posterior reescriba los antiguos. Null = no configurado.
+  vatRate            Float?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
   event              Event         @relation(fields: [eventId], references: [id])
@@ -389,6 +396,10 @@ model ShopOrder {
   // Cola justa del cron de reconciliación (M7), igual que en Order.
   reconcileCheckedAt DateTime?
   reconcileAttempts  Int             @default(0)
+  // P0-11: igual que en Order (aceptación de condiciones y tipo de IVA vigente al comprar).
+  termsAcceptedAt    DateTime?
+  termsVersion       String?
+  vatRate            Float?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   temporada          Temporada?      @relation(fields: [temporadaId], references: [id])
@@ -952,4 +963,13 @@ model Ingreso {
   createdBy User?     @relation(fields: [createdById], references: [id])
 
   @@index([temporadaId, fecha])
+}
+
+// P0-11: copia inmutable de los textos legales que vio el comprador al aceptar (clave = hash de su contenido). Un pedido guarda ese hash en
+// `termsVersion`; así se puede demostrar QUÉ aceptó aunque el cliente edite luego sus condiciones. Se escribe una vez por versión distinta.
+model LegalSnapshot {
+  hash      String   @id
+  kind      String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
 }

@@ -23,7 +23,7 @@ const owned = (owners: Owners, keys: string[]): [string, Owners][] => keys.map((
 export const CONFIG_KEY_OWNERS: Readonly<Record<string, Owners>> = Object.fromEntries([
   // Núcleo: contenido, redes, correo, legal, general.
   ...owned(NUCLEO, [
-    'legal_notice', 'privacy_policy', 'cookies_policy',
+    'legal_notice', 'privacy_policy', 'cookies_policy', 'fiscal_legal_name', 'fiscal_nif', 'fiscal_address',
     'social_instagram', 'social_tiktok', 'social_twitter', 'social_facebook',
     'admin_email', 'smtp_enabled', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_password', 'smtp_secure', 'smtp_from_email', 'smtp_from_name',
     'cookies_banner_enabled', 'maps_provider', 'contact_form_enabled', 'notify_email_contacto',
@@ -35,14 +35,14 @@ export const CONFIG_KEY_OWNERS: Readonly<Record<string, Owners>> = Object.fromEn
   // Entradas: su cuenta de cobro, la comisión, los límites de compra y la impresora de taquilla.
   ...owned(ENTRADAS, [
     'payment_gateway', 'stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_secret', 'sumup_api_key', 'sumup_merchant_code',
-    'commission_percentage', 'orders_rate_limit_per_ip', 'orders_rate_limit_window_seconds', 'orders_max_pending_per_ip', 'home_events_more_subtitle', 'notify_email_entradas',
+    'commission_percentage', 'orders_rate_limit_per_ip', 'orders_rate_limit_window_seconds', 'orders_max_pending_per_ip', 'home_events_more_subtitle', 'notify_email_entradas', 'vat_rate_entradas', 'legal_terms_entradas',
     'phomemo_printer_enabled', 'phomemo_write_mode', 'phomemo_raster_chunk_size', 'phomemo_chunk_delay_ms', 'phomemo_command_delay_ms',
     'phomemo_after_raster_delay_ms', 'phomemo_after_feed_delay_ms', 'phomemo_density', 'phomemo_feed', 'phomemo_confirm_every_chunks',
   ]),
   // Tienda: SU propia cuenta de cobro (no comparte la de Entradas) y los textos de su sección.
   ...owned(TIENDA, [
     'shop_payment_gateway', 'shop_stripe_publishable_key', 'shop_stripe_secret_key', 'shop_stripe_webhook_secret', 'shop_sumup_api_key',
-    'shop_sumup_merchant_code', 'shop_orders_max_pending_per_ip', 'home_shop_title', 'home_shop_subtitle', 'notify_email_tienda',
+    'shop_sumup_merchant_code', 'shop_orders_max_pending_per_ip', 'home_shop_title', 'home_shop_subtitle', 'notify_email_tienda', 'vat_rate_tienda', 'legal_terms_tienda',
   ]),
   ...owned(WALLETS, [
     'google_wallet_issuer_id', 'google_wallet_service_account', 'apple_wallet_enabled', 'apple_wallet_pass_type_id', 'apple_wallet_team_id',
@@ -88,6 +88,8 @@ const RULES: Record<string, Rule> = {
   contact_form_enabled: BOOL,
   phomemo_printer_enabled: BOOL,
   commission_percentage: { kind: 'percent' },
+  vat_rate_entradas: { kind: 'percent' },
+  vat_rate_tienda: { kind: 'percent' },
   orders_rate_limit_per_ip: { kind: 'int', min: 1, max: 1000 },
   orders_rate_limit_window_seconds: { kind: 'int', min: 1, max: 86_400 },
   orders_max_pending_per_ip: { kind: 'int', min: 1, max: 1000 },

@@ -9,7 +9,7 @@ function shopRequest(body: unknown, ip: string) {
   return new Request('http://localhost/api/shop/orders', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ acceptedTerms: true, ...(body as object) }),
   });
 }
 

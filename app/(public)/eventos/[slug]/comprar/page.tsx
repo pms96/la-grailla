@@ -5,6 +5,7 @@ import { Container } from '@/components/layouts/container';
 import { Button } from '@/components/ui/button';
 import { hasEventEnded } from '@/lib/active-event';
 import { getConfig } from '@/lib/config';
+import { currentVatRate } from '@/lib/fiscal';
 import { getOnlineSalesClosedLabel, getOnlineSalesClosedMessage } from '@/lib/online-sales-closed';
 import WaitingRoomGate from './_components/waiting-room-gate';
 
@@ -65,7 +66,8 @@ export default async function ComprarPage(props: { params: Promise<{ slug: strin
   // app/api/orders/route.ts añadirá al cobrar, así el comprador ve el total
   // real ANTES de llegar a la pasarela, no una sorpresa al pagar.
   const commissionPercent = parseFloat(await getConfig('commission_percentage')) || 0;
-  const serializedEvent = { ...JSON.parse(JSON.stringify(event)), commissionPercent };
+  const vatRate = await currentVatRate('entradas');
+  const serializedEvent = { ...JSON.parse(JSON.stringify(event)), commissionPercent, vatRate };
 
   return (
     <Container size="md">

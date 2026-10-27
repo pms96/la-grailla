@@ -119,6 +119,7 @@ export default function ConfiguracionPage() {
                 </div>
                 <PaymentAccount prefix="" values={values} onChange={updateValue} webhookPath="/api/webhooks/stripe" />
                 <ConfigField label="Comisión por entrada (%)" type="number" value={values?.commission_percentage ?? '0'} onChange={(v) => updateValue('commission_percentage', v)} description="Se suma al precio de cada entrada y se muestra al comprador como gastos de distribución." />
+                <ConfigField label="IVA de las entradas (%)" type="number" value={values?.vat_rate_entradas ?? ''} onChange={(v) => updateValue('vat_rate_entradas', v)} placeholder="Sin configurar" description="Tipo de IVA incluido en el precio (el que te indique tu gestoría). Con él, el justificante de compra desglosa base y cuota; vacío = no desglosa nada. Se aplica a los pedidos nuevos; los anteriores conservan el suyo. Pon 0 si no aplicas IVA." />
               </CardContent></Card>
 
               <Card><CardContent className="p-6 space-y-4">
@@ -167,6 +168,11 @@ export default function ConfiguracionPage() {
                   webhookPath="/api/webhooks/stripe-tienda"
                   unsetHint={has('entradas') ? 'Mientras no elijas una pasarela aquí, la tienda sigue cobrando con la cuenta de Entradas. Elige una y guarda para darle cuenta propia.' : undefined}
                 />
+              </CardContent></Card>
+
+              <Card><CardContent className="p-6 space-y-4">
+                <h3 className="font-semibold">IVA de la tienda</h3>
+                <ConfigField label="IVA de los productos (%)" type="number" value={values?.vat_rate_tienda ?? ''} onChange={(v) => updateValue('vat_rate_tienda', v)} placeholder="Sin configurar" description="Tipo de IVA incluido en el precio (el que te indique tu gestoría). Con él, el justificante de compra desglosa base y cuota; vacío = no desglosa nada. Se aplica a los pedidos nuevos; los anteriores conservan el suyo." />
               </CardContent></Card>
 
               <Card><CardContent className="p-6 space-y-4">
@@ -367,6 +373,27 @@ export default function ConfiguracionPage() {
             <ConfigField label="Política de Privacidad" type="textarea" rows={6} value={values?.privacy_policy ?? ''} onChange={(v) => updateValue('privacy_policy', v)} />
             <ConfigField label="Política de Cookies" type="textarea" rows={6} value={values?.cookies_policy ?? ''} onChange={(v) => updateValue('cookies_policy', v)} />
           </CardContent></Card>
+
+          <Card className="mt-6"><CardContent className="p-6 space-y-4">
+            <div>
+              <h3 className="font-semibold">Datos del vendedor (justificante de compra)</h3>
+              <p className="text-sm text-muted-foreground">Salen en la pantalla de confirmación y en el correo de cada compra. La plataforma no emite facturas: el justificante lo dice y el comprador la pide por correo. Sin NIF no se imprime ningún dato del vendedor.</p>
+            </div>
+            <ConfigField label="Razón social" value={values?.fiscal_legal_name ?? ''} onChange={(v) => updateValue('fiscal_legal_name', v)} placeholder="Por defecto, la razón social de la marca" />
+            <ConfigField label="NIF / CIF" value={values?.fiscal_nif ?? ''} onChange={(v) => updateValue('fiscal_nif', v)} />
+            <ConfigField label="Domicilio fiscal" value={values?.fiscal_address ?? ''} onChange={(v) => updateValue('fiscal_address', v)} />
+          </CardContent></Card>
+
+          {has('entradas') && (
+            <Card className="mt-6"><CardContent className="p-6 space-y-4">
+              <ConfigField label="Condiciones de venta de entradas" type="textarea" rows={10} value={values?.legal_terms_entradas ?? ''} onChange={(v) => updateValue('legal_terms_entradas', v)} description="Se muestran en /legal/condiciones-entradas y el comprador las acepta antes de pagar. Si lo dejas vacío se usa un texto orientativo por defecto: revísalo con tu asesor antes de vender." />
+            </CardContent></Card>
+          )}
+          {has('tienda') && (
+            <Card className="mt-6"><CardContent className="p-6 space-y-4">
+              <ConfigField label="Condiciones de venta de la tienda (desistimiento y devoluciones)" type="textarea" rows={10} value={values?.legal_terms_tienda ?? ''} onChange={(v) => updateValue('legal_terms_tienda', v)} description="Se muestran en /legal/condiciones-tienda y el comprador las acepta antes de pagar. Si lo dejas vacío se usa un texto orientativo por defecto: revísalo con tu asesor antes de vender." />
+            </CardContent></Card>
+          )}
         </TabsContent>
 
         <TabsContent value="general">

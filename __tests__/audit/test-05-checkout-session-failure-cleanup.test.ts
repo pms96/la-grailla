@@ -29,7 +29,7 @@ function orderRequest(url: string, body: unknown, ip: string) {
   return new Request(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ acceptedTerms: true, ...(body as object) }),
   });
 }
 

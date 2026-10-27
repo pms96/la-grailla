@@ -25,6 +25,8 @@ import { EventTicket, TICKET_BARCODE_BG } from '@/components/event-ticket';
 import { Logo } from '@/components/logo';
 import QRCode from 'qrcode';
 import { useBrand } from '@/components/brand-provider';
+import { FiscalFootnote } from '@/components/fiscal-footnote';
+import type { FiscalView } from '@/lib/fiscal';
 import { confirmationView, emailNotice, shouldKeepPolling, type EmailDelivery, type PaymentCheck } from '@/lib/confirmation-state';
 
 type OrderWithTickets = Prisma.OrderGetPayload<{
@@ -34,6 +36,8 @@ type OrderWithTickets = Prisma.OrderGetPayload<{
   paymentCheck?: PaymentCheck;
   /** Estado REAL del email con las entradas (lo calcula la API del pedido): la pantalla no afirma haberlo enviado sin comprobarlo. */
   emailDelivery?: EmailDelivery | null;
+  /** Vendedor e IVA del justificante (lo añade la API del pedido con el pedido pagado). */
+  fiscal?: FiscalView | null;
 };
 
 type OrderState = OrderWithTickets | { error: string } | null;
@@ -408,6 +412,7 @@ export default function ConfirmationClient({
                 </a>
               </Button>
             </div>
+            <FiscalFootnote fiscal={validOrder?.fiscal} className="mt-4 border-t pt-4" />
           </CardContent>
         </Card>
       </div>

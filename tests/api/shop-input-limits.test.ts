@@ -12,7 +12,7 @@ const { PATCH: updateProduct } = await import('@/app/api/admin/products/[id]/rou
 const { POST: createShopOrder } = await import('@/app/api/shop/orders/route');
 
 const json = (method: string, body: unknown, ip = '198.51.100.77') =>
-  new Request('http://localhost/api/x', { method, headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify(body) });
+  new Request('http://localhost/api/x', { method, headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify({ acceptedTerms: true, ...(body as object) }) });
 
 // AUDIT: el precio de un producto aceptaba valores negativos (z.coerce.number() sin mínimo) y la cantidad de una línea de pedido no
 // tenía máximo. Un precio negativo da un pedido con total negativo o gratis; una cantidad enorme bloquea el stock de todos.

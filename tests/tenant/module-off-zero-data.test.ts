@@ -31,7 +31,7 @@ const ALL: Mod[] = ['nucleo', 'entradas', 'tienda', 'contabilidad', 'sponsors', 
 /** Dueño de cada tabla. Las de NextAuth y de infraestructura son del núcleo. */
 const MODEL_OWNERS: Record<string, Mod> = {
   User: 'nucleo', AccessRole: 'nucleo', Account: 'nucleo', Session: 'nucleo', VerificationToken: 'nucleo', ContactMessage: 'nucleo',
-  ContactReply: 'nucleo', AppConfig: 'nucleo', RateLimitBucket: 'nucleo', ProcessedWebhookEvent: 'nucleo',
+  ContactReply: 'nucleo', LegalSnapshot: 'nucleo', AppConfig: 'nucleo', RateLimitBucket: 'nucleo', ProcessedWebhookEvent: 'nucleo',
   Event: 'entradas', WaitingRoomEntry: 'entradas', TicketType: 'entradas', Order: 'entradas', Ticket: 'entradas', ScanLog: 'entradas',
   GuestList: 'entradas', Invitation: 'entradas',
   Product: 'tienda', ProductVariant: 'tienda', ShopOrder: 'tienda', ShopOrderItem: 'tienda',

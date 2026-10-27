@@ -10,22 +10,25 @@ import { Label } from '@/components/ui/label';
 import { FadeIn } from '@/components/ui/animate';
 import { ArrowLeft, CreditCard, Loader2, Lock, ShoppingBag } from 'lucide-react';
 import { type CartLine, cartTotals, readCart } from '@/lib/shop-cart';
+import { LegalAcceptance } from '@/components/legal-acceptance';
 
 type FieldErrors = Partial<
-  Record<'buyerName' | 'buyerEmail' | 'shippingAddress' | 'shippingCity' | 'shippingZip', string>
+  Record<'buyerName' | 'buyerEmail' | 'shippingAddress' | 'shippingCity' | 'shippingZip' | 'terms', string>
 >;
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-export default function ShopCheckoutClient() {
+export default function ShopCheckoutClient({ vatIncluded = false }: { vatIncluded?: boolean }) {
   const router = useRouter();
   const [cart, setCart] = useState<CartLine[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [errors, setErrors] = useState<FieldErrors>({});
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const termsRef = useRef<HTMLDivElement>(null);
   const [form, setForm] = useState({
     buyerName: '',
     buyerEmail: '',
@@ -57,6 +60,7 @@ export default function ShopCheckoutClient() {
     if (!form.shippingCity.trim()) next.shippingCity = 'Escribe la ciudad';
     if (!form.shippingZip.trim()) next.shippingZip = 'Escribe el código postal';
     else if (!/^[0-9]{5}$/.test(form.shippingZip.trim())) next.shippingZip = 'Usa un CP de 5 dígitos';
+    if (!acceptedTerms) next.terms = 'Para comprar tienes que aceptar las condiciones de venta y la política de privacidad';
     return next;
   };
 
@@ -66,6 +70,7 @@ export default function ShopCheckoutClient() {
     else if (next.shippingAddress) addressRef.current?.focus();
     else if (next.shippingCity) cityRef.current?.focus();
     else if (next.shippingZip) zipRef.current?.focus();
+    else if (next.terms) termsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   const submitOrder = async (e?: React.FormEvent) => {
@@ -98,6 +103,7 @@ export default function ShopCheckoutClient() {
           shippingZip: form.shippingZip.trim(),
           shippingPhone: form.shippingPhone.trim(),
           idempotencyKey: idempotencyKeyRef.current,
+          acceptedTerms,
           items: cart.map((l) => ({
             productId: l.productId,
             quantity: l.quantity,
@@ -290,6 +296,18 @@ export default function ShopCheckoutClient() {
                       onChange={(e) => setForm({ ...form, shippingPhone: e.target.value })}
                     />
                   </div>
+                </div>
+                <div ref={termsRef} className="border-t pt-4">
+                  <LegalAcceptance
+                    kind="tienda"
+                    accepted={acceptedTerms}
+                    onAcceptedChange={(v) => {
+                      setAcceptedTerms(v);
+                      setErrors((p) => ({ ...p, terms: undefined }));
+                    }}
+                    error={errors.terms}
+                    vatIncluded={vatIncluded}
+                  />
                 </div>
               </CardContent>
             </Card>

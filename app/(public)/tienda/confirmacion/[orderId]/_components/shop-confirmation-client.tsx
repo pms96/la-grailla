@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { CheckCircle, Clock, Mail, Package, XCircle, Loader2 } from 'lucide-react';
 import { ReceiptPrinter, usePrintSequence } from '@/components/receipt-printer';
 import { useBrand } from '@/components/brand-provider';
+import { FiscalFootnote } from '@/components/fiscal-footnote';
+import type { FiscalView } from '@/lib/fiscal';
 import { cartMatchesOrderItems, readCart, writeCart } from '@/lib/shop-cart';
 import { confirmationView, emailNotice, shouldKeepPolling, type EmailDelivery, type PaymentCheck } from '@/lib/confirmation-state';
 
@@ -22,6 +24,8 @@ export type ShopOrderView = {
   paymentCheck?: PaymentCheck;
   /** Estado REAL del email de confirmación (lo calcula la API del pedido): la pantalla no afirma haberlo enviado sin comprobarlo. */
   emailDelivery?: EmailDelivery | null;
+  /** Vendedor e IVA del justificante (lo añade la API del pedido con el pedido pagado). */
+  fiscal?: FiscalView | null;
   shippingAddress: string;
   shippingCity: string;
   shippingZip: string;
@@ -286,7 +290,7 @@ export function ShopReceiptPrinter({ order }: { order: ShopOrderView }) {
       <ReceiptPrinter.Output>
         <ReceiptPrinter.Paper>
           <header className="text-center">
-            <p className="text-xs tracking-[0.2em] text-black/45">{name.toUpperCase()} · RECIBO</p>
+            <p className="text-xs tracking-[0.2em] text-black/45">{name.toUpperCase()} · JUSTIFICANTE</p>
             <h3 className="mt-1 font-display text-base font-bold leading-tight text-black">
               Pedido #{shortCode}
             </h3>
@@ -314,6 +318,7 @@ export function ShopReceiptPrinter({ order }: { order: ShopOrderView }) {
             <span className="text-xs uppercase tracking-wide text-black/60">Total</span>
             <span className="font-display text-lg font-bold text-black">{order.totalAmount.toFixed(2)}€</span>
           </div>
+          <FiscalFootnote fiscal={order.fiscal} tone="paper" className="mt-1.5" />
           <ReceiptPrinter.DashedRule />
           <p className="text-xs font-bold uppercase tracking-wide text-black">Dirección de envío</p>
           <div className="mt-1.5 space-y-0.5 text-xs text-black/70">

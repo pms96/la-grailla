@@ -29,6 +29,10 @@ function sampleOrder() {
     emailAttempts: 0,
     reconcileCheckedAt: null,
     reconcileAttempts: 0,
+    termsAcceptedAt: null,
+    termsVersion: null,
+    ageConfirmedAt: null,
+    vatRate: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     event: {

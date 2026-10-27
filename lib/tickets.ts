@@ -9,6 +9,8 @@ import { getWalletAvailability, buildApplePass } from '@/lib/wallet';
 import { escapeHtml as esc } from '@/lib/html-escape';
 import { getBrand, type Brand } from '@/lib/brand/brand';
 import { brandLogoHtml } from '@/lib/brand/email';
+import { buildFiscalView, RECEIPT_TITLE } from '@/lib/fiscal';
+import { fiscalEmailHtml } from '@/lib/fiscal-email';
 
 // DATA-01: derivado del propio `prisma` (extendido — totalAmount/commission
 // son number, no Decimal), no de `Prisma.OrderGetPayload<...>` (que describe
@@ -123,7 +125,8 @@ function buildEmailHtml(
   brand: Brand,
   appUrl: string,
   minorAuthUrl?: string,
-  walletLinksHtml?: string
+  walletLinksHtml?: string,
+  fiscalHtml?: string
 ): string {
   const eventDate = order.event?.date
     ? new Date(order.event.date).toLocaleDateString('es-ES', {
@@ -152,7 +155,7 @@ function buildEmailHtml(
   return (
     '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;">' +
     brandLogoHtml(brand, appUrl, 32, 'margin:0 0 4px;') +
-    '<p style="color:#888;margin:0 0 24px;">Confirmacion de compra</p>' +
+    '<p style="color:#888;margin:0 0 24px;">' + RECEIPT_TITLE + ' (no es factura)</p>' +
     '<p>Hola ' + esc(order.buyerName) + ',</p>' +
     '<p>Tu compra se ha completado correctamente. Aqui tienes los detalles:</p>' +
     '<div style="background:' + brand.colors.emailTint + ';border-radius:10px;padding:18px;margin:18px 0;">' +
@@ -162,6 +165,7 @@ function buildEmailHtml(
     '<p style="margin:4px 0;"><strong>Entradas:</strong> ' + count + '</p>' +
     '<p style="margin:4px 0;"><strong>Total:</strong> ' + Number(order.totalAmount ?? 0).toFixed(2) + ' EUR</p>' +
     '<p style="margin:4px 0;"><strong>Referencia:</strong> ' + esc(order.id?.slice(0, 8)?.toUpperCase()) + '</p>' +
+    (fiscalHtml ?? '') +
     '</div>' +
     minorAuthNotice +
     (walletLinksHtml ?? '') +
@@ -278,7 +282,7 @@ export async function deliverTicketsEmail(
   const result = await sendMail({
     to: order.buyerEmail,
     subject: 'Tus entradas para ' + (order.event?.name ?? brand.name),
-    html: buildEmailHtml(order, printUrl, brand, appUrl, minorAuthUrl, walletLinksHtml),
+    html: buildEmailHtml(order, printUrl, brand, appUrl, minorAuthUrl, walletLinksHtml, fiscalEmailHtml(await buildFiscalView(order.totalAmount, order.vatRate))),
     attachments: attachments.length ? attachments : undefined,
   });
 

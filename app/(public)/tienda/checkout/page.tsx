@@ -1,4 +1,5 @@
 import { Container } from '@/components/layouts/container';
+import { currentVatRate } from '@/lib/fiscal';
 import ShopCheckoutClient from './_components/shop-checkout-client';
 
 export const dynamic = 'force-dynamic';
@@ -8,11 +9,12 @@ export const metadata = {
   description: 'Completa tus datos de envío para tu pedido.',
 };
 
-export default function TiendaCheckoutPage() {
+export default async function TiendaCheckoutPage() {
+  const vatRate = await currentVatRate('tienda');
   return (
     <Container size="lg">
       <div className="py-8">
-        <ShopCheckoutClient />
+        <ShopCheckoutClient vatIncluded={(vatRate ?? 0) > 0} />
       </div>
     </Container>
   );

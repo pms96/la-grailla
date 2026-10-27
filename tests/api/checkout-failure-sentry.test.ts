@@ -22,7 +22,7 @@ vi.mock('@/lib/mailer', async (orig) => ({ ...(await orig<typeof import('@/lib/m
  * dejaban un `console.error`. Ahora avisan a Sentry con el contexto mínimo (ruta, tipo, proveedor, pedido truncado), sin datos del comprador. */
 
 const post = (handler: (r: Request) => Promise<Response>, body: unknown, ip: string) =>
-  handler(new Request('http://localhost/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify(body) }));
+  handler(new Request('http://localhost/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify({ acceptedTerms: true, ...(body as object) }) }));
 
 describe('fallo de la pasarela en el checkout → Sentry', () => {
   let event: Awaited<ReturnType<typeof createTestEvent>>;

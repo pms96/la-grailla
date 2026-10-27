@@ -11,7 +11,7 @@ const { POST: createOrder } = await import('@/app/api/orders/route');
 const { POST: taquillaSale } = await import('@/app/api/taquilla/sale/route');
 
 const json = (url: string, body: unknown, ip = '203.0.113.50') =>
-  new Request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify(body) });
+  new Request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify({ acceptedTerms: true, ...(body as object) }) });
 
 // AUDIT: un tipo de entrada desactivado en el admin se podía comprar llamando a la API a mano (la web solo lo oculta), y la taquilla
 // aceptaba un tipo de entrada de OTRO evento: vendía la entrada contra el aforo equivocado y subía el contador de ventas del evento
