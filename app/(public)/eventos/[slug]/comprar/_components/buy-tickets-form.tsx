@@ -1,5 +1,6 @@
 'use client';
 
+import { MAX_TICKETS_PER_TYPE } from '@/lib/checkout-limits';
 import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -110,7 +111,7 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
       const current = prev?.[id] ?? 0;
       const tt = ticketTypes?.find((t: TicketType) => t?.id === id);
       const available = (tt?.maxQuantity ?? 0) - (tt?.soldCount ?? 0);
-      const next = Math.max(0, Math.min(current + delta, Math.min(available, 10)));
+      const next = Math.max(0, Math.min(current + delta, Math.min(available, MAX_TICKETS_PER_TYPE)));
       return { ...(prev ?? {}), [id]: next };
     });
     setErrors((prev) => ({ ...prev, tickets: undefined }));

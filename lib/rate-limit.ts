@@ -80,3 +80,35 @@ export async function rateLimit(scope: string, identifier: string, limit: number
   }
   return { ok: true, remaining: limit - row.count, retryAfter: 0 };
 }
+
+/* Cupo de pedidos PENDIENTES simultáneos (P0-04). No cuenta intentos por minuto (eso es `rateLimit`): cuenta los pedidos que esa IP tiene SIN
+ * PAGAR ahora mismo. Cada pedido pendiente ocupa una fila de `RateLimitBucket` (la infraestructura que ya hay, sin tablas nuevas) que se
+ * libera al pagarse, liberarse o anularse el pedido y que, en todo caso, caduca sola con la retención. El recuento y la inserción van dentro de
+ * la transacción de la compra, y el LLAMANTE debe serializarlos con un cerrojo (`pg_advisory_xact_lock`): en entradas, el cerrojo del
+ * evento; en tienda, uno por IP. Sin cerrojo, peticiones simultáneas leen el mismo recuento y se cuelan todas.
+ *
+ * Es un freno contra scripts desde UNA sola IP, no una defensa completa: rotando IP (o con IPv6, donde cada dirección de un /64 cuenta como
+ * distinta) se evade; la defensa real sería un captcha, que necesita claves del dueño. */
+const PENDING_PREFIX = 'pending:';
+type BucketClient = Pick<typeof prisma, 'rateLimitBucket'>;
+
+export async function countPendingSlots(client: BucketClient, scope: string, identifier: string): Promise<number> {
+  return client.rateLimitBucket.count({ where: { key: { startsWith: `${PENDING_PREFIX}${scope}:${identifier}#` }, resetAt: { gt: new Date() } } });
+}
+
+/** Reserva un hueco para el pedido `ref`. Idempotente por pedido. */
+export async function takePendingSlot(client: BucketClient, scope: string, identifier: string, ref: string, ttlMs: number): Promise<void> {
+  await client.rateLimitBucket.createMany({
+    data: [{ key: `${PENDING_PREFIX}${scope}:${identifier}#${ref}`, count: 1, resetAt: new Date(Date.now() + ttlMs) }],
+    skipDuplicates: true,
+  });
+}
+
+/** Libera el hueco de un pedido (pagado, liberado o fallido). Nunca lanza: no es crítico, y el hueco caduca solo. */
+export async function releasePendingSlot(ref: string): Promise<void> {
+  try {
+    await prisma.rateLimitBucket.deleteMany({ where: { key: { startsWith: PENDING_PREFIX, endsWith: `#${ref}` } } });
+  } catch (error) {
+    console.error('[releasePendingSlot]', error instanceof Error ? error.message : error);
+  }
+}

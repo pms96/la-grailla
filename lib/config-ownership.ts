@@ -35,14 +35,14 @@ export const CONFIG_KEY_OWNERS: Readonly<Record<string, Owners>> = Object.fromEn
   // Entradas: su cuenta de cobro, la comisión, los límites de compra y la impresora de taquilla.
   ...owned(ENTRADAS, [
     'payment_gateway', 'stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_secret', 'sumup_api_key', 'sumup_merchant_code',
-    'commission_percentage', 'orders_rate_limit_per_ip', 'orders_rate_limit_window_seconds', 'home_events_more_subtitle', 'notify_email_entradas',
+    'commission_percentage', 'orders_rate_limit_per_ip', 'orders_rate_limit_window_seconds', 'orders_max_pending_per_ip', 'home_events_more_subtitle', 'notify_email_entradas',
     'phomemo_printer_enabled', 'phomemo_write_mode', 'phomemo_raster_chunk_size', 'phomemo_chunk_delay_ms', 'phomemo_command_delay_ms',
     'phomemo_after_raster_delay_ms', 'phomemo_after_feed_delay_ms', 'phomemo_density', 'phomemo_feed', 'phomemo_confirm_every_chunks',
   ]),
   // Tienda: SU propia cuenta de cobro (no comparte la de Entradas) y los textos de su sección.
   ...owned(TIENDA, [
     'shop_payment_gateway', 'shop_stripe_publishable_key', 'shop_stripe_secret_key', 'shop_stripe_webhook_secret', 'shop_sumup_api_key',
-    'shop_sumup_merchant_code', 'home_shop_title', 'home_shop_subtitle', 'notify_email_tienda',
+    'shop_sumup_merchant_code', 'shop_orders_max_pending_per_ip', 'home_shop_title', 'home_shop_subtitle', 'notify_email_tienda',
   ]),
   ...owned(WALLETS, [
     'google_wallet_issuer_id', 'google_wallet_service_account', 'apple_wallet_enabled', 'apple_wallet_pass_type_id', 'apple_wallet_team_id',
@@ -85,6 +85,8 @@ const RULES: Record<string, Rule> = {
   commission_percentage: { kind: 'percent' },
   orders_rate_limit_per_ip: { kind: 'int', min: 1, max: 1000 },
   orders_rate_limit_window_seconds: { kind: 'int', min: 1, max: 86_400 },
+  orders_max_pending_per_ip: { kind: 'int', min: 1, max: 1000 },
+  shop_orders_max_pending_per_ip: { kind: 'int', min: 1, max: 1000 },
   smtp_port: { kind: 'int', min: 1, max: 65_535 },
   phomemo_density: { kind: 'int', min: 1, max: 8 },
   phomemo_feed: { kind: 'int', min: 0, max: 255 },

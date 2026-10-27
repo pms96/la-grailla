@@ -1,10 +1,12 @@
 export const dynamic = 'force-dynamic';
+// Tiempo máximo de la función. Cada pedido puede costar hasta tres llamadas a la pasarela (verificar, cerrar, verificar) de hasta 15 s cada una,
+// y una pasada examina hasta 200: con el tiempo por defecto de la plataforma se cortaba a mitad. Ver también TIME_BUDGET_MS.
+export const maxDuration = 60;
 
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getPaymentProviderByName } from '@/lib/payment-adapter';
-import { completeOrder, releaseExpiredOrder } from '@/lib/reconciliation/entradas';
-import { completeShopOrder, releaseExpiredShopOrder } from '@/lib/reconciliation/tienda';
+import { settleUnpaidOrder, type SettleKind, type SettleOrder } from '@/lib/reconciliation/settle';
+import { STALE_ORDER_SAFETY_NET_MS } from '@/lib/checkout-hold';
 import { handleApiError } from '@/lib/api-error';
 import { authorizeCron } from '@/lib/cron-auth';
 import { currentTenant } from '@/lib/tenant/context';
@@ -18,12 +20,20 @@ import { currentTenant } from '@/lib/tenant/context';
 // y comprueba el estado real contra la pasarela, igual que ya hace esa
 // misma ruta al vuelo.
 //
-// Además, pasados MAX_AGE_MS libera el stock de PENDING que la pasarela no
-// confirma como pagados (checkout abandonado) — crítico para SumUp, que no
-// emite evento de expiración como Stripe.
-const MIN_AGE_MS = 2 * 60_000; // deja margen a que el comprador siga en pleno checkout
-const MAX_AGE_MS = 24 * 60 * 60_000; // ventana de reintentos de verificación
+// Además libera el aforo/stock de los PENDING que ya no se pueden pagar (checkout abandonado) — crítico para SumUp, que no emite evento
+// de expiración como Stripe. La decisión (completar / liberar / esperar / no tocar) es de `settleUnpaidOrder`, que solo libera con la
+// pasarela confirmando que el pago ya no puede llegar: un fallo al consultarla (UNKNOWN) o un cobro en curso (PROCESSING) NUNCA liberan.
+const MIN_AGE_MS = 2 * 60_000; // deja margen a que el comprador siga en pleno checkout y a que se guarde el paymentId
 const BATCH_SIZE = 50;
+// Pedidos que se atienden A LA VEZ (llamadas a la pasarela en paralelo, con tope: no se martillea la API) y presupuesto de tiempo de la pasada: pasado,
+// el bucle para y el resto queda para la siguiente pasada SIN sellar (conserva su sitio en la cola justa). Por debajo de `maxDuration` con margen para
+// que termine el grupo en curso y se responda. `RECONCILE_TIME_BUDGET_MS` solo existe para poder probarlo.
+const CONCURRENCY = 5;
+const DEFAULT_TIME_BUDGET_MS = 45_000;
+const timeBudgetMs = () => {
+  const n = Number(process.env.RECONCILE_TIME_BUDGET_MS);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_TIME_BUDGET_MS;
+};
 
 /** Cliente de esta pasada, para los logs: en un proyecto compartido, un error de pago sin cliente no se puede atribuir a nadie. */
 const tenantTag = () => currentTenant()?.tenantId ?? '-';
@@ -62,169 +72,129 @@ export async function GET(request: Request) {
     }
 
     const now = Date.now();
-    const minCreated = new Date(now - MAX_AGE_MS);
+    const deadline = now + timeBudgetMs();
     const maxCreated = new Date(now - MIN_AGE_MS);
+    const staleCreated = new Date(now - STALE_ORDER_SAFETY_NET_MS);
+
+    // Pedidos con pago en la pasarela: se examinan SIEMPRE, sea cual sea su edad (la decisión de liberar es de settleUnpaidOrder).
+    const withGateway = { status: 'PENDING' as const, paymentProvider: { notIn: ['mock'] }, paymentId: { not: null }, createdAt: { lte: maxCreated } };
+    // Pedidos que nunca llegaron a la pasarela (sin paymentId o con la simulada): red de seguridad por antigüedad.
+    const withoutGateway = {
+      status: 'PENDING' as const,
+      createdAt: { lt: staleCreated },
+      OR: [{ paymentId: null }, { paymentProvider: null }, { paymentProvider: 'mock' }],
+    };
 
     const [pendingTicketOrders, abandonedTicketOrders, pendingShopOrders, abandonedShopOrders] =
       await Promise.all([
-        prisma.order.findMany({
-          where: {
-            status: 'PENDING',
-            paymentProvider: { notIn: ['mock'] },
-            paymentId: { not: null },
-            createdAt: { lte: maxCreated, gte: minCreated },
-          },
-          take: BATCH_SIZE,
-          orderBy: FAIR_QUEUE_ORDER,
-        }),
-        // Más viejos que MAX_AGE: un último intento de verificar; si no hay
-        // pago, liberar stock para no dejar el aforo bloqueado.
-        prisma.order.findMany({
-          where: {
-            status: 'PENDING',
-            createdAt: { lt: minCreated },
-          },
-          take: BATCH_SIZE,
-          orderBy: FAIR_QUEUE_ORDER,
-        }),
-        prisma.shopOrder.findMany({
-          where: {
-            status: 'PENDING',
-            paymentProvider: { notIn: ['mock'] },
-            paymentId: { not: null },
-            createdAt: { lte: maxCreated, gte: minCreated },
-          },
-          take: BATCH_SIZE,
-          orderBy: FAIR_QUEUE_ORDER,
-        }),
-        prisma.shopOrder.findMany({
-          where: {
-            status: 'PENDING',
-            createdAt: { lt: minCreated },
-          },
-          take: BATCH_SIZE,
-          orderBy: FAIR_QUEUE_ORDER,
-        }),
+        prisma.order.findMany({ where: withGateway, take: BATCH_SIZE, orderBy: FAIR_QUEUE_ORDER }),
+        prisma.order.findMany({ where: withoutGateway, take: BATCH_SIZE, orderBy: FAIR_QUEUE_ORDER }),
+        prisma.shopOrder.findMany({ where: withGateway, take: BATCH_SIZE, orderBy: FAIR_QUEUE_ORDER }),
+        prisma.shopOrder.findMany({ where: withoutGateway, take: BATCH_SIZE, orderBy: FAIR_QUEUE_ORDER }),
       ]);
-
-    // Se sella ANTES de llamar a las pasarelas: si la función se corta por tiempo a mitad de pasada, la siguiente ya empieza por otros.
-    const stampedAt = new Date(now);
-    await Promise.all([
-      stampExamined('order', [...pendingTicketOrders, ...abandonedTicketOrders].map((o) => o.id), stampedAt),
-      stampExamined('shopOrder', [...pendingShopOrders, ...abandonedShopOrders].map((o) => o.id), stampedAt),
-    ]);
 
     let completed = 0;
     let released = 0;
     let stillPending = 0;
+    let processing = 0;
+    let unknown = 0;
     let errors = 0;
+    let stuckOver24h = 0;
+    const errorSamples: string[] = [];
+    const noteError = (kind: SettleKind, orderId: string, reason: string) => {
+      errors += 1;
+      if (errorSamples.length < 5) errorSamples.push(`${kind}:${orderId}:${reason.slice(0, 160)}`);
+    };
 
-    for (const order of pendingTicketOrders) {
-      try {
-        const provider = await getPaymentProviderByName(order.paymentProvider!);
-        const result = await provider.verifyPayment(order.paymentId!);
-        if (result.success) {
-          await completeOrder(order.id, undefined, result);
-          completed += 1;
-        } else if (result.status === 'EXPIRED') {
-          // Una sesión de pago caducada ya no se puede pagar: se libera el aforo sin esperar a las 24 h.
-          await releaseExpiredOrder(order.id);
-          released += 1;
-        } else {
-          stillPending += 1;
-        }
-      } catch (error) {
-        errors += 1;
-        console.error(
-          `[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] Errorverificando pedido ${order.id}:`,
-          error instanceof Error ? error.message : error
-        );
-      }
-    }
+    const queue: { kind: SettleKind; table: 'order' | 'shopOrder'; order: SettleOrder }[] = [
+      ...pendingTicketOrders.map((order) => ({ kind: 'entradas' as const, table: 'order' as const, order })),
+      ...abandonedTicketOrders.map((order) => ({ kind: 'entradas' as const, table: 'order' as const, order })),
+      ...pendingShopOrders.map((order) => ({ kind: 'tienda' as const, table: 'shopOrder' as const, order })),
+      ...abandonedShopOrders.map((order) => ({ kind: 'tienda' as const, table: 'shopOrder' as const, order })),
+    ];
 
-    for (const order of abandonedTicketOrders) {
+    const settleOne = async ({ kind, order }: (typeof queue)[number]) => {
       try {
-        if (order.paymentProvider && order.paymentProvider !== 'mock' && order.paymentId) {
-          const provider = await getPaymentProviderByName(order.paymentProvider);
-          const result = await provider.verifyPayment(order.paymentId);
-          if (result.success) {
-            await completeOrder(order.id, undefined, result);
+        const result = await settleUnpaidOrder({ kind, order });
+        if (result.stuck) stuckOver24h += 1;
+        switch (result.outcome) {
+          case 'completed':
             completed += 1;
-            continue;
-          }
+            break;
+          case 'released':
+            released += 1;
+            break;
+          case 'pending':
+            stillPending += 1;
+            break;
+          case 'processing':
+            processing += 1;
+            break;
+          case 'unknown':
+            // La pasarela no se pudo consultar: el pedido sigue PENDING para la siguiente pasada y cuenta como error de la pasada.
+            unknown += 1;
+            noteError(kind, order.id, result.reason ?? 'unknown');
+            break;
+          case 'attention':
+            noteError(kind, order.id, result.reason ?? 'attention');
+            break;
         }
-        await releaseExpiredOrder(order.id);
-        released += 1;
       } catch (error) {
-        errors += 1;
+        noteError(kind, order.id, error instanceof Error ? error.message : String(error));
         console.error(
-          `[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] Errorliberando pedido ${order.id}:`,
+          `[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] Error reconciliando ${kind} ${order.id}:`,
           error instanceof Error ? error.message : error
         );
       }
-    }
+    };
 
-    for (const order of pendingShopOrders) {
-      try {
-        const provider = await getPaymentProviderByName(order.paymentProvider!, 'tienda');
-        const result = await provider.verifyPayment(order.paymentId!);
-        if (result.success) {
-          await completeShopOrder(order.id, result);
-          completed += 1;
-        } else if (result.status === 'EXPIRED') {
-          // Una sesión de pago caducada ya no se puede pagar: se libera el aforo sin esperar a las 24 h.
-          await releaseExpiredShopOrder(order.id);
-          released += 1;
-        } else {
-          stillPending += 1;
-        }
-      } catch (error) {
-        errors += 1;
-        console.error(
-          `[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] Errorverificando shop ${order.id}:`,
-          error instanceof Error ? error.message : error
-        );
-      }
+    // Grupos de CONCURRENCY pedidos. Cada grupo se sella JUSTO ANTES de llamar a las pasarelas (si la función se corta por tiempo a mitad de grupo,
+    // la siguiente pasada ya no empieza por esos), y lo que no llega a atenderse por falta de tiempo NO se sella: sigue con su sitio en la cola justa.
+    let examined = 0;
+    for (let i = 0; i < queue.length; i += CONCURRENCY) {
+      if (Date.now() >= deadline) break;
+      const group = queue.slice(i, i + CONCURRENCY);
+      const stampedAt = new Date();
+      await Promise.all([
+        stampExamined('order', group.filter((g) => g.table === 'order').map((g) => g.order.id), stampedAt),
+        stampExamined('shopOrder', group.filter((g) => g.table === 'shopOrder').map((g) => g.order.id), stampedAt),
+      ]);
+      await Promise.all(group.map(settleOne));
+      examined += group.length;
     }
+    const deferred = queue.length - examined;
 
-    for (const order of abandonedShopOrders) {
-      try {
-        if (order.paymentProvider && order.paymentProvider !== 'mock' && order.paymentId) {
-          const provider = await getPaymentProviderByName(order.paymentProvider, 'tienda');
-          const result = await provider.verifyPayment(order.paymentId);
-          if (result.success) {
-            await completeShopOrder(order.id, result);
-            completed += 1;
-            continue;
-          }
-        }
-        await releaseExpiredShopOrder(order.id);
-        released += 1;
-      } catch (error) {
-        errors += 1;
-        console.error(
-          `[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] Errorliberando shop ${order.id}:`,
-          error instanceof Error ? error.message : error
-        );
-      }
+    // Antigüedad del pedido con pago en la pasarela que sigue sin resolverse (0 = ninguno): es la señal que el panel puede vigilar (SLI «edad máx. de PENDING»).
+    const [oldestOrder, oldestShop] = await Promise.all([
+      prisma.order.aggregate({ where: { status: 'PENDING', paymentId: { not: null } }, _min: { createdAt: true } }),
+      prisma.shopOrder.aggregate({ where: { status: 'PENDING', paymentId: { not: null } }, _min: { createdAt: true } }),
+    ]);
+    const oldest = [oldestOrder._min.createdAt, oldestShop._min.createdAt].filter((d): d is Date => d instanceof Date).sort((x, y) => x.getTime() - y.getTime())[0];
+    const oldestPendingMinutes = oldest ? Math.max(0, Math.floor((now - oldest.getTime()) / 60_000)) : 0;
+
+    // Si todo lo examinado dio error y no hubo ni un avance (nada completado, liberado, en curso ni confirmado como aún pendiente), la pasada NO
+    // ha reconciliado nada: credencial ilegible, caducada o mal puesta, pasarela sin configurar o caída. Un 200 haría que el disparador la diera por
+    // buena y el operador no se enteraría de que los pedidos se quedan en PENDING.
+    const failedPass = errors > 0 && completed + released + stillPending + processing === 0;
+    if (errors > 0) {
+      console.error(
+        `[reconcile] ${JSON.stringify({ tenantId: tenantTag(), errors, unknown, stuckOver24h, deferred, completed, released, stillPending, processing, oldestPendingMinutes, errorSamples })}`
+      );
     }
-
-    // Si todo lo examinado dio error y no hubo ni un avance (nada completado, liberado ni confirmado como aún pendiente), la pasada NO
-    // ha reconciliado nada: credencial ilegible, pasarela sin configurar o caída. Un 200 haría que el disparador la diera por buena y
-    // el operador no se enteraría de que los pedidos se quedan en PENDING hasta que se libera el aforo a las 24 h.
-    const failedPass = errors > 0 && completed + released + stillPending === 0;
-    if (errors > 0) console.error(`[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] ${errors} pedidos con error de ${completed + released + stillPending + errors}`);
     return NextResponse.json(
       {
-        checked:
-          pendingTicketOrders.length +
-          abandonedTicketOrders.length +
-          pendingShopOrders.length +
-          abandonedShopOrders.length,
+        // Pedidos atendidos en esta pasada; `deferred` = los que no cupieron en el presupuesto de tiempo y quedan para la siguiente.
+        checked: examined,
+        deferred,
         completed,
         released,
         stillPending,
+        processing,
+        unknown,
+        stuckOver24h,
         errors,
+        errorSamples,
+        oldestPendingMinutes,
       },
       { status: failedPass ? 502 : 200 }
     );

@@ -25,10 +25,14 @@ import { EventTicket, TICKET_BARCODE_BG } from '@/components/event-ticket';
 import { Logo } from '@/components/logo';
 import QRCode from 'qrcode';
 import { useBrand } from '@/components/brand-provider';
+import { confirmationView, shouldKeepPolling, type PaymentCheck } from '@/lib/confirmation-state';
 
 type OrderWithTickets = Prisma.OrderGetPayload<{
   include: { event: true; tickets: { include: { ticketType: true } } };
-}>;
+}> & {
+  /** Resultado de comprobar contra la pasarela un pedido anulado con pago (lo añade la API del pedido). */
+  paymentCheck?: PaymentCheck;
+};
 
 type OrderState = OrderWithTickets | { error: string } | null;
 
@@ -52,7 +56,14 @@ export default function ConfirmationClient({
 
   const orderError = order && 'error' in order ? order.error : null;
   const validOrder = order && !('error' in order) ? order : null;
-  const isPending = validOrder?.status === 'PENDING';
+  // Qué debe decir la pantalla (decisión pura, compartida con la tienda): «no se ha cobrado nada» solo si la pasarela lo confirma.
+  const view = validOrder
+    ? confirmationView({ status: validOrder.status, paymentId: validOrder.paymentId, paymentCheck: validOrder.paymentCheck, pollsExhausted: pollCount >= MAX_POLLS })
+    : null;
+  const isPending = view === 'pending';
+  const isCheckingPayment = view === 'checking' || view === 'checking_gave_up';
+  const isCancelled = view === 'not_charged';
+  const isRefunded = view === 'refunded';
   const tokenQs = accessToken ? `?t=${encodeURIComponent(accessToken)}` : '';
 
   const fetchOrder = () => {
@@ -84,16 +95,16 @@ export default function ConfirmationClient({
   // pedido sigue PENDING, reintentamos la verificación cada pocos segundos
   // en vez de mostrar "confirmado" antes de que el pago se haya validado.
   useEffect(() => {
-    if (!isPending || pollCount >= MAX_POLLS) return;
+    if (!view || !shouldKeepPolling(view) || pollCount >= MAX_POLLS) return;
     const t = setTimeout(() => {
       setPollCount((c) => c + 1);
       fetchOrder();
     }, POLL_INTERVAL_MS);
     return () => clearTimeout(t);
-  }, [isPending, pollCount, orderId]);
+  }, [view, pollCount, orderId]);
 
   useEffect(() => {
-    if (!validOrder?.id || orderError || isPending) return;
+    if (!validOrder?.id || orderError || isPending || isCheckingPayment || isCancelled || isRefunded) return;
     if (validOrder?.emailSentAt) {
       setEmailStatus('sent');
       return;
@@ -107,7 +118,7 @@ export default function ConfirmationClient({
       .then((r) => r.json())
       .then((data) => setEmailStatus(data?.success ? 'sent' : 'error'))
       .catch(() => setEmailStatus('error'));
-  }, [validOrder?.id, validOrder?.emailSentAt, orderError, isPending, accessToken]);
+  }, [validOrder?.id, validOrder?.emailSentAt, orderError, isPending, isCheckingPayment, isCancelled, isRefunded, accessToken]);
 
   const resendEmail = async () => {
     setEmailStatus('sending');
@@ -224,6 +235,60 @@ export default function ConfirmationClient({
               )}
             </div>
           )}
+        </div>
+      </FadeIn>
+    );
+  }
+
+  if (isCheckingPayment) {
+    const gaveUp = view === 'checking_gave_up';
+    return (
+      <FadeIn>
+        <div className="text-center py-20 space-y-4" role="status" aria-live="polite">
+          <Clock className="h-16 w-16 text-primary mx-auto animate-pulse" aria-hidden />
+          <h1 className="font-display text-2xl font-bold tracking-tight">Estamos comprobando tu pago…</h1>
+          <p className="text-muted-foreground max-w-sm mx-auto">
+            {gaveUp ? (
+              <>
+                Todavía no hemos podido confirmar tu pago. Si has pagado y no ves tu compra, escríbenos indicando este código:{' '}
+                <strong className="font-mono">{validOrder?.id.slice(0, 8).toUpperCase()}</strong>. Si no se confirma, te devolveremos el importe. Puedes cerrar esta página.
+              </>
+            ) : (
+              'La reserva de tus entradas había caducado. Si has pagado, lo estamos comprobando: recibirás tus entradas por email o te devolveremos el importe automáticamente. No hace falta que vuelvas a pagar.'
+            )}
+          </p>
+          {gaveUp && contactEmail && (
+            <Button variant="ghost" asChild className="gap-2">
+              <a href={`mailto:${contactEmail}?subject=${encodeURIComponent('Pedido ' + (validOrder?.id.slice(0, 8).toUpperCase() ?? ''))}`}>
+                <Mail className="h-4 w-4" /> Contactar
+              </a>
+            </Button>
+          )}
+        </div>
+      </FadeIn>
+    );
+  }
+
+  if (isCancelled || isRefunded) {
+    return (
+      <FadeIn>
+        <div className="text-center py-20 space-y-5 max-w-md mx-auto" role="status">
+          <SearchX className="h-12 w-12 text-muted-foreground mx-auto" aria-hidden />
+          <div className="space-y-2">
+            <h1 className="font-display text-2xl font-bold tracking-tight">
+              {isRefunded ? 'Te hemos devuelto el pago' : 'Pedido no completado'}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {isRefunded
+                ? `Este pedido no se ha podido completar y te hemos devuelto el importe (${(validOrder?.totalAmount ?? 0).toFixed(2)}€). Puede tardar unos días en aparecer en tu cuenta.`
+                : 'Este pedido se ha cancelado o no se ha podido cobrar. No se ha realizado ningún cargo.'}
+            </p>
+          </div>
+          <Button asChild className="gap-2">
+            <Link href="/eventos">
+              <Ticket className="h-4 w-4" /> Ver eventos
+            </Link>
+          </Button>
         </div>
       </FadeIn>
     );

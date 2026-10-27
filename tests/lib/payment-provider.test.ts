@@ -46,7 +46,10 @@ describe('estado de cobro normalizado', () => {
     [{ payment_status: 'unpaid', status: 'open' }, 'PENDING'],
     [{ payment_status: 'unpaid', status: 'expired' }, 'EXPIRED'],
     [{ payment_status: 'paid', status: 'expired' }, 'PAID'], // pagado manda sobre caducado
-    [{ payment_status: 'no_payment_required', status: 'complete' }, 'PENDING'],
+    // Sesión completa pero sin pagar (medios de pago asíncronos): el dinero está en camino, NO es «pendiente» y jamás se libera por tiempo.
+    [{ payment_status: 'unpaid', status: 'complete' }, 'PROCESSING'],
+    [{ payment_status: 'no_payment_required', status: 'complete' }, 'PROCESSING'],
+    [{ payment_status: 'unpaid' }, 'UNKNOWN'], // sin `status` no se sabe si está abierta: ante la duda, nunca «no pagado»
     [{}, 'UNKNOWN'],
   ])('Stripe %j → %s', (session, expected) => {
     expect(mapStripeSessionStatus(session)).toBe(expected);

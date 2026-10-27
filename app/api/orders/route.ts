@@ -7,7 +7,10 @@ import type { TicketStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { generateQRCode } from '@/lib/qr';
 import { getConfig } from '@/lib/config';
-import { rateLimit, getClientIp } from '@/lib/rate-limit';
+import { rateLimit, getClientIp, countPendingSlots, takePendingSlot, releasePendingSlot } from '@/lib/rate-limit';
+import { CHECKOUT_RELEASE_AFTER_MS } from '@/lib/checkout-hold';
+import { MAX_TICKETS_PER_TYPE, MAX_TICKET_LINES_PER_ORDER, PENDING_LIMIT_CONFIG_KEY, normalizeEmailForLimit, parsePendingLimit } from '@/lib/checkout-limits';
+import { resumeCheckoutUrl } from '@/lib/reconciliation/close-session';
 import { checkCapacityAlerts } from '@/lib/capacity-alerts';
 import { getPaymentProvider } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
@@ -32,6 +35,23 @@ class OrderRejectedError extends Error {}
 // termina aquí en vez de duplicar el pedido/cobro.
 class DuplicateOrderError extends Error {}
 
+// Demasiados pedidos sin pagar a la vez desde la misma IP para este evento: se responde 429, no 400, porque se libera sola al pagar o abandonar.
+class TooManyPendingOrdersError extends Error {}
+
+/**
+ * Respuesta de un reintento con la misma `idempotencyKey` de un pedido que ya existe. Si sigue PENDING con su sesión de pago abierta se
+ * devuelve la URL para reanudarla (antes `checkoutUrl: null` dejaba al comprador en «Confirmando…» sin salida: EN-07).
+ */
+async function existingOrderResponse(existing: { id: string; totalAmount: number; status: string; paymentProvider: string | null; paymentId: string | null }) {
+  return NextResponse.json({
+    success: true,
+    orderId: existing.id,
+    totalAmount: existing.totalAmount,
+    checkoutUrl: await resumeCheckoutUrl('entradas', existing),
+    accessToken: signOrderAccess(existing.id),
+  });
+}
+
 const createOrderSchema = z.object({
   eventId: z.string().min(1),
   buyerName: z.string().min(1).max(100),
@@ -41,10 +61,11 @@ const createOrderSchema = z.object({
     .array(
       z.object({
         ticketTypeId: z.string().min(1),
-        quantity: z.number().int().positive(),
+        quantity: z.number().int().positive().max(MAX_TICKETS_PER_TYPE),
       })
     )
-    .min(1),
+    .min(1)
+    .max(MAX_TICKET_LINES_PER_ORDER),
   queueToken: z.string().optional(),
   idempotencyKey: z.string().optional(),
 });
@@ -54,13 +75,16 @@ export async function POST(request: Request) {
     // Configurable desde el panel (Configuración > Entradas) porque el valor por
     // defecto puede ser demasiado agresivo para tráfico legítimo desde una misma
     // IP compartida (wifi de un local, datos móviles con NAT) el día del evento.
-    const [rateLimitPerIpStr, rateLimitWindowStr] = await Promise.all([
+    const [rateLimitPerIpStr, rateLimitWindowStr, maxPendingStr] = await Promise.all([
       getConfig('orders_rate_limit_per_ip'),
       getConfig('orders_rate_limit_window_seconds'),
+      getConfig(PENDING_LIMIT_CONFIG_KEY.entradas),
     ]);
+    const maxPendingPerIp = parsePendingLimit(maxPendingStr);
     const rateLimitPerIp = parseInt(rateLimitPerIpStr, 10) || 10;
     const rateLimitWindowMs = (parseInt(rateLimitWindowStr, 10) || 60) * 1000;
-    const limit = await rateLimit('orders', getClientIp(request), rateLimitPerIp, rateLimitWindowMs);
+    const clientIp = getClientIp(request);
+    const limit = await rateLimit('orders', clientIp, rateLimitPerIp, rateLimitWindowMs);
     if (!limit.ok) {
       return NextResponse.json(
         { error: 'Has realizado demasiados intentos. Espera un momento antes de volver a intentarlo.' },
@@ -79,15 +103,7 @@ export async function POST(request: Request) {
     // navegador y solo tiene sentido comparada consigo misma.
     if (idempotencyKey) {
       const existingOrder = await prisma.order.findUnique({ where: { idempotencyKey } });
-      if (existingOrder) {
-        return NextResponse.json({
-          success: true,
-          orderId: existingOrder.id,
-          totalAmount: existingOrder.totalAmount,
-          checkoutUrl: null,
-          accessToken: signOrderAccess(existingOrder.id),
-        });
-      }
+      if (existingOrder) return existingOrderResponse(existingOrder);
     }
 
     // Validate event
@@ -144,6 +160,12 @@ export async function POST(request: Request) {
       if (!tt) return NextResponse.json({ error: 'Tipo de entrada no válido' }, { status: 400 });
       requestedQuantities.set(tt.id, (requestedQuantities.get(tt.id) ?? 0) + (item?.quantity ?? 1));
     }
+    // El tope por tipo también vale para el total de un mismo tipo repartido en varias líneas del pedido.
+    for (const quantity of requestedQuantities.values()) {
+      if (quantity > MAX_TICKETS_PER_TYPE) {
+        return NextResponse.json({ error: `Máximo ${MAX_TICKETS_PER_TYPE} entradas de cada tipo por pedido` }, { status: 400 });
+      }
+    }
     const totalTickets = Array.from(requestedQuantities.values()).reduce((sum, q) => sum + q, 0);
 
     const commissionStr = await getConfig('commission_percentage');
@@ -196,13 +218,18 @@ export async function POST(request: Request) {
         // dentro del lock por evento, así que es seguro frente a compras
         // concurrentes del mismo comprador.
         if (event.maxTicketsPerEmail != null) {
-          const alreadyBoughtByEmail = await tx.ticket.count({
-            where: {
-              eventId,
-              status: { notIn: ['CANCELLED', 'REFUNDED'] },
-              order: { buyerEmail: { equals: buyerEmail, mode: 'insensitive' } },
-            },
-          });
+          // Cuentan las entradas PAGADAS y las de pedidos sin pagar DENTRO de la ventana de retención: un pedido abandonado (que aún no ha
+          // liberado el cron) no puede dejar a alguien sin poder reintentar. El email se normaliza (minúsculas, sin `+alias`).
+          const normalizedEmail = normalizeEmailForLimit(buyerEmail);
+          const holdCutoff = new Date(Date.now() - CHECKOUT_RELEASE_AFTER_MS);
+          const [{ n: alreadyBoughtByEmail }] = await tx.$queryRaw<{ n: number }[]>`
+            SELECT COUNT(*)::int AS n
+            FROM "Ticket" t
+            JOIN "Order" o ON o."id" = t."orderId"
+            WHERE t."eventId" = ${eventId}
+              AND lower(regexp_replace(o."buyerEmail", '[+][^@]*@', '@')) = ${normalizedEmail}
+              AND (t."status" IN ('VALID', 'USED') OR (t."status" = 'PENDING' AND o."createdAt" > ${holdCutoff}))
+          `;
           if (alreadyBoughtByEmail + totalTickets > event.maxTicketsPerEmail) {
             throw new OrderRejectedError(
               `Este email ya ha comprado el máximo de entradas permitido para este evento (${event.maxTicketsPerEmail})`
@@ -215,6 +242,13 @@ export async function POST(request: Request) {
         });
         if (issuedCount + totalTickets > event.maxCapacity) {
           throw new OrderRejectedError('Aforo completo');
+        }
+
+        // Cupo de pedidos sin pagar por IP y evento (solo si hay pasarela real: sin ella el pedido nace pagado).
+        const pendingScope = 'orders';
+        const pendingIdentifier = `${clientIp}:${eventId}`;
+        if (isGatewayLive && (await countPendingSlots(tx, pendingScope, pendingIdentifier)) >= maxPendingPerIp) {
+          throw new TooManyPendingOrdersError();
         }
 
         let newOrder: CreatedOrder;
@@ -261,6 +295,7 @@ export async function POST(request: Request) {
           }))
         );
         await tx.ticket.createMany({ data: ticketsToCreate });
+        if (isGatewayLive) await takePendingSlot(tx, pendingScope, pendingIdentifier, newOrder.id, CHECKOUT_RELEASE_AFTER_MS);
 
         // Reserva de stock: se cuenta como vendida desde que se reserva en el
         // checkout, no solo cuando se confirma el pago (igual que el aforo).
@@ -287,8 +322,16 @@ export async function POST(request: Request) {
       .catch((error) => {
         if (error instanceof OrderRejectedError) return error;
         if (error instanceof DuplicateOrderError) return error;
+        if (error instanceof TooManyPendingOrdersError) return error;
         throw error;
       });
+
+    if (order instanceof TooManyPendingOrdersError) {
+      return NextResponse.json(
+        { error: 'Ya tienes pedidos pendientes de pago para este evento. Termina el pago o espera unos minutos a que se liberen.' },
+        { status: 429, headers: { 'Retry-After': '60' } }
+      );
+    }
 
     if (order instanceof OrderRejectedError) {
       return NextResponse.json({ error: order.message }, { status: 400 });
@@ -306,13 +349,7 @@ export async function POST(request: Request) {
       if (!existingOrder) {
         return NextResponse.json({ error: 'No se ha podido procesar el pedido. Inténtalo de nuevo.' }, { status: 409 });
       }
-      return NextResponse.json({
-        success: true,
-        orderId: existingOrder.id,
-        totalAmount: existingOrder.totalAmount,
-        checkoutUrl: null,
-        accessToken: signOrderAccess(existingOrder.id),
-      });
+      return existingOrderResponse(existingOrder);
     }
 
     // Libera el hueco de la sala de espera ya, en vez de esperar a que
@@ -337,6 +374,7 @@ export async function POST(request: Request) {
     }
 
     const baseUrl = getBaseUrl(request);
+    let createdSessionId: string | null = null;
     try {
       const session = await paymentProvider.createCheckoutSession({
         amount: totalAmount,
@@ -344,10 +382,12 @@ export async function POST(request: Request) {
         description: `Entradas ${event.name}`,
         orderId: order.id,
         successUrl: baseUrl + '/confirmacion/' + order.id + '?' + orderAccessQuery(order.id),
-        cancelUrl: baseUrl + '/eventos/' + event.slug + '/comprar',
+        // Volver atrás desde la pasarela pasa por aquí: libera el aforo del pedido si no se ha pagado (con el token firmado del pedido).
+        cancelUrl: baseUrl + '/api/orders/' + order.id + '/abandon?' + orderAccessQuery(order.id),
         customerEmail: buyerEmail,
         metadata: { orderType: 'ticket' },
       });
+      createdSessionId = session.sessionId;
       await prisma.order.update({ where: { id: order.id }, data: { paymentId: session.sessionId } });
       await releaseQueueSlot();
       return NextResponse.json({
@@ -363,6 +403,9 @@ export async function POST(request: Request) {
       // Y hay que soltar el stock reservado — si no, esas unidades quedan
       // "vendidas" para siempre aunque nunca se haya iniciado el cobro.
       console.error('Ticket checkout session error:', error instanceof Error ? error.message : error);
+      // Si la sesión SÍ se creó en la pasarela y lo que falló fue guardar su id, se cierra: el pedido se cancela y no debe poder pagarse.
+      if (createdSessionId && paymentProvider.cancelPayment) await paymentProvider.cancelPayment(createdSessionId).catch(() => {});
+      await releasePendingSlot(order.id);
       const failedTickets = await prisma.ticket.findMany({ where: { orderId: order.id } });
       const quantityByType = new Map<string, number>();
       for (const ticket of failedTickets) {

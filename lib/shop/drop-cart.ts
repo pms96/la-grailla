@@ -1,5 +1,6 @@
 import { type CartLine, readCart, writeCart } from '@/lib/shop-cart';
 import { variantStock, type ShopProductView } from '@/lib/shop/product-view';
+import { MAX_SHOP_LINES_PER_ORDER, MAX_SHOP_UNITS_PER_LINE, MAX_SHOP_UNITS_PER_ORDER } from '@/lib/checkout-limits';
 
 /* Operaciones del carrito de la tienda de la plantilla «drop». Son funciones PURAS sobre la lista de líneas (el carrito sigue viviendo en el
  * navegador, en la misma clave de siempre, y el checkout lo lee de ahí): cada una devuelve el carrito nuevo o el motivo por el que no se puede.
@@ -13,6 +14,11 @@ export const lineKey = (productId: string, size: string, color: string): string 
 /** «Solo queda 1 unidad» / «Solo quedan 3 unidades». */
 const onlyLeft = (stock: number): string => (stock === 1 ? 'Solo queda 1 unidad' : `Solo quedan ${stock} unidades`);
 
+/** Los topes que el servidor aplica a un pedido (lib/checkout-limits): el carrito no deja construir uno que luego se rechazaría al pagar. */
+const unitsTotal = (cart: readonly CartLine[]): number => cart.reduce((sum, l) => sum + l.quantity, 0);
+const LIMIT_PER_LINE = `Máximo ${MAX_SHOP_UNITS_PER_LINE} unidades de cada producto por pedido`;
+const LIMIT_PER_ORDER = `Máximo ${MAX_SHOP_UNITS_PER_ORDER} unidades por pedido`;
+
 export function addToCart(cart: readonly CartLine[], product: ShopProductView, size: string, color: string): CartResult {
   if (product.sizes.length > 0 && !size) return { cart: [...cart], error: 'Elige una talla' };
   if (product.colors.length > 0 && !color) return { cart: [...cart], error: 'Elige un color' };
@@ -21,6 +27,9 @@ export function addToCart(cart: readonly CartLine[], product: ShopProductView, s
   const key = lineKey(product.id, size, color);
   const inCart = cart.find((l) => l.key === key)?.quantity ?? 0;
   if (stock !== null && inCart + 1 > stock) return { cart: [...cart], error: onlyLeft(stock) };
+  if (inCart + 1 > MAX_SHOP_UNITS_PER_LINE) return { cart: [...cart], error: LIMIT_PER_LINE };
+  if (unitsTotal(cart) + 1 > MAX_SHOP_UNITS_PER_ORDER) return { cart: [...cart], error: LIMIT_PER_ORDER };
+  if (inCart === 0 && cart.length + 1 > MAX_SHOP_LINES_PER_ORDER) return { cart: [...cart], error: `Máximo ${MAX_SHOP_LINES_PER_ORDER} productos distintos por pedido` };
   if (inCart > 0) return { cart: cart.map((l) => (l.key === key ? { ...l, quantity: l.quantity + 1 } : l)), error: null };
   return {
     cart: [
@@ -39,6 +48,8 @@ export function changeQuantity(cart: readonly CartLine[], key: string, delta: nu
   if (delta > 0) {
     const stock = stockOf?.(line) ?? null;
     if (stock !== null && next > stock) return { cart: [...cart], error: `${onlyLeft(stock)} de ${line.name}` };
+    if (next > MAX_SHOP_UNITS_PER_LINE) return { cart: [...cart], error: LIMIT_PER_LINE };
+    if (unitsTotal(cart) + delta > MAX_SHOP_UNITS_PER_ORDER) return { cart: [...cart], error: LIMIT_PER_ORDER };
   }
   return { cart: cart.map((l) => (l.key === key ? { ...l, quantity: next } : l)).filter((l) => l.quantity > 0), error: null };
 }

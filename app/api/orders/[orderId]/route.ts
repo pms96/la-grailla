@@ -8,6 +8,8 @@ import { getBaseUrl } from '@/lib/url';
 import { handleApiError } from '@/lib/api-error';
 import { allowOrderAccess, getTokenFromRequest } from '@/lib/access-token';
 import { withoutSeasonLink } from '@/lib/modules/season-link';
+import { LATE_PAYMENT_WINDOW_MS, checkCancelledOrderPayment } from '@/lib/reconciliation/payment-check';
+import type { PaymentCheck } from '@/lib/confirmation-state';
 
 const includeTicketsAndEvent = { event: true, tickets: { include: { ticketType: true } } } as const;
 
@@ -45,11 +47,28 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
       }
     }
 
+    // Pedido CANCELLED (liberado por caducidad o anulado) con pago asociado en los últimos 7 días: el comprador pudo pagar DESPUÉS de liberarse
+    // (SumUp no tiene webhook, y el de Stripe puede retrasarse). Se comprueba (con caché y límite) y se DEVUELVE el resultado explícito para que la
+    // pantalla diga lo correcto: «no se ha cobrado nada» solo si la pasarela lo confirma. Si resulta pagado, completeOrder lo reanima o lo reembolsa.
+    let paymentCheck: PaymentCheck = 'none';
+    if (order && order.status === 'CANCELLED' && order.paymentId && Date.now() - order.createdAt.getTime() < LATE_PAYMENT_WINDOW_MS) {
+      const orderId = order.id;
+      paymentCheck = await checkCancelledOrderPayment({
+        kind: 'entradas',
+        request,
+        order,
+        complete: (paid) => completeOrder(orderId, getBaseUrl(request), paid),
+      });
+      if (paymentCheck === 'paid' || paymentCheck === 'refunded') {
+        order = await prisma.order.findUnique({ where: { id: orderId }, include: includeTicketsAndEvent });
+      }
+    }
+
     if (!order) {
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
     }
 
-    return NextResponse.json(withoutSeasonLink(order));
+    return NextResponse.json({ ...withoutSeasonLink(order), paymentCheck });
   } catch (error) {
     return handleApiError(error, 'GET /api/orders/[orderId]');
   }

@@ -2,6 +2,7 @@
 import type Stripe from 'stripe';
 import { getConfig, getConfigOrThrow, hasConfigRow } from '@/lib/config';
 import { isModuleEnabled } from '@/lib/modules/runtime';
+import { stripeExpiresAt, sumUpValidUntil } from '@/lib/checkout-hold';
 
 export interface PaymentSession {
   sessionId: string;
@@ -9,15 +10,30 @@ export interface PaymentSession {
   provider: string;
 }
 
-/** Estado de un cobro según la pasarela, normalizado. `success` de PaymentResult equivale a `status === 'PAID'`. */
-export type PaymentStatus = 'PAID' | 'PENDING' | 'FAILED' | 'EXPIRED' | 'REFUNDED' | 'UNKNOWN';
+/**
+ * Estado de un cobro según la pasarela, normalizado. `success` de PaymentResult equivale a `status === 'PAID'`.
+ *
+ * La verificación es de TRES resultados, y quien libera stock debe distinguirlos (P0-06):
+ *  - pagado: `PAID`;
+ *  - no pagado con la pasarela CONFIRMÁNDOLO: `EXPIRED`, `FAILED` y `PENDING` (sesión aún abierta, sin pago);
+ *  - no se sabe: `UNKNOWN` (la consulta falló: clave caducada o mal puesta, pasarela caída, respuesta ilegible) y `PROCESSING`.
+ * `PROCESSING` = la sesión está completa pero el cobro sigue en curso (medios de pago asíncronos: el dinero está en camino). Un pedido
+ * en ese estado NUNCA se libera por tiempo. Un fallo de consulta jamás es «no pagado»: eso cancelaría ventas que pueden estar cobradas.
+ */
+export type PaymentStatus = 'PAID' | 'PENDING' | 'PROCESSING' | 'FAILED' | 'EXPIRED' | 'REFUNDED' | 'UNKNOWN';
+
+/** Estado efectivo de un resultado: un adaptador que no informa de `status` solo dice pagado/no pagado, y «no pagado» sin más no es una confirmación. */
+export function effectiveStatus(result: Pick<PaymentResult, 'success' | 'status'>): PaymentStatus {
+  if (result.status) return result.status;
+  return result.success ? 'PAID' : 'UNKNOWN';
+}
 
 export interface PaymentResult {
   success: boolean;
   paymentId: string;
   provider: string;
   error?: string;
-  /** Estado rico del cobro. Ausente = el adaptador solo sabe decir pagado / no pagado. */
+  /** Estado rico del cobro. Ausente = el adaptador solo sabe decir pagado / no pagado (ver `effectiveStatus`). Una verificación que FALLA lleva siempre `UNKNOWN` + `error`. */
   status?: PaymentStatus;
   /** Importe y moneda que la pasarela dice haber cobrado (para poder contrastarlo con el pedido). */
   amount?: number;
@@ -34,6 +50,8 @@ export interface ProviderCapabilities {
   partialRefunds: boolean;
   /** Acepta una clave de idempotencia en el reembolso: un reintento no duplica el dinero devuelto. */
   idempotentRefunds: boolean;
+  /** Puede cerrar una sesión de pago aún abierta (`cancelPayment`), para que un pedido liberado no se pueda pagar después. */
+  cancelCheckout: boolean;
   /** Cobro presencial con el móvil o un lector (Tap to Pay). Aún sin implementar en ningún adaptador. */
   inPerson: boolean;
 }
@@ -87,6 +105,12 @@ export interface RefundResult {
   error?: string;
 }
 
+/** Resultado de cerrar una sesión de pago viva: `ok` = la pasarela confirma que ya no se puede pagar (la cerramos ahora o ya estaba cerrada). */
+export interface CancelPaymentResult {
+  ok: boolean;
+  error?: string;
+}
+
 export interface ConnectionTestResult {
   ok: boolean;
   error?: string;
@@ -118,7 +142,21 @@ export interface PaymentProvider {
     customerEmail: string;
     metadata?: Record<string, string>;
   }): Promise<PaymentSession>;
+  /**
+   * Consulta el estado real del cobro. NUNCA lanza: un fallo (excepción, HTTP no OK, respuesta ilegible) se devuelve como
+   * `{ success: false, status: 'UNKNOWN', error }`.
+   */
   verifyPayment(paymentId: string): Promise<PaymentResult>;
+  /**
+   * Cierra la sesión de pago para que ya no se pueda pagar. Solo existe si `capabilities.cancelCheckout`. Nunca lanza. Se usa con el patrón
+   * cerrar → volver a verificar → liberar: si la sesión ya estaba pagada el cierre falla y la nueva verificación lo dirá.
+   */
+  cancelPayment?(paymentId: string): Promise<CancelPaymentResult>;
+  /**
+   * URL de pago de una sesión que SIGUE abierta, para que el comprador pueda reanudarla (reintento con la misma clave de idempotencia, TI-12 /
+   * EN-07). `null` si ya no se puede pagar o no se puede saber. Nunca lanza.
+   */
+  resumeCheckout?(paymentId: string): Promise<string | null>;
   // idempotencyKey (opcional): identifica de forma estable un mismo intento
   // de reembolso (p.ej. `refund_${orderId}`) para que un timeout/reintento de
   // red hacia la pasarela no acabe creando un segundo reembolso real —
@@ -128,17 +166,37 @@ export interface PaymentProvider {
 }
 
 /* Stripe adapter stub */
-/** Normaliza el estado de una sesión de Checkout de Stripe. */
+/**
+ * Normaliza el estado de una sesión de Checkout de Stripe.
+ * - `payment_status: 'paid'` manda sobre todo lo demás.
+ * - Sesión `open` sin pagar = PENDING de verdad: el comprador aún puede pagar o abandonar.
+ * - Sesión `complete` pero sin pagar (`unpaid`/`no_payment_required`) = PROCESSING: medios de pago asíncronos (transferencia, SEPA…), el
+ *   comprador ya ha terminado y el dinero está en camino. No es «pendiente»: no se puede liberar por tiempo.
+ * - Cualquier otra combinación (o sin `status`) = UNKNOWN: ante la duda, nunca se interpreta como no pagado.
+ */
 export function mapStripeSessionStatus(session: { payment_status?: string | null; status?: string | null }): PaymentStatus {
   if (session.payment_status === 'paid') return 'PAID';
   if (session.status === 'expired') return 'EXPIRED';
-  if (session.payment_status === 'unpaid' || session.payment_status === 'no_payment_required') return 'PENDING';
+  const unpaid = session.payment_status === 'unpaid' || session.payment_status === 'no_payment_required';
+  if (unpaid && session.status === 'open') return 'PENDING';
+  if (unpaid && session.status === 'complete') return 'PROCESSING';
   return 'UNKNOWN';
+}
+
+/** ¿La sesión está pagada pero su cargo consta como reembolsado, total o parcialmente? Solo se sabe si el cargo viene expandido; si no, se asume que no. */
+function stripeSessionRefunded(session: unknown): boolean {
+  const s = session as { payment_status?: string | null; payment_intent?: unknown } | null;
+  if (s?.payment_status !== 'paid') return false;
+  const pi = s.payment_intent;
+  const charge = pi && typeof pi === 'object' ? (pi as { latest_charge?: unknown }).latest_charge : null;
+  if (!charge || typeof charge !== 'object') return false;
+  const c = charge as { amount_refunded?: unknown; refunded?: unknown };
+  return c.refunded === true || (typeof c.amount_refunded === 'number' && c.amount_refunded > 0);
 }
 
 export class StripeAdapter implements PaymentProvider {
   name = 'stripe';
-  capabilities: ProviderCapabilities = { webhooks: true, hostedCheckout: true, refunds: true, partialRefunds: true, idempotentRefunds: true, inPerson: false };
+  capabilities: ProviderCapabilities = { webhooks: true, hostedCheckout: true, refunds: true, partialRefunds: true, idempotentRefunds: true, cancelCheckout: true, inPerson: false };
   private secretKey: string;
   // Carga perezosa: crear un cobro no exige el secreto del webhook, y si está guardado pero ilegible el error aparece al recibir
   // un webhook (donde se necesita), no al cobrar.
@@ -228,6 +286,8 @@ export class StripeAdapter implements PaymentProvider {
           quantity: 1,
         }],
         mode: 'payment',
+        // Retención corta (P0-04): sin esto la sesión vive 24 h y el pedido retiene aforo/stock todo ese tiempo.
+        expires_at: stripeExpiresAt(),
         success_url: params.successUrl,
         cancel_url: params.cancelUrl,
         customer_email: params.customerEmail,
@@ -247,21 +307,57 @@ export class StripeAdapter implements PaymentProvider {
   }
 
   async verifyPayment(paymentId: string): Promise<PaymentResult> {
-    const Stripe = (await import('stripe')).default;
-    const stripe = new Stripe(this.secretKey, { apiVersion: '2024-04-10' as Stripe.LatestApiVersion });
     try {
-      const session = await stripe.checkout.sessions.retrieve(paymentId);
-      const status = mapStripeSessionStatus(session);
+      const Stripe = (await import('stripe')).default;
+      const stripe = new Stripe(this.secretKey, { apiVersion: '2024-04-10' as Stripe.LatestApiVersion });
+      // `expand` en la MISMA llamada (sin petición extra): Stripe sigue diciendo `payment_status: 'paid'` en una sesión reembolsada, y el reembolso solo
+      // se ve en el cargo (`amount_refunded` > 0 en un reembolso total o parcial; `refunded` solo en el total: https://docs.stripe.com/api/charges/object).
+      const session = await stripe.checkout.sessions.retrieve(paymentId, { expand: ['payment_intent.latest_charge'] });
+      const status = stripeSessionRefunded(session) ? 'REFUNDED' : mapStripeSessionStatus(session);
       return {
         success: status === 'PAID',
         paymentId: session.id,
         provider: 'stripe',
         status,
+        ...(status === 'REFUNDED' ? { error: 'El cobro consta como reembolsado (total o parcialmente) en la pasarela' } : {}),
+        ...(status === 'UNKNOWN' ? { error: `Stripe devolvió una sesión en un estado que no se reconoce (status=${session.status}, payment_status=${session.payment_status})` } : {}),
         ...(session.amount_total != null ? { amount: session.amount_total / 100 } : {}),
         ...(session.currency ? { currency: session.currency.toUpperCase() } : {}),
       };
     } catch (err) {
-      return { success: false, paymentId, provider: 'stripe', error: err instanceof Error ? err.message : String(err) };
+      // Clave caducada o mal puesta, red, Stripe caído…: NO es «no pagado». Con `UNKNOWN` nadie libera nada a partir de este resultado.
+      return { success: false, paymentId, provider: 'stripe', status: 'UNKNOWN', error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  // La URL de una sesión sigue siendo válida mientras esté `open`.
+  async resumeCheckout(paymentId: string): Promise<string | null> {
+    try {
+      const Stripe = (await import('stripe')).default;
+      const stripe = new Stripe(this.secretKey, { apiVersion: '2024-04-10' as Stripe.LatestApiVersion });
+      const session = await stripe.checkout.sessions.retrieve(paymentId);
+      return session.status === 'open' && session.url ? session.url : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Cierra la sesión (`checkout.sessions.expire`): el comprador ya no puede pagarla. Solo se puede cerrar una sesión `open`: si ya estaba
+  // completa o pagada, Stripe devuelve error y quien llama vuelve a verificar. Si ya estaba expirada se da por cerrada.
+  async cancelPayment(paymentId: string): Promise<CancelPaymentResult> {
+    try {
+      const Stripe = (await import('stripe')).default;
+      const stripe = new Stripe(this.secretKey, { apiVersion: '2024-04-10' as Stripe.LatestApiVersion });
+      try {
+        await stripe.checkout.sessions.expire(paymentId);
+        return { ok: true };
+      } catch (err) {
+        const session = await stripe.checkout.sessions.retrieve(paymentId).catch(() => null);
+        if (session?.status === 'expired' && session.payment_status !== 'paid') return { ok: true };
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
 
@@ -280,6 +376,8 @@ export class StripeAdapter implements PaymentProvider {
       );
       return { success: true, refundId: refund.id };
     } catch (err) {
+      // Ya reembolsado (p. ej. desde el panel de Stripe, o un reintento pasadas las 24 h de la clave de idempotencia): el objetivo está cumplido.
+      if ((err as { code?: string } | null)?.code === 'charge_already_refunded') return { success: true };
       return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
@@ -308,7 +406,7 @@ export function mapSumUpStatus(status: unknown): PaymentStatus {
 export class SumUpAdapter implements PaymentProvider {
   name = 'sumup';
   // Sin webhook (se confirma al volver del checkout o por el cron) y sin clave de idempotencia en el reembolso.
-  capabilities: ProviderCapabilities = { webhooks: false, hostedCheckout: true, refunds: true, partialRefunds: false, idempotentRefunds: false, inPerson: false };
+  capabilities: ProviderCapabilities = { webhooks: false, hostedCheckout: true, refunds: true, partialRefunds: false, idempotentRefunds: false, cancelCheckout: true, inPerson: false };
   private apiKey: string;
   private merchantCode: string;
 
@@ -359,6 +457,8 @@ export class SumUpAdapter implements PaymentProvider {
         merchant_code: this.merchantCode,
         description: params.description,
         redirect_url: params.successUrl,
+        // Retención corta (P0-04): el checkout no se puede pagar pasado este instante (date-time ISO 8601; sin él no caduca nunca).
+        valid_until: sumUpValidUntil(),
         hosted_checkout: { enabled: true },
       }),
     });
@@ -377,20 +477,65 @@ export class SumUpAdapter implements PaymentProvider {
   }
 
   async verifyPayment(paymentId: string): Promise<PaymentResult> {
-    const response = await fetch(`https://api.sumup.com/v0.1/checkouts/${paymentId}`, {
-      headers: { 'Authorization': `Bearer ${this.apiKey}` },
-    });
-    const data = await response.json();
-    const status: PaymentStatus = response.ok ? mapSumUpStatus(data?.status) : 'UNKNOWN';
-    return {
-      success: response.ok && data?.status === 'PAID',
-      paymentId,
-      provider: 'sumup',
-      error: response.ok ? undefined : (data?.message || `SumUp devolvió ${response.status}`),
-      status,
-      ...(response.ok && typeof data?.amount === 'number' ? { amount: data.amount } : {}),
-      ...(response.ok && typeof data?.currency === 'string' ? { currency: data.currency } : {}),
-    };
+    try {
+      const response = await fetch(`https://api.sumup.com/v0.1/checkouts/${encodeURIComponent(paymentId)}`, {
+        headers: { 'Authorization': `Bearer ${this.apiKey}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        return { success: false, paymentId, provider: 'sumup', status: 'UNKNOWN', error: data?.message || `SumUp devolvió ${response.status}` };
+      }
+      // El checkout sigue en PAID tras un reembolso; el reembolso (total o parcial) se ve en el estado REFUNDED de su transacción
+      // (https://developer.sumup.com/api/checkouts/get).
+      const refunded = data?.status === 'PAID' && Array.isArray(data?.transactions) && data.transactions.some((t: { status?: string } | null) => t?.status === 'REFUNDED');
+      const status: PaymentStatus = refunded ? 'REFUNDED' : mapSumUpStatus(data?.status);
+      return {
+        success: status === 'PAID',
+        paymentId,
+        provider: 'sumup',
+        status,
+        ...(status === 'REFUNDED' ? { error: 'El cobro consta como reembolsado (total o parcialmente) en la pasarela' } : {}),
+        ...(status === 'UNKNOWN' ? { error: `SumUp devolvió un estado que no se reconoce (${String(data?.status)})` } : {}),
+        ...(typeof data?.amount === 'number' ? { amount: data.amount } : {}),
+        ...(typeof data?.currency === 'string' ? { currency: data.currency } : {}),
+      };
+    } catch (err) {
+      // Red, timeout, clave inválida…: no es «no pagado».
+      return { success: false, paymentId, provider: 'sumup', status: 'UNKNOWN', error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  // GET /v0.1/checkouts/{id} devuelve `hosted_checkout_url` y `status` (https://developer.sumup.com/api/checkouts/get): reanudable mientras esté PENDING.
+  async resumeCheckout(paymentId: string): Promise<string | null> {
+    try {
+      const response = await fetch(`https://api.sumup.com/v0.1/checkouts/${encodeURIComponent(paymentId)}`, {
+        headers: { 'Authorization': `Bearer ${this.apiKey}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) return null;
+      const data = await response.json().catch(() => null);
+      return data?.status === 'PENDING' && typeof data?.hosted_checkout_url === 'string' ? data.hosted_checkout_url : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Desactiva el checkout (DELETE /v0.1/checkouts/{id}, https://developer.sumup.com/api/checkouts/deactivate): 200 = desactivado (queda
+  // EXPIRED); 409 CHECKOUT_PROCESSED = ya procesado, no se puede desactivar (puede estar pagado: quien llama vuelve a verificar).
+  async cancelPayment(paymentId: string): Promise<CancelPaymentResult> {
+    try {
+      const response = await fetch(`https://api.sumup.com/v0.1/checkouts/${encodeURIComponent(paymentId)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${this.apiKey}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (response.ok) return { ok: true };
+      const data = await response.json().catch(() => null);
+      return { ok: false, error: data?.message || data?.error_message || `SumUp devolvió ${response.status} al desactivar el checkout` };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   // SumUp reembolsa TRANSACCIONES, no checkouts: lo que guardamos en el pedido (`paymentId`) es el id del checkout, así que primero se lee
@@ -435,7 +580,7 @@ export class SumUpAdapter implements PaymentProvider {
 /* Mock adapter for testing / fallback when no gateway is configured */
 export class MockPaymentAdapter implements PaymentProvider {
   name = 'mock';
-  capabilities: ProviderCapabilities = { webhooks: false, hostedCheckout: true, refunds: true, partialRefunds: true, idempotentRefunds: true, inPerson: false };
+  capabilities: ProviderCapabilities = { webhooks: false, hostedCheckout: true, refunds: true, partialRefunds: true, idempotentRefunds: true, cancelCheckout: false, inPerson: false };
 
   async testConnection(): Promise<ConnectionTestResult> {
     return { ok: true };

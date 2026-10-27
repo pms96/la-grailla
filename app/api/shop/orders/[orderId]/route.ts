@@ -7,6 +7,8 @@ import { completeShopOrder } from '@/lib/reconciliation/tienda';
 import { handleApiError } from '@/lib/api-error';
 import { allowShopOrderAccess, getTokenFromRequest } from '@/lib/access-token';
 import { withoutSeasonLink } from '@/lib/modules/season-link';
+import { LATE_PAYMENT_WINDOW_MS, checkCancelledOrderPayment } from '@/lib/reconciliation/payment-check';
+import type { PaymentCheck } from '@/lib/confirmation-state';
 
 export async function GET(request: Request, props: { params: Promise<{ orderId: string }> }) {
   const params = await props.params;
@@ -46,11 +48,27 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
       }
     }
 
+    // Pedido CANCELLED con pago asociado en los últimos 7 días: pudo pagarse DESPUÉS de liberarse. Mismo criterio que /api/orders/[orderId]
+    // (comprobación con caché y límite, resultado explícito en `paymentCheck`).
+    let paymentCheck: PaymentCheck = 'none';
+    if (order && order.status === 'CANCELLED' && order.paymentId && Date.now() - order.createdAt.getTime() < LATE_PAYMENT_WINDOW_MS) {
+      const shopOrderId = order.id;
+      paymentCheck = await checkCancelledOrderPayment({
+        kind: 'tienda',
+        request,
+        order,
+        complete: (paid) => completeShopOrder(shopOrderId, paid),
+      });
+      if (paymentCheck === 'paid' || paymentCheck === 'refunded') {
+        order = await prisma.shopOrder.findUnique({ where: { id: shopOrderId }, include: { items: { include: { product: true } } } });
+      }
+    }
+
     if (!order) {
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
     }
 
-    return NextResponse.json(withoutSeasonLink(order));
+    return NextResponse.json({ ...withoutSeasonLink(order), paymentCheck });
   } catch (error) {
     return handleApiError(error, 'GET /api/shop/orders/[orderId]');
   }

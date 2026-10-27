@@ -1,9 +1,14 @@
 import { getFallbackBaseUrl } from '@/lib/url';
+import { escapeHtml as esc } from '@/lib/html-escape';
 import type { OrderStatus, TicketStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { sendTicketsEmail } from '@/lib/tickets';
-import { alertPaidButInactiveOrder, paymentMatchesOrder, type PaidInfo } from './shared';
+import { hasEventEnded } from '@/lib/active-event';
+import { alertOperator, alertPaidButInactiveOrder, logPaymentEvent, paymentMatchesOrder, type CompleteOutcome, type PaidInfo } from './shared';
+import { alertManuallyRefunded, confirmLatePayment, finishLateRefund, lateRefundMarker } from './late-payment';
+import { closeSessionBeforeCancel } from './close-session';
+import { releasePendingSlot } from '@/lib/rate-limit';
 
 /* Reconciliación de pedidos de ENTRADAS (módulo Entradas): marcar pagado, liberar aforo al caducar, anular y reembolsar. Los pedidos de
  * la tienda están en ./tienda.ts: una web con solo Tienda no carga nada de entradas (PDF, wallet, aforo). */
@@ -19,9 +24,9 @@ import { alertPaidButInactiveOrder, paymentMatchesOrder, type PaidInfo } from '.
 // a la vez, solo uno de los dos gana la transición y el resto no reescribe
 // nada. Tras completar (o si ya estaba COMPLETED sin email), intenta enviar
 // las entradas: el comprador no debe depender de volver a /confirmacion.
-export async function completeOrder(orderId: string, baseUrl?: string, paid?: PaidInfo): Promise<void> {
+export async function completeOrder(orderId: string, baseUrl?: string, paid?: PaidInfo): Promise<CompleteOutcome> {
   // Si la pasarela dice cuánto cobró y no cuadra con el pedido, no se completa (ver paymentMatchesOrder).
-  if (!(await paymentMatchesOrder('entradas', orderId, paid))) return;
+  if (!(await paymentMatchesOrder('entradas', orderId, paid))) return 'amount_mismatch';
   const result = await prisma.$transaction(async (tx) => {
     const { count } = await tx.order.updateMany({
       where: { id: orderId, status: 'PENDING' },
@@ -35,10 +40,16 @@ export async function completeOrder(orderId: string, baseUrl?: string, paid?: Pa
   });
 
   const { transitioned, order } = result;
-  if (!order) return;
-  if (!transitioned && order.status !== 'COMPLETED') {
+  if (!order) return 'missing';
+  let outcome: CompleteOutcome = transitioned ? 'completed' : 'already_completed';
+  if (transitioned) await releasePendingSlot(orderId); // ya no está sin pagar: libera su hueco del cupo por IP
+  if (!transitioned && order.status === 'CANCELLED') {
+    // P0-05: el pago llegó DESPUÉS de liberar/anular el pedido. Se reactiva si hay plazas y, si no, se devuelve el dinero.
+    outcome = await handleLatePayment(order);
+    if (outcome !== 'revived' && outcome !== 'already_completed') return outcome;
+  } else if (!transitioned && order.status !== 'COMPLETED') {
     await alertPaidButInactiveOrder('entradas', orderId, order.status);
-    return;
+    return 'inactive';
   }
 
   try {
@@ -59,6 +70,133 @@ export async function completeOrder(orderId: string, baseUrl?: string, paid?: Pa
       error instanceof Error ? error.message : error
     );
   }
+  return outcome;
+}
+
+type ReviveResult = 'revived' | 'no_capacity' | 'not_cancelled';
+
+/**
+ * Reactiva un pedido CANCELLED cuyo pago acaba de confirmarse, si TODAVÍA hay plazas. Se hace dentro de una transacción con el mismo
+ * cerrojo por evento que usa la compra (`pg_advisory_xact_lock(hashtext(eventId))`): la comprobación de aforo y la reactivación no pueden
+ * competir con una venta nueva ni con otra reactivación. La transición CANCELLED → COMPLETED es condicionada (`updateMany`): dos entregas
+ * simultáneas no lo reaniman dos veces. Si no cabe, deja la marca de «reembolsar» y no cambia nada más.
+ */
+export async function reviveOrder(orderId: string): Promise<ReviveResult> {
+  return prisma.$transaction(
+    async (tx) => {
+      const head = await tx.order.findUnique({ where: { id: orderId }, select: { eventId: true } });
+      if (!head) return 'not_cancelled';
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${head.eventId}))`;
+
+      const order = await tx.order.findUnique({ where: { id: orderId }, include: { tickets: true, event: true } });
+      if (!order || order.status !== 'CANCELLED') return 'not_cancelled';
+      if (await tx.processedWebhookEvent.findUnique({ where: { id: lateRefundMarker(orderId) } })) return 'no_capacity';
+
+      const toRevive = order.tickets.filter((t) => t.status === 'CANCELLED');
+      const quantityByType = new Map<string, number>();
+      for (const ticket of toRevive) {
+        if (ticket.ticketTypeId) quantityByType.set(ticket.ticketTypeId, (quantityByType.get(ticket.ticketTypeId) ?? 0) + 1);
+      }
+
+      let fits = toRevive.length > 0 && !hasEventEnded(order.event.date);
+      if (fits) {
+        const types = await tx.ticketType.findMany({ where: { id: { in: Array.from(quantityByType.keys()) } } });
+        for (const [ticketTypeId, quantity] of quantityByType) {
+          const tt = types.find((t) => t.id === ticketTypeId);
+          // No se mira `isActive`: la venta se cerró DESPUÉS de que este comprador reservara; lo que cuenta es que quede hueco.
+          if (!tt || tt.soldCount + quantity > tt.maxQuantity) fits = false;
+        }
+        const issued = await tx.ticket.count({ where: { eventId: order.eventId, status: { notIn: ['CANCELLED', 'REFUNDED'] } } });
+        if (issued + toRevive.length > order.event.maxCapacity) fits = false;
+      }
+
+      if (!fits) {
+        await tx.processedWebhookEvent.createMany({ data: [{ id: lateRefundMarker(orderId) }], skipDuplicates: true });
+        return 'no_capacity';
+      }
+
+      const { count } = await tx.order.updateMany({ where: { id: orderId, status: 'CANCELLED' }, data: { status: 'COMPLETED' } });
+      if (count === 0) return 'not_cancelled';
+      await tx.ticket.updateMany({ where: { orderId, status: 'CANCELLED' }, data: { status: 'VALID' } });
+      for (const [ticketTypeId, quantity] of quantityByType) {
+        await tx.ticketType.update({ where: { id: ticketTypeId }, data: { soldCount: { increment: quantity } } });
+      }
+      return 'revived';
+    },
+    // Mismo margen que la compra: con muchos compradores concurrentes la transacción espera turno en el cerrojo del evento.
+    { maxWait: 20_000, timeout: 20_000 }
+  );
+}
+
+/** Pago tardío sobre un pedido CANCELLED: reactivar si cabe; si no, reembolso total. Nunca deja un cobro sin entrega ni sin devolución sin avisar. */
+async function handleLatePayment(order: { id: string; eventId: string; buyerName: string; buyerEmail: string; totalAmount: number; paymentProvider: string | null; paymentId: string | null }): Promise<CompleteOutcome> {
+  const gateway = await confirmLatePayment('entradas', order);
+  // La transición CANCELLED → REFUNDED (condicionada: solo una entrega la hace) y la lectura del estado, para finishLateRefund.
+  const claim = async () => {
+    const count = await prisma.$transaction(async (tx) => {
+      const { count } = await tx.order.updateMany({ where: { id: order.id, status: 'CANCELLED' }, data: { status: 'REFUNDED' } });
+      if (count > 0) await tx.ticket.updateMany({ where: { orderId: order.id, status: 'CANCELLED' }, data: { status: 'REFUNDED' } });
+      return count;
+    });
+    return count > 0;
+  };
+  const readStatus = async () => (await prisma.order.findUnique({ where: { id: order.id }, select: { status: true } }))?.status;
+  if (gateway.state === 'mismatch') return 'amount_mismatch';
+  if (gateway.state === 'not_paid') {
+    logPaymentEvent('[late-payment]', { kind: 'entradas', orderId: order.id, reason: 'gateway_says_not_paid', status: gateway.status }, 'warn');
+    return 'inactive';
+  }
+  if (gateway.state === 'unverifiable') {
+    await alertOperator({
+      kind: 'entradas',
+      tag: '[late-payment]',
+      orderId: order.id,
+      reason: 'unverifiable',
+      details: { detail: gateway.reason },
+      dedupeKey: `late-unverifiable:${order.id}`,
+      subject: `⚠️ Pago sobre un pedido anulado que no se puede comprobar (${order.id.slice(0, 8)})`,
+      html:
+        `<p>Ha llegado la confirmación de un pago para el pedido <strong>${esc(order.id)}</strong>, que ya estaba anulado, pero no se ha podido comprobar con la pasarela (${esc(gateway.reason)}).</p>` +
+        '<p>No se ha reactivado ni reembolsado nada. Revisa el cobro en la pasarela y resuélvelo a mano.</p>',
+    });
+    return 'late_unresolved';
+  }
+
+  if (gateway.state === 'refunded') {
+    if (!gateway.ours) {
+      await alertManuallyRefunded('entradas', order.id, 'REFUNDED');
+      return 'inactive';
+    }
+    // Lo reembolsó este sistema antes de un corte: solo falta marcar el pedido.
+    return finishLateRefund({
+      kind: 'entradas',
+      order,
+      provider: gateway.provider,
+      alreadyRefunded: true,
+      claim,
+      readStatus,
+    });
+  }
+
+  const revived = await reviveOrder(order.id);
+  if (revived === 'revived') {
+    logPaymentEvent('[late-payment]', { kind: 'entradas', orderId: order.id, reason: 'revived' }, 'warn');
+    return 'revived';
+  }
+  if (revived === 'not_cancelled') {
+    // Otra entrega (el webhook duplicado, el cron) ya lo ha resuelto entre medias.
+    const now = await prisma.order.findUnique({ where: { id: order.id }, select: { status: true } });
+    return now?.status === 'COMPLETED' ? 'already_completed' : 'inactive';
+  }
+
+  // Sin plazas: reembolso total (ver finishLateRefund).
+  return finishLateRefund({
+    kind: 'entradas',
+    order,
+    provider: gateway.provider,
+    claim,
+    readStatus,
+  });
 }
 
 // Si el checkout expira sin pagarse (el comprador nunca completa el pago),
@@ -69,16 +207,17 @@ export async function completeOrder(orderId: string, baseUrl?: string, paid?: Pa
 // estado actual): si completeOrder ya ganó la carrera para este pedido, el
 // updateMany afecta 0 filas y no tocamos tickets ni soldCount — evita soltar
 // stock que ya pertenece a un pedido pagado.
-export async function releaseExpiredOrder(orderId: string): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+// Devuelve true si ESTA llamada lo liberó (false: ya no estaba PENDING).
+export async function releaseExpiredOrder(orderId: string): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
     const { count } = await tx.order.updateMany({
       where: { id: orderId, status: 'PENDING' },
       data: { status: 'CANCELLED', idempotencyKey: null },
     });
-    if (count === 0) return;
+    if (count === 0) return false;
 
     const order = await tx.order.findUnique({ where: { id: orderId }, include: { tickets: true } });
-    if (!order) return;
+    if (!order) return false;
 
     const quantityByType = new Map<string, number>();
     for (const ticket of order.tickets) {
@@ -90,6 +229,10 @@ export async function releaseExpiredOrder(orderId: string): Promise<void> {
     for (const [ticketTypeId, quantity] of quantityByType.entries()) {
       await tx.ticketType.update({ where: { id: ticketTypeId }, data: { soldCount: { decrement: quantity } } });
     }
+    return true;
+  }).then(async (released) => {
+    if (released) await releasePendingSlot(orderId); // libera su hueco del cupo de pedidos pendientes por IP
+    return released;
   });
 }
 
@@ -141,6 +284,16 @@ export async function invalidateOrder(
     return { success: false, error: 'Solo se pueden reembolsar pedidos completados' };
   }
 
+  // Anular un pedido sin pagar: se cierra su sesión de pago para que el comprador no siga pudiendo pagarlo. Si resulta que ya estaba pagado
+  // (el webhook aún no había llegado), no se anula: se completa y se avisa al admin de que use «Reembolsar» si quiere devolverlo.
+  if (mode === 'CANCELLED' && order.status === 'PENDING') {
+    const { paid } = await closeSessionBeforeCancel('entradas', order);
+    if (paid) {
+      await completeOrder(orderId, undefined, paid);
+      return { success: false, error: 'El comprador ya había pagado este pedido: se ha marcado como pagado y no se ha anulado. Usa "Reembolsar" si quieres devolverle el dinero.' };
+    }
+  }
+
   // TOCTOU: hasta aquí solo se ha LEÍDO el pedido — dos peticiones
   // concurrentes (doble clic en "Reembolsar", dos admins a la vez) pasarían
   // ambas los checks de arriba antes de que ninguna escriba nada, y las dos
@@ -156,6 +309,8 @@ export async function invalidateOrder(
   if (claim.count === 0) {
     return { success: false, error: 'El pedido cambió de estado mientras se procesaba; vuelve a intentarlo' };
   }
+  // Anulado o reembolsado: ya no está sin pagar, así que libera su hueco del cupo de pedidos pendientes por IP.
+  await releasePendingSlot(orderId);
 
   if (mode === 'REFUNDED' && order.paymentMethod === 'CARD' && order.paymentProvider && order.paymentId && order.paymentProvider !== 'mock') {
     try {

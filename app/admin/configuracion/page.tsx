@@ -129,6 +129,7 @@ export default function ConfiguracionPage() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <ConfigField label="Máx. pedidos por IP" type="number" value={values?.orders_rate_limit_per_ip ?? '10'} onChange={(v) => updateValue('orders_rate_limit_per_ip', v)} />
                   <ConfigField label="Ventana de tiempo (segundos)" type="number" value={values?.orders_rate_limit_window_seconds ?? '60'} onChange={(v) => updateValue('orders_rate_limit_window_seconds', v)} />
+                  <ConfigField label="Máx. pedidos sin pagar por IP y evento" type="number" value={values?.orders_max_pending_per_ip ?? '10'} onChange={(v) => updateValue('orders_max_pending_per_ip', v)} description="Pedidos que una misma IP puede tener abiertos a la vez en la pasarela. Es un freno contra scripts, no una defensa completa. Si muchos compradores comparten red (wifi de un recinto), sube el valor." />
                 </div>
                 <p className="text-xs text-muted-foreground">Con los valores por defecto, una misma IP no puede crear más de 10 pedidos cada 60 segundos. Si el lanzamiento espera mucho tráfico legítimo desde la misma red (wifi compartido, datos móviles), sube estos valores.</p>
               </CardContent></Card>
@@ -166,6 +167,11 @@ export default function ConfiguracionPage() {
                   webhookPath="/api/webhooks/stripe-tienda"
                   unsetHint={has('entradas') ? 'Mientras no elijas una pasarela aquí, la tienda sigue cobrando con la cuenta de Entradas. Elige una y guarda para darle cuenta propia.' : undefined}
                 />
+              </CardContent></Card>
+
+              <Card><CardContent className="p-6 space-y-4">
+                <h3 className="font-semibold">Seguridad de las compras</h3>
+                <ConfigField label="Máx. pedidos sin pagar por IP" type="number" value={values?.shop_orders_max_pending_per_ip ?? '10'} onChange={(v) => updateValue('shop_orders_max_pending_per_ip', v)} description="Pedidos que una misma IP puede tener abiertos a la vez en la pasarela. Es un freno contra scripts que acaparan stock, no una defensa completa. Si muchos compradores comparten red, sube el valor." />
               </CardContent></Card>
 
               <Card><CardContent className="p-6 space-y-4">

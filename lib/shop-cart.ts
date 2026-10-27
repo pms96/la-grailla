@@ -71,6 +71,24 @@ export function writeCart(cart: CartLine[]): void {
   }
 }
 
+const lineSignature = (l: { productId: string; size?: string | null; color?: string | null; quantity?: number | null }) =>
+  `${l.productId}|${(l.size ?? '').trim()}|${(l.color ?? '').trim()}|${l.quantity ?? 0}`;
+
+/**
+ * ¿El carrito guardado es el de ESTE pedido? El carrito ya no se vacía al pulsar «Pagar» (si el pago falla o el comprador vuelve atrás, no
+ * debe perder lo que había elegido) sino en la confirmación, cuando el pedido consta como pagado. Pero un enlace de confirmación antiguo
+ * no debe vaciar un carrito NUEVO: solo se vacía si lo guardado coincide con lo pedido (mismas líneas y cantidades, en cualquier orden).
+ */
+export function cartMatchesOrderItems(
+  cart: CartLine[],
+  items: { productId: string; size?: string | null; color?: string | null; quantity: number }[]
+): boolean {
+  if (cart.length === 0 || cart.length !== items.length) return false;
+  const a = cart.map(lineSignature).sort();
+  const b = items.map(lineSignature).sort();
+  return a.every((sig, i) => sig === b[i]);
+}
+
 export function cartTotals(cart: CartLine[]) {
   const totalItems = cart.reduce((sum, l) => sum + (l.quantity ?? 0), 0);
   const totalAmount = cart.reduce((sum, l) => sum + (l.price ?? 0) * (l.quantity ?? 0), 0);

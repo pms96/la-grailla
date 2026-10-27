@@ -1,19 +1,31 @@
 import { prisma } from '@/lib/prisma';
+import type { CompleteOutcome } from '@/lib/reconciliation/shared';
 
 /* Reconciliación de pedidos cuando solo se conoce su id (webhooks de cobro): decide a qué módulo pertenece y delega. La lógica de cada
  * módulo vive en lib/reconciliation/{entradas,tienda}.ts y se carga solo cuando hace falta: confirmar un pedido de la tienda no importa
  * nada de entradas (PDF, wallet, aforo) y al revés. */
 
+/** Un pago tardío que no se ha podido resolver (reembolso fallido, pago no comprobable) hace fallar el webhook: la pasarela reintenta y, como el evento no se marca como procesado (PAY-05), el reintento vuelve a intentarlo. */
+class LatePaymentUnresolvedError extends Error {
+  constructor(orderId: string) {
+    super(`Pago tardío del pedido ${orderId} sin resolver (ver [late-payment] en los logs); se reintentará`);
+    this.name = 'LatePaymentUnresolvedError';
+  }
+}
+const assertResolved = (orderId: string, outcome: CompleteOutcome) => {
+  if (outcome === 'late_unresolved') throw new LatePaymentUnresolvedError(orderId);
+};
+
 /** Resuelve si el orderId del metadata de la pasarela es pedido de entradas o de tienda. */
 export async function resolvePaidCheckout(orderId: string, baseUrl?: string): Promise<'ticket' | 'shop' | null> {
   if (await prisma.order.findUnique({ where: { id: orderId }, select: { id: true } })) {
     const { completeOrder } = await import('@/lib/reconciliation/entradas');
-    await completeOrder(orderId, baseUrl);
+    assertResolved(orderId, await completeOrder(orderId, baseUrl));
     return 'ticket';
   }
   if (await prisma.shopOrder.findUnique({ where: { id: orderId }, select: { id: true } })) {
     const { completeShopOrder } = await import('@/lib/reconciliation/tienda');
-    await completeShopOrder(orderId);
+    assertResolved(orderId, await completeShopOrder(orderId));
     return 'shop';
   }
   return null;

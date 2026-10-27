@@ -45,7 +45,9 @@ describe('addToCart: las reglas de siempre de la tienda', () => {
     let cart: CartLine[] = [];
     for (let i = 0; i < 20; i++) cart = addToCart(cart, poster, '', '').cart;
     expect(cart).toHaveLength(1);
-    expect(cart[0]).toMatchObject({ size: null, color: null, quantity: 20 });
+    // Sin stock que controlar, el tope es el que aplica el servidor a un pedido (MAX_SHOP_UNITS_PER_LINE).
+    expect(cart[0]).toMatchObject({ size: null, color: null, quantity: 10 });
+    expect(addToCart(cart, poster, '', '').error).toMatch(/Máximo 10 unidades/);
   });
 
   it('no modifica el carrito de entrada', () => {

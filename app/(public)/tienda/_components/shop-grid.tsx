@@ -1,5 +1,6 @@
 'use client';
 
+import { MAX_SHOP_LINES_PER_ORDER, MAX_SHOP_UNITS_PER_LINE, MAX_SHOP_UNITS_PER_ORDER } from '@/lib/checkout-limits';
 import { useEffect, useMemo, useState } from 'react';
 import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import type { Product, ProductVariant } from '@prisma/client';
@@ -158,6 +159,19 @@ export default function ShopGrid() {
       setOptionError(`Solo quedan ${stock} unidad${stock === 1 ? '' : 'es'}`);
       return;
     }
+    // Los topes que aplica el servidor a un pedido (lib/checkout-limits): no se deja construir un carrito que luego se rechazaría al pagar.
+    if (inCart + 1 > MAX_SHOP_UNITS_PER_LINE) {
+      setOptionError(`Máximo ${MAX_SHOP_UNITS_PER_LINE} unidades de cada producto por pedido`);
+      return;
+    }
+    if (cart.reduce((sum, l) => sum + l.quantity, 0) + 1 > MAX_SHOP_UNITS_PER_ORDER) {
+      setOptionError(`Máximo ${MAX_SHOP_UNITS_PER_ORDER} unidades por pedido`);
+      return;
+    }
+    if (inCart === 0 && cart.length + 1 > MAX_SHOP_LINES_PER_ORDER) {
+      setOptionError(`Máximo ${MAX_SHOP_LINES_PER_ORDER} productos distintos por pedido`);
+      return;
+    }
     setCart((prev) => {
       const existing = prev.find((l) => l.key === key);
       if (existing) {
@@ -199,6 +213,10 @@ export default function ShopGrid() {
           if (l.key !== key) return l;
           const nextQuantity = l.quantity + delta;
           if (delta > 0) {
+            if (nextQuantity > MAX_SHOP_UNITS_PER_LINE || prev.reduce((sum, x) => sum + x.quantity, 0) + delta > MAX_SHOP_UNITS_PER_ORDER) {
+              toast.error(`Máximo ${MAX_SHOP_UNITS_PER_LINE} unidades de cada producto y ${MAX_SHOP_UNITS_PER_ORDER} por pedido`);
+              return l;
+            }
             const stock = lineStock(l);
             if (stock !== null && nextQuantity > stock) {
               toast.error(`Solo quedan ${stock} unidad${stock === 1 ? '' : 'es'} de ${l.name}`);

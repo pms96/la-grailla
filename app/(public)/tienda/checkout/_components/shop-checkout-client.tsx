@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FadeIn } from '@/components/ui/animate';
 import { ArrowLeft, CreditCard, Loader2, Lock, ShoppingBag } from 'lucide-react';
-import { type CartLine, cartTotals, readCart, writeCart } from '@/lib/shop-cart';
+import { type CartLine, cartTotals, readCart } from '@/lib/shop-cart';
 
 type FieldErrors = Partial<
   Record<'buyerName' | 'buyerEmail' | 'shippingAddress' | 'shippingCity' | 'shippingZip', string>
@@ -112,8 +112,8 @@ export default function ShopCheckoutClient() {
         setFormError(data?.error ?? 'No se ha podido procesar el pedido. Inténtalo de nuevo.');
         return;
       }
-      writeCart([]);
-      setCart([]);
+      // El carrito NO se vacía aquí: si el pago falla o el comprador vuelve atrás desde la pasarela, no debe perder lo que había elegido.
+      // Se vacía en la pantalla de confirmación, cuando el pedido consta como pagado.
       if (data?.checkoutUrl) {
         window.location.href = data.checkoutUrl;
         return;

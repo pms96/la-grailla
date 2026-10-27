@@ -3,6 +3,67 @@ import { getOperatorEmail } from '@/lib/config';
 import { escapeHtml as esc } from '@/lib/html-escape';
 import { prisma } from '@/lib/prisma';
 import { rateLimit } from '@/lib/rate-limit';
+import { currentTenant } from '@/lib/tenant/context';
+
+/** Qué ha pasado al confirmar un pago sobre un pedido (ver completeOrder / completeShopOrder). */
+export type CompleteOutcome =
+  /** Pedido pendiente que pasa a pagado ahora. */
+  | 'completed'
+  /** Ya estaba pagado: no se transiciona, pero se sigue el camino de entrega por si el primer envío falló. */
+  | 'already_completed'
+  /** Pago tardío: el pedido estaba CANCELLED (liberado o anulado) y había plazas/stock: reactivado y entregado. */
+  | 'revived'
+  /** Pago tardío sin plazas/stock: reembolsado por completo, pedido REFUNDED. */
+  | 'refunded_late'
+  /** Pago tardío que no se ha podido resolver (reembolso fallido, pago no verificable): el pedido queda para revisión y ya se ha avisado. */
+  | 'late_unresolved'
+  /** El importe cobrado no cuadra con el pedido: no se completa (ya se ha avisado). */
+  | 'amount_mismatch'
+  /** El pedido está en un estado en el que no procede (p. ej. REFUNDED): solo se avisa. */
+  | 'inactive'
+  | 'missing';
+
+/** Log estructurado de pagos (una línea JSON tras una etiqueta greppable). Siempre con el cliente y sin datos personales. */
+export function logPaymentEvent(tag: string, fields: Record<string, unknown>, level: 'error' | 'warn' | 'info' = 'error'): void {
+  const line = `${tag} ${JSON.stringify({ tenantId: currentTenant()?.tenantId ?? '-', ...fields })}`;
+  if (level === 'info') console.info(line);
+  else if (level === 'warn') console.warn(line);
+  else console.error(line);
+}
+
+/**
+ * Único punto por el que el sistema avisa AL OPERADOR de algo que toca dinero (pago tardío, reembolso fallido, importe que no cuadra…).
+ * Hoy sale por el canal que ya existe: un correo por el SMTP del cliente a su `admin_email` / `notify_email_<módulo>`, y siempre queda la
+ * línea de log estructurada (el aviso NUNCA depende solo del correo). OB-02: el canal independiente del SMTP del cliente (ntfy/Slack del
+ * panel) se enchufa aquí, en esta función y en ninguna otra. `dedupeKey` limita el correo a uno al día por clave (el cron reintenta cada
+ * pocos minutos y no debe inundar la bandeja); el log sale siempre.
+ */
+export async function alertOperator(params: {
+  kind: 'entradas' | 'tienda';
+  /** Etiqueta del log, p. ej. `[late-payment]`. */
+  tag: string;
+  orderId: string;
+  /** Motivo corto, en snake_case, para buscar en logs (`refund_failed`, `paid_but_inactive`…). */
+  reason: string;
+  subject: string;
+  /** Cuerpo HTML ya escapado. */
+  html: string;
+  dedupeKey?: string;
+  details?: Record<string, unknown>;
+}): Promise<void> {
+  logPaymentEvent(params.tag, { kind: params.kind, orderId: params.orderId, reason: params.reason, ...(params.details ?? {}) });
+  try {
+    if (params.dedupeKey) {
+      const first = await rateLimit('operator-alert', params.dedupeKey, 1, 24 * 60 * 60 * 1000);
+      if (!first.ok) return;
+    }
+    const to = await getOperatorEmail(params.kind);
+    if (!to) return; // cliente sin admin_email: solo queda el log
+    await sendMail({ to, subject: params.subject, html: params.html });
+  } catch (error) {
+    console.error(`${params.tag} No se pudo enviar el aviso al operador:`, error instanceof Error ? error.message : error);
+  }
+}
 
 /** Lo que la pasarela dice haber cobrado (ver `PaymentResult`). Ausente = no se puede contrastar. */
 export type PaidInfo = { amount?: number; currency?: string };
@@ -46,22 +107,19 @@ export async function paymentMatchesOrder(kind: 'entradas' | 'tienda', orderId: 
   return false;
 }
 
-/** Avisa al equipo cuando un pago se confirma sobre un pedido que ya fue cancelado/liberado — requiere intervención manual (el stock ya pudo venderse a otra persona). */
+/** Avisa al equipo cuando un pago se confirma sobre un pedido en un estado en el que no procede (REFUNDED…): requiere intervención manual. */
 export async function alertPaidButInactiveOrder(kind: 'entradas' | 'tienda', orderId: string, status: string): Promise<void> {
-  console.error(`[order-reconciliation] Pago confirmado para pedido de ${kind} ${orderId} pero su estado ya era ${status} — requiere revisión manual.`);
-  try {
-    const to = await getOperatorEmail(kind);
-    if (!to) return; // cliente sin admin_email: solo queda el log
-    await sendMail({
-      to,
-      subject: `⚠️ Pago confirmado sobre pedido ya anulado (${orderId.slice(0, 8)})`,
-      html:
-        `<p>Se ha confirmado un pago de ${kind} para el pedido <strong>${esc(orderId)}</strong>, ` +
-        `pero su estado ya era <strong>${esc(status)}</strong> (probablemente liberado por caducidad antes de que llegara la confirmación de pago).</p>` +
-        `<p>El stock de este pedido puede haberse vendido ya a otra persona. Revisar manualmente y contactar con el comprador si es necesario.</p>`,
-    });
-  } catch (error) {
-    console.error('[alertPaidButInactiveOrder] Error enviando alerta:', error instanceof Error ? error.message : error);
-  }
+  await alertOperator({
+    kind,
+    tag: '[late-payment]',
+    orderId,
+    reason: 'paid_but_inactive',
+    details: { status },
+    dedupeKey: `paid-inactive:${orderId}:${status}`,
+    subject: `⚠️ Pago confirmado sobre pedido ya anulado (${orderId.slice(0, 8)})`,
+    html:
+      `<p>Se ha confirmado un pago de ${kind} para el pedido <strong>${esc(orderId)}</strong>, ` +
+      `pero su estado ya era <strong>${esc(status)}</strong>.</p>` +
+      `<p>Revisa el cobro en la pasarela y contacta con el comprador si es necesario.</p>`,
+  });
 }
-

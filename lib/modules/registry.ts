@@ -161,6 +161,9 @@ export function isLicenseExempt(path: string, method: string): boolean {
   if (p.startsWith('/api/auth/') || p === '/api/auth') return true; // el login de staff debe poder abrirse para ver el aviso
   if (read && (p.startsWith('/confirmacion/') || p.startsWith('/tienda/confirmacion/'))) return true;
   if (read && (/^\/api\/orders\/[^/]+(\/pdf)?$/.test(p) || /^\/api\/shop\/orders\/[^/]+$/.test(p) || p.startsWith('/api/tickets/'))) return true;
+  // El comprador que vuelve atrás desde la pasarela (`cancel_url`) libera el aforo/stock de SU pedido sin pagar: no vende nada, solo devuelve lo que
+  // reservó, y con la licencia o el módulo cortados ese stock quedaría retenido hasta que lo libere el cron. Exige el token firmado del pedido.
+  if (read && /^\/api\/(shop\/)?orders\/[^/]+\/abandon$/.test(p)) return true;
   // Reembolsos y cancelaciones de pedidos ya existentes (PATCH con `action`): el dinero del comprador no depende de que el cliente pague.
   if (method === 'PATCH' && /^\/api\/admin\/orders\/[^/]+$/.test(p)) return true;
   if (p === '/licencia' || p.startsWith('/licencia/') || p.startsWith('/auth/')) return true;

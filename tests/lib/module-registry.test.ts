@@ -114,6 +114,18 @@ describe('allowlist «nunca bloqueable» (por fase y por módulo)', () => {
     expect(isLicenseExempt('/api/orders/abc/send-tickets', 'POST')).toBe(false);
   });
 
+  // P0-04: el `cancel_url` de la pasarela vuelve a una ruta de COMPRADOR sobre un pedido existente (con su token firmado). No vende nada: solo
+  // libera lo que ese pedido reservó, y con la licencia o el módulo cortados ese aforo/stock quedaría retenido. Por eso se exime, y solo el GET.
+  it('el abandono de un pedido por su comprador (cancel_url) tiene dueño, se exime de la licencia y solo en GET', () => {
+    expect(ownerOfPath('/api/orders/abc/abandon')).toBe('entradas');
+    expect(ownerOfPath('/api/shop/orders/abc/abandon')).toBe('tienda');
+    expect(isLicenseExempt('/api/orders/abc/abandon', 'GET')).toBe(true);
+    expect(isLicenseExempt('/api/shop/orders/abc/abandon', 'GET')).toBe(true);
+    expect(isLicenseExempt('/api/orders/abc/abandon', 'POST')).toBe(false);
+    expect(isLicenseExempt('/api/orders/abc/abandon/x', 'GET')).toBe(false);
+    expect(isLicenseExempt('/api/admin/orders/abc/abandon', 'GET')).toBe(false);
+  });
+
   it('reembolsos de pedidos existentes; el resto del admin, no', () => {
     expect(isLicenseExempt('/api/admin/orders/abc', 'PATCH')).toBe(true);
     expect(isLicenseExempt('/api/admin/orders/abc', 'GET')).toBe(false);

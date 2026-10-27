@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { CheckCircle, Clock, Package, XCircle, Loader2 } from 'lucide-react';
 import { ReceiptPrinter, usePrintSequence } from '@/components/receipt-printer';
 import { useBrand } from '@/components/brand-provider';
+import { cartMatchesOrderItems, readCart, writeCart } from '@/lib/shop-cart';
+import { confirmationView, shouldKeepPolling, type PaymentCheck } from '@/lib/confirmation-state';
 
 export type ShopOrderView = {
   id: string;
@@ -14,12 +16,17 @@ export type ShopOrderView = {
   buyerName: string;
   buyerEmail: string;
   totalAmount: number;
+  /** Id del pago en la pasarela: si existe, un pedido cancelado puede tener un cobro en camino (pago tardío). */
+  paymentId?: string | null;
+  /** Resultado de comprobar contra la pasarela un pedido anulado con pago (lo añade la API del pedido). */
+  paymentCheck?: PaymentCheck;
   shippingAddress: string;
   shippingCity: string;
   shippingZip: string;
   shippingPhone: string | null;
   items: {
     id: string;
+    productId?: string;
     quantity: number;
     unitPrice: number;
     size: string | null;
@@ -27,6 +34,8 @@ export type ShopOrderView = {
     product: { name: string } | null;
   }[];
 };
+
+const MAX_POLLS = 12;
 
 export default function ShopConfirmationClient({ orderId, accessToken }: { orderId: string; accessToken?: string }) {
   const [order, setOrder] = useState<ShopOrderView | null>(null);
@@ -54,14 +63,24 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
     void load();
   }, [load]);
 
+  // Qué debe decir la pantalla (decisión pura, compartida con entradas): «no se ha cobrado nada» solo si la pasarela lo confirma.
+  const view = order ? confirmationView({ status: order.status, paymentId: order.paymentId, paymentCheck: order.paymentCheck, pollsExhausted: pollCount >= MAX_POLLS }) : null;
+
+  // El carrito se vacía AQUÍ, cuando el pedido consta como pagado (no al pulsar «Pagar»), y solo si lo guardado es el de este pedido.
   useEffect(() => {
-    if (!order || order.status !== 'PENDING' || pollCount >= 12) return;
+    if (!order || !['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status)) return;
+    const items = (order.items ?? []).filter((i): i is typeof i & { productId: string } => typeof i.productId === 'string');
+    if (items.length === order.items.length && cartMatchesOrderItems(readCart(), items)) writeCart([]);
+  }, [order]);
+
+  useEffect(() => {
+    if (!view || !shouldKeepPolling(view) || pollCount >= MAX_POLLS) return;
     const t = setTimeout(() => {
       setPollCount((c) => c + 1);
       void load();
     }, 2500);
     return () => clearTimeout(t);
-  }, [order, pollCount, load]);
+  }, [view, pollCount, load]);
 
   if (loading && !order) {
     return (
@@ -84,7 +103,56 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
     );
   }
 
-  if (order.status === 'CANCELLED' || order.status === 'REFUNDED') {
+  if (view === 'checking' || view === 'checking_gave_up') {
+    const gaveUp = view === 'checking_gave_up';
+    const code = order.id.slice(0, 8).toUpperCase();
+    return (
+      <div className="space-y-6 py-8">
+        <div className="text-center">
+          <Clock className="h-16 w-16 text-yellow-500 mx-auto mb-4" />
+          <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Estamos comprobando tu pago…</h1>
+          <p className="text-muted-foreground mt-2 max-w-md mx-auto">
+            {gaveUp ? (
+              <>
+                Todavía no hemos podido confirmar tu pago. Si has pagado y no ves tu compra, escríbenos indicando este código:{' '}
+                <strong className="font-mono">{code}</strong>. Si no se confirma, te devolveremos el importe.
+              </>
+            ) : (
+              'La reserva de tu pedido había caducado. Si has pagado, lo estamos comprobando: recibirás tu pedido o te devolveremos el importe automáticamente, y te avisaremos por email. No hace falta que vuelvas a pagar.'
+            )}
+          </p>
+          {!gaveUp && <Loader2 className="h-5 w-5 animate-spin text-primary mx-auto mt-4" />}
+        </div>
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">
+            Referencia #{code} · {order.totalAmount.toFixed(2)}€
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (view === 'refunded') {
+    return (
+      <div className="space-y-6 py-8">
+        <div className="text-center">
+          <XCircle className="h-16 w-16 text-destructive mx-auto mb-4" />
+          <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Te hemos devuelto el pago</h1>
+          <p className="text-muted-foreground mt-2">
+            Este pedido no se ha podido completar y te hemos devuelto el importe ({order.totalAmount.toFixed(2)}€). Puede tardar unos días en
+            aparecer en tu cuenta.
+          </p>
+        </div>
+        <div className="flex justify-center">
+          <Button asChild>
+            <Link href="/tienda/checkout">Volver al checkout</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'not_charged') {
     return (
       <div className="space-y-6 py-8">
         <div className="text-center">
