@@ -46,6 +46,11 @@ const blobHost = imagesOff ? '' : blobPublicHost();
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Con Next 15 los metadatos de una página con `generateMetadata` asíncrona (la ficha de evento consulta la BD) se mandan en streaming a
+  // los navegadores: título, descripción, canonical y og:* acaban al final del <body>. El CDN cachea una sola variante por URL sin mirar el
+  // User-Agent, así que a Googlebot le llegó la de un navegador. Este patrón trata a TODO agente como «limitado»: los metadatos se resuelven
+  // antes de enviar el HTML y van siempre en el <head>, igual para todos y cacheables sin riesgo.
+  htmlLimitedBots: /.*/,
   // BLOB_PUBLIC_HOST e IMAGES_UNOPTIMIZED no son secretos: se fijan en el build y llegan al servidor y al navegador (lib/images/blob-image.ts).
   env: { FRONT_SCHEMA_EXPECTED: latestMigration(), BLOB_PUBLIC_HOST: blobHost, IMAGES_UNOPTIMIZED: imagesOff ? '1' : '' },
   distDir: process.env.NEXT_DIST_DIR || '.next',

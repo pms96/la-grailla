@@ -13,6 +13,7 @@ import { Calendar, MapPin, Clock, Users, ShieldCheck, Ticket, AlertTriangle, Mus
 import { FadeIn, SlideIn } from '@/components/ui/animate';
 import { Container } from '@/components/layouts/container';
 import { MobileBuyBar } from './_components/mobile-buy-bar';
+import { MapFacade } from './_components/map-facade';
 import { AgeWarningGate } from './_components/age-warning-gate';
 import { ReloadButton } from '@/components/reload-button';
 import { absoluteBrandUrl, getBrand } from '@/lib/brand/brand';
@@ -344,15 +345,7 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
                     {mapQuery && (
                       <>
                         <div className="mt-4 overflow-hidden rounded-xl border border-border/60 bg-muted">
-                          <iframe
-                            title={`Mapa de ${event?.venue ?? 'la sala'}`}
-                            src={`https://maps.google.com/maps?q=${encodeURIComponent(mapQuery)}&z=15&output=embed`}
-                            width="100%"
-                            height="320"
-                            loading="lazy"
-                            referrerPolicy="no-referrer-when-downgrade"
-                            style={{ border: 0, display: 'block' }}
-                          />
+                          <MapFacade query={mapQuery} venue={event?.venue ?? 'la sala'} />
                         </div>
                         <a
                           href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}`}
