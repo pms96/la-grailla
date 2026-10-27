@@ -20,7 +20,7 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-export default function ShopCheckoutClient({ vatIncluded = false }: { vatIncluded?: boolean }) {
+export default function ShopCheckoutClient({ vatIncluded = false, termsVersion }: { vatIncluded?: boolean; termsVersion?: string }) {
   const router = useRouter();
   const [cart, setCart] = useState<CartLine[]>([]);
   const [hydrated, setHydrated] = useState(false);
@@ -104,6 +104,7 @@ export default function ShopCheckoutClient({ vatIncluded = false }: { vatInclude
           shippingPhone: form.shippingPhone.trim(),
           idempotencyKey: idempotencyKeyRef.current,
           acceptedTerms,
+          termsVersion,
           items: cart.map((l) => ({
             productId: l.productId,
             quantity: l.quantity,

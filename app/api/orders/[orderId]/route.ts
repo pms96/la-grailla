@@ -14,7 +14,7 @@ import { LATE_PAYMENT_WINDOW_MS, checkCancelledOrderPayment } from '@/lib/reconc
 import type { PaymentCheck } from '@/lib/confirmation-state';
 import { getEmailState } from '@/lib/email-delivery';
 import { buyerEmailView } from '@/lib/order-email';
-import { buildFiscalView } from '@/lib/fiscal';
+import { buildFiscalView, isOnlineSale } from '@/lib/fiscal';
 
 const includeTicketsAndEvent = { event: true, tickets: { include: { ticketType: true } } } as const;
 
@@ -77,7 +77,7 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
     const emailDelivery = order.status === 'COMPLETED' ? buyerEmailView(await getEmailState('entradas', order.id)) : null;
     const { emailLastError: _internal, ...publicOrder } = withoutSeasonLink(order);
     // P0-11: datos del vendedor e IVA del justificante (solo con el pedido pagado).
-    const fiscal = order.status === 'COMPLETED' ? await buildFiscalView(order.totalAmount, order.vatRate) : null;
+    const fiscal = order.status === 'COMPLETED' && isOnlineSale(order) ? await buildFiscalView(order.totalAmount, order.vatRate) : null;
     return NextResponse.json({ ...publicOrder, paymentCheck, emailDelivery, fiscal });
   } catch (error) {
     return handleApiError(error, 'GET /api/orders/[orderId]');

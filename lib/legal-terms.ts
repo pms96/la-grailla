@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getConfigsOrFail } from '@/lib/config';
 import { getBrand } from '@/lib/brand/brand';
 import { currentTenant } from '@/lib/tenant/context';
 import { captureOpsError } from '@/lib/observability/capture';
-import { defaultTermsEntradas, defaultTermsTienda } from '@/lib/legal-defaults';
+import { defaultPrivacyText, defaultTermsEntradas, defaultTermsTienda } from '@/lib/legal-defaults';
 import { getFiscalIssuer } from '@/lib/fiscal';
 
 /* P0-11 · Condiciones de venta y registro de lo que aceptó el comprador.
@@ -34,19 +35,42 @@ export function legalHash(content: string): string {
   return createHash('sha256').update(content).digest('hex').slice(0, 32);
 }
 
+/** La política de privacidad que ve el comprador: la del cliente o la de reserva de /legal/privacidad (se registra la que de verdad se mostró). Lanza si la BD no responde. */
+export async function getPrivacyText(): Promise<string> {
+  const own = (await getConfigsOrFail(['privacy_policy'])).privacy_policy.trim();
+  if (own) return own;
+  const brand = await getBrand();
+  return defaultPrivacyText({ name: brand.name, email: brand.contactEmail || undefined });
+}
+
+/** El contenido exacto que se aceptará y su hash. `extra` = texto propio del evento (condiciones de acceso). */
+export async function computeTermsVersion(kind: TermsKind, extra = ''): Promise<{ hash: string; content: string }> {
+  const [{ text }, privacy] = await Promise.all([getTermsText(kind), getPrivacyText()]);
+  const content = JSON.stringify({ kind, terms: text, privacy, extra: extra.trim() });
+  return { hash: legalHash(content), content };
+}
+
+/** Las condiciones cambiaron entre que el comprador abrió el checkout y envió el pedido: tiene que recargar y ver las nuevas antes de aceptar. */
+export class TermsChangedError extends Error {
+  constructor() {
+    super('Las condiciones de venta han cambiado mientras comprabas. Recarga la página, léelas y vuelve a intentarlo.');
+    this.name = 'TermsChangedError';
+  }
+}
+
 // Versiones ya guardadas en ESTE proceso y cliente (la clave lleva el cliente: la misma versión en dos BD no es la misma fila).
 const recorded = new Set<string>();
 const MAX_RECORDED = 500;
 
 /**
- * Registra la versión de condiciones que el comprador está aceptando y devuelve su hash para guardarlo en el pedido. `extra` = texto
- * propio del evento (condiciones de acceso). Si la copia no se puede guardar NO se bloquea la venta (se avisa a operación); el pedido
- * conserva igualmente el hash y la fecha. Lanza solo si la configuración no se puede leer (en ese caso la venta tampoco debe seguir).
+ * Registra la versión de condiciones que el comprador está aceptando y devuelve su hash para guardarlo en el pedido. `expectedHash` = la
+ * versión con la que se pintó SU pantalla: si ya no es la vigente, lanza `TermsChangedError` (409) para que no acepte algo que no vio.
+ * Si la copia no se puede guardar NO se bloquea la venta (se avisa a operación, salvo la carrera benigna de dos primeras ventas a la vez);
+ * el pedido conserva igualmente el hash y la fecha. Lanza si la configuración no se puede leer (en ese caso la venta tampoco debe seguir).
  */
-export async function recordTermsVersion(kind: TermsKind, extra = ''): Promise<string> {
-  const [{ text }, priv] = await Promise.all([getTermsText(kind), getConfigsOrFail(['privacy_policy'])]);
-  const content = JSON.stringify({ kind, terms: text, privacy: priv.privacy_policy.trim(), extra: extra.trim() });
-  const hash = legalHash(content);
+export async function recordTermsVersion(kind: TermsKind, extra = '', expectedHash?: string): Promise<string> {
+  const { hash, content } = await computeTermsVersion(kind, extra);
+  if (expectedHash && expectedHash !== hash) throw new TermsChangedError();
   const cacheKey = `${currentTenant()?.tenantId ?? 'single'}:${hash}`;
   if (!recorded.has(cacheKey)) {
     try {
@@ -54,7 +78,10 @@ export async function recordTermsVersion(kind: TermsKind, extra = ''): Promise<s
       if (recorded.size >= MAX_RECORDED) recorded.clear();
       recorded.add(cacheKey);
     } catch (error) {
-      captureOpsError(error, { route: 'legal-snapshot', kind, reason: 'snapshot_not_saved' });
+      // P2002: otra petición la creó a la vez (misma versión, mismo contenido): no es un fallo.
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) {
+        captureOpsError(error, { route: 'legal-snapshot', kind, reason: 'snapshot_not_saved' });
+      }
     }
   }
   return hash;

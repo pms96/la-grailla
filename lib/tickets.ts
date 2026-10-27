@@ -9,7 +9,7 @@ import { getWalletAvailability, buildApplePass } from '@/lib/wallet';
 import { escapeHtml as esc } from '@/lib/html-escape';
 import { getBrand, type Brand } from '@/lib/brand/brand';
 import { brandLogoHtml } from '@/lib/brand/email';
-import { buildFiscalView, RECEIPT_TITLE } from '@/lib/fiscal';
+import { buildFiscalView, isOnlineSale, RECEIPT_TITLE } from '@/lib/fiscal';
 import { fiscalEmailHtml } from '@/lib/fiscal-email';
 
 // DATA-01: derivado del propio `prisma` (extendido — totalAmount/commission
@@ -155,7 +155,7 @@ function buildEmailHtml(
   return (
     '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;">' +
     brandLogoHtml(brand, appUrl, 32, 'margin:0 0 4px;') +
-    '<p style="color:#888;margin:0 0 24px;">' + RECEIPT_TITLE + ' (no es factura)</p>' +
+    '<p style="color:#888;margin:0 0 24px;">' + (isOnlineSale(order) ? RECEIPT_TITLE + ' (no es factura)' : 'Confirmacion de compra') + '</p>' +
     '<p>Hola ' + esc(order.buyerName) + ',</p>' +
     '<p>Tu compra se ha completado correctamente. Aqui tienes los detalles:</p>' +
     '<div style="background:' + brand.colors.emailTint + ';border-radius:10px;padding:18px;margin:18px 0;">' +
@@ -282,7 +282,7 @@ export async function deliverTicketsEmail(
   const result = await sendMail({
     to: order.buyerEmail,
     subject: 'Tus entradas para ' + (order.event?.name ?? brand.name),
-    html: buildEmailHtml(order, printUrl, brand, appUrl, minorAuthUrl, walletLinksHtml, fiscalEmailHtml(await buildFiscalView(order.totalAmount, order.vatRate))),
+    html: buildEmailHtml(order, printUrl, brand, appUrl, minorAuthUrl, walletLinksHtml, isOnlineSale(order) ? fiscalEmailHtml(await buildFiscalView(order.totalAmount, order.vatRate)) : ''),
     attachments: attachments.length ? attachments : undefined,
   });
 

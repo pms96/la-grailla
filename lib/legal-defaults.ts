@@ -37,3 +37,11 @@ export function defaultTermsTienda(c: TermsContext): string {
     `9. Datos personales. Tratamos tus datos según nuestra política de privacidad.`,
   ].join('\n\n');
 }
+
+/** Política de privacidad de reserva: la que muestra /legal/privacidad (y la que se registra al aceptar) si el cliente no escribió la suya. */
+export function defaultPrivacyText(c: { name: string; email?: string }): string {
+  return [
+    `En ${c.name} tratamos tus datos personales (nombre, email, datos de compra) únicamente para gestionar tus entradas, pedidos y comunicaciones relacionadas con el evento. No vendemos tus datos. Para cobrar y enviarte lo que compras usamos proveedores (pasarela de pago, envío de correo) que los tratan solo para ese fin.`,
+    ...(c.email ? [`Si tienes cualquier duda sobre el tratamiento de tus datos, escríbenos a ${c.email}.`] : []),
+  ].join('\n\n');
+}

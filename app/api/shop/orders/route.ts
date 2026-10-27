@@ -18,7 +18,7 @@ import { reserveShopStock, releaseShopStock } from '@/lib/product-stock';
 import { shopOrderAccessQuery, signShopOrderAccess } from '@/lib/access-token';
 import { getBrand } from '@/lib/brand/brand';
 import { currentVatRate } from '@/lib/fiscal';
-import { recordTermsVersion } from '@/lib/legal-terms';
+import { TermsChangedError, recordTermsVersion } from '@/lib/legal-terms';
 
 const createShopOrderSchema = z.object({
   buyerName: z.string().min(1),
@@ -30,6 +30,8 @@ const createShopOrderSchema = z.object({
   idempotencyKey: z.string().optional(),
   // P0-11: el servidor exige la aceptación (la casilla del formulario no es la barrera: se puede llamar a la API directamente).
   acceptedTerms: z.boolean().optional(),
+  // Versión de las condiciones con la que se pintó SU pantalla: si cambiaron mientras compraba, 409 (no acepta lo que no vio).
+  termsVersion: z.string().max(64).optional(),
   items: z
     .array(
       z.object({
@@ -80,6 +82,7 @@ export async function POST(request: Request) {
       items,
       idempotencyKey,
       acceptedTerms,
+      termsVersion: seenTermsVersion,
     } = body;
 
     if (idempotencyKey) {
@@ -101,7 +104,14 @@ export async function POST(request: Request) {
     }
 
     // P0-11: versión de las condiciones que acepta (copia en LegalSnapshot) y tipo de IVA vigente, ambos al pedido. Fuera de la transacción.
-    const [termsVersion, vatRate] = await Promise.all([recordTermsVersion('tienda'), currentVatRate('tienda')]);
+    let termsVersion: string;
+    let vatRate: number | null;
+    try {
+      [termsVersion, vatRate] = await Promise.all([recordTermsVersion('tienda', '', seenTermsVersion), currentVatRate('tienda', { strict: true })]);
+    } catch (error) {
+      if (error instanceof TermsChangedError) return NextResponse.json({ error: error.message, code: 'terms_changed' }, { status: 409 });
+      throw error;
+    }
     const termsAcceptedAt = new Date();
 
     // ¿Hay pasarela real? Si no (o si no se puede saber), el cupo por IP se aplica igual: el pedido sin pasarela nace pagado y no ocupa hueco.

@@ -1,4 +1,4 @@
-import { getConfigs } from '@/lib/config';
+import { getConfigs, getConfigsOrFail } from '@/lib/config';
 import { getBrand } from '@/lib/brand/brand';
 
 /* P0-11 · Datos fiscales del emisor e IVA de los justificantes de compra.
@@ -53,6 +53,11 @@ export function issuerLines(issuer: FiscalIssuer | null): string[] {
 }
 
 /** Lo que las pantallas y los correos imprimen junto al total. `invoiceEmail`: dónde pedir la factura (el contacto de la marca). */
+/** ¿Es una venta online de pago? Las invitaciones (gratis) y las ventas de taquilla (en persona) no son esto: no llevan el rótulo ni el pie fiscal de la compra online. */
+export function isOnlineSale(order: { channel: string; paymentMethod: string }): boolean {
+  return order.channel === 'ONLINE' && order.paymentMethod !== 'FREE';
+}
+
 export type FiscalView = { issuer: FiscalIssuer | null; vat: VatBreakdown | null; invoiceEmail: string | null };
 
 export async function buildFiscalView(total: number, vatRate: number | null | undefined): Promise<FiscalView> {
@@ -60,10 +65,14 @@ export async function buildFiscalView(total: number, vatRate: number | null | un
   return { issuer, vat: vatBreakdown(total, vatRate), invoiceEmail: brand.contactEmail || null };
 }
 
-/** El tipo vigente ahora para el módulo (se copia al pedido al crearlo). */
-export async function currentVatRate(kind: FiscalKind): Promise<number | null> {
+/**
+ * El tipo vigente ahora para el módulo (se copia al pedido al crearlo). `strict`: un fallo de lectura de la BD LANZA en vez de dar «sin tipo»;
+ * al crear un pedido es lo correcto (un pedido guardado sin tipo por un fallo puntual ya no se puede arreglar); para pintar una página no.
+ */
+export async function currentVatRate(kind: FiscalKind, opts: { strict?: boolean } = {}): Promise<number | null> {
   const key = VAT_RATE_CONFIG_KEY[kind];
-  return parseVatRate((await getConfigs([key]))[key]);
+  const values = opts.strict ? await getConfigsOrFail([key]) : await getConfigs([key]);
+  return parseVatRate(values[key]);
 }
 
 const eur = (n: number) => n.toFixed(2).replace('.', ',') + ' €';

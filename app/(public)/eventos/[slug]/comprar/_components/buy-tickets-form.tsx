@@ -58,6 +58,7 @@ export interface EventData {
   ageWarningEnabled?: boolean;
   ageWarningMessage?: string | null;
   vatRate?: number | null;
+  termsVersion?: string;
 }
 
 type FieldErrors = {
@@ -185,6 +186,7 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
           queueToken,
           idempotencyKey: idempotencyKeyRef.current,
           acceptedTerms,
+          termsVersion: event?.termsVersion,
           ageConfirmed: ageMessage ? ageConfirmed : undefined,
         }),
       });

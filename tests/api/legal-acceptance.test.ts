@@ -7,6 +7,7 @@ import * as getShopOrderRoute from '@/app/api/shop/orders/[orderId]/route';
 import { signOrderAccess, signShopOrderAccess } from '@/lib/access-token';
 import { createTestEvent, createTicketType, cleanupTestEvent, getAndSetConfig, restoreConfig } from '../helpers/fixtures';
 import { syncProductVariants } from '@/lib/product-stock';
+import { computeTermsVersion } from '@/lib/legal-terms';
 
 /* P0-11: aceptación de condiciones obligatoria en el SERVIDOR (no solo la casilla), aviso de edad, versión de condiciones guardada con copia,
  * IVA vigente copiado al pedido y datos fiscales en la API del justificante. */
@@ -115,6 +116,41 @@ describe('P0-11: aceptación de condiciones y justificante', () => {
       await getAndSetConfig('vat_rate_entradas', '');
       const r3 = await createOrder(post('http://localhost/api/orders', orderBody({ acceptedTerms: true })));
       expect((await prisma.order.findUniqueOrThrow({ where: { id: (await r3.json()).orderId } })).vatRate).toBeNull();
+    });
+
+    it('si las condiciones cambian entre que se pinta la pantalla y se envía, 409 terms_changed sin crear nada; con la versión vigente pasa', async () => {
+      await getAndSetConfig('legal_terms_entradas', 'CONDICIONES VISTAS');
+      const seen = (await computeTermsVersion('entradas', '')).hash;
+      await getAndSetConfig('legal_terms_entradas', 'CONDICIONES EDITADAS DESPUÉS');
+      const before = await prisma.order.count({ where: { eventId: event.id } });
+      const stale = await createOrder(post('http://localhost/api/orders', orderBody({ acceptedTerms: true, termsVersion: seen })));
+      expect(stale.status).toBe(409);
+      expect((await stale.json()).code).toBe('terms_changed');
+      expect(await prisma.order.count({ where: { eventId: event.id } })).toBe(before);
+      const fresh = (await computeTermsVersion('entradas', '')).hash;
+      const ok = await createOrder(post('http://localhost/api/orders', orderBody({ acceptedTerms: true, termsVersion: fresh })));
+      expect(ok.status).toBe(200);
+      const order = await prisma.order.findUniqueOrThrow({ where: { id: (await ok.json()).orderId } });
+      expect(order.termsVersion).toBe(fresh);
+      createdSnapshots.push(fresh);
+    });
+
+    it('sin privacy_policy propia se registra la política de reserva que de verdad se mostró (no un texto vacío)', async () => {
+      await getAndSetConfig('privacy_policy', '');
+      const res = await createOrder(post('http://localhost/api/orders', orderBody({ acceptedTerms: true })));
+      const order = await prisma.order.findUniqueOrThrow({ where: { id: (await res.json()).orderId } });
+      createdSnapshots.push(order.termsVersion!);
+      const content = JSON.parse((await prisma.legalSnapshot.findUniqueOrThrow({ where: { hash: order.termsVersion! } })).content);
+      expect(content.privacy).toMatch(/tratamos tus datos personales/);
+    });
+
+    it('invitaciones y ventas de taquilla no llevan el pie fiscal de venta online', async () => {
+      await getAndSetConfig('fiscal_nif', 'B12345678');
+      for (const over of [{ channel: 'INVITACION' }, { channel: 'TAQUILLA' }, { paymentMethod: 'FREE' as const }]) {
+        const o = await prisma.order.create({ data: { eventId: event.id, buyerName: 'X', buyerLastName: 'Y', buyerEmail: 'x@example.com', totalAmount: 0, status: 'COMPLETED', ...over } });
+        const json = await (await getOrderRoute.GET(new Request(`http://localhost/api/orders/${o.id}?t=${encodeURIComponent(signOrderAccess(o.id))}`), params(o.id))).json();
+        expect(json.fiscal).toBeNull();
+      }
     });
 
     it('evento con aviso de edad: exige confirmarlo en el servidor (entrando directo a /comprar no se salta) y lo guarda', async () => {

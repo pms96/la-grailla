@@ -5,6 +5,7 @@ import { getConfig } from '@/lib/config';
 import { getBrand } from '@/lib/brand/brand';
 import { LegalShell } from '../../_templates/legal-shell';
 import { canonicalAlternates } from '@/lib/seo/canonical';
+import { defaultPrivacyText } from '@/lib/legal-defaults';
 
 export function generateMetadata() {
   return { title: 'Política de privacidad', ...canonicalAlternates('/legal/privacidad') };
@@ -16,23 +17,9 @@ export default async function PrivacidadPage() {
 
   return (
     <LegalShell title="Política de privacidad" brand={brand}>
-        {text ? (
-          <div className="whitespace-pre-line text-muted-foreground leading-relaxed">{text}</div>
-        ) : (
-          <div className="space-y-4 text-muted-foreground leading-relaxed">
-            <p>
-              En {brand.name} tratamos tus datos personales (nombre, email, datos de compra) únicamente para gestionar tus
-              entradas, pedidos y comunicaciones relacionadas con el evento. No vendemos ni compartimos tus datos con
-              terceros con fines comerciales.
-            </p>
-            {mailto && (
-              <p>
-                Si tienes cualquier duda sobre el tratamiento de tus datos, escríbenos a{' '}
-                <span suppressHydrationWarning>{mailto}</span>.
-              </p>
-            )}
-          </div>
-        )}
+        <div className="whitespace-pre-line text-muted-foreground leading-relaxed">
+          {text || defaultPrivacyText({ name: brand.name, email: mailto || undefined })}
+        </div>
     </LegalShell>
   );
 }

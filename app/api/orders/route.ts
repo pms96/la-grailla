@@ -21,7 +21,7 @@ import { hasEventEnded } from '@/lib/active-event';
 import { calculateCommission } from '@/lib/pricing';
 import { getEventAgeWarningMessage } from '@/lib/age-warning';
 import { currentVatRate } from '@/lib/fiscal';
-import { recordTermsVersion } from '@/lib/legal-terms';
+import { TermsChangedError, recordTermsVersion } from '@/lib/legal-terms';
 
 // DATA-01: derivado del cliente extendido (totalAmount/commission son
 // number), no de `Order` importado de '@prisma/client' (que describiría
@@ -75,6 +75,8 @@ const createOrderSchema = z.object({
   // P0-11: el servidor exige la aceptación (la casilla del formulario no es la barrera: se puede llamar a la API directamente).
   acceptedTerms: z.boolean().optional(),
   ageConfirmed: z.boolean().optional(),
+  // Versión de las condiciones con la que se pintó SU pantalla: si cambiaron mientras compraba, 409 (no acepta lo que no vio).
+  termsVersion: z.string().max(64).optional(),
 });
 
 export async function POST(request: Request) {
@@ -100,7 +102,7 @@ export async function POST(request: Request) {
     }
 
     const body = createOrderSchema.parse(await request.json());
-    const { eventId, buyerName, buyerLastName, buyerEmail, items, queueToken, idempotencyKey, acceptedTerms, ageConfirmed } = body;
+    const { eventId, buyerName, buyerLastName, buyerEmail, items, queueToken, idempotencyKey, acceptedTerms, ageConfirmed, termsVersion: seenTermsVersion } = body;
 
     // Un reintento (red, doble clic, "atrás" + reenviar) con la misma clave
     // que un pedido que ya existe no debe crear un segundo pedido/cobro —
@@ -196,7 +198,14 @@ export async function POST(request: Request) {
 
     // P0-11: versión de las condiciones que acepta (copia en LegalSnapshot) y tipo de IVA vigente, ambos al pedido. Fuera de la transacción: no
     // alargan el cerrojo por evento.
-    const [termsVersion, vatRate] = await Promise.all([recordTermsVersion('entradas', event.conditions ?? ''), currentVatRate('entradas')]);
+    let termsVersion: string;
+    let vatRate: number | null;
+    try {
+      [termsVersion, vatRate] = await Promise.all([recordTermsVersion('entradas', event.conditions ?? '', seenTermsVersion), currentVatRate('entradas', { strict: true })]);
+    } catch (error) {
+      if (error instanceof TermsChangedError) return NextResponse.json({ error: error.message, code: 'terms_changed' }, { status: 409 });
+      throw error;
+    }
     const termsAcceptedAt = new Date();
 
     // Averiguamos la pasarela ANTES de crear nada: si está mal configurada,
