@@ -13,7 +13,19 @@ export async function downloadAdminCsv(params: {
   if (params.status) qs.set('status', params.status);
   if (params.q) qs.set('q', params.q);
   if (params.emailFailed) qs.set('emailFailed', '1');
-  const res = await fetch(`/api/admin/export?${qs.toString()}`);
+  await downloadCsv(`/api/admin/export?${qs.toString()}`, `export-${params.type}.csv`);
+}
+
+/** Descarga el CSV de pedidos de tienda con los mismos filtros que el listado (búsqueda y estado). */
+export async function downloadShopOrdersCsv(params: { status?: string; q?: string }): Promise<void> {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set('status', params.status);
+  if (params.q) qs.set('q', params.q);
+  await downloadCsv(`/api/admin/shop-orders/export?${qs.toString()}`, 'pedidos-tienda.csv');
+}
+
+async function downloadCsv(endpoint: string, fallbackName: string): Promise<void> {
+  const res = await fetch(endpoint);
   if (!res.ok) {
     let message = 'No se pudo exportar';
     try {
@@ -27,7 +39,7 @@ export async function downloadAdminCsv(params: {
   const blob = await res.blob();
   const disposition = res.headers.get('Content-Disposition') ?? '';
   const match = disposition.match(/filename="([^"]+)"/);
-  const filename = match?.[1] ?? `export-${params.type}.csv`;
+  const filename = match?.[1] ?? fallbackName;
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

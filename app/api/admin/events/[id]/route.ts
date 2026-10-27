@@ -9,6 +9,7 @@ import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { seasonLinkEnabled } from '@/lib/modules/season-link';
 import { releaseUnusedBlobs } from '@/lib/blob-cleanup';
+import { parseEventDateInput } from '@/lib/event-time';
 
 const updateEventSchema = z.object({
   name: z.string().min(1).optional(),
@@ -59,6 +60,9 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
   }
   try {
     const body = updateEventSchema.parse(await request.json());
+    // Sin zona (el `datetime-local` del formulario) es hora de Madrid; con `Z` u offset se respeta. Vacío = no se toca.
+    const date = body?.date ? parseEventDateInput(body.date) : undefined;
+    if (date === null) return NextResponse.json({ error: 'Fecha y hora no válidas' }, { status: 400 });
     // Si cambia el cartel, el anterior se borra de Blob cuando ya está guardado el nuevo.
     const previous = body?.imageUrl !== undefined ? await prisma.event.findUnique({ where: { id: params?.id }, select: { imageUrl: true } }) : null;
     const event = await prisma.event.update({
@@ -71,7 +75,7 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
         address: body?.address,
         imageUrl: body?.imageUrl,
         artists: body?.artists,
-        date: body?.date ? new Date(body.date) : undefined,
+        date,
         doorsOpen: body?.doorsOpen,
         endTime: body?.endTime,
         minAge: body?.minAge,

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Temporada } from '@prisma/client';
 import { PageHeader } from '@/components/layouts/page-header';
+import { useBrand } from '@/components/brand-provider';
+import { descripcionContabilidad } from '@/lib/compras/constantes';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Loader2 } from 'lucide-react';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
@@ -13,6 +15,7 @@ import { TabPlanificador } from '@/app/admin/compras/_components/tab-planificado
 import { TabPedidos } from '@/app/admin/compras/_components/tab-pedidos';
 
 export default function ComprasPage() {
+  const { legacy } = useBrand();
   const [temporadas, setTemporadas] = useState<Temporada[]>([]);
   const [temporadaId, setTemporadaId] = useState<string | null>(null);
   const [incluirArchivadas, setIncluirArchivadas] = useState(false);
@@ -45,7 +48,7 @@ export default function ComprasPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <PageHeader title="Compras" description="Catálogo, comparativa de precios y pedidos de la caseta" className="pb-0 border-0" />
+        <PageHeader title="Compras" description={descripcionContabilidad('compras', legacy)} className="pb-0 border-0" />
         <div className="flex flex-col items-end gap-1.5">
           <TemporadaSelector
             temporadas={temporadas}

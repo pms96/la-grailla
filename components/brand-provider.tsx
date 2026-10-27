@@ -21,11 +21,13 @@ export type ClientBrand = {
   contactFormEnabled: boolean;
   /** Módulos activos del cliente (el servidor decide; esto solo adapta pantallas, no autoriza nada). */
   modules: readonly ModuleKey[];
+  /** ¿Es La Grailla (instalación única o cliente legacy)? Solo ella conserva sus textos de siempre («caseta», «Feria»…); el resto, valores neutros. Solo adapta textos: no autoriza nada. */
+  legacy: boolean;
   /** Prefijo de Blob de este cliente (`{tenantId}/` en modo plataforma, vacío en una instalación única) para las subidas directas del navegador. */
   blobPrefix: string;
 };
 
-const EMPTY: ClientBrand = { name: '', contactEmail: '', organizer: '', logoOnDark: null, logoOnLight: null, mode: 'dark', contactFormEnabled: false, modules: [], blobPrefix: '' };
+const EMPTY: ClientBrand = { name: '', contactEmail: '', organizer: '', logoOnDark: null, logoOnLight: null, mode: 'dark', contactFormEnabled: false, modules: [], legacy: false, blobPrefix: '' };
 const BrandContext = createContext<ClientBrand>(EMPTY);
 
 export function BrandProvider({ value, children }: { value: ClientBrand; children: React.ReactNode }) {

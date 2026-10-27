@@ -7,9 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Loader2, Package, Truck, Search } from 'lucide-react';
+import { Loader2, Package, Truck, Search, Phone, Download, StickyNote } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
+import { downloadShopOrdersCsv } from '@/lib/admin-export';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 
 const statusLabels: Record<string, string> = {
@@ -24,6 +25,7 @@ export default function PedidosPage() {
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<string>('all');
+  const [exporting, setExporting] = useState(false);
   const [temporadas, setTemporadas] = useState<Temporada[]>([]);
   // Las temporadas son de Contabilidad: sin ese módulo la API responde 404 y el selector no se muestra.
   const [temporadasDisponibles, setTemporadasDisponibles] = useState(false);
@@ -76,9 +78,28 @@ export default function PedidosPage() {
     }
   };
 
+  // Mismos filtros que el listado en pantalla (búsqueda y estado).
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await downloadShopOrdersCsv({ q: q.trim() || undefined, status: status !== 'all' ? status : undefined });
+      toast.success('CSV de pedidos descargado');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al exportar');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <PageHeader title="Pedidos de Tienda" description="Gestiona los pedidos de merchandising" />
+      <div className="flex items-center justify-between gap-3">
+        <PageHeader title="Pedidos de Tienda" description="Gestiona los pedidos de merchandising" />
+        <Button variant="outline" size="sm" className="gap-2 shrink-0" disabled={exporting} onClick={handleExport}>
+          {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          Exportar CSV
+        </Button>
+      </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
@@ -124,9 +145,37 @@ export default function PedidosPage() {
                     <span className="font-bold text-primary">{(order?.totalAmount ?? 0).toFixed(2)}€</span>
                   </div>
                 </div>
-                <div className="text-sm text-muted-foreground">
-                  <p><Package className="h-3 w-3 inline mr-1" /> {(order?.items ?? []).map((i) => `${i?.product?.name ?? ''} x${i?.quantity ?? 0}`).join(', ')}</p>
-                  <p><Truck className="h-3 w-3 inline mr-1" /> {order?.shippingAddress ?? ''}, {order?.shippingCity ?? ''} {order?.shippingZip ?? ''}</p>
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <ul className="space-y-0.5">
+                    {(order?.items ?? []).map((i) => {
+                      const variant = [i?.size, i?.color].filter(Boolean).join(' · ');
+                      return (
+                        <li key={i?.id} className="flex items-start justify-between gap-3">
+                          <span className="min-w-0 break-words">
+                            <Package className="h-3 w-3 inline mr-1" />
+                            <span className="text-foreground">{i?.product?.name ?? ''}</span>
+                            {variant && <span> · {variant}</span>} × {i?.quantity ?? 0}
+                          </span>
+                          <span className="shrink-0 tabular-nums">
+                            {(Number(i?.unitPrice ?? 0) * (i?.quantity ?? 0)).toFixed(2)}€
+                            {(i?.quantity ?? 0) > 1 && <span className="text-xs"> ({Number(i?.unitPrice ?? 0).toFixed(2)}€/u.)</span>}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <p className="break-words">
+                    <Truck className="h-3 w-3 inline mr-1" /> {order?.shippingAddress ?? ''}, {order?.shippingZip ?? ''} {order?.shippingCity ?? ''}
+                  </p>
+                  {order?.shippingPhone && (
+                    <p>
+                      <Phone className="h-3 w-3 inline mr-1" />
+                      <a href={`tel:${order.shippingPhone.replace(/[^\d+]/g, '')}`} className="underline underline-offset-2">{order.shippingPhone}</a>
+                    </p>
+                  )}
+                  {order?.notes && (
+                    <p className="break-words"><StickyNote className="h-3 w-3 inline mr-1" /> {order.notes}</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <Select value={order?.status ?? ''} onValueChange={(v: ShopOrderStatus) => updateOrder(order?.id, { status: v })}>

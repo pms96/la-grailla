@@ -136,6 +136,18 @@ export function ownerEnabled(owner: RouteOwner, active: readonly ModuleKey[]): b
 }
 
 /**
+ * La PUERTA de un evento: la pantalla del escáner (`/acceso`, solo lectura de la página), la validación (`/api/scan`) y sus lecturas
+ * (`/api/access/*`, incluida la lista de eventos `/api/access/events`). Nada de esto vende: solo valida entradas ya vendidas. La
+ * autenticación de staff (ADMIN/TAQUILLA) sigue exigida por el middleware y por cada handler; eximir una ruta de la licencia no la abre
+ * a anónimos. La pestaña de taquilla del escáner (`/api/taquilla/*`) y las invitaciones NO están aquí: son venta y panel.
+ */
+export function isDoorPath(path: string, method: string): boolean {
+  const p = normalize(path);
+  if (p === '/api/scan' || p.startsWith('/api/scan/') || p === '/api/access' || p.startsWith('/api/access/')) return true;
+  return (method === 'GET' || method === 'HEAD') && p === '/acceso';
+}
+
+/**
  * Rutas que NUNCA se cortan por fase de licencia ni por módulo apagado: dinero ya en vuelo y gente que ya pagó.
  * Un webhook o un cron que no llega es dinero perdido; un comprador debe poder ver y descargar lo que compró; y en la puerta de un
  * evento hay que seguir validando entradas ya vendidas. Las VENTAS nuevas (POST /api/orders, la taquilla, etc.) sí se cortan.
@@ -145,7 +157,7 @@ export function isLicenseExempt(path: string, method: string): boolean {
   const read = method === 'GET' || method === 'HEAD';
   if (p.startsWith('/api/webhooks/') || p.startsWith('/api/cron/')) return true;
   if (p === '/api/health') return true; // la salud del cliente la lee el panel aunque esté en mantenimiento, suspendido o sin licencia
-  if (p === '/api/scan' || p.startsWith('/api/scan/') || p === '/api/access' || p.startsWith('/api/access/')) return true;
+  if (isDoorPath(p, method)) return true;
   if (p.startsWith('/api/auth/') || p === '/api/auth') return true; // el login de staff debe poder abrirse para ver el aviso
   if (read && (p.startsWith('/confirmacion/') || p.startsWith('/tienda/confirmacion/'))) return true;
   if (read && (/^\/api\/orders\/[^/]+(\/pdf)?$/.test(p) || /^\/api\/shop\/orders\/[^/]+$/.test(p) || p.startsWith('/api/tickets/'))) return true;

@@ -99,6 +99,18 @@ describe('cliente suspendido', () => {
     expect(isNeverBlockable('/api/webhooks/x')).toBe(true);
     expect(isNeverBlockable('/api/orders')).toBe(false);
   });
+
+  it('la revocación/suspensión corta TAMBIÉN la puerta del evento (escáner), con sesión de staff o sin ella', async () => {
+    const cookie = await sessionCookie(C, 'TAQUILLA');
+    for (const path of ['/acceso', '/api/access/events', '/api/access/capacity']) {
+      expect((await platformMiddleware(req('c.cliente.test', path, { cookie }))).status, path).toBe(503);
+      expect((await platformMiddleware(req('c.cliente.test', path))).status, path).toBe(503);
+    }
+    expect((await platformMiddleware(req('c.cliente.test', '/api/scan', { method: 'POST', cookie, headers: { origin: 'http://c.cliente.test' } }))).status).toBe(503);
+    expect(isNeverBlockable('/acceso')).toBe(false);
+    expect(isNeverBlockable('/api/scan')).toBe(false);
+    expect(isNeverBlockable('/api/access/events')).toBe(false);
+  });
 });
 
 describe('sesión de staff con el secreto de cada cliente', () => {

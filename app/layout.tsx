@@ -7,6 +7,7 @@ import { BrandProvider } from '@/components/brand-provider';
 import { isContactFormEnabled } from '@/lib/contact';
 import { getActiveModules } from '@/lib/modules/runtime';
 import { tenantBlobPrefix } from '@/lib/tenant/blob';
+import { isLegacyTenant } from '@/lib/tenant/context';
 import { absoluteBrandUrl, getBrand } from '@/lib/brand/brand';
 import { fontVariableClasses } from '@/lib/brand/fonts';
 import { fallbackDescription } from '@/lib/seo/description';
@@ -97,7 +98,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       )}
       <body className={`${fontVariableClasses} font-sans`} {...fontsAttr}>
         <Providers>
-          <BrandProvider value={{ name: brand.name, contactEmail: brand.contactEmail, organizer: brand.organizer, logoOnDark: brand.logoOnDark, logoOnLight: brand.logoOnLight, mode: brand.mode, contactFormEnabled, modules: getActiveModules(), blobPrefix: safeBlobPrefix() }}>
+          <BrandProvider value={{ name: brand.name, contactEmail: brand.contactEmail, organizer: brand.organizer, logoOnDark: brand.logoOnDark, logoOnLight: brand.logoOnLight, mode: brand.mode, contactFormEnabled, modules: getActiveModules(), legacy: isLegacyTenant(), blobPrefix: safeBlobPrefix() }}>
             <ThemeProvider attribute="class" defaultTheme={brand.mode} enableSystem disableTransitionOnChange>
               {children}
               <Toaster />

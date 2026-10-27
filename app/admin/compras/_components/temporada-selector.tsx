@@ -10,6 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Switch } from '@/components/ui/switch';
 import { Plus, Loader2, Archive, ArchiveRestore } from 'lucide-react';
 import { toast } from 'sonner';
+import { useBrand } from '@/components/brand-provider';
+import { nombreTemporadaPorDefecto } from '@/lib/compras/constantes';
 
 type Props = {
   temporadas: Temporada[];
@@ -46,6 +48,7 @@ export function TemporadaSelector({
   onIncluirArchivadasChange,
   onTemporadasChanged,
 }: Props) {
+  const { legacy } = useBrand();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
@@ -85,8 +88,8 @@ export function TemporadaSelector({
   };
 
   useEffect(() => {
-    if (dialogOpen) setForm({ ...EMPTY, nombre: `Feria de Septiembre ${new Date().getFullYear()}` });
-  }, [dialogOpen]);
+    if (dialogOpen) setForm({ ...EMPTY, nombre: nombreTemporadaPorDefecto(legacy) });
+  }, [dialogOpen, legacy]);
 
   const handleSave = async () => {
     if (!form.nombre.trim()) {

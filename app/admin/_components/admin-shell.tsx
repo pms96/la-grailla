@@ -12,6 +12,9 @@ import { pathAllowedForModules } from '@/lib/modules/access';
 import type { ModuleKey } from '@grailla/contracts';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ChangePasswordDialog } from '@/app/admin/_components/change-password-dialog';
+import { useBrand } from '@/components/brand-provider';
+import { LicenseContact } from '@/components/license-contact';
+import type { ProviderContact } from '@/lib/license-support';
 import {
   LayoutDashboard, Calendar, Ticket, Users, ShoppingBag, Package,
   BarChart3, Handshake, Settings, LogOut, Menu, X, QrCode, KeyRound, Receipt, Moon,
@@ -28,6 +31,8 @@ type NavItem = {
 
 type NavGroup = {
   label?: string;
+  /** Nombre del grupo en La Grailla, que conserva el de siempre; el resto de clientes ve `label`. */
+  legacyLabel?: string;
   items: NavItem[];
 };
 
@@ -63,7 +68,8 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    label: 'Caseta',
+    label: 'Contabilidad',
+    legacyLabel: 'Caseta',
     items: [
       { href: '/admin/compras', label: 'Compras', icon: ShoppingCart },
       { href: '/admin/gastos', label: 'Gastos', icon: Wallet },
@@ -111,14 +117,15 @@ type AdminShellProps = {
   children: React.ReactNode;
   /** Módulos activos del cliente (el servidor los decide). Sin ellos se muestra todo, como en una instalación única. */
   modules?: readonly ModuleKey[];
-  /** Licencia vencida en periodo de gracia: se avisa en el panel. `panelBlockedAt` es cuándo se bloqueará. */
-  licenseGrace?: { panelBlockedAt: number | null } | null;
+  /** Licencia vencida en periodo de gracia: se avisa en el panel. `panelBlockedAt` es cuándo se bloqueará; `contact`, a quién acudir (ver lib/license-support.ts). */
+  licenseGrace?: { panelBlockedAt: number | null; contact?: ProviderContact } | null;
 };
 
 const dateFormat = new Intl.DateTimeFormat('es-ES', { dateStyle: 'long', timeZone: 'Europe/Madrid' });
 
 export default function AdminShell({ children, modules, licenseGrace }: AdminShellProps) {
   const { data: session } = useSession() || {};
+  const { legacy } = useBrand();
   const pathname = usePathname() ?? '';
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
@@ -129,6 +136,7 @@ export default function AdminShell({ children, modules, licenseGrace }: AdminShe
   const visibleGroups = navGroups
     .map((g) => ({
       ...g,
+      label: legacy && g.legacyLabel ? g.legacyLabel : g.label,
       items: g.items.filter((i) => (!modules || isLinkVisible(i.href, modules)) && pathAllowedForModules(i.href, userModules)),
     }))
     .filter((g) => g.items.length > 0);
@@ -218,11 +226,13 @@ export default function AdminShell({ children, modules, licenseGrace }: AdminShe
           </div>
         </header>
         {licenseGrace && (
-          <div role="status" className="border-b border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-200 md:px-6 lg:px-8">
+          // Colores del tema (no un ámbar fijo): el texto es `foreground` sobre un velo del amarillo de aviso, legible en claro y en oscuro.
+          <div role="status" className="border-b border-warm-yellow/60 bg-warm-yellow/15 px-4 py-2.5 text-sm text-foreground md:px-6 lg:px-8">
             La licencia ha vencido.{' '}
             {licenseGrace.panelBlockedAt
               ? `Regulariza el pago antes del ${dateFormat.format(new Date(licenseGrace.panelBlockedAt))}: ese día se bloqueará el acceso a este panel.`
-              : 'Regulariza el pago para evitar el bloqueo del panel.'}
+              : 'Regulariza el pago para evitar el bloqueo del panel.'}{' '}
+            <LicenseContact contact={licenseGrace.contact} />
           </div>
         )}
         <main className="p-4 md:p-6 lg:p-8 max-w-[1200px]">

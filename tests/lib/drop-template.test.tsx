@@ -47,8 +47,7 @@ const event = (over: Partial<EventInput> = {}): EventInput => ({
   venue: 'Sala Rodrigo',
   city: 'Valencia',
   maxCapacity: 500,
-  currentCount: 100,
-  ticketTypes: [{ price: 15 }],
+  ticketTypes: [{ price: 15, maxQuantity: 500, soldCount: 100 }],
   ...over,
 });
 

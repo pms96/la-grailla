@@ -27,8 +27,7 @@ const event = (over: Partial<EventInput> = {}): EventInput => ({
   venue: 'Estudio',
   city: 'Valencia',
   maxCapacity: 100,
-  currentCount: 10,
-  ticketTypes: [{ price: 10 }],
+  ticketTypes: [{ price: 10, maxQuantity: 100, soldCount: 10 }],
   ...over,
 });
 
@@ -195,7 +194,7 @@ describe('HomeEstudio', () => {
 
 describe('EventList y EventosEstudio', () => {
   it('una fila por evento con su enlace, lugar, precio y estado', () => {
-    const events = [toTemplateEvent(event()), toTemplateEvent(event({ id: 'e2', slug: 'otra', name: 'Otra jornada', maxCapacity: 100, currentCount: 100 }))];
+    const events = [toTemplateEvent(event()), toTemplateEvent(event({ id: 'e2', slug: 'otra', name: 'Otra jornada', ticketTypes: [{ price: 10, maxQuantity: 100, soldCount: 100 }] }))];
     const html = render(<EventList events={events} />);
     expect(html.match(/class="es-row"/g)).toHaveLength(2);
     expect(html).toContain('href="/eventos/otra"');

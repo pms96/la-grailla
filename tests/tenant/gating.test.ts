@@ -46,6 +46,11 @@ async function adminCookie(): Promise<string> {
   const secret = await deriveInstallationSecret(parseMasterKey(env.PLATFORM_SESSION_MASTER), T, 0, 'session');
   return `${SESSION_COOKIE_HOST}=${await encode({ token: { id: 'u1', role: 'ADMIN', tid: T }, secret })}`;
 }
+/** Cookie de sesión de staff (TAQUILLA, ADMIN...) de este cliente. */
+async function staffCookie(role: 'ADMIN' | 'TAQUILLA'): Promise<string> {
+  const secret = await deriveInstallationSecret(parseMasterKey(env.PLATFORM_SESSION_MASTER), T, 0, 'session');
+  return `${SESSION_COOKIE_HOST}=${await encode({ token: { id: 'u1', role, tid: T }, secret })}`;
+}
 /** Ni cortada por módulo (404) ni por licencia (402/503): puede seguir pidiendo sesión de staff (401) y eso es otra capa. */
 const notCut = (res: Response) => ![402, 404, 503].includes(res.status);
 const passes = (res: Response) => res.headers.get('x-middleware-next') === '1';
@@ -140,6 +145,8 @@ describe('fases de licencia', () => {
       ['/api/cron/reconcile-payments', 'GET'],
       ['/api/scan', 'POST'],
       ['/api/access/capacity', 'GET'],
+      ['/api/access/events', 'GET'],
+      ['/acceso', 'GET'],
       ['/confirmacion/abc', 'GET'],
       ['/api/orders/abc', 'GET'],
       ['/api/tickets/abc/pdf-html', 'GET'],
@@ -219,6 +226,114 @@ describe('revisión de seguridad de M5', () => {
     await publish({ license: { phase: 'GRACE', nextPhaseChangeAt: NOW - DAY, schedule: [{ at: NOW - DAY, phase: 'GRACE' }] } });
     const res = await platformMiddleware(req('/eventos'));
     expect(ctxOf(res)?.license).toMatchObject({ phase: 'GRACE', nextPhaseChangeAt: null });
+  });
+});
+
+/* P0-03 / EN-03 / MO-05: en la puerta de un evento hay que seguir validando entradas YA vendidas aunque el cliente esté en BLOCKED o con el
+ * módulo Entradas apagado. Solo se cortan las VENTAS nuevas; nada se abre a anónimos ni a otras rutas. Una SUSPENSIÓN (y la revocación de
+ * emergencia, que llega como SUSPENDED) corta TODO, también la puerta. */
+describe('la puerta del evento (escáner): abierta en todas las fases y con Entradas apagado; cerrada si el cliente está suspendido', () => {
+  type Phase = 'ACTIVE' | 'GRACE' | 'PANEL_BLOCKED' | 'BLOCKED';
+  const PHASES: Phase[] = ['ACTIVE', 'GRACE', 'PANEL_BLOCKED', 'BLOCKED'];
+  const door = [
+    ['/acceso', 'GET'],
+    ['/api/access/events', 'GET'],
+    ['/api/access/capacity', 'GET'],
+  ] as const;
+  const origin = { origin: `https://${host}` };
+  const reqWithOrigin = (path: string, method: string, cookie: string) =>
+    new NextRequest(`https://${host}${path}`, { method, headers: { host, ...origin, cookie } });
+
+  for (const modules of [['tienda', 'entradas'], ['tienda']]) {
+    const label = modules.includes('entradas') ? 'con Entradas' : 'con Entradas APAGADO';
+    for (const phase of PHASES) {
+      it(`${phase} ${label}: staff entra en /acceso, en la lista de eventos y en el escáner`, async () => {
+        await publish({ modules, license: { phase, nextPhaseChangeAt: null } });
+        for (const role of ['TAQUILLA', 'ADMIN'] as const) {
+          const cookie = await staffCookie(role);
+          for (const [p, m] of door) expect(passes(await platformMiddleware(req(p, m, cookie))), `${role} ${p}`).toBe(true);
+          expect(passes(await platformMiddleware(reqWithOrigin('/api/scan', 'POST', cookie))), `${role} /api/scan`).toBe(true);
+        }
+      });
+
+      it(`${phase} ${label}: sigue cerrado a anónimos (login en la página, 401 en la API)`, async () => {
+        await publish({ modules, license: { phase, nextPhaseChangeAt: null } });
+        const page = await platformMiddleware(req('/acceso'));
+        expect(page.status).toBe(307);
+        expect(new URL(page.headers.get('location')!).pathname).toBe('/auth/login');
+        for (const p of ['/api/access/events', '/api/access/capacity']) expect((await platformMiddleware(req(p))).status, p).toBe(401);
+        expect((await platformMiddleware(req('/api/scan', 'POST'))).status).toBe(401);
+        // Un USER normal no es staff: tampoco entra.
+        const secret = await deriveInstallationSecret(parseMasterKey(env.PLATFORM_SESSION_MASTER), T, 0, 'session');
+        const user = `${SESSION_COOKIE_HOST}=${await encode({ token: { id: 'u2', role: 'USER', tid: T }, secret })}`;
+        expect((await platformMiddleware(req('/acceso', 'GET', user))).status).toBe(307);
+        expect((await platformMiddleware(req('/api/access/events', 'GET', user))).status).toBe(401);
+      });
+    }
+  }
+
+  it('las VENTAS nuevas se siguen cortando en BLOCKED (y la taquilla y el panel, según la fase) aunque la puerta esté abierta', async () => {
+    await publish({ license: { phase: 'BLOCKED', nextPhaseChangeAt: null } });
+    const cookie = await staffCookie('TAQUILLA');
+    expect(passes(await platformMiddleware(req('/acceso', 'GET', cookie)))).toBe(true);
+    for (const [p, m] of [['/api/orders', 'POST'], ['/api/shop/orders', 'POST'], ['/api/taquilla/sale', 'POST'], ['/api/events', 'GET'], ['/eventos', 'GET'], ['/api/invitations', 'GET']] as const) {
+      expect((await platformMiddleware(reqWithOrigin(p, m, cookie))).status, p).toBe(503);
+    }
+  });
+
+  it('PANEL_BLOCKED: la puerta sigue, pero invitaciones y panel (también /admin/noche) se cortan; las ventas siguen', async () => {
+    await publish({ license: { phase: 'PANEL_BLOCKED', nextPhaseChangeAt: null } });
+    const cookie = await staffCookie('ADMIN');
+    expect(passes(await platformMiddleware(req('/acceso', 'GET', cookie)))).toBe(true);
+    expect((await platformMiddleware(req('/api/guest-lists', 'GET', cookie))).status).toBe(402);
+    expect((await platformMiddleware(req('/admin/noche', 'GET', cookie))).status).toBe(402);
+    expect(passes(await platformMiddleware(reqWithOrigin('/api/orders', 'POST', cookie)))).toBe(true);
+  });
+
+  it('Entradas apagado: las ventas y la web de eventos dan 404, la puerta no', async () => {
+    await publish({ modules: ['tienda'] });
+    const cookie = await staffCookie('TAQUILLA');
+    for (const [p, m] of [['/eventos', 'GET'], ['/api/events', 'GET'], ['/api/orders', 'POST'], ['/api/taquilla/sale', 'POST']] as const) {
+      expect((await platformMiddleware(reqWithOrigin(p, m, cookie))).status, p).toBe(404);
+    }
+    expect(passes(await platformMiddleware(req('/acceso', 'GET', cookie)))).toBe(true);
+  });
+
+  it('cliente SUSPENDIDO (incluye revocación de emergencia), PENDING_DELETION y DELETED: se corta TODO, también la puerta, aunque haya sesión de staff', async () => {
+    for (const [i, status] of (['SUSPENDED', 'PENDING_DELETION', 'DELETED'] as const).entries()) {
+      reg.data.clear();
+      resetResolverStateForTests();
+      await publish({ status, seq: i + 1, license: { phase: 'BLOCKED', nextPhaseChangeAt: null } });
+      for (const role of ['TAQUILLA', 'ADMIN'] as const) {
+        const cookie = await staffCookie(role);
+        for (const [p, m] of door) expect((await platformMiddleware(req(p, m, cookie))).status, `${status} ${role} ${p}`).toBe(503);
+        expect((await platformMiddleware(reqWithOrigin('/api/scan', 'POST', cookie))).status, `${status} ${role} /api/scan`).toBe(503);
+      }
+      // anónimos: tampoco (503, no login ni 401)
+      expect((await platformMiddleware(req('/acceso'))).status).toBe(503);
+      expect((await platformMiddleware(req('/api/access/events'))).status).toBe(503);
+      // y el login también; lo único que sigue es lo de siempre
+      expect((await platformMiddleware(req('/auth/login'))).status).toBe(503);
+      expect(passes(await platformMiddleware(req('/api/webhooks/stripe', 'POST')))).toBe(true);
+    }
+  });
+
+  it('no se abre ningún otro prefijo: solo GET de /acceso exacto, y ni subrutas ni otros métodos ni vecinos', async () => {
+    await publish({ license: { phase: 'BLOCKED', nextPhaseChangeAt: null } });
+    const cookie = await staffCookie('ADMIN');
+    for (const [p, m] of [
+      ['/acceso/otra', 'GET'],
+      ['/acceso-viejo', 'GET'],
+      ['/acceso', 'POST'],
+      ['/api/events/algo', 'GET'],
+      ['/api/accesox', 'GET'],
+      ['/api/admin/scans', 'GET'],
+      ['/api/admin/noche', 'GET'],
+      ['/api/taquilla/print/abc', 'GET'],
+      ['/api/guest-lists', 'GET'],
+    ] as const) {
+      expect([404, 503], `${m} ${p}`).toContain((await platformMiddleware(reqWithOrigin(p, m, cookie))).status);
+    }
   });
 });
 

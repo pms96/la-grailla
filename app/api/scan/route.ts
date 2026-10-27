@@ -8,6 +8,7 @@ import { authOptions } from '@/lib/auth';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { checkCapacityAlerts } from '@/lib/capacity-alerts';
 import { handleApiError } from '@/lib/api-error';
+import { formatMadridTime } from '@/lib/event-time';
 
 const scanTicketSchema = z.object({
   qrCode: z.string().min(1),
@@ -113,7 +114,7 @@ export async function POST(request: Request) {
       });
       return NextResponse.json({
         result: 'DUPLICATE',
-        message: `YA ENTR\u00d3 \u2014 Hora de entrada: ${ticket.entryTime ? new Date(ticket.entryTime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : 'N/A'}`,
+        message: `YA ENTR\u00d3 \u2014 Hora de entrada: ${formatMadridTime(ticket.entryTime)}`,
         entryTime: ticket.entryTime,
         color: 'red',
       });
@@ -163,7 +164,7 @@ export async function POST(request: Request) {
       const freshTicket = await prisma.ticket.findUnique({ where: { id: ticket.id } });
       return NextResponse.json({
         result: 'DUPLICATE',
-        message: `YA ENTRÓ — Hora de entrada: ${freshTicket?.entryTime ? new Date(freshTicket.entryTime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : 'N/A'}`,
+        message: `YA ENTRÓ — Hora de entrada: ${formatMadridTime(freshTicket?.entryTime)}`,
         entryTime: freshTicket?.entryTime,
         color: 'red',
       });

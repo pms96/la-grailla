@@ -7,6 +7,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { seasonLinkEnabled, withoutSeasonLink } from '@/lib/modules/season-link';
+import { parseEventDateInput } from '@/lib/event-time';
 
 const createEventSchema = z.object({
   name: z.string().min(1),
@@ -118,6 +119,9 @@ export async function POST(request: Request) {
   }
   try {
     const body = createEventSchema.parse(await request.json());
+    // Sin zona (el `datetime-local` del formulario) es hora de Madrid; con `Z` u offset se respeta. Ausente = ahora, como antes.
+    const date = body?.date === undefined ? new Date() : parseEventDateInput(body.date);
+    if (!date) return NextResponse.json({ error: 'Fecha y hora no válidas' }, { status: 400 });
     const slug = (body?.name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     const event = await prisma.event.create({
       data: {
@@ -129,7 +133,7 @@ export async function POST(request: Request) {
         address: body?.address ?? '',
         imageUrl: body?.imageUrl ?? null,
         artists: body?.artists ?? '',
-        date: new Date(body?.date ?? Date.now()),
+        date,
         doorsOpen: body?.doorsOpen ?? '',
         endTime: body?.endTime ?? '',
         minAge: body?.minAge ?? 18,

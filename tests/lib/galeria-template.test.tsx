@@ -19,8 +19,7 @@ const event = (over: Partial<EventInput> = {}): EventInput => ({
   venue: 'Sala Rodrigo',
   city: 'Valencia',
   maxCapacity: 500,
-  currentCount: 100,
-  ticketTypes: [{ price: 15 }],
+  ticketTypes: [{ price: 15, maxQuantity: 500, soldCount: 100 }],
   ...over,
 });
 
@@ -94,7 +93,7 @@ describe('GaleriaHero', () => {
 describe('EventEntries', () => {
   const rows = [
     toTemplateEvent(event()),
-    toTemplateEvent(event({ id: 'e2', slug: 'otra', name: 'Otra Noche', imageUrl: null, maxCapacity: 100, currentCount: 100 })),
+    toTemplateEvent(event({ id: 'e2', slug: 'otra', name: 'Otra Noche', imageUrl: null, ticketTypes: [{ price: 15, maxQuantity: 100, soldCount: 100 }] })),
     toTemplateEvent(event({ id: 'e3', slug: 'tercera', name: 'Tercera' })),
   ];
 

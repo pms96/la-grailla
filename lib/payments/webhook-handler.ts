@@ -5,6 +5,7 @@ import { handleApiError } from '@/lib/api-error';
 import { getBaseUrl } from '@/lib/url';
 import { ProviderNotConfiguredError, WebhookRejected, getPaymentProviderByName, type PaymentScope } from '@/lib/payment-adapter';
 import { resolveExpiredCheckout, resolvePaidCheckout } from '@/lib/order-reconciliation';
+import { currentTenant } from '@/lib/tenant/context';
 
 /* Entrada común de los webhooks de cobro: `/api/webhooks/{proveedor}`. Cada proveedor aporta SU verificación de firma y su traducción
  * a un evento neutro (`PaymentProvider.parseWebhook`); aquí está todo lo demás, igual para todos: idempotencia, reconciliación del pedido
@@ -61,8 +62,19 @@ export async function handleProviderWebhook(providerName: string, request: Reque
     }
 
     const baseUrl = getBaseUrl(request);
-    if (event.kind === 'payment_succeeded') await resolvePaidCheckout(event.orderId, baseUrl);
-    else if (event.kind === 'payment_expired') await resolveExpiredCheckout(event.orderId);
+    if (event.kind === 'payment_succeeded' || event.kind === 'payment_expired') {
+      const resolved = event.kind === 'payment_succeeded' ? await resolvePaidCheckout(event.orderId, baseUrl) : await resolveExpiredCheckout(event.orderId);
+      if (resolved === null) {
+        // OB-03: el `orderId` no existe en la BD de ESTE cliente (webhook de otro entorno o de otro cliente, pedido borrado, metadata errónea):
+        // un cobro sin pedido. No se marca como procesado (nada se procesó) y queda en el log con todo lo necesario para localizarlo. Se
+        // responde 200 igualmente: un reintento no lo arreglaría y una pasarela con eventos ajenos (p. ej. webhook de pruebas) reintentaría
+        // sin fin; el 200 + `unmatched` no lo enmascara porque no hay fila de «procesado».
+        console.error(
+          `[webhook] webhook.order_not_found ${JSON.stringify({ tenantId: currentTenant()?.tenantId ?? '-', provider: target.provider, route: name, kind: event.kind, eventId: event.eventId, orderId: event.orderId })}`
+        );
+        return NextResponse.json({ received: true, unmatched: true });
+      }
+    }
 
     // PAY-05: el insert va DESPUÉS de procesar con éxito. Si la reconciliación lanzara una excepción (fallo transitorio de BD, un bug), un
     // evento ya marcado como procesado saldría como «duplicate» en el reintento y el pedido se quedaría PENDING. Con el insert al final,

@@ -30,8 +30,7 @@ const event = (over: Partial<EventInput> = {}): EventInput => ({
   venue: 'Sala Rodrigo',
   city: 'Valencia',
   maxCapacity: 500,
-  currentCount: 100,
-  ticketTypes: [{ price: 15 }],
+  ticketTypes: [{ price: 15, maxQuantity: 500, soldCount: 100 }],
   ...over,
 });
 
@@ -167,7 +166,7 @@ describe('CineCard y CineRail', () => {
   });
 
   it('sin cartel muestra el nombre sobre un bloque de color; con aforo agotado, la etiqueta de estado', () => {
-    const html = render(<CineCard event={toTemplateEvent(event({ imageUrl: null, maxCapacity: 100, currentCount: 100 }))} />);
+    const html = render(<CineCard event={toTemplateEvent(event({ imageUrl: null, ticketTypes: [{ price: 15, maxQuantity: 100, soldCount: 100 }] }))} />);
     expect(html).not.toContain('<img');
     expect(html).toContain('cn-poster-blank');
     expect(html).toContain('Sin plazas online');

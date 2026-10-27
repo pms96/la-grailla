@@ -19,8 +19,7 @@ const event = (over: Partial<EventInput> = {}): EventInput => ({
   venue: 'Sala Rodrigo',
   city: 'Valencia',
   maxCapacity: 500,
-  currentCount: 100,
-  ticketTypes: [{ price: 15 }],
+  ticketTypes: [{ price: 15, maxQuantity: 500, soldCount: 100 }],
   ...over,
 });
 
@@ -71,8 +70,8 @@ describe('toTemplateEvent', () => {
 
   it('estado de venta: normal, alta demanda, sin plazas o cerrada con su texto', () => {
     expect(toTemplateEvent(event()).status).toBeNull();
-    expect(toTemplateEvent(event({ maxCapacity: 100, currentCount: 90 })).status).toBe('Alta demanda');
-    expect(toTemplateEvent(event({ maxCapacity: 100, currentCount: 100 })).status).toBe('Sin plazas online');
+    expect(toTemplateEvent(event({ ticketTypes: [{ price: 15, maxQuantity: 100, soldCount: 90 }] })).status).toBe('Alta demanda');
+    expect(toTemplateEvent(event({ ticketTypes: [{ price: 15, maxQuantity: 100, soldCount: 100 }] })).status).toBe('Sin plazas online');
     expect(toTemplateEvent(event({ onlineSalesClosed: true, onlineSalesClosedLabel: 'Solo en taquilla' })).status).toBe('Solo en taquilla');
   });
 });
@@ -146,7 +145,7 @@ describe('MarquesinaHero', () => {
 
 describe('EventRows', () => {
   it('una fila por evento, con enlace a su ficha, lugar, precio y estado', () => {
-    const rows = [toTemplateEvent(event()), toTemplateEvent(event({ id: 'e2', slug: 'otra', name: 'Otra Noche', imageUrl: null, maxCapacity: 100, currentCount: 100 }))];
+    const rows = [toTemplateEvent(event()), toTemplateEvent(event({ id: 'e2', slug: 'otra', name: 'Otra Noche', imageUrl: null, ticketTypes: [{ price: 15, maxQuantity: 100, soldCount: 100 }] }))];
     const html = render(<EventRows events={rows} />);
     expect(html.match(/class="mq-row /g)).toHaveLength(2);
     expect(html).toContain('href="/eventos/noche-de-verano"');

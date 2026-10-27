@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
 import { EVENT_GRACE_PERIOD_MS } from '@/lib/active-event';
-import { getEventDemandLevel } from '@/lib/ticket-availability';
+import { getEventAvailability } from '@/lib/ticket-availability';
 import { getOnlineSalesClosedLabel } from '@/lib/online-sales-closed';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +12,8 @@ import { FadeIn, Stagger, StaggerItem } from '@/components/ui/animate';
 import { Container } from '@/components/layouts/container';
 import { ReloadButton } from '@/components/reload-button';
 import { getBrand } from '@/lib/brand/brand';
+import { isLegacyTenant } from '@/lib/tenant/context';
+import { PageBanner } from '../_templates/page-banner';
 import { EventosMarquesina } from '../_home/marquesina/eventos-marquesina';
 import { EventosGaleria } from '../_home/galeria/eventos-galeria';
 import { EventosTipo } from '../_home/tipo/eventos-tipo';
@@ -40,7 +42,8 @@ export default async function EventosPage() {
   try {
     events = await prisma.event.findMany({
       where: { status: 'PUBLISHED', date: { gte: new Date(Date.now() - EVENT_GRACE_PERIOD_MS) } },
-      include: { ticketTypes: { where: { isActive: true }, orderBy: { price: 'asc' }, take: 1 } },
+      // Todos los tipos activos (no solo el más barato): el estado de venta y «Desde» salen de lo vendido de cada uno.
+      include: { ticketTypes: { where: { isActive: true }, orderBy: { price: 'asc' } } },
       orderBy: { date: 'asc' },
     });
   } catch (error) {
@@ -75,6 +78,45 @@ export default async function EventosPage() {
     );
   }
 
+  // Editorial (la plantilla de partida de un cliente nuevo): cabecera sobria como el resto de sus pantallas y las mismas tarjetas de evento, sin el
+  // cartel de programación de Feria. Los textos son neutros: el nombre del cliente va de rótulo.
+  if (brand.template === 'editorial') {
+    return (
+      <>
+        <PageBanner
+          template="editorial"
+          brandName={brand.name}
+          title="Próximos eventos"
+          lead="Elige fecha, compra online y llega con el QR listo."
+        />
+        <div className="mx-auto max-w-[1200px] px-4 py-10 pb-16 md:py-14">
+          {loadError ? (
+            <LoadErrorPanel />
+          ) : events.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 px-6 py-16 text-center">
+              <Calendar className="h-12 w-12 text-primary/40 mx-auto mb-4" aria-hidden />
+              <h2 className="font-display text-xl font-semibold tracking-tight mb-2">Todavía no hay fechas publicadas</h2>
+              <p className="text-muted-foreground max-w-md mx-auto mb-6">Cuando salga la próxima, aparecerá aquí primero.</p>
+              <Button asChild variant="outline">
+                <Link href="/">Volver al inicio</Link>
+              </Button>
+            </div>
+          ) : (
+            <Stagger staggerDelay={0.08}>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {events.map((event, index) => (
+                  <StaggerItem key={event?.id ?? `ev-${index}`}>
+                    <EventCard event={event} />
+                  </StaggerItem>
+                ))}
+              </div>
+            </Stagger>
+          )}
+        </div>
+      </>
+    );
+  }
+
   const [featured, ...rest] = events;
 
   return (
@@ -103,21 +145,7 @@ export default async function EventosPage() {
       <Container size="lg">
         <div className="py-10 pb-16">
           {loadError ? (
-            <FadeIn>
-              <div
-                className="rounded-2xl border border-destructive/30 bg-destructive/5 px-6 py-20 text-center"
-                role="alert"
-              >
-                <WifiOff className="h-14 w-14 text-destructive/60 mx-auto mb-4" aria-hidden />
-                <h2 className="font-display text-xl font-bold tracking-tight mb-2">
-                  No hemos podido cargar la programación
-                </h2>
-                <p className="text-muted-foreground max-w-md mx-auto mb-6">
-                  Fallo de conexión o del servidor — no significa que no haya fechas. Prueba de nuevo.
-                </p>
-                <ReloadButton label="Reintentar" className="gap-2 font-display font-semibold" />
-              </div>
-            </FadeIn>
+            <LoadErrorPanel />
           ) : (events?.length ?? 0) === 0 ? (
             <FadeIn>
               <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 px-6 py-20 text-center">
@@ -126,7 +154,7 @@ export default async function EventosPage() {
                   Todavía no hay fechas publicadas
                 </h2>
                 <p className="text-muted-foreground max-w-md mx-auto mb-6">
-                  Estamos cerrando la próxima noche. Cuando salga, aparecerá aquí primero.
+                  {isLegacyTenant() ? 'Estamos cerrando la próxima noche.' : 'Estamos cerrando la próxima fecha.'} Cuando salga, aparecerá aquí primero.
                 </p>
                 <Button asChild variant="outline">
                   <Link href="/">Volver al inicio</Link>
@@ -188,6 +216,26 @@ export default async function EventosPage() {
   );
 }
 
+function LoadErrorPanel() {
+  return (
+    <FadeIn>
+      <div
+        className="rounded-2xl border border-destructive/30 bg-destructive/5 px-6 py-20 text-center"
+        role="alert"
+      >
+        <WifiOff className="h-14 w-14 text-destructive/60 mx-auto mb-4" aria-hidden />
+        <h2 className="font-display text-xl font-bold tracking-tight mb-2">
+          No hemos podido cargar la programación
+        </h2>
+        <p className="text-muted-foreground max-w-md mx-auto mb-6">
+          Fallo de conexión o del servidor — no significa que no haya fechas. Prueba de nuevo.
+        </p>
+        <ReloadButton label="Reintentar" className="gap-2 font-display font-semibold" />
+      </div>
+    </FadeIn>
+  );
+}
+
 function EventMeta({ event }: { event: EventWithTicketTypes }) {
   const dateStr = event?.date
     ? new Date(event.date).toLocaleDateString('es-ES', {
@@ -198,8 +246,7 @@ function EventMeta({ event }: { event: EventWithTicketTypes }) {
         timeZone: EVENT_TIMEZONE,
       })
     : '';
-  const minPrice = event?.ticketTypes?.[0]?.price;
-  const demand = getEventDemandLevel(event?.maxCapacity ?? 0, event?.currentCount ?? 0);
+  const { level: demand, fromPrice: minPrice } = getEventAvailability(event?.ticketTypes, event?.maxCapacity);
 
   return (
     <div className="space-y-2 text-sm text-muted-foreground">
@@ -229,7 +276,7 @@ function EventMeta({ event }: { event: EventWithTicketTypes }) {
 }
 
 function EventCard({ event }: { event: EventWithTicketTypes }) {
-  const demand = getEventDemandLevel(event?.maxCapacity ?? 0, event?.currentCount ?? 0);
+  const { level: demand } = getEventAvailability(event?.ticketTypes, event?.maxCapacity);
 
   return (
     <Link href={`/eventos/${event?.slug ?? ''}`}>

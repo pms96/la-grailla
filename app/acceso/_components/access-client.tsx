@@ -37,9 +37,15 @@ type ScanResult = {
 
 export type EventWithTicketTypes = Event & { ticketTypes: WithNumberFields<TicketType, 'price'>[] };
 
+/** Lo que el escáner necesita de un evento (`GET /api/access/events`, que sigue vivo con la licencia vencida). */
+type DoorEvent = Pick<Event, 'id' | 'name' | 'date' | 'status' | 'currentCount' | 'maxCapacity'>;
+
 export default function AccessClient() {
   const { data: session } = useSession() || {};
-  const [events, setEvents] = useState<EventWithTicketTypes[]>([]);
+  const [events, setEvents] = useState<DoorEvent[]>([]);
+  // Solo para la pestaña de taquilla (necesita los tipos de entrada y su precio): es una VENTA, así que con la licencia vencida o el
+  // módulo apagado esta lectura falla y la lista queda vacía, sin afectar al escáner.
+  const [saleEvents, setSaleEvents] = useState<EventWithTicketTypes[]>([]);
   const [selectedEvent, setSelectedEvent] = useState('');
   const [activeTab, setActiveTab] = useState('scan');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
@@ -58,9 +64,14 @@ export default function AccessClient() {
     }
 
     fetch('/api/events?status=PUBLISHED')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: EventWithTicketTypes[]) => setSaleEvents(Array.isArray(data) ? data : []))
+      .catch(() => setSaleEvents([]));
+
+    fetch('/api/access/events')
       .then((r) => r.json())
-      .then((data: EventWithTicketTypes[]) => {
-        const list = data ?? [];
+      .then((data: DoorEvent[]) => {
+        const list = Array.isArray(data) ? data : [];
         setEvents(list);
         setSelectedEvent((prev) => {
           if (prev && list.some((e) => e.id === prev)) return prev;
@@ -299,7 +310,7 @@ export default function AccessClient() {
           </TabsContent>
 
           <TabsContent value="taquilla">
-            <TaquillaPanel events={events} selectedEvent={selectedEvent} onSold={loadEvents} />
+            <TaquillaPanel events={saleEvents} selectedEvent={selectedEvent} onSold={loadEvents} />
           </TabsContent>
 
           <TabsContent value="invitaciones">

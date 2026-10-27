@@ -8,6 +8,7 @@
  * importa el SDK de Stripe de forma diferida (solo se carga si de verdad se usa).
  */
 import { getConfig } from '@/lib/config';
+import { isLegacyTenant } from '@/lib/tenant/context';
 import { SPONSOR_GUIDED_QUESTIONS } from '@/lib/sponsor-guided-questions';
 
 export type GenerateVideoPromptInput = {
@@ -105,7 +106,7 @@ export interface AbacusAIProvider {
 // planificador de compras. El admin siempre revisa/edita cada fila antes de
 // confirmar la importación, así que el prompt prioriza no omitir líneas
 // ambiguas frente a acertar el 100% de los campos.
-export const ABACUS_ARTICULOS_META_PROMPT = `Eres un asistente que digitaliza listados de precios de proveedores de bebidas para una caseta de feria. A partir de la imagen adjunta (foto o escaneo de una tarifa/lista de precios de un proveedor), extrae cada artículo como una fila estructurada.
+const ABACUS_ARTICULOS_META_PROMPT_BASE = `Eres un asistente que digitaliza listados de precios de proveedores %%CONTEXTO%%. A partir de la imagen adjunta (foto o escaneo de una tarifa/lista de precios de un proveedor), extrae cada artículo como una fila estructurada.
 
 Para cada línea del listado, identifica:
 - "nombre": nombre del producto tal cual aparece (ej. "Cruzcampo 1/3", "Fanta Naranja 33cl").
@@ -120,6 +121,13 @@ Ignora encabezados, logos, condiciones comerciales y cualquier línea que no sea
 Devuelve EXCLUSIVAMENTE un JSON con esta forma, sin texto adicional antes ni después, sin bloque de código:
 {"items":[{"nombre":"...","categoria":"...","formato":"...","formatoVenta":"...","precioSinIva":0.0,"unidadMinPedido":1}]}
 Si no detectas ningún artículo legible en la imagen, devuelve {"items":[]}.`;
+
+/** Prompt de importación de artículos. El de La Grailla (proveedores de bebidas de una caseta de feria) es suyo; el resto de clientes recibe uno sin vertical. */
+export function articulosMetaPrompt(legacy: boolean): string {
+  return ABACUS_ARTICULOS_META_PROMPT_BASE.replace('%%CONTEXTO%%', legacy ? 'de bebidas para una caseta de feria' : 'para el planificador de compras de un negocio');
+}
+
+export const ABACUS_ARTICULOS_META_PROMPT = articulosMetaPrompt(true);
 
 const CATEGORIAS_VALIDAS = ['Refrescos', 'Cervezas', 'Espirituosos', 'Aguas', 'Vinos', 'Otros'];
 
@@ -232,7 +240,7 @@ export class AbacusAIAdapter implements AbacusAIProvider {
       model: 'route-llm',
       stream: false,
       messages: [
-        { role: 'system', content: ABACUS_ARTICULOS_META_PROMPT },
+        { role: 'system', content: articulosMetaPrompt(isLegacyTenant()) },
         {
           role: 'user',
           content: [

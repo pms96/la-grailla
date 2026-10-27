@@ -5,6 +5,7 @@ import { FadeIn, SlideIn } from '@/components/ui/animate';
 import SponsorForm from './_components/sponsor-form';
 import { getBrand } from '@/lib/brand/brand';
 import { getConfigs } from '@/lib/config';
+import { isLegacyTenant } from '@/lib/tenant/context';
 import { PageBanner, hasBanner, type BannerTemplate } from '../_templates/page-banner';
 import { canonicalAlternates } from '@/lib/seo/canonical';
 
@@ -21,7 +22,9 @@ export default async function SponsorsPage() {
   // Plantillas nuevas (marquesina, galería, tipo): cabecera propia con los textos del cliente (los mismos que usa su portada) en lugar del
   // titular fijo de Feria.
   const banner = hasBanner(brand.template);
-  const copy = banner ? await getConfigs(['home_sponsors_cta_title', 'home_sponsors_cta_subtitle']) : null;
+  const legacy = isLegacyTenant();
+  // Cabecera fija de Feria: los textos de La Grailla son suyos. Otro cliente con Feria usa los que haya escrito (Configuración → Contenido) o unos neutros.
+  const copy = banner || !legacy ? await getConfigs(['home_sponsors_cta_title', 'home_sponsors_cta_subtitle']) : null;
   return (
     <>
     {banner && copy && (
@@ -44,11 +47,12 @@ export default async function SponsorsPage() {
                 <Handshake className="h-3.5 w-3.5" /> PARA MARCAS
               </div>
               <h1 className="font-display text-3xl md:text-4xl font-bold tracking-tight mb-3 leading-tight">
-                Tu marca en la caseta
+                {legacy ? 'Tu marca en la caseta' : copy?.home_sponsors_cta_title || 'Tu marca con nosotros'}
               </h1>
               <p className="text-muted-foreground text-base leading-relaxed">
-                Llegamos a miles de asistentes en vivo. Cuéntanos qué buscas y te respondemos con opciones
-                concretas — sin formularios eternos.
+                {legacy
+                  ? 'Llegamos a miles de asistentes en vivo. Cuéntanos qué buscas y te respondemos con opciones concretas — sin formularios eternos.'
+                  : copy?.home_sponsors_cta_subtitle || 'Cuéntanos qué buscas y te respondemos con opciones concretas, sin formularios eternos.'}
               </p>
             </FadeIn>
             )}
@@ -62,7 +66,7 @@ export default async function SponsorsPage() {
                   <div>
                     <h2 className="font-display font-bold text-base mb-1">Presencia en eventos</h2>
                     <p className="text-sm text-muted-foreground leading-relaxed">
-                      Banners, menciones, cartelería y comunicaciones alrededor de cada noche.
+                      {legacy ? 'Banners, menciones, cartelería y comunicaciones alrededor de cada noche.' : 'Banners, menciones, cartelería y comunicaciones alrededor de cada evento.'}
                     </p>
                   </div>
                 </div>

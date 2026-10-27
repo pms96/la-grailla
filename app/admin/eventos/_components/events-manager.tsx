@@ -18,6 +18,7 @@ import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
 import { ConfirmDeleteDialog } from '@/app/admin/_components/confirm-delete-dialog';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 import { hasEventEnded } from '@/lib/active-event';
+import { EVENT_TIMEZONE, formatMadridLocal } from '@/lib/event-time';
 import { defaultMinorAuthorizationText } from '@/lib/minor-authorization-text';
 import { useBrand } from '@/components/brand-provider';
 import { DEFAULT_ONLINE_SALES_CLOSED_LABEL, DEFAULT_ONLINE_SALES_CLOSED_MESSAGE } from '@/lib/online-sales-closed';
@@ -60,7 +61,7 @@ const DEFAULT_WAITING_ROOM_SLOTS = 20;
 const DEFAULT_WAITING_ROOM_WINDOW_MINUTES = 5;
 
 export default function EventsManager() {
-  const { organizer } = useBrand();
+  const { organizer, legacy } = useBrand();
   const [events, setEvents] = useState<EventWithCount[]>([]);
   const [temporadas, setTemporadas] = useState<Temporada[]>([]);
   // Las temporadas son de Contabilidad: sin ese módulo la API responde 404 y el selector no se muestra.
@@ -109,7 +110,8 @@ export default function EventsManager() {
       city: event?.city ?? '',
       address: event?.address ?? '',
       artists: event?.artists ?? '',
-      date: event?.date ? new Date(event.date).toISOString().slice(0, 16) : '',
+      // Hora de Madrid (la que ve el público), no UTC: el servidor interpreta el campo en Madrid al guardar.
+      date: formatMadridLocal(event?.date),
       doorsOpen: event?.doorsOpen ?? '',
       endTime: event?.endTime ?? '',
       minAge: event?.minAge ?? 18,
@@ -278,7 +280,7 @@ export default function EventsManager() {
                     allowNone
                   />
                   <p className="text-xs text-muted-foreground">
-                    Vincula este evento a la temporada de Compras/Gastos de la caseta, para poder calcular el resultado económico real más adelante.
+                    Vincula este evento a la temporada de Compras/Gastos{legacy ? ' de la caseta' : ''}, para poder calcular el resultado económico real más adelante.
                   </p>
                 </div>
               )}
@@ -347,7 +349,7 @@ export default function EventsManager() {
               <p className="text-xs text-muted-foreground -mt-2">Si dejas las coordenadas vacías, el mapa de la página del evento usará la dirección y la ciudad.</p>
               <div><Label>Artistas (separados por coma)</Label><Input value={form?.artists ?? ''} onChange={handleChange('artists')} className="mt-1" /></div>
               <div className="grid md:grid-cols-3 gap-4">
-                <div><Label>Fecha y hora</Label><Input type="datetime-local" value={form?.date ?? ''} onChange={handleChange('date')} className="mt-1" /></div>
+                <div><Label>Fecha y hora (hora de Madrid)</Label><Input type="datetime-local" value={form?.date ?? ''} onChange={handleChange('date')} className="mt-1" /></div>
                 <div><Label>Apertura puertas</Label><Input value={form?.doorsOpen ?? ''} onChange={handleChange('doorsOpen')} className="mt-1" placeholder="23:00" /></div>
                 <div><Label>Fin</Label><Input value={form?.endTime ?? ''} onChange={handleChange('endTime')} className="mt-1" placeholder="06:00" /></div>
               </div>
@@ -485,7 +487,7 @@ export default function EventsManager() {
 
       <div className="space-y-3">
         {(events ?? []).map((event) => {
-          const dateStr = event?.date ? new Date(event.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+          const dateStr = event?.date ? new Date(event.date).toLocaleString('es-ES', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: EVENT_TIMEZONE }) : '';
           return (
             <Card key={event?.id} id={event?.id} className={event?.archivado ? 'opacity-60' : undefined}>
               <CardContent className="p-4 flex items-center justify-between">

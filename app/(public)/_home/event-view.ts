@@ -1,4 +1,4 @@
-import { getEventDemandLevel } from '@/lib/ticket-availability';
+import { getEventAvailability, type AvailabilityTicketType } from '@/lib/ticket-availability';
 import { getOnlineSalesClosedLabel } from '@/lib/online-sales-closed';
 import { EVENT_TIMEZONE } from '@/lib/event-time';
 
@@ -34,10 +34,10 @@ export type EventInput = {
   venue?: string | null;
   city?: string | null;
   maxCapacity?: number | null;
-  currentCount?: number | null;
   onlineSalesClosed?: boolean | null;
   onlineSalesClosedLabel?: string | null;
-  ticketTypes?: readonly { price: number }[] | null;
+  /** Los tipos de entrada ACTIVOS con lo vendido de cada uno: de ahí salen «Desde» y el estado de venta (no del aforo en puerta). */
+  ticketTypes?: readonly AvailabilityTicketType[] | null;
 };
 
 const strip = (s: string) => s.replace(/\./g, '');
@@ -45,7 +45,7 @@ const strip = (s: string) => s.replace(/\./g, '');
 export function toTemplateEvent(e: EventInput): TemplateEvent {
   const d = new Date(e.date);
   const fmt = (o: Intl.DateTimeFormatOptions) => d.toLocaleDateString('es-ES', { timeZone: TZ, ...o });
-  const demand = getEventDemandLevel(e.maxCapacity ?? 0, e.currentCount ?? 0);
+  const availability = getEventAvailability(e.ticketTypes, e.maxCapacity);
   const closed = getOnlineSalesClosedLabel({ onlineSalesClosed: e.onlineSalesClosed ?? false, onlineSalesClosedLabel: e.onlineSalesClosedLabel ?? null });
   return {
     id: e.id,
@@ -57,8 +57,8 @@ export function toTemplateEvent(e: EventInput): TemplateEvent {
     month: strip(fmt({ month: 'short' })),
     longDate: fmt({ weekday: 'long', day: 'numeric', month: 'long' }),
     place: [e.venue, e.city].filter(Boolean).join(', '),
-    fromPrice: e.ticketTypes?.[0]?.price ?? null,
-    status: closed ?? (demand === 'sold_out' ? 'Sin plazas online' : demand === 'high' ? 'Alta demanda' : null),
+    fromPrice: availability.fromPrice,
+    status: closed ?? (availability.level === 'sold_out' ? 'Sin plazas online' : availability.level === 'high' ? 'Alta demanda' : null),
   };
 }
 

@@ -22,6 +22,7 @@ import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious
 import { ShoppingBag, Package, Plus, Minus, Trash2, ShoppingCart } from 'lucide-react';
 import { Stagger, StaggerItem, SkeletonPulse, PressScale } from '@/components/ui/animate';
 import { toast } from 'sonner';
+import { useBrand } from '@/components/brand-provider';
 import {
   type CartLine,
   cartTotals,
@@ -45,6 +46,30 @@ function productHasAnyStock(product: ShopProduct): boolean {
   const variants = product.variants ?? [];
   if (variants.length === 0) return true;
   return variants.some((v) => v.stock > 0);
+}
+
+/** Tienda sin productos. El enlace a /eventos solo existe si el cliente tiene Entradas (sin el módulo la ruta es un 404); la frase de siempre es la de La Grailla. */
+export function ShopEmptyCatalog() {
+  const { modules, legacy } = useBrand();
+  const hasEntradas = modules.includes('entradas');
+  return (
+    <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 px-6 py-20 text-center mt-6">
+      <Package className="h-12 w-12 text-primary/40 mx-auto mb-4" aria-hidden />
+      <h2 className="font-display text-xl font-bold tracking-tight mb-2">Catálogo en preparación</h2>
+      <p className="text-muted-foreground max-w-md mx-auto">
+        {!hasEntradas
+          ? 'Ahora mismo no hay productos a la venta. Vuelve pronto.'
+          : legacy
+            ? 'Ahora mismo no hay productos a la venta. Mientras tanto, las entradas de los eventos están el plan.'
+            : 'Ahora mismo no hay productos a la venta. Mientras tanto, puedes consultar los próximos eventos.'}
+      </p>
+      {hasEntradas && (
+        <Button asChild variant="outline" className="mt-6 font-display font-semibold">
+          <Link href="/eventos">Ver eventos</Link>
+        </Button>
+      )}
+    </div>
+  );
 }
 
 export default function ShopGrid() {
@@ -230,18 +255,7 @@ export default function ShopGrid() {
   }
 
   if ((products?.length ?? 0) === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 px-6 py-20 text-center mt-6">
-        <Package className="h-12 w-12 text-primary/40 mx-auto mb-4" aria-hidden />
-        <h2 className="font-display text-xl font-bold tracking-tight mb-2">Catálogo en preparación</h2>
-        <p className="text-muted-foreground max-w-md mx-auto">
-          Ahora mismo no hay productos a la venta. Mientras tanto, las entradas de los eventos están el plan.
-        </p>
-        <Button asChild variant="outline" className="mt-6 font-display font-semibold">
-          <Link href="/eventos">Ver eventos</Link>
-        </Button>
-      </div>
-    );
+    return <ShopEmptyCatalog />;
   }
 
   const selectedSizes = parseProductOptions(selected?.sizes);

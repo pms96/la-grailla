@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Temporada, Ingreso } from '@prisma/client';
 import type { WithNumberFields } from '@/lib/prisma';
 import { PageHeader } from '@/components/layouts/page-header';
+import { useBrand } from '@/components/brand-provider';
+import { descripcionContabilidad } from '@/lib/compras/constantes';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +26,7 @@ type Resumen = {
 };
 
 export default function IngresosPage() {
+  const { legacy } = useBrand();
   const [temporadas, setTemporadas] = useState<Temporada[]>([]);
   const [temporadaId, setTemporadaId] = useState<string | null>(null);
   const [incluirArchivadas, setIncluirArchivadas] = useState(false);
@@ -97,7 +100,7 @@ export default function IngresosPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <PageHeader title="Ingresos" description="Caja física de la caseta, día a día, por temporada" className="pb-0 border-0" />
+        <PageHeader title="Ingresos" description={descripcionContabilidad('ingresos', legacy)} className="pb-0 border-0" />
         <TemporadaSelector
           temporadas={temporadas}
           temporadaId={temporadaId}

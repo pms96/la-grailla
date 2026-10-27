@@ -2,7 +2,7 @@ import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
 import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { notFound } from 'next/navigation';
 import { hasEventEnded } from '@/lib/active-event';
-import { getEventDemandLevel } from '@/lib/ticket-availability';
+import { getEventAvailability } from '@/lib/ticket-availability';
 import { getEventAgeWarningMessage } from '@/lib/age-warning';
 import { getOnlineSalesClosedLabel, getOnlineSalesClosedMessage } from '@/lib/online-sales-closed';
 import Link from 'next/link';
@@ -85,20 +85,14 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
   const dateStr = event?.date
     ? new Date(event.date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: EVENT_TIMEZONE })
     : '';
-  const demand = getEventDemandLevel(event?.maxCapacity ?? 0, event?.currentCount ?? 0);
   const mapQuery =
     event?.latitude != null && event?.longitude != null
       ? `${event.latitude},${event.longitude}`
       : [event?.venue, event?.address, event?.city].filter(Boolean).join(', ');
   const artists = (event?.artists ?? '').split(',').map((a) => a?.trim?.()).filter(Boolean);
   const activeTypes = event?.ticketTypes ?? [];
-  const minPrice = activeTypes.length
-    ? Math.min(...activeTypes.map((tt) => tt?.price ?? 0))
-    : null;
-  const anyTicketsLeft = activeTypes.some(
-    (tt) => (tt?.maxQuantity ?? 0) - (tt?.soldCount ?? 0) > 0
-  );
-  const soldOut = demand === 'sold_out' || !anyTicketsLeft || activeTypes.length === 0;
+  // Estado de venta y «Desde» a partir de lo vendido por tipo activo, igual que el listado y las portadas (no de los escaneos en puerta).
+  const { level: demand, soldOut, fromPrice: minPrice } = getEventAvailability(activeTypes, event?.maxCapacity);
   const taquillaOnly = Boolean(event?.onlineSalesClosed);
   const taquillaOnlyLabel = getOnlineSalesClosedLabel(event ?? { onlineSalesClosed: false });
   const taquillaOnlyMessage = getOnlineSalesClosedMessage(event ?? { onlineSalesClosed: false });

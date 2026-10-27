@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Temporada, Gasto, Proveedor } from '@prisma/client';
 import type { WithNumberFields } from '@/lib/prisma';
 import { PageHeader } from '@/components/layouts/page-header';
+import { useBrand } from '@/components/brand-provider';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,7 +17,7 @@ import { ConfirmDeleteDialog } from '@/app/admin/_components/confirm-delete-dial
 import { GastoDialog } from '@/app/admin/gastos/_components/gasto-dialog';
 import { GastoPieChart } from '@/app/admin/gastos/_components/gasto-pie-chart';
 import { ComparativoBarChart } from '@/app/admin/gastos/_components/comparativo-bar-chart';
-import { CATEGORIAS_GASTO } from '@/lib/compras/constantes';
+import { CATEGORIAS_GASTO, descripcionContabilidad } from '@/lib/compras/constantes';
 import { downloadGastosExport } from '@/lib/gastos/gastos-export';
 
 type GastoConRelaciones = WithNumberFields<Gasto, 'importeSinIva' | 'ivaPercent'> & { proveedor: Proveedor | null; createdBy: { id: string; name: string | null; email: string } | null };
@@ -31,6 +32,7 @@ type Resumen = {
 };
 
 export default function GastosPage() {
+  const { legacy } = useBrand();
   const [temporadas, setTemporadas] = useState<Temporada[]>([]);
   const [temporadaId, setTemporadaId] = useState<string | null>(null);
   const [incluirArchivadas, setIncluirArchivadas] = useState(false);
@@ -116,7 +118,7 @@ export default function GastosPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <PageHeader title="Gastos" description="Contabilidad real de la caseta por temporada" className="pb-0 border-0" />
+        <PageHeader title="Gastos" description={descripcionContabilidad('gastos', legacy)} className="pb-0 border-0" />
         <div className="flex flex-col items-end gap-1.5">
           <TemporadaSelector
             temporadas={temporadas}

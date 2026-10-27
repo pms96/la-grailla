@@ -15,8 +15,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Loader2, Plus, Pencil, Trash2, ShoppingBag, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
+import { useBrand } from '@/components/brand-provider';
 import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
 import { expandVariantKeys } from '@/lib/shop-cart';
+import { buildVariantsPayload, variantKey } from '@/lib/product-variants-payload';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 
 type ProductWithVariants = WithNumberFields<Product, 'price'> & { variants?: ProductVariant[] };
@@ -49,11 +51,8 @@ const EMPTY: ProductFormState = {
   temporadaId: null,
 };
 
-function variantKey(size: string, color: string) {
-  return `${size}|${color}`;
-}
-
 export default function ProductosPage() {
+  const { legacy } = useBrand();
   const [products, setProducts] = useState<ProductWithVariants[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -61,6 +60,10 @@ export default function ProductosPage() {
   const [form, setForm] = useState<ProductFormState>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [stockTouched, setStockTouched] = useState(false);
+  // Stock de cada variante tal y como se cargó al abrir el diálogo: sirve para enviar solo lo que el admin cambió y como `expectedStock`.
+  const [originalStock, setOriginalStock] = useState<Record<string, number>>({});
+  // Stock actual que devuelve el servidor cuando una variante cambió mientras se editaba (409); se muestra junto al campo.
+  const [stockConflicts, setStockConflicts] = useState<Record<string, number>>({});
   const [temporadas, setTemporadas] = useState<Temporada[]>([]);
   // Las temporadas son de Contabilidad: sin ese módulo la API responde 404 y el selector no se muestra.
   const [temporadasDisponibles, setTemporadasDisponibles] = useState(false);
@@ -102,6 +105,8 @@ export default function ProductosPage() {
     setEditing(null);
     setForm(EMPTY);
     setStockTouched(false);
+    setOriginalStock({});
+    setStockConflicts({});
     setDialogOpen(true);
   };
 
@@ -125,6 +130,8 @@ export default function ProductosPage() {
       temporadaId: p?.temporadaId ?? null,
     });
     setStockTouched(false);
+    setOriginalStock(stockByKey);
+    setStockConflicts({});
     setDialogOpen(true);
   };
 
@@ -135,21 +142,20 @@ export default function ProductosPage() {
     }
     setSaving(true);
     try {
-      const hadVariants = (editing?.variants ?? []).length > 0;
       const sizesChanged = editing ? (form.sizes ?? '') !== (editing.sizes ?? '') : false;
       const colorsChanged = editing ? (form.colors ?? '') !== (editing.colors ?? '') : false;
-      // Solo mandamos `variants` (y por tanto disparamos la sincronización de
-      // stock en el servidor) si hay algo real que sincronizar: el producto ya
-      // llevaba stock por variante, el admin ha tocado algún número de stock, o
-      // ha cambiado las tallas/colores disponibles. Si no, un producto editado
-      // sin tocar su stock (p.ej. solo cambiar el precio) no debe quedar
-      // "Agotado" por generar filas de stock a 0 que nunca existieron.
-      const shouldSyncVariants = !editing || hadVariants || stockTouched || sizesChanged || colorsChanged;
-      const variants = matrixKeys.map((k) => ({
-        size: k.size || null,
-        color: k.color || null,
-        stock: form.stockByKey[variantKey(k.size, k.color)] ?? 0,
-      }));
+      // Solo mandamos `variants` si hay algo real que sincronizar, y solo las filas que el admin ha cambiado
+      // (con `expectedStock` para el control optimista): ver buildVariantsPayload.
+      const variants = buildVariantsPayload({
+        editing: !!editing,
+        sizes: form.sizes ?? '',
+        colors: form.colors ?? '',
+        sizesChanged,
+        colorsChanged,
+        stockByKey: form.stockByKey,
+        originalStock,
+        stockTouched,
+      });
       const payload = {
         name: form.name.trim(),
         description: form.description ?? '',
@@ -161,7 +167,7 @@ export default function ProductosPage() {
         colors: form.colors ?? '',
         isActive: form.isActive === 'true',
         temporadaId: form.temporadaId,
-        ...(shouldSyncVariants ? { variants } : {}),
+        ...(variants ? { variants } : {}),
       };
       const url = editing ? '/api/admin/products/' + editing.id : '/api/admin/products';
       const res = await fetch(url, {
@@ -170,6 +176,29 @@ export default function ProductosPage() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
+        if (res.status === 409) {
+          // El stock cambió mientras se editaba (ventas): no se ha guardado nada y el formulario conserva lo escrito.
+          const body = await res.json().catch(() => null);
+          const conflicts: { size: string; color: string; current: number | null }[] = body?.conflicts ?? [];
+          const current: Record<string, number> = {};
+          const nextOriginal = { ...originalStock };
+          for (const c of conflicts) {
+            const key = variantKey(c.size, c.color);
+            if (c.current === null) {
+              delete nextOriginal[key]; // la variante ya no existe: al reintentar se creará como combinación nueva
+            } else {
+              current[key] = c.current;
+              nextOriginal[key] = c.current;
+            }
+          }
+          setStockConflicts(current);
+          setOriginalStock(nextOriginal);
+          fetchProducts();
+          toast.error(body?.error ?? 'El stock ha cambiado mientras editabas. Revisa los valores y vuelve a guardar.', {
+            duration: 12000,
+          });
+          return;
+        }
         toast.error('No se pudo guardar el producto');
         return;
       }
@@ -412,6 +441,9 @@ export default function ProductosPage() {
                   return (
                     <div key={key} className="flex items-center gap-3">
                       <span className="text-sm flex-1 min-w-0 truncate">{label}</span>
+                      {stockConflicts[key] !== undefined && (
+                        <span className="text-xs text-destructive whitespace-nowrap">Ahora: {stockConflicts[key]}</span>
+                      )}
                       <Input
                         type="number"
                         min={0}
@@ -460,7 +492,7 @@ export default function ProductosPage() {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Vincula este producto a la temporada de Compras/Gastos de la caseta, para poder sacar informes de tienda por edición.
+                  Vincula este producto a la temporada de Compras/Gastos{legacy ? ' de la caseta' : ''}, para poder sacar informes de tienda por edición.
                 </p>
               </div>
             )}

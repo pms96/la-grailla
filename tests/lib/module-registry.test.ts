@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { REGISTERED_PREFIXES, isLicenseExempt, ownerEnabled, ownerOfPath } from '@/lib/modules/registry';
+import { REGISTERED_PREFIXES, isDoorPath, isLicenseExempt, ownerEnabled, ownerOfPath } from '@/lib/modules/registry';
 
 /** Rutas públicas de las páginas y route handlers de `app/`, con los grupos `(public)` quitados y los segmentos dinámicos como `x`. */
 function appRoutes(): string[] {
@@ -44,6 +44,7 @@ describe('registro de módulos: default-deny', () => {
     expect(ownerOfPath('/api/admin/config')).toBe('nucleo');
     expect(ownerOfPath('/api/events/foo/minor-authorization')).toBe('entradas');
     expect(ownerOfPath('/tienda/checkout?x=1')).toBe('tienda');
+    expect(ownerOfPath('/api/admin/shop-orders/export')).toBe('tienda');
   });
 
   it('no hay prefijos duplicados con dueños distintos', () => {
@@ -68,6 +69,34 @@ describe('allowlist «nunca bloqueable» (por fase y por módulo)', () => {
   it('webhooks, crons, validación de entradas ya vendidas y acceso', () => {
     for (const p of ['/api/webhooks/stripe', '/api/cron/reconcile-payments', '/api/scan', '/api/access/capacity']) {
       expect(isLicenseExempt(p, 'POST'), p).toBe(true);
+    }
+  });
+
+  it('la puerta: la pantalla del escáner (solo GET), su lista de eventos y la validación; ni una ruta más', () => {
+    expect(isLicenseExempt('/acceso', 'GET')).toBe(true);
+    expect(isLicenseExempt('/acceso', 'HEAD')).toBe(true);
+    expect(isLicenseExempt('/acceso/', 'GET')).toBe(true);
+    expect(isLicenseExempt('/acceso?tab=scan&eventId=x', 'GET')).toBe(true);
+    expect(isLicenseExempt('/api/access/events', 'GET')).toBe(true);
+    expect(ownerOfPath('/api/access/events')).toBe('entradas');
+    expect(isDoorPath('/api/scan', 'POST')).toBe(true);
+    for (const [p, m] of [
+      ['/acceso', 'POST'],
+      ['/acceso/otra', 'GET'],
+      ['/acceso-viejo', 'GET'],
+      ['/api/events', 'GET'], // la API pública de venta NO se exime: el escáner usa /api/access/events
+      ['/api/events/algo', 'GET'],
+      ['/api/accesox', 'GET'],
+      ['/api/taquilla/sale', 'POST'],
+      ['/api/taquilla/print/abc', 'GET'],
+      ['/api/invitations', 'GET'],
+      ['/api/guest-lists', 'GET'],
+      ['/api/admin/scans', 'GET'],
+      ['/api/admin/noche', 'GET'],
+      ['/admin/noche', 'GET'],
+    ] as const) {
+      expect(isLicenseExempt(p, m), `${m} ${p}`).toBe(false);
+      expect(isDoorPath(p, m), `${m} ${p}`).toBe(false);
     }
   });
 

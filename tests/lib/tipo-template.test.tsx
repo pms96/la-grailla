@@ -20,8 +20,7 @@ const event = (over: Partial<EventInput> = {}): EventInput => ({
   venue: 'Sala Rodrigo',
   city: 'Valencia',
   maxCapacity: 500,
-  currentCount: 100,
-  ticketTypes: [{ price: 15 }],
+  ticketTypes: [{ price: 15, maxQuantity: 500, soldCount: 100 }],
   ...over,
 });
 
@@ -166,7 +165,7 @@ describe('TipoHero', () => {
 });
 
 describe('EventList', () => {
-  const rows = [toTemplateEvent(event()), toTemplateEvent(event({ id: 'e2', slug: 'otra', name: 'Otra Noche', maxCapacity: 100, currentCount: 100 }))];
+  const rows = [toTemplateEvent(event()), toTemplateEvent(event({ id: 'e2', slug: 'otra', name: 'Otra Noche', ticketTypes: [{ price: 15, maxQuantity: 100, soldCount: 100 }] }))];
 
   it('una fila por evento, con su enlace, el día, el lugar, el precio y el estado', () => {
     const html = render(<EventList events={rows} />);

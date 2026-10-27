@@ -11,6 +11,7 @@ import { Calendar, MapPin, ArrowRight, Music, ShoppingBag, Handshake, WifiOff } 
 import { FadeIn, SlideIn, Stagger, StaggerItem } from '@/components/ui/animate';
 import { ReloadButton } from '@/components/reload-button';
 import { getBrand } from '@/lib/brand/brand';
+import { isLegacyTenant } from '@/lib/tenant/context';
 import { ContactForm } from '@/components/contact-form';
 import { HeroFeria } from './_home/hero-feria';
 import { HeroEditorial } from './_home/hero-editorial';
@@ -27,6 +28,7 @@ import { ContentSections } from './_home/sections/content-sections';
 import { canonicalAlternates } from '@/lib/seo/canonical';
 import { EVENT_TIMEZONE } from '@/lib/event-time';
 import { getContentSections } from '@/lib/content/load';
+import { getEventAvailability } from '@/lib/ticket-availability';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
@@ -52,7 +54,7 @@ export default async function HomePage() {
       // margen de gracia nocturno) — sin este filtro, un PUBLISHED que nadie
       // marcó a mano como FINISHED se seguía vendiendo indefinidamente.
       where: { status: 'PUBLISHED', date: { gte: new Date(Date.now() - EVENT_GRACE_PERIOD_MS) } },
-      include: { ticketTypes: { where: { isActive: true }, orderBy: { price: 'asc' }, take: 1 } },
+      include: { ticketTypes: { where: { isActive: true }, orderBy: { price: 'asc' } } },
       orderBy: { date: 'asc' },
       take: 6,
     });
@@ -90,7 +92,7 @@ export default async function HomePage() {
         timeZone: EVENT_TIMEZONE,
       })
     : '';
-  const featuredPrice = featured?.ticketTypes?.[0]?.price;
+  const featuredPrice = featured ? getEventAvailability(featured.ticketTypes, featured.maxCapacity).fromPrice : null;
 
   const primaryCta: HeroProps['primaryCta'] = hasEntradas
     ? { href: '/eventos', label: 'Ver eventos', icon: 'ticket' }
@@ -199,7 +201,7 @@ export default async function HomePage() {
             <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 px-6 py-16 text-center">
               <Music className="h-12 w-12 text-primary/40 mx-auto mb-4" aria-hidden />
               <h3 className="font-display text-xl font-bold tracking-tight mb-2">
-                Estamos montando la próxima fiesta
+                {isLegacyTenant() ? 'Estamos montando la próxima fiesta' : 'Próximamente'}
               </h3>
               <p className="text-muted-foreground max-w-md mx-auto mb-6">
                 Aún no hay eventos publicados. Vuelve pronto o síguenos — la programación sale aquí primero.
@@ -216,7 +218,7 @@ export default async function HomePage() {
                 const dateStr = event?.date
                   ? new Date(event.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: EVENT_TIMEZONE })
                   : '';
-                const minPrice = event?.ticketTypes?.[0]?.price;
+                const minPrice = getEventAvailability(event?.ticketTypes, event?.maxCapacity).fromPrice;
                 return (
                   <StaggerItem key={event?.id ?? `ev-${index}`}>
                     <Link href={`/eventos/${event?.slug ?? ''}`}>

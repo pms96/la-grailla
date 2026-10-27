@@ -8,7 +8,7 @@ import { CheckCircle, Clock, Package, XCircle, Loader2 } from 'lucide-react';
 import { ReceiptPrinter, usePrintSequence } from '@/components/receipt-printer';
 import { useBrand } from '@/components/brand-provider';
 
-type ShopOrderView = {
+export type ShopOrderView = {
   id: string;
   status: string;
   buyerName: string;
@@ -146,8 +146,8 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
 }
 
 /** Recibo imprimiéndose con los artículos y el envío del pedido de tienda. */
-function ShopReceiptPrinter({ order }: { order: ShopOrderView }) {
-  const { name } = useBrand();
+export function ShopReceiptPrinter({ order }: { order: ShopOrderView }) {
+  const { name, legacy } = useBrand();
   const stage = usePrintSequence(true);
   const shortCode = order.id.slice(0, 8).toUpperCase();
 
@@ -201,7 +201,7 @@ function ShopReceiptPrinter({ order }: { order: ShopOrderView }) {
             <p>{order.shippingZip} {order.shippingCity}</p>
             {order.shippingPhone && <p>{order.shippingPhone}</p>}
           </div>
-          <p className="mt-4 text-center text-xs text-black/40">¡Nos vemos en la caseta! 🍻</p>
+          <p className="mt-4 text-center text-xs text-black/40">{legacy ? '¡Nos vemos en la caseta! 🍻' : 'Gracias por tu compra'}</p>
         </ReceiptPrinter.Paper>
       </ReceiptPrinter.Output>
     </ReceiptPrinter.Root>

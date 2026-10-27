@@ -17,7 +17,7 @@ import { pathAllowedForModules } from '@/lib/modules/access';
 
 /* Middleware del modo plataforma (edge). Hace, por este orden, TODO lo que debe ocurrir antes de que un handler vea la petición:
  *   1. resolver el Host a un cliente (registro firmado) → 404 si no existe;
- *   2. cliente suspendido → 503 (salvo lo que nunca se corta: webhooks y crons);
+ *   2. cliente suspendido → 503 (salvo lo que nunca se corta: webhooks y crons; también la puerta del evento);
  *   2a. puerta de esquema (M7): un cliente cuya BD está por detrás de lo que exige este build recibe «en mantenimiento» (503), solo él;
  *   2b. módulos y licencia (M5): una ruta sin dueño o de un módulo que el cliente no tiene → 404; fase PANEL_BLOCKED → sin /admin; fase
  *      BLOCKED → solo la allowlist (lib/modules/registry.ts) y el aviso;
@@ -131,6 +131,9 @@ export async function platformMiddleware(req: NextRequest): Promise<NextResponse
   // Con calendario, el próximo cambio es el siguiente que NO ha pasado (null si ya han pasado todos); sin él, el del snapshot.
   ctx.license = { phase, nextPhaseChangeAt: ctx.license?.schedule ? (ctx.license.schedule.find((c) => c.at > now)?.at ?? null) : (ctx.license?.nextPhaseChangeAt ?? null) };
 
+  // Una suspensión (SUSPENDED, que incluye la revocación de emergencia), PENDING_DELETION y DELETED cortan TODO, también la puerta del evento
+  // (`/acceso`, `/api/scan`, `/api/access/*`): la revocación es un corte de seguridad y no puede dejar rutas vivas. La puerta solo se
+  // exime de la fase de licencia y del módulo apagado (más abajo, en `gateByModuleAndLicense`). Solo sobreviven webhooks, crons y health.
   if (ctx.status !== 'ACTIVE' && !isNeverBlockable(path)) return plain(503, 'Servicio suspendido');
 
   // BD del cliente por detrás de lo que exige este build: mantenimiento SOLO para él (los demás clientes siguen). Se reintenta pronto:

@@ -48,14 +48,14 @@ const passes = (res: Response) => res.headers.get('x-middleware-next') === '1';
 describe('administrador con rol restringido (gestor de tienda)', () => {
   it('entra en lo de su módulo, en la configuración y en el inicio', async () => {
     const c = await adminCookie(['tienda']);
-    for (const p of ['/admin', '/admin/productos', '/admin/configuracion', '/api/admin/products', '/api/admin/shop-orders', '/api/admin/config']) {
+    for (const p of ['/admin', '/admin/productos', '/admin/configuracion', '/api/admin/products', '/api/admin/shop-orders', '/api/admin/shop-orders/export', '/api/admin/config']) {
       expect(passes(await platformMiddleware(req(p, c))), p).toBe(true);
     }
   });
 
   it('no entra en los demás módulos: la API da 403 y las páginas redirigen al inicio', async () => {
     const c = await adminCookie(['tienda']);
-    for (const p of ['/api/admin/gastos', '/api/admin/events', '/api/admin/sponsors']) {
+    for (const p of ['/api/admin/gastos', '/api/admin/events', '/api/admin/sponsors', '/api/admin/export']) {
       expect((await platformMiddleware(req(p, c))).status, p).toBe(403);
     }
     for (const p of ['/admin/gastos', '/admin/eventos']) {

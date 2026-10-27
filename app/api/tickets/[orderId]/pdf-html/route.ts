@@ -9,6 +9,7 @@ import { allowOrderAccess, getTokenFromRequest } from '@/lib/access-token';
 import { escapeHtml as esc } from '@/lib/html-escape';
 import { getBrand } from '@/lib/brand/brand';
 import { brandLogoHtml } from '@/lib/brand/email';
+import { EVENT_TIMEZONE } from '@/lib/event-time';
 
 export async function GET(request: Request, props: { params: Promise<{ orderId: string }> }) {
   const params = await props.params;
@@ -36,7 +37,7 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
     for (const ticket of (order.tickets ?? [])) {
       const qrDataUrl = await generateQRDataUrl(ticket?.qrCode ?? '');
       const eventDate = order.event?.date ? new Date(order.event.date).toLocaleDateString('es-ES', {
-        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: EVENT_TIMEZONE
       }) : '';
 
       ticketHtmls.push(`

@@ -94,6 +94,14 @@ describe('POST /api/scan', () => {
     expect(json.result).toBe('DUPLICATE');
   });
 
+  it('la «hora de entrada» del duplicado va en hora de Madrid, no en la del servidor (UTC)', async () => {
+    await prisma.ticket.update({ where: { id: ticketId }, data: { entryTime: new Date('2026-07-18T21:35:00Z') } });
+    const res = await scanTicket(scanRequest({ qrCode, eventId: event.id }));
+    const json = await res.json();
+    expect(json.result).toBe('DUPLICATE');
+    expect(json.message).toContain('Hora de entrada: 23:35');
+  });
+
   it('rechaza QR desconocido', async () => {
     const res = await scanTicket(scanRequest({ qrCode: 'QR-NO-EXISTE', eventId: event.id }));
     const json = await res.json();

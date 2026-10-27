@@ -167,3 +167,65 @@ describe('GET /api/admin/events — filtro de archivado (Fase 4)', () => {
     expect(found.archivado).toBe(true);
   });
 });
+
+// P0-02 de la auditoría de lanzamiento: la hora tecleada en el admin (`datetime-local`, sin zona) es hora de Madrid, no UTC; con Z u offset se
+// respeta tal cual (scripts, seeds). El servidor corre en UTC, así que sin esta conversión «23:30» se guardaba como 23:30Z (00:30/01:30 en Madrid).
+describe('POST/PUT /api/admin/events — la hora del formulario es hora de Madrid', () => {
+  const json = (method: string, body: unknown) => new Request('http://localhost', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const created: string[] = [];
+  const unique = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+  afterAll(async () => { for (const id of created) await cleanupTestEvent(id); });
+
+  const create = async (date: string) => {
+    const res = await createEvent(json('POST', { name: `[TEST] Hora Madrid ${unique()}`, date }));
+    const body = await res.json();
+    if (body?.id) created.push(body.id);
+    return { res, body };
+  };
+
+  it('POST sin zona (verano): 23:30 se guarda como 21:30Z', async () => {
+    const { res, body } = await create('2026-07-15T23:30');
+    expect(res.status).toBe(200);
+    const stored = await prisma.event.findUniqueOrThrow({ where: { id: body.id } });
+    expect(stored.date.toISOString()).toBe('2026-07-15T21:30:00.000Z');
+  });
+
+  it('POST sin zona (invierno, tras la medianoche): 00:30 se guarda como 23:30Z del día anterior', async () => {
+    const { body } = await create('2026-12-31T00:30');
+    const stored = await prisma.event.findUniqueOrThrow({ where: { id: body.id } });
+    expect(stored.date.toISOString()).toBe('2026-12-30T23:30:00.000Z');
+  });
+
+  it('POST con Z o con offset respeta el instante (compatibilidad con scripts y seeds)', async () => {
+    const conZ = await create('2026-07-15T21:00:00.000Z');
+    expect((await prisma.event.findUniqueOrThrow({ where: { id: conZ.body.id } })).date.toISOString()).toBe('2026-07-15T21:00:00.000Z');
+    const conOffset = await create('2026-07-15T23:00:00+02:00');
+    expect((await prisma.event.findUniqueOrThrow({ where: { id: conOffset.body.id } })).date.toISOString()).toBe('2026-07-15T21:00:00.000Z');
+  });
+
+  it('POST con una fecha ilegible responde 400 en vez de romper con 500', async () => {
+    const { res, body } = await create('mañana por la noche');
+    expect(res.status).toBe(400);
+    expect(body.error).toBe('Fecha y hora no válidas');
+  });
+
+  it('PUT sin zona se interpreta en Madrid; con Z se respeta; vacío o ausente no la toca; ilegible da 400', async () => {
+    const event = await createTestEvent({ date: new Date('2026-07-18T21:00:00Z') });
+    created.push(event.id);
+    const put = (body: unknown) => putEvent(json('PUT', body), { params: Promise.resolve({ id: event.id }) });
+    const dateOf = async () => (await prisma.event.findUniqueOrThrow({ where: { id: event.id } })).date.toISOString();
+
+    expect((await put({ date: '2026-12-31T23:30' })).status).toBe(200);
+    expect(await dateOf()).toBe('2026-12-31T22:30:00.000Z');
+
+    expect((await put({ date: '2026-07-18T21:00:00Z' })).status).toBe(200);
+    expect(await dateOf()).toBe('2026-07-18T21:00:00.000Z');
+
+    expect((await put({ date: '', name: '[TEST] Sin tocar la fecha' })).status).toBe(200);
+    expect(await dateOf()).toBe('2026-07-18T21:00:00.000Z');
+
+    expect((await put({ date: 'basura' })).status).toBe(400);
+    expect(await dateOf()).toBe('2026-07-18T21:00:00.000Z');
+  });
+});
