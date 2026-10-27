@@ -4,6 +4,7 @@ import { escapeHtml as esc } from '@/lib/html-escape';
 import { prisma } from '@/lib/prisma';
 import { rateLimit } from '@/lib/rate-limit';
 import { currentTenant } from '@/lib/tenant/context';
+import { sendPlatformAlert } from '@/lib/observability/platform-alert';
 
 /** Qué ha pasado al confirmar un pago sobre un pedido (ver completeOrder / completeShopOrder). */
 export type CompleteOutcome =
@@ -33,10 +34,13 @@ export function logPaymentEvent(tag: string, fields: Record<string, unknown>, le
 
 /**
  * Único punto por el que el sistema avisa AL OPERADOR de algo que toca dinero (pago tardío, reembolso fallido, importe que no cuadra…).
- * Hoy sale por el canal que ya existe: un correo por el SMTP del cliente a su `admin_email` / `notify_email_<módulo>`, y siempre queda la
- * línea de log estructurada (el aviso NUNCA depende solo del correo). OB-02: el canal independiente del SMTP del cliente (ntfy/Slack del
- * panel) se enchufa aquí, en esta función y en ninguna otra. `dedupeKey` limita el correo a uno al día por clave (el cron reintenta cada
- * pocos minutos y no debe inundar la bandeja); el log sale siempre.
+ * Sale por DOS canales independientes, en paralelo, y uno nunca depende del otro (OB-02):
+ *  1. un correo por el SMTP del cliente a su `admin_email` / `notify_email_<módulo>`;
+ *  2. el canal de la plataforma (`PLATFORM_ALERT_URL`: ntfy/webhook del operador, sin SMTP ni `admin_email`), ver lib/observability/platform-alert.ts.
+ * Siempre queda además la línea de log estructurada. Si el SMTP falla, o el cliente no tiene `admin_email`, el canal de la plataforma se
+ * intenta igual; y si el canal de la plataforma falla o no está configurado, el correo sale como siempre. `dedupeKey` limita el aviso a uno al
+ * día por clave (el cron reintenta cada pocos minutos y no debe inundar ni la bandeja ni el móvil); el log sale siempre. Si falla la
+ * consulta del límite, se avisa igualmente: es preferible un aviso repetido a uno perdido.
  */
 export async function alertOperator(params: {
   kind: 'entradas' | 'tienda';
@@ -52,17 +56,25 @@ export async function alertOperator(params: {
   details?: Record<string, unknown>;
 }): Promise<void> {
   logPaymentEvent(params.tag, { kind: params.kind, orderId: params.orderId, reason: params.reason, ...(params.details ?? {}) });
-  try {
-    if (params.dedupeKey) {
+  if (params.dedupeKey) {
+    try {
       const first = await rateLimit('operator-alert', params.dedupeKey, 1, 24 * 60 * 60 * 1000);
       if (!first.ok) return;
+    } catch (error) {
+      console.error(`${params.tag} No se pudo comprobar el límite de avisos (se avisa igualmente):`, error instanceof Error ? error.message : error);
     }
-    const to = await getOperatorEmail(params.kind);
-    if (!to) return; // cliente sin admin_email: solo queda el log
-    await sendMail({ to, subject: params.subject, html: params.html });
-  } catch (error) {
-    console.error(`${params.tag} No se pudo enviar el aviso al operador:`, error instanceof Error ? error.message : error);
   }
+  const byEmail = async () => {
+    try {
+      const to = await getOperatorEmail(params.kind);
+      if (!to) return; // cliente sin admin_email: queda el log y el canal de la plataforma
+      await sendMail({ to, subject: params.subject, html: params.html });
+    } catch (error) {
+      console.error(`${params.tag} No se pudo enviar el aviso al operador:`, error instanceof Error ? error.message : error);
+    }
+  };
+  // En paralelo y cada uno a prueba de fallos (ninguno lanza): el comprador y el webhook nunca esperan por un canal caído más de su tiempo máximo.
+  await Promise.allSettled([byEmail(), sendPlatformAlert({ kind: params.kind, reason: params.reason, orderId: params.orderId })]);
 }
 
 /** Lo que la pasarela dice haber cobrado (ver `PaymentResult`). Ausente = no se puede contrastar. */
@@ -88,22 +100,19 @@ export async function paymentMatchesOrder(kind: 'entradas' | 'tienda', orderId: 
   console.error(
     `[order-reconciliation] El cobro de ${kind} ${orderId} no cuadra: la pasarela dice ${paid.amount} ${paid.currency ?? ''} y el pedido es de ${expected} EUR. No se completa.`
   );
-  try {
-    const first = await rateLimit('amount-mismatch', orderId, 1, 24 * 60 * 60 * 1000);
-    const to = first.ok ? await getOperatorEmail(kind) : '';
-    if (to) {
-      await sendMail({
-        to,
-        subject: `⚠️ El importe cobrado no cuadra con el pedido (${orderId.slice(0, 8)})`,
-        html:
-          `<p>La pasarela confirma un pago de ${kind} para el pedido <strong>${esc(orderId)}</strong>, pero el importe no coincide.</p>` +
-          `<p>Cobrado: <strong>${esc(String(paid.amount))} ${esc(paid.currency ?? '')}</strong> · Pedido: <strong>${esc(String(expected))} EUR</strong>.</p>` +
-          `<p>El pedido NO se ha marcado como pagado. Revisa el cobro en la pasarela y decide si completarlo a mano o devolver el dinero.</p>`,
-      });
-    }
-  } catch (error) {
-    console.error('[paymentMatchesOrder] Error enviando alerta:', error instanceof Error ? error.message : error);
-  }
+  // Como mucho un aviso al día por pedido (el cron reintenta cada 5 minutos). Por el mismo canal doble que el resto de avisos de dinero.
+  await alertOperator({
+    kind,
+    tag: '[order-reconciliation]',
+    orderId,
+    reason: 'amount_mismatch',
+    dedupeKey: `amount-mismatch:${orderId}`,
+    subject: `⚠️ El importe cobrado no cuadra con el pedido (${orderId.slice(0, 8)})`,
+    html:
+      `<p>La pasarela confirma un pago de ${kind} para el pedido <strong>${esc(orderId)}</strong>, pero el importe no coincide.</p>` +
+      `<p>Cobrado: <strong>${esc(String(paid.amount))} ${esc(paid.currency ?? '')}</strong> · Pedido: <strong>${esc(String(expected))} EUR</strong>.</p>` +
+      `<p>El pedido NO se ha marcado como pagado. Revisa el cobro en la pasarela y decide si completarlo a mano o devolver el dinero.</p>`,
+  });
   return false;
 }
 

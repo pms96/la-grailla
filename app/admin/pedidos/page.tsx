@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Loader2, Package, Truck, Search, Phone, Download, StickyNote } from 'lucide-react';
+import { Loader2, Package, Truck, Search, Phone, Download, StickyNote, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { downloadShopOrdersCsv } from '@/lib/admin-export';
@@ -18,7 +18,36 @@ const statusLabels: Record<string, string> = {
   SHIPPED: 'Enviado', DELIVERED: 'Entregado', CANCELLED: 'Cancelado', REFUNDED: 'Reembolsado',
 };
 
-type ShopOrderWithItems = Prisma.ShopOrderGetPayload<{ include: { items: { include: { product: true } } } }>;
+/** Estado real del email de confirmación (lo calcula la API a partir de los marcadores de envío: lib/email-delivery.ts). La tienda no guarda el texto del error. */
+type EmailDelivery = {
+  status: 'sent' | 'sending' | 'pending' | 'retrying' | 'exhausted' | 'unknown';
+  attempts: number;
+  sentAt: string | null;
+  nextAttemptAt: string | null;
+} | null;
+
+type ShopOrderWithItems = Prisma.ShopOrderGetPayload<{ include: { items: { include: { product: true } } } }> & { emailDelivery?: EmailDelivery };
+
+const PAID_STATUSES = ['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED'];
+
+function emailLine(d: NonNullable<EmailDelivery>): string {
+  const tries = d.attempts > 0 ? ` (${d.attempts} intento${d.attempts === 1 ? '' : 's'})` : '';
+  const at = (iso: string) => new Date(iso).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' });
+  switch (d.status) {
+    case 'sent':
+      return `enviado${d.sentAt ? ` el ${at(d.sentAt)}` : ''}`;
+    case 'sending':
+      return `enviándose ahora${tries}`;
+    case 'pending':
+      return 'pendiente del primer envío';
+    case 'retrying':
+      return `no enviado${tries}; se reintenta solo${d.nextAttemptAt ? ` a partir de las ${new Date(d.nextAttemptAt).toLocaleTimeString('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' })}` : ''}`;
+    case 'exhausted':
+      return `FALLIDO${tries}: no se reintentará solo; revisa el SMTP y reenvíalo`;
+    default:
+      return 'sin registro (pedido anterior al seguimiento de emails)';
+  }
+}
 
 export default function PedidosPage() {
   const [orders, setOrders] = useState<ShopOrderWithItems[]>([]);
@@ -75,6 +104,25 @@ export default function PedidosPage() {
       fetchOrders();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error');
+    }
+  };
+
+  // Punto único de envío (concesión atómica, rastro del intento); solo ADMIN y queda en el log de auditoría.
+  const [resending, setResending] = useState<string | null>(null);
+  const resendEmail = async (id: string) => {
+    setResending(id);
+    try {
+      const res = await fetch(`/api/admin/shop-orders/${id}/resend-email`, { method: 'POST' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.status === 'sending' ? 'Ya se está enviando: espera un momento' : (data?.error ?? 'Error al reenviar'));
+      }
+      toast.success('Email reenviado');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo reenviar');
+    } finally {
+      setResending(null);
+      fetchOrders();
     }
   };
 
@@ -175,6 +223,21 @@ export default function PedidosPage() {
                   )}
                   {order?.notes && (
                     <p className="break-words"><StickyNote className="h-3 w-3 inline mr-1" /> {order.notes}</p>
+                  )}
+                  {PAID_STATUSES.includes(order?.status ?? '') && order?.emailDelivery && (
+                    <p className={`flex flex-wrap items-center gap-2 ${order.emailDelivery.status === 'exhausted' ? 'text-destructive' : ''}`}>
+                      <span><Mail className="h-3 w-3 inline mr-1" /> Email: {emailLine(order.emailDelivery)}</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 gap-1 px-2 text-xs"
+                        disabled={resending === order.id}
+                        onClick={() => resendEmail(order.id)}
+                      >
+                        {resending === order.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Mail className="h-3 w-3" />}
+                        Reenviar email
+                      </Button>
+                    </p>
                   )}
                 </div>
                 <div className="flex items-center gap-2">

@@ -9,7 +9,7 @@ import { TEST_TENANT_IDS, disconnectTenantClients, ensureTenantDatabases, resetT
 
 // Los emails de confirmación no son lo que se prueba aquí.
 vi.mock('@/lib/mailer', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/mailer')>()), sendMail: vi.fn(async () => ({ success: true, transport: 'smtp' as const })) }));
-vi.mock('@/lib/tickets', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/tickets')>()), sendTicketsEmail: vi.fn(async () => ({ success: true })) }));
+vi.mock('@/lib/tickets', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/tickets')>()), deliverTicketsEmail: vi.fn(async () => ({ success: true })) }));
 
 const SECRET_A = 'whsec_cliente_a';
 const SECRET_B = 'whsec_cliente_b';

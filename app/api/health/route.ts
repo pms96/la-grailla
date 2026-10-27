@@ -10,11 +10,14 @@ import { FRONT_MIN_SCHEMA } from '@/lib/platform/min-schema';
 import { currentTenant } from '@/lib/tenant/context';
 import { gateBySchema } from '@/lib/tenant/middleware';
 import { isPlatformMode } from '@/lib/tenant/mode';
+import { collectOps } from '@/lib/ops-health';
 
 /* Salud del front para ESTE cliente.
  *  - Público y sin datos: `{status}` y 200 si la BD responde, 503 si no. Sirve a un monitor externo.
  *  - Con `Authorization: Bearer` válido (el mismo secreto de cron del cliente): el detalle que usa el panel para decidir si un cliente
- *    está al día (versión del front, esquema aplicado frente al que exige el build, onboarding).
+ *    está al día (versión del front, esquema aplicado frente al que exige el build, onboarding) y, ADITIVO, el bloque `ops` con las señales de
+ *    negocio (edad de los pagos pendientes, emails sin enviar, última pasada del cron: ver lib/ops-health.ts). `ops` solo sale por esta rama
+ *    autenticada —la respuesta pública sigue siendo `{status}`—, es barato, sin datos personales y nunca hace fallar el health.
  * Nunca devuelve URLs de BD, secretos ni trazas. */
 
 const headers = { 'Cache-Control': 'no-store' };
@@ -89,6 +92,8 @@ export async function GET(request: Request) {
   // El onboarding solo degrada a quien se le exige (cliente nuevo en modo plataforma); a La Grailla no.
   const onboardingPending = dbOk && onboardingApplies() && !onboarding.complete;
   const status = !dbOk || wrongDatabase ? 'error' : !serving || !upToDate || onboardingPending ? 'degraded' : 'ok';
+  // Con la BD de otro cliente (`wrongDatabase`) no se lee nada de negocio: serían datos de otro.
+  const ops = dbOk && !wrongDatabase ? await collectOps() : null;
 
   return NextResponse.json(
     {
@@ -101,6 +106,7 @@ export async function GET(request: Request) {
       db: { ok: dbOk, latencyMs },
       schema: { applied, expected: expectedSchema(), minRequired: FRONT_MIN_SCHEMA, upToDate },
       onboarding,
+      ops,
     },
     { status: dbOk && !wrongDatabase ? 200 : 503, headers }
   );

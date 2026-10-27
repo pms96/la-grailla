@@ -10,6 +10,10 @@ import { STALE_ORDER_SAFETY_NET_MS } from '@/lib/checkout-hold';
 import { handleApiError } from '@/lib/api-error';
 import { authorizeCron } from '@/lib/cron-auth';
 import { currentTenant } from '@/lib/tenant/context';
+import { captureOpsError } from '@/lib/observability/capture';
+import { emailSweepBudgetMs, sweepUnsentOrderEmails } from '@/lib/order-email';
+import { getFallbackBaseUrl } from '@/lib/url';
+import { OPS_RECONCILE_KEY, type ReconcileSummary } from '@/lib/ops-health';
 
 // Solo Stripe tiene webhook (app/api/webhooks/stripe) — SumUp no, así que un
 // pedido pagado con SumUp solo se confirma hoy si el comprador vuelve a
@@ -57,6 +61,16 @@ async function stampExamined(table: 'order' | 'shopOrder', ids: string[], at: Da
   } catch (error) {
     // Sellar es una mejora de equidad, no condición para reconciliar: si falla se sigue con la pasada.
     console.error('[GET /api/cron/reconcile-payments] No se pudo sellar la cola:', error instanceof Error ? error.message : error);
+  }
+}
+
+/** Guarda cómo terminó la pasada (clave de sistema `ops_reconcile_last`, ver lib/ops-health.ts). Nunca lanza. */
+async function writeReconcileSummary(summary: ReconcileSummary): Promise<void> {
+  try {
+    const value = JSON.stringify(summary);
+    await prisma.appConfig.upsert({ where: { key: OPS_RECONCILE_KEY }, update: { value }, create: { key: OPS_RECONCILE_KEY, value, label: 'Última pasada de conciliación', group: 'sistema' } });
+  } catch (error) {
+    console.error(`[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] No se pudo guardar el resumen de la pasada:`, error instanceof Error ? error.message : error);
   }
 }
 
@@ -115,7 +129,8 @@ export async function GET(request: Request) {
 
     const settleOne = async ({ kind, order }: (typeof queue)[number]) => {
       try {
-        const result = await settleUnpaidOrder({ kind, order });
+        // El email del pedido que se complete aquí se envía en el acto: este bucle ya acota su concurrencia (CONCURRENCY) y su tiempo.
+        const result = await settleUnpaidOrder({ kind, order, emailInline: true });
         if (result.stuck) stuckOver24h += 1;
         switch (result.outcome) {
           case 'completed':
@@ -176,10 +191,32 @@ export async function GET(request: Request) {
     // ha reconciliado nada: credencial ilegible, caducada o mal puesta, pasarela sin configurar o caída. Un 200 haría que el disparador la diera por
     // buena y el operador no se enteraría de que los pedidos se quedan en PENDING.
     const failedPass = errors > 0 && completed + released + stillPending + processing === 0;
+    if (failedPass) captureOpsError(new Error('reconcile_failed_pass'), { route: 'GET /api/cron/reconcile-payments', reason: 'failed_pass' });
     if (errors > 0) {
       console.error(
         `[reconcile] ${JSON.stringify({ tenantId: tenantTag(), errors, unknown, stuckOver24h, deferred, completed, released, stillPending, processing, oldestPendingMinutes, errorSamples })}`
       );
+    }
+    // Resumen de la pasada para el bloque `ops` de /api/health (sin migración: una fila de sistema en AppConfig). Un fallo al escribirlo no cambia la respuesta.
+    // Se escribe ANTES del barrido de emails: pase lo que pase con el SMTP, el panel ve que la pasada terminó.
+    await writeReconcileSummary({ lastRunAt: new Date().toISOString(), errors, unknown, processing, stuckOver24h });
+
+    // P0-08: barrido de emails sin confirmar, DESPUÉS de reconciliar pagos y con su PROPIO presupuesto corto (`emailSweepBudgetMs`, sin pasar del plazo
+    // de la pasada): este cron confirma cobros de SumUp y el panel lo espera, así que un SMTP lento no puede retenerlo. Mismo tope de concurrencia. Cada
+    // envío tiene un tope duro y, aun así, el barrido entero se corta aquí a los (presupuesto + 4 s): lo que no cupo sigue para la siguiente pasada.
+    // Nunca lanza: un fallo aquí no puede tumbar la conciliación.
+    let emails: Awaited<ReturnType<typeof sweepUnsentOrderEmails>> | null = null;
+    try {
+      const sweepDeadline = Math.min(deadline, Date.now() + emailSweepBudgetMs());
+      const hardStop = sweepDeadline - Date.now() + 4_000; // margen para el último envío (su tope duro es el resto del presupuesto + 3 s)
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      emails = await Promise.race([
+        sweepUnsentOrderEmails({ deadline: sweepDeadline, concurrency: CONCURRENCY, baseUrl: getFallbackBaseUrl() }),
+        new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), Math.max(0, hardStop)))),
+      ]);
+      if (timer) clearTimeout(timer);
+    } catch (error) {
+      console.error(`[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] Error en el barrido de emails:`, error instanceof Error ? error.message : error);
     }
     return NextResponse.json(
       {
@@ -195,6 +232,8 @@ export async function GET(request: Request) {
         errors,
         errorSamples,
         oldestPendingMinutes,
+        // Barrido de reintentos de emails (P0-08); null si no pudo ejecutarse.
+        emails,
       },
       { status: failedPass ? 502 : 200 }
     );

@@ -1,9 +1,10 @@
 import type { ShopOrderStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
-import { sendMail } from '@/lib/mailer';
 import { escapeHtml as esc } from '@/lib/html-escape';
-import { getBrand } from '@/lib/brand/brand';
+import { scheduleOrderEmail } from '@/lib/order-email';
+import { trackEmail } from '@/lib/email-delivery';
+import { getFallbackBaseUrl } from '@/lib/url';
 import { alertOperator, alertPaidButInactiveOrder, logPaymentEvent, paymentMatchesOrder, type CompleteOutcome, type PaidInfo } from './shared';
 import { alertManuallyRefunded, confirmLatePayment, finishLateRefund, lateRefundMarker } from './late-payment';
 import { closeSessionBeforeCancel } from './close-session';
@@ -13,13 +14,22 @@ import { reserveShopStock } from '@/lib/product-stock';
 
 /* Reconciliación de pedidos de la TIENDA (módulo Tienda): marcar pagado, liberar stock al caducar, anular y reembolsar. */
 
-/** Marca un pedido de tienda como pagado y envía el email de confirmación (una sola vez). */
-export async function completeShopOrder(orderId: string, paid?: PaidInfo): Promise<CompleteOutcome> {
+/**
+ * Marca un pedido de tienda como pagado y programa el email de confirmación (P0-08): fuera de la ruta crítica, por el único punto de envío
+ * (concesión atómica, rastro del intento, reintento por el barrido del cron). `opts.emailInline`: el cron, que ya acota su concurrencia y su tiempo.
+ */
+export async function completeShopOrder(orderId: string, paid?: PaidInfo, opts: { emailInline?: boolean; baseUrl?: string } = {}): Promise<CompleteOutcome> {
   // Si la pasarela dice cuánto cobró y no cuadra con el pedido, no se marca como pagado (ver paymentMatchesOrder).
   if (!(await paymentMatchesOrder('tienda', orderId, paid))) return 'amount_mismatch';
-  const { count } = await prisma.shopOrder.updateMany({
-    where: { id: orderId, status: 'PENDING' },
-    data: { status: 'PAID' },
+  // La transición a PAGADO y la anotación «se le debe un email» van JUNTAS: si la función se corta entre las dos, el pedido quedaría pagado y
+  // sin rastro, y ningún barrido lo vería (ShopOrder no tiene campos de email: el rastro son filas marcadoras, ver lib/email-delivery.ts).
+  const count = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.shopOrder.updateMany({
+      where: { id: orderId, status: 'PENDING' },
+      data: { status: 'PAID' },
+    });
+    if (count > 0) await tx.processedWebhookEvent.createMany({ data: [{ id: `email:shop:${orderId}:due`, processedAt: new Date() }], skipDuplicates: true });
+    return count;
   });
 
   const order = await prisma.shopOrder.findUnique({
@@ -45,42 +55,9 @@ export async function completeShopOrder(orderId: string, paid?: PaidInfo): Promi
     }
   }
 
-  const itemsHtml = (order.items ?? [])
-    .map(
-      (i) =>
-        `<tr><td style="padding:8px;border-bottom:1px solid #eee;">${esc(i?.product?.name)}</td>` +
-        `<td style="padding:8px;border-bottom:1px solid #eee;">${i?.quantity ?? 0}</td>` +
-        `<td style="padding:8px;border-bottom:1px solid #eee;">${(i?.unitPrice ?? 0).toFixed(2)}€</td></tr>`
-    )
-    .join('');
-
-  try {
-    const brand = await getBrand();
-    const emailResult = await sendMail({
-      to: order.buyerEmail,
-      subject: `Pedido confirmado - ${brand.name} #${order.id.slice(0, 8)}`,
-      html:
-        `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">` +
-        `<h2 style="color:${brand.colors.emailAccent};">Pedido confirmado</h2>` +
-        `<p>Hola ${esc(order.buyerName)},</p>` +
-        `<p>Hemos recibido el pago de tu pedido de merchandising.</p>` +
-        `<table style="width:100%;border-collapse:collapse;">` +
-        `<tr style="background:#f3f4f6;"><th style="padding:8px;text-align:left;">Producto</th>` +
-        `<th style="padding:8px;">Cant.</th><th style="padding:8px;">Precio</th></tr>` +
-        itemsHtml +
-        `</table>` +
-        `<p style="font-size:18px;font-weight:bold;margin-top:16px;">Total: ${Number(order.totalAmount).toFixed(2)}€</p>` +
-        `<p style="color:#666;">Te avisaremos cuando lo enviemos.</p></div>`,
-    });
-    if (!emailResult.success) {
-      console.error(`[completeShopOrder] Email fallido para ${orderId}:`, emailResult.error);
-    }
-  } catch (error) {
-    console.error(
-      `[completeShopOrder] Error enviando email ${orderId}:`,
-      error instanceof Error ? error.message : error
-    );
-  }
+  // Pagado (o reactivado): el email de confirmación. En un pago tardío reactivado el marcador se anota aquí (la transición no es la de arriba).
+  await trackEmail('tienda', orderId).catch(() => {});
+  await scheduleOrderEmail('tienda', orderId, { baseUrl: opts.baseUrl ?? getFallbackBaseUrl(), inline: opts.emailInline });
   return outcome;
 }
 
@@ -114,6 +91,8 @@ export async function reviveShopOrder(orderId: string): Promise<ReviveShopResult
       await tx.processedWebhookEvent.createMany({ data: [{ id: lateRefundMarker(orderId) }], skipDuplicates: true });
       return 'no_stock';
     }
+    // «Se le debe un email»: en la MISMA transacción que la reactivación (si la función muriera entre las dos, el pedido quedaría pagado y sin rastro).
+    await tx.processedWebhookEvent.createMany({ data: [{ id: `email:shop:${orderId}:due`, processedAt: new Date() }], skipDuplicates: true });
     return 'revived';
   });
 }

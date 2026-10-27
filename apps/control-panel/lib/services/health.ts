@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import { migrationStamp } from '@grailla/contracts';
+import { migrationStamp, parseOpsBlock, type OpsBlock } from '@grailla/contracts';
 import { prisma } from '../db';
 import { callTenant, type FetchLike, type TenantTarget } from './tenant-calls';
+import { OPS_PREFIX, evaluateOps, markUnalerted, splitHealthError, type OpsEvaluation, type OpsKey } from './ops-rules';
 
 /* Salud básica por cliente (M7): el panel pregunta a `/api/health` de cada cliente con el secreto de cron DE ESE cliente y guarda la
  * última respuesta. La salud «por empuje» (cada cliente avisa) y la telemetría de uso llegan con el umbral de 3 a 5 clientes. */
@@ -19,11 +20,14 @@ export const HealthDetailSchema = z.object({
   db: z.object({ ok: z.boolean(), latencyMs: z.number() }),
   schema: z.object({ applied: z.string().nullable(), expected: z.string(), minRequired: z.string(), upToDate: z.boolean() }),
   onboarding: z.object({ complete: z.boolean(), missing: z.array(z.string()) }),
+  // Señales de negocio (P0-07). Opcional por compatibilidad con fronts anteriores, y NO se valida aquí: un bloque mal formado no puede dejar al
+  // cliente como «no responde». Se lee con `parseOpsBlock` (contrato) y, si no lo cumple, se avisa como problema aparte.
+  ops: z.unknown().optional(),
 });
 export type HealthDetail = z.infer<typeof HealthDetailSchema>;
 
 export type ProbeResult =
-  | { reachable: true; httpStatus: number; latencyMs: number; detail: HealthDetail; problems: string[] }
+  | { reachable: true; httpStatus: number; latencyMs: number; detail: HealthDetail; problems: string[]; /** Bloque `ops` válido del cliente (ausente en fronts anteriores). */ ops?: OpsBlock | null }
   | { reachable: false; httpStatus: number | null; latencyMs: number; error: string; problems: string[] };
 
 /** Llama a /api/health y lo interpreta. `declaredSchema` es lo que el registro cree que hay en la BD (para detectar deriva). */
@@ -52,26 +56,40 @@ export async function probeTenantHealth(
     problems.push(`Deriva: el registro declara ${target.declaredSchema ?? 'ninguna'} y la BD tiene ${d.schema.applied}`);
   }
   if (!d.onboarding.complete) problems.push(`Datos sin completar: ${d.onboarding.missing.join(', ')}`);
-  return { reachable: true, httpStatus: res.status, latencyMs: res.durationMs, detail: d, problems };
+  const opsRead = parseOpsBlock(d.ops);
+  // Un `ops` que no cumple el contrato es un fallo del front (versión desfasada o un bug), no del cliente: se dice, sin copiar lo recibido.
+  if (opsRead.status === 'invalid') problems.push(`El bloque «ops» de la salud no cumple el contrato (${opsRead.issue}): las señales de negocio de este cliente no se están vigilando`);
+  return { reachable: true, httpStatus: res.status, latencyMs: res.durationMs, detail: d, problems, ops: opsRead.status === 'ok' ? opsRead.ops : null };
 }
 
-/** ¿Está sano? Responde, sin error declarado por el propio cliente y sin problemas (esquema atrasado, BD de otro cliente…). Mismo criterio que `ok` al guardar. */
+/** ¿Está sano TÉCNICAMENTE? Responde, sin error declarado por el propio cliente y sin problemas (esquema atrasado, BD de otro cliente…). Las señales de negocio (`ops`) se tratan aparte. */
 export function isHealthy(probe: ProbeResult): boolean {
   return probe.reachable && probe.detail.status !== 'error' && probe.problems.length === 0;
 }
 
-/** Guarda la última comprobación (una fila por suscripción). */
-export async function recordHealth(subscriptionId: string, probe: ProbeResult, now: Date = new Date()): Promise<void> {
+/**
+ * Guarda la última comprobación (una fila por suscripción). Si el cliente manda `ops`, aplica las reglas de negocio (ops-rules.ts) contra el
+ * estado anterior y deja las señales activas como líneas «Operación: …» en `error` (la ficha y Salud ya lo muestran; es además la memoria con la
+ * que se avisa solo en el cambio). Devuelve la evaluación para que el disparador avise, o null si no hay `ops`.
+ */
+export async function recordHealth(subscriptionId: string, probe: ProbeResult, now: Date = new Date()): Promise<OpsEvaluation | null> {
   const base = {
     checkedAt: now,
     httpStatus: probe.httpStatus,
     latencyMs: probe.latencyMs,
   };
+  const previous = await prisma.tenantHealth.findUnique({ where: { subscriptionId }, select: { error: true } });
+  let evaluation: OpsEvaluation | null = null;
+  if (probe.reachable && probe.ops) evaluation = evaluateOps(probe.ops, now.getTime(), previous?.error ?? null);
+  // Sin lectura de `ops` en esta pasada (el cliente no responde, o `ops` falta, es nulo o no es válido) NO se sabe si las señales siguen o no: se
+  // CONSERVAN las líneas anteriores tal cual. Borrarlas haría que al volver el cliente se avisara otra vez de lo ya avisado, o que se perdiera el
+  // «recuperado» de lo que se resolvió durante la caída.
+  const opsLines = evaluation ? evaluation.findings.map((f) => f.line) : splitHealthError(previous?.error).ops;
   const data = probe.reachable
     ? {
         ...base,
-        ok: probe.detail.status !== 'error' && probe.problems.length === 0,
-        status: probe.detail.serving === false ? 'blocked' : probe.problems.length ? 'degraded' : probe.detail.status,
+        ok: probe.detail.status !== 'error' && probe.problems.length === 0 && opsLines.length === 0,
+        status: probe.detail.serving === false ? 'blocked' : probe.problems.length || opsLines.length ? 'degraded' : probe.detail.status,
         dbOk: probe.detail.db.ok,
         schemaApplied: probe.detail.schema.applied,
         schemaExpected: probe.detail.schema.expected,
@@ -79,7 +97,8 @@ export async function recordHealth(subscriptionId: string, probe: ProbeResult, n
         onboardingComplete: probe.detail.onboarding.complete,
         onboardingMissing: probe.detail.onboarding.missing,
         version: probe.detail.version,
-        error: probe.problems.length ? probe.problems.join(' · ').slice(0, 500) : null,
+        // Las señales de operación primero (lo que toca dinero es lo más urgente y no debe quedar cortado por el límite).
+        error: [...opsLines, ...probe.problems].length ? [...opsLines, ...probe.problems].join(' · ').slice(0, 1200) : null,
       }
     : {
         ...base,
@@ -92,7 +111,21 @@ export async function recordHealth(subscriptionId: string, probe: ProbeResult, n
         onboardingComplete: null,
         onboardingMissing: [] as string[],
         version: null,
-        error: probe.error.slice(0, 500),
+        error: [...opsLines, probe.error.slice(0, 500)].join(' · ').slice(0, 1200),
       };
   await prisma.tenantHealth.upsert({ where: { subscriptionId }, create: { subscriptionId, ...data }, update: data });
+  return evaluation;
+}
+
+/** ¿Las señales de operación (y solo ellas) son la causa de que la última comprobación no fuera «ok»? Entonces la parte técnica estaba bien. */
+export function wasOnlyOpsDegraded(previous: { ok: boolean; status: string; error: string | null }): boolean {
+  if (previous.ok || previous.status !== 'degraded' || !previous.error) return false;
+  return previous.error.split(' · ').every((p) => p.trim().startsWith(OPS_PREFIX));
+}
+
+/** El aviso de estas señales no llegó a salir: se marcan para volver a avisar en la siguiente pasada en lugar de darlas por avisadas. */
+export async function markOpsUnalerted(subscriptionId: string, keys: OpsKey[]): Promise<void> {
+  const row = await prisma.tenantHealth.findUnique({ where: { subscriptionId }, select: { error: true } });
+  const next = markUnalerted(row?.error, keys);
+  if (row && next !== row.error) await prisma.tenantHealth.update({ where: { subscriptionId }, data: { error: next } });
 }

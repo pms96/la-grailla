@@ -6,6 +6,7 @@ Contrato entre el panel de control (que escribe) y el front (que lee). Todo lo q
 - `SnapshotEnvelope`: el registro firmado con Ed25519 (`kid`, `seq`, `iat`, `staleUntil`, `contractVersion`).
 - `newUlid`/`isUlid`: identidad de tenant, inmutable.
 - `normalizeHost`: la única forma de comparar dominios.
+- `OpsBlockSchema` / `parseOpsBlock`: el bloque `ops` (señales de negocio, sin datos personales) de `GET /api/health`. Lo produce el front y lo lee el panel; es **opcional** en la respuesta y los campos que no conoce se ignoran (aditivo, no sube `CONTRACT_VERSION`).
 
 ## Reglas de compatibilidad
 

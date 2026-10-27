@@ -1,4 +1,6 @@
 export const dynamic = 'force-dynamic';
+// Al confirmar el pago aquí, el email se envía tras responder (`after`): ese trabajo cuenta para el límite de la función.
+export const maxDuration = 60;
 
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
@@ -10,6 +12,8 @@ import { allowOrderAccess, getTokenFromRequest } from '@/lib/access-token';
 import { withoutSeasonLink } from '@/lib/modules/season-link';
 import { LATE_PAYMENT_WINDOW_MS, checkCancelledOrderPayment } from '@/lib/reconciliation/payment-check';
 import type { PaymentCheck } from '@/lib/confirmation-state';
+import { getEmailState } from '@/lib/email-delivery';
+import { buyerEmailView } from '@/lib/order-email';
 
 const includeTicketsAndEvent = { event: true, tickets: { include: { ticketType: true } } } as const;
 
@@ -68,7 +72,10 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
     }
 
-    return NextResponse.json({ ...withoutSeasonLink(order), paymentCheck });
+    // Estado REAL del email para la pantalla (la confirmación ya no afirma «te hemos enviado un email» sin comprobarlo). Sin el texto del error: es interno.
+    const emailDelivery = order.status === 'COMPLETED' ? buyerEmailView(await getEmailState('entradas', order.id)) : null;
+    const { emailLastError: _internal, ...publicOrder } = withoutSeasonLink(order);
+    return NextResponse.json({ ...publicOrder, paymentCheck, emailDelivery });
   } catch (error) {
     return handleApiError(error, 'GET /api/orders/[orderId]');
   }

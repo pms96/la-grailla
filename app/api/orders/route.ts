@@ -15,6 +15,7 @@ import { checkCapacityAlerts } from '@/lib/capacity-alerts';
 import { getPaymentProvider } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
 import { handleApiError } from '@/lib/api-error';
+import { captureOpsError } from '@/lib/observability/capture';
 import { orderAccessQuery, signOrderAccess } from '@/lib/access-token';
 import { hasEventEnded } from '@/lib/active-event';
 import { calculateCommission } from '@/lib/pricing';
@@ -403,6 +404,7 @@ export async function POST(request: Request) {
       // Y hay que soltar el stock reservado — si no, esas unidades quedan
       // "vendidas" para siempre aunque nunca se haya iniciado el cobro.
       console.error('Ticket checkout session error:', error instanceof Error ? error.message : error);
+      captureOpsError(error, { route: 'POST /api/orders', kind: 'entradas', provider: paymentProvider.name, orderId: order.id, reason: 'checkout_session_failed' });
       // Si la sesión SÍ se creó en la pasarela y lo que falló fue guardar su id, se cierra: el pedido se cancela y no debe poder pagarse.
       if (createdSessionId && paymentProvider.cancelPayment) await paymentProvider.cancelPayment(createdSessionId).catch(() => {});
       await releasePendingSlot(order.id);

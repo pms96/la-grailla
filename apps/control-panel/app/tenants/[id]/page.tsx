@@ -7,6 +7,7 @@ import { verificationRecordName, verificationRecordValue } from '@/lib/services/
 import { buildRoutingRecord } from '@/lib/services/snapshot';
 import { licenseStateOf } from '@/lib/services/license';
 import { listLocalMigrations } from '@/lib/services/migrations';
+import { OPS_PREFIX, hasCriticalOps, splitHealthError } from '@/lib/services/ops-rules';
 import { computeReadiness } from '@/lib/services/readiness';
 import {
   addDomainAction,
@@ -420,13 +421,27 @@ export default async function TenantPage({ params }: { params: { id: string } })
                     <dd>
                       {o.health ? (
                         <>
-                          <Pill tone={o.health.ok ? 'ok' : o.health.status === 'degraded' ? 'warn' : 'bad'}>{o.health.status}</Pill>{' '}
+                          <Pill tone={o.health.ok ? 'ok' : o.health.status === 'degraded' && !hasCriticalOps(o.health.error) ? 'warn' : 'bad'}>{o.health.status}</Pill>{' '}
                           <span className="muted">
                             {formatDate(o.health.checkedAt)}
                             {o.health.latencyMs !== null && ` · ${o.health.latencyMs} ms`}
                             {o.health.version && ` · v ${o.health.version}`}
                           </span>
-                          {o.health.error && <div className="muted">{o.health.error}</div>}
+                          {(() => {
+                            const { ops: opsLines, other } = splitHealthError(o.health.error);
+                            return (
+                              <>
+                                {other.length > 0 && <div className="muted">{other.join(' · ')}</div>}
+                                {opsLines.length > 0 && (
+                                  <ul className="steplist" aria-label="Señales de operación" style={{ marginTop: '.35rem' }}>
+                                    {opsLines.map((l) => (
+                                      <li key={l}>{l.replace(OPS_PREFIX, '')}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </>
+                            );
+                          })()}
                         </>
                       ) : (
                         <span className="muted">sin comprobar</span>

@@ -122,6 +122,7 @@ Plan de Vercel: el panel necesita **Pro** (Vercel Cron cada 5 min y funciones de
 
 - Front `GET /api/health`: público devuelve solo `{status}` (200/503). Con el secreto de cron del cliente devuelve el detalle: versión, BD (latencia), esquema aplicado/esperado/mínimo, onboarding. Se sirve también con el cliente suspendido, en mantenimiento o sin licencia.
 - Panel `/health`: una fila por cliente, lo que falla primero. Señala: no responde, BD caída, esquema atrasado, **deriva** (el registro declara una versión y la BD tiene otra), datos sin completar, tarea fallando 3 veces seguidas, última migración fallida, registro sin republicar 36 h, comprobación antigua (el disparador no corre).
+- Si el front manda el bloque `ops` (pedidos pendientes, emails sin enviar, estado del reconcile), el panel aplica además reglas de negocio con avisos solo en el cambio: ver [observabilidad.md](observabilidad.md) §3.
 - No incluye todavía la salud «por empuje», uso y negocio ni cuotas: llegan con el umbral de 3 a 5 clientes.
 
 ## 5 · Copia del registro

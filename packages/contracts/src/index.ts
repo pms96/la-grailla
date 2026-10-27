@@ -8,3 +8,4 @@ export * from './secrets';
 export * from './secrets-snapshot';
 export * from './installation-secret';
 export * from './operations';
+export * from './health-ops';

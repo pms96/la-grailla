@@ -5,7 +5,8 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { sendTicketsEmail } from '@/lib/tickets';
+import { buyerResendLimit, sendOrderEmail, sendResultResponse } from '@/lib/order-email';
+import { logPaymentEvent } from '@/lib/reconciliation/shared';
 import { getBaseUrl } from '@/lib/url';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { handleApiError } from '@/lib/api-error';
@@ -21,6 +22,11 @@ function isStaff(role: string | undefined): boolean {
   return role === 'ADMIN' || role === 'TAQUILLA';
 }
 
+/* Envío del email de entradas a petición (P0-08), SIEMPRE por el único punto de envío (concesión atómica: dos clics o un clic y el webhook no
+ * duplican).
+ *  - Comprador (token firmado del pedido) con `softResend`: «Reenviar a mi email», 3 por hora y pedido. Salta el backoff, nunca la concesión.
+ *  - Comprador sin `softResend`: un empujón que respeta el backoff y no reenvía lo ya enviado (clientes antiguos que lo llamaban al abrir la pantalla).
+ *  - Personal (`force`, sesión ADMIN/TAQUILLA): reenvío sin límite por pedido. El admin usa /api/admin/orders/[id]/resend-email, que además es solo ADMIN. */
 export async function POST(request: Request, props: { params: Promise<{ orderId: string }> }) {
   const params = await props.params;
   try {
@@ -55,10 +61,23 @@ export async function POST(request: Request, props: { params: Promise<{ orderId:
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
-    const result = await sendTicketsEmail(params?.orderId, force, getBaseUrl(request), {
-      softResend: softResend && !force,
-    });
-    return NextResponse.json(result);
+    const manual = force || softResend;
+    if (manual && !staff) {
+      const perOrder = await buyerResendLimit('entradas', params?.orderId);
+      if (!perOrder.ok) {
+        return NextResponse.json(
+          { success: false, status: 'rate_limited', error: 'Has pedido demasiados reenvíos de este pedido. Inténtalo de nuevo más tarde.' },
+          { status: 429, headers: { 'Retry-After': String(perOrder.retryAfter) } }
+        );
+      }
+    }
+
+    const result = await sendOrderEmail('entradas', params?.orderId, { baseUrl: getBaseUrl(request), mode: manual ? 'manual' : 'auto', resend: manual });
+    if (manual) {
+      logPaymentEvent('[order-email]', { kind: 'entradas', orderId: params?.orderId, reason: 'manual_resend', by: staff ? `staff:${session?.user?.id ?? '-'}` : 'buyer', result: result.status }, 'info');
+    }
+    const { httpStatus, body } = sendResultResponse(result, { detail: staff });
+    return NextResponse.json(body, { status: httpStatus });
   } catch (error) {
     return handleApiError(error, 'POST /api/orders/[orderId]/send-tickets');
   }

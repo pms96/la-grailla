@@ -25,19 +25,24 @@ import { EventTicket, TICKET_BARCODE_BG } from '@/components/event-ticket';
 import { Logo } from '@/components/logo';
 import QRCode from 'qrcode';
 import { useBrand } from '@/components/brand-provider';
-import { confirmationView, shouldKeepPolling, type PaymentCheck } from '@/lib/confirmation-state';
+import { confirmationView, emailNotice, shouldKeepPolling, type EmailDelivery, type PaymentCheck } from '@/lib/confirmation-state';
 
 type OrderWithTickets = Prisma.OrderGetPayload<{
   include: { event: true; tickets: { include: { ticketType: true } } };
 }> & {
   /** Resultado de comprobar contra la pasarela un pedido anulado con pago (lo añade la API del pedido). */
   paymentCheck?: PaymentCheck;
+  /** Estado REAL del email con las entradas (lo calcula la API del pedido): la pantalla no afirma haberlo enviado sin comprobarlo. */
+  emailDelivery?: EmailDelivery | null;
 };
 
 type OrderState = OrderWithTickets | { error: string } | null;
 
 const MAX_POLLS = 15;
 const POLL_INTERVAL_MS = 3000;
+// Mientras el email está «enviándose» o «reintentándose» se vuelve a preguntar (no es el sondeo del pago): cada 5 s, hasta un minuto.
+const MAX_EMAIL_POLLS = 12;
+const EMAIL_POLL_INTERVAL_MS = 5000;
 
 export default function ConfirmationClient({
   orderId,
@@ -50,7 +55,9 @@ export default function ConfirmationClient({
   const [order, setOrder] = useState<OrderState>(null);
   const [loading, setLoading] = useState(true);
   const [fetchFailed, setFetchFailed] = useState(false);
-  const [emailStatus, setEmailStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  // Estado del botón «Reenviar a mi email» (el del email en sí lo da la API del pedido: `emailDelivery`).
+  const [resend, setResend] = useState<'idle' | 'sending' | 'queued' | 'error' | 'limited'>('idle');
+  const [emailPollCount, setEmailPollCount] = useState(0);
   const [wallet, setWallet] = useState<{ google: boolean; apple: boolean }>({ google: false, apple: false });
   const [pollCount, setPollCount] = useState(0);
 
@@ -103,35 +110,36 @@ export default function ConfirmationClient({
     return () => clearTimeout(t);
   }, [view, pollCount, orderId]);
 
+  // El servidor envía el email por su cuenta (y lo reintenta): aquí solo se refleja el estado real, preguntando de nuevo mientras pueda cambiar.
+  const emailPolling = emailNotice({ delivery: validOrder?.emailDelivery, kind: 'entradas', email: '' }).keepPolling;
   useEffect(() => {
-    if (!validOrder?.id || orderError || isPending || isCheckingPayment || isCancelled || isRefunded) return;
-    if (validOrder?.emailSentAt) {
-      setEmailStatus('sent');
-      return;
-    }
-    setEmailStatus('sending');
-    fetch(`/api/orders/${validOrder.id}/send-tickets`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ t: accessToken || undefined }),
-    })
-      .then((r) => r.json())
-      .then((data) => setEmailStatus(data?.success ? 'sent' : 'error'))
-      .catch(() => setEmailStatus('error'));
-  }, [validOrder?.id, validOrder?.emailSentAt, orderError, isPending, isCheckingPayment, isCancelled, isRefunded, accessToken]);
+    if (view !== 'confirmed' || !emailPolling || emailPollCount >= MAX_EMAIL_POLLS) return;
+    const t = setTimeout(() => {
+      setEmailPollCount((c) => c + 1);
+      fetchOrder();
+    }, EMAIL_POLL_INTERVAL_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchOrder se recrea en cada render; depende solo de orderId/token
+  }, [view, emailPolling, emailPollCount, orderId, accessToken]);
 
   const resendEmail = async () => {
-    setEmailStatus('sending');
+    setResend('sending');
     try {
       const res = await fetch(`/api/orders/${orderId}/send-tickets`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ softResend: true, t: accessToken || undefined }),
       });
-      const data = await res.json();
-      setEmailStatus(data?.success ? 'sent' : 'error');
+      if (res.status === 429) {
+        setResend('limited');
+        return;
+      }
+      const data = await res.json().catch(() => null);
+      setResend(data?.success ? 'queued' : 'error');
+      setEmailPollCount(0);
+      fetchOrder();
     } catch {
-      setEmailStatus('error');
+      setResend('error');
     }
   };
 
@@ -298,6 +306,8 @@ export default function ConfirmationClient({
     ? new Date(validOrder.event.date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Madrid' })
     : '';
 
+  const notice = emailNotice({ delivery: validOrder?.emailDelivery, kind: 'entradas', email: validOrder?.buyerEmail ?? '' });
+
   return (
     <FadeIn>
       <div className="space-y-6">
@@ -339,33 +349,39 @@ export default function ConfirmationClient({
           <CardContent className="p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
-                <Mail className="h-5 w-5 text-primary mt-0.5 shrink-0" />
-                <div>
+                <Mail className={`h-5 w-5 mt-0.5 shrink-0 ${notice.tone === 'problem' ? 'text-destructive' : 'text-primary'}`} />
+                <div role="status" aria-live="polite">
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.p
-                      key={emailStatus}
+                      key={validOrder?.emailDelivery ?? 'unknown'}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.2, ease: 'easeOut' }}
                       className="font-medium leading-tight"
                     >
-                      {emailStatus === 'sending' && 'Enviando tus entradas por email...'}
-                      {emailStatus === 'sent' && 'Entradas enviadas por email'}
-                      {emailStatus === 'error' && 'No hemos podido enviar el email'}
-                      {emailStatus === 'idle' && 'Preparando el envío por email'}
+                      {notice.title}
                     </motion.p>
                   </AnimatePresence>
-                  <p className="text-sm text-muted-foreground">
-                    {emailStatus === 'error'
-                      ? 'Puedes descargar el PDF aquí mismo o volver a intentarlo.'
-                      : `Enviamos tus entradas a ${validOrder?.buyerEmail ?? ''}`}
-                  </p>
+                  <p className="text-sm text-muted-foreground">{notice.detail}</p>
+                  {resend === 'queued' && <p className="text-sm text-muted-foreground mt-1">Hecho: te lo estamos enviando de nuevo.</p>}
+                  {resend === 'error' && <p className="text-sm text-destructive mt-1">No hemos podido reenviarlo ahora. Descarga tus entradas aquí mismo.</p>}
+                  {resend === 'limited' && <p className="text-sm text-destructive mt-1">Has pedido demasiados reenvíos de este pedido. Prueba de nuevo más tarde o descarga tus entradas aquí mismo.</p>}
+                  {(notice.offerDownload || resend === 'error' || resend === 'limited') && (
+                    <a
+                      href={`/api/tickets/${orderId}/pdf-html${tokenQs}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                    >
+                      <Download className="h-3.5 w-3.5" /> Descargar mis entradas
+                    </a>
+                  )}
                 </div>
               </div>
-              <Button variant="outline" size="sm" onClick={resendEmail} disabled={emailStatus === 'sending'} className="gap-2 shrink-0">
-                {emailStatus === 'sending' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-                Reenviar email
+              <Button variant="outline" size="sm" onClick={resendEmail} disabled={resend === 'sending'} className="gap-2 shrink-0">
+                {resend === 'sending' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                Reenviar a mi email
               </Button>
             </div>
           </CardContent>
@@ -431,7 +447,7 @@ function ConfirmationPeak() {
         animate={{ opacity: 1 }}
         transition={{ delay: reduceMotion ? 0 : 0.22, duration: 0.3 }}
       >
-        Tus entradas están listas — QR por email
+        Tus entradas están listas
       </motion.p>
     </div>
   );

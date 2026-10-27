@@ -171,36 +171,21 @@ function buildEmailHtml(
   );
 }
 
-const PUBLIC_RESEND_COOLDOWN_MS = 60_000;
-
-export async function sendTicketsEmail(
+/**
+ * Construye y envía el email con las entradas de un pedido (PDF, pases de Wallet, enlaces). NO lleva el estado de entrega ni decide si toca
+ * enviar: eso es de `sendOrderEmail` (lib/order-email.ts), el ÚNICO punto de envío, que reclama la concesión antes y anota el resultado
+ * después (lib/email-delivery.ts). Llamar a esto directamente se salta el reintento, la concesión y el rastro.
+ */
+export async function deliverTicketsEmail(
   orderId: string,
-  force: boolean = false,
-  baseUrl?: string,
-  options?: { softResend?: boolean }
-) {
+  baseUrl?: string
+): Promise<{ success: boolean; transport?: string; error?: string; errorCode?: string }> {
   const built = await buildTicketsHtml(orderId);
   if (!built) return { success: false, error: 'Pedido no encontrado' };
   const { order } = built;
 
   if (order.status === 'CANCELLED' || order.status === 'REFUNDED') {
     return { success: false, error: 'order_inactive' };
-  }
-
-  if (order.emailSentAt && !force) {
-    if (options?.softResend) {
-      const elapsed = Date.now() - new Date(order.emailSentAt).getTime();
-      if (elapsed < PUBLIC_RESEND_COOLDOWN_MS) {
-        return {
-          success: true,
-          alreadySent: true,
-          cooldownMs: PUBLIC_RESEND_COOLDOWN_MS - elapsed,
-        };
-      }
-      // Tras el cooldown, el comprador con la URL de confirmación puede reenviar.
-    } else {
-      return { success: true, alreadySent: true };
-    }
   }
 
   // No enviar (ni PDF, ni QR válidos) mientras el pago siga pendiente de confirmar.
@@ -220,7 +205,7 @@ export async function sendTicketsEmail(
     pdfBytes = await buildTicketsPdf(order);
   } catch (error) {
     console.error(
-      `[sendTicketsEmail] PDF fallido para ${orderId}:`,
+      `[deliverTicketsEmail] PDF fallido para ${orderId}:`,
       error instanceof Error ? error.message : error
     );
   }
@@ -231,7 +216,7 @@ export async function sendTicketsEmail(
       minorAuthPdfBytes = await buildMinorAuthorizationPdf(order.event);
     } catch (error) {
       console.error(
-        `[sendTicketsEmail] PDF autorizacion fallido para ${orderId}:`,
+        `[deliverTicketsEmail] PDF autorizacion fallido para ${orderId}:`,
         error instanceof Error ? error.message : error
       );
     }
@@ -267,7 +252,7 @@ export async function sendTicketsEmail(
         }
       } catch (error) {
         console.error(
-          `[sendTicketsEmail] Pase Apple Wallet fallido para ticket ${ticket.id}:`,
+          `[deliverTicketsEmail] Pase Apple Wallet fallido para ticket ${ticket.id}:`,
           error instanceof Error ? error.message : error
         );
       }
@@ -297,15 +282,5 @@ export async function sendTicketsEmail(
     attachments: attachments.length ? attachments : undefined,
   });
 
-  await prisma.order.update({
-    where: { id: order.id },
-    data: {
-      emailAttempts: { increment: 1 },
-      ...(result.success
-        ? { emailSentAt: new Date(), emailLastError: null }
-        : { emailLastError: result.error ?? 'Error desconocido al enviar' }),
-    },
-  });
-
-  return { success: result.success, transport: result.transport, error: result.error };
+  return { success: result.success, transport: result.transport, error: result.error, errorCode: result.errorCode };
 }

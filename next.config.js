@@ -56,6 +56,10 @@ const nextConfig = {
   distDir: process.env.NEXT_DIST_DIR || '.next',
   output: process.env.NEXT_OUTPUT_MODE,
   poweredByHeader: false,
+  // Sentry (P0-07) solo en el servidor y solo con SENTRY_DSN (instrumentation.ts). Sin esto webpack empaquetaría el SDK DOS veces (una para instrumentation.ts y
+  // otra para el import dinámico de lib/observability/capture.ts: ~3,2 MB de servidor y dos instancias); como externo se carga de node_modules, una sola vez y
+  // solo cuando alguien lo importa. No afecta al navegador ni al middleware.
+  serverExternalPackages: ['@sentry/nextjs'],
   productionBrowserSourceMaps: false,
   typescript: {
     ignoreBuildErrors: false,

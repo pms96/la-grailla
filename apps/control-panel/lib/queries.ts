@@ -1,4 +1,5 @@
 import { prisma } from './db';
+import { hasCriticalOps, splitHealthError } from './services/ops-rules';
 import { pendingChanges } from './services/snapshot';
 
 export async function listTenants() {
@@ -90,11 +91,15 @@ export function assessSubscription(i: AssessInput, now: number = Date.now()): { 
     problems.push(i.health.error ?? 'El front no sirve a este cliente');
     raise('bad');
   } else if (i.health.status === 'unreachable') {
-    problems.push(`No responde: ${i.health.error ?? 'sin detalle'}`);
+    // `error` puede llevar, además del motivo, las señales de operación que se conservan durante la caída: se muestran aparte.
+    const { ops, other } = splitHealthError(i.health.error);
+    problems.push(`No responde: ${other.join(' · ') || 'sin detalle'}`, ...ops);
     raise('bad');
   } else if (!i.health.ok) {
-    problems.push(i.health.error ?? 'Degradado');
-    raise(i.health.status === 'error' ? 'bad' : 'warn');
+    // `error` junta, separadas por « · », las señales de operación (P0-07) y los problemas técnicos: cada una es un problema aparte.
+    problems.push(...(i.health.error ?? 'Degradado').split(' · ').map((p) => p.trim()).filter(Boolean));
+    // Una señal de operación de gravedad «fallo» (pedidos sin resolver, emails con error, reconcile caído) pinta en rojo.
+    raise(i.health.status === 'error' || hasCriticalOps(i.health.error) ? 'bad' : 'warn');
   }
   for (const c of i.crons) {
     if (c.consecutiveFailures >= 3) {

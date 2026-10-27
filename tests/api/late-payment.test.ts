@@ -247,7 +247,7 @@ describe('pago tardío (P0-05)', () => {
       expect(await sold()).toBe(1);
       expect((await reload(o.id))?.status).toBe('COMPLETED');
       expect((await reload(o.id))?.tickets.filter((t) => t.status === 'VALID')).toHaveLength(1);
-      expect(to(/Tus entradas/).length).toBeLessThanOrEqual(1 + 2); // el reenvío por emailSentAt (P0-08) es otra tarea; aquí solo se exige que no se reanime dos veces
+      expect(to(/Tus entradas/)).toHaveLength(1); // P0-08: la concesión atómica del envío evita el duplicado entre entregas simultáneas
     });
 
     it('reembolso duplicado: dos entregas simultáneas sin plazas piden el reembolso con la MISMA clave de idempotencia y avisan una vez', async () => {

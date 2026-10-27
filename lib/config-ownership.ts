@@ -54,7 +54,12 @@ export const CONFIG_KEY_OWNERS: Readonly<Record<string, Owners>> = Object.fromEn
 ]);
 
 /** Claves del sistema: ni se muestran ni se guardan desde la API de administración (el tema tiene su propia ruta). */
-export const INTERNAL_CONFIG_KEYS: readonly string[] = ['site_theme', 'apple_wallet_cert_expiry_alerted_for'];
+export const INTERNAL_CONFIG_KEYS: readonly string[] = [
+  'site_theme',
+  'apple_wallet_cert_expiry_alerted_for',
+  // Resumen de la última pasada del cron de reconciliación, para el bloque `ops` de /api/health (lib/ops-health.ts). Lo escribe el cron; no es secreto.
+  'ops_reconcile_last',
+];
 
 /** Módulos dueños de una clave, o null si no tiene dueño declarado. */
 export function configKeyOwners(key: string): Owners | null {

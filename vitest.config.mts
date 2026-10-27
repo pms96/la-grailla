@@ -12,6 +12,9 @@ export default defineConfig({
     // dotenv primero (carga el .env) y después la guardia: la suite se niega a arrancar contra una base de datos que no sea local.
     setupFiles: ['dotenv/config', './tests/setup/require-local-db.ts'],
     testTimeout: 15000,
+    // Nunca se manda nada a un Sentry ni a un ntfy reales desde la suite, aunque el .env del desarrollador tenga estas variables (P0-07):
+    // vacías, el código las trata como «no configurado». Los tests que prueban esos canales inyectan su propio `fetch`/transporte.
+    env: { SENTRY_DSN: '', PLATFORM_ALERT_URL: '', PLATFORM_ALERT_TOKEN: '' },
     // Los tests de checkout golpean la base de datos de desarrollo real
     // (igual que el resto del proyecto no tiene mocks de Prisma) — en serie
     // para que no compitan por el stock de las mismas ticketTypes de prueba.

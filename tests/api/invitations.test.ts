@@ -12,8 +12,9 @@ vi.mock('@/lib/auth', () => ({
   authOptions: {},
 }));
 
+// El email de la invitación sale por el único punto de envío (lib/order-email.ts), que construye el email con `deliverTicketsEmail`.
 vi.mock('@/lib/tickets', () => ({
-  sendTicketsEmail: vi.fn(async () => ({ success: true, transport: 'none' })),
+  deliverTicketsEmail: vi.fn(async () => ({ success: true, transport: 'none' })),
 }));
 
 const { POST: createInvitation } = await import('@/app/api/invitations/route');
@@ -62,6 +63,19 @@ describe('POST /api/invitations', () => {
     expect(order?.channel).toBe('INVITACION');
     expect(order?.tickets).toHaveLength(2);
     expect(order?.tickets.every((t) => t.status === 'VALID')).toBe(true);
+  });
+
+  it('con sendEmail envía la invitación por el único punto de envío (P0-08): queda enviada, con su intento, y la respuesta lo dice', async () => {
+    const res = await createInvitation(
+      inviteRequest({ eventId: event.id, guestName: 'VIP Email', guestEmail: 'vip-email@example.com', quantity: 1, sendEmail: true })
+    );
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.emailResult).toMatchObject({ success: true, status: 'sent' });
+    const order = await prisma.order.findUnique({ where: { id: json.orderId } });
+    expect(order?.emailSentAt).toBeTruthy();
+    expect(order?.emailAttempts).toBe(1);
+    expect(order?.emailLastError).toBeNull();
   });
 
   it('rechaza si el aforo no da', async () => {

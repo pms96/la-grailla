@@ -8,7 +8,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { generateQRCode } from '@/lib/qr';
-import { sendTicketsEmail } from '@/lib/tickets';
+import { sendOrderEmail, sendResultResponse } from '@/lib/order-email';
 import { getBaseUrl } from '@/lib/url';
 import { handleApiError } from '@/lib/api-error';
 
@@ -135,9 +135,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: created.message }, { status: 400 });
     }
 
-    let emailResult: Awaited<ReturnType<typeof sendTicketsEmail>> | null = null;
+    // Por el único punto de envío (concesión atómica, rastro del intento). La invitación va a quien el personal ha elegido, así que se salta el backoff.
+    let emailResult: { success: boolean; status: string; error?: string } | null = null;
     if (sendEmail && guestEmail) {
-      emailResult = await sendTicketsEmail(created.order.id, true, getBaseUrl(request));
+      emailResult = sendResultResponse(await sendOrderEmail('entradas', created.order.id, { baseUrl: getBaseUrl(request), mode: 'manual', resend: true }), { detail: true }).body;
     }
 
     return NextResponse.json({ success: true, invitation: created.invitation, orderId: created.order.id, emailResult });

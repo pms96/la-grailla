@@ -3,7 +3,7 @@ import { escapeHtml as esc } from '@/lib/html-escape';
 import type { OrderStatus, TicketStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
-import { sendTicketsEmail } from '@/lib/tickets';
+import { scheduleOrderEmail } from '@/lib/order-email';
 import { hasEventEnded } from '@/lib/active-event';
 import { alertOperator, alertPaidButInactiveOrder, logPaymentEvent, paymentMatchesOrder, type CompleteOutcome, type PaidInfo } from './shared';
 import { alertManuallyRefunded, confirmLatePayment, finishLateRefund, lateRefundMarker } from './late-payment';
@@ -22,9 +22,9 @@ import { releasePendingSlot } from '@/lib/rate-limit';
 // de fila en la base de datos), no con un "leer estado, decidir, escribir"
 // — así, si el webhook y el cron (o dos reintentos del webhook) llegan casi
 // a la vez, solo uno de los dos gana la transición y el resto no reescribe
-// nada. Tras completar (o si ya estaba COMPLETED sin email), intenta enviar
-// las entradas: el comprador no debe depender de volver a /confirmacion.
-export async function completeOrder(orderId: string, baseUrl?: string, paid?: PaidInfo): Promise<CompleteOutcome> {
+// nada. Tras completar (o si ya estaba COMPLETED sin email), programa el envío
+// de las entradas: el comprador no debe depender de volver a /confirmacion.
+export async function completeOrder(orderId: string, baseUrl?: string, paid?: PaidInfo, opts: { emailInline?: boolean } = {}): Promise<CompleteOutcome> {
   // Si la pasarela dice cuánto cobró y no cuadra con el pedido, no se completa (ver paymentMatchesOrder).
   if (!(await paymentMatchesOrder('entradas', orderId, paid))) return 'amount_mismatch';
   const result = await prisma.$transaction(async (tx) => {
@@ -52,14 +52,10 @@ export async function completeOrder(orderId: string, baseUrl?: string, paid?: Pa
     return 'inactive';
   }
 
-  try {
-    await sendTicketsEmail(orderId, false, baseUrl ?? getFallbackBaseUrl());
-  } catch (error) {
-    console.error(
-      `[completeOrder] Error enviando entradas del pedido ${orderId}:`,
-      error instanceof Error ? error.message : error
-    );
-  }
+  // P0-08: el email (PDF + pases + SMTP) sale de la ruta crítica —la pasarela recibe su 200 sin esperarlo— y por el ÚNICO punto de envío, que
+  // reclama una concesión atómica (webhook, verificación al abrir la confirmación y cron pueden llegar a la vez) y deja rastro del intento. Si
+  // la función se corta antes de enviar, el barrido del cron lo recupera. `emailInline`: el cron, que ya acota su concurrencia y su tiempo.
+  await scheduleOrderEmail('entradas', orderId, { baseUrl: baseUrl ?? getFallbackBaseUrl(), inline: opts.emailInline });
 
   try {
     const { checkCapacityAlerts } = await import('@/lib/capacity-alerts');

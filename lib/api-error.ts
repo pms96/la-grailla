@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
+import { captureOpsError, type OpsErrorContext } from '@/lib/observability/capture';
 
-export function handleApiError(error: unknown, context: string): NextResponse {
+/**
+ * `ops` (opcional) añade el contexto mínimo que ya se conoce en el punto de la llamada (proveedor, tipo, pedido) al aviso de Sentry; nunca datos
+ * del comprador. Solo los fallos inesperados (el 500 del final) se avisan: un 400 de validación o un 409 los provoca el cliente y no son una incidencia.
+ */
+export function handleApiError(error: unknown, context: string, ops: Omit<OpsErrorContext, 'route'> = {}): NextResponse {
   console.error(`[${context}]`, error);
 
   if (error instanceof ZodError) {
@@ -24,5 +29,6 @@ export function handleApiError(error: unknown, context: string): NextResponse {
     );
   }
 
+  captureOpsError(error, { route: context, ...ops });
   return NextResponse.json({ error: 'internal_server_error' }, { status: 500 });
 }

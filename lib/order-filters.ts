@@ -26,6 +26,8 @@ export function buildOrdersWhere(params: OrdersFilterParams): Prisma.OrderWhereI
       ? {
           status: 'COMPLETED',
           emailSentAt: null,
+          // Solo pedidos online: la taquilla no envía email y las invitaciones tienen su propio envío (sin destinatario no hay nada que enviar).
+          channel: 'ONLINE',
         }
       : {}),
     ...(q

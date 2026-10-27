@@ -25,7 +25,7 @@ export async function resolvePaidCheckout(orderId: string, baseUrl?: string): Pr
   }
   if (await prisma.shopOrder.findUnique({ where: { id: orderId }, select: { id: true } })) {
     const { completeShopOrder } = await import('@/lib/reconciliation/tienda');
-    assertResolved(orderId, await completeShopOrder(orderId));
+    assertResolved(orderId, await completeShopOrder(orderId, undefined, { baseUrl }));
     return 'shop';
   }
   return null;

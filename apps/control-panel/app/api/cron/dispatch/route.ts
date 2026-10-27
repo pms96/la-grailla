@@ -50,12 +50,13 @@ export async function GET(request: Request) {
     if (job === 'tenants') {
       const only = url.searchParams.get('only');
       if (only && !TENANT_JOBS[only]) return NextResponse.json({ error: 'Tarea desconocida' }, { status: 400 });
-      // Con maxDuration = 120 s y llamadas de hasta 20 s, 90 s de presupuesto dejan margen para anotar el estado.
+      // Con maxDuration = 120 s y llamadas de hasta 55 s (reconcile-payments; el resto 20 s), 90 s de presupuesto dejan margen para anotar el estado:
+      // una llamada solo empieza si cabe entera en lo que queda de presupuesto.
       const budget = Number(process.env.CRON_BUDGET_MS ?? 90_000);
       const summary = await dispatchTenantJobs({ jobs: only ? [only] : undefined, budgetMs: Number.isFinite(budget) && budget > 0 ? budget : 90_000 });
       const status = dispatchHttpStatus(summary);
       console.log(`[cron-dispatch] due=${summary.due} ran=${summary.ran} ok=${summary.ok} failed=${summary.failed} deferred=${summary.deferred}`);
-      if (summary.due > 0 && summary.ran === 0) console.error('[cron-dispatch] había tareas vencidas y no se lanzó ninguna: ¿CRON_BUDGET_MS menor que el tiempo máximo de una llamada (20 s)?');
+      if (summary.due > 0 && summary.ran === 0) console.error('[cron-dispatch] había tareas vencidas y no se lanzó ninguna: ¿CRON_BUDGET_MS menor que el tiempo máximo de una llamada (55 s en reconcile-payments)?');
       // Latido: «el disparador sigue vivo» aunque haya clientes fallando (de eso avisan las alertas). Si deja de llegar, el servicio externo avisa.
       await sendHeartbeat(true);
       return NextResponse.json(summary, { status });

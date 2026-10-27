@@ -55,8 +55,8 @@ const scopeOf = (kind: SettleKind): PaymentScope => kind;
 
 const releaseOrder = (kind: SettleKind, id: string) => (kind === 'entradas' ? releaseExpiredOrder(id) : releaseExpiredShopOrder(id));
 
-async function completePaid(kind: SettleKind, id: string, result: PaymentResult, baseUrl?: string): Promise<SettleResult> {
-  const outcome = kind === 'entradas' ? await completeOrder(id, baseUrl, result) : await completeShopOrder(id, result);
+async function completePaid(kind: SettleKind, id: string, result: PaymentResult, baseUrl?: string, emailInline?: boolean): Promise<SettleResult> {
+  const outcome = kind === 'entradas' ? await completeOrder(id, baseUrl, result, { emailInline }) : await completeShopOrder(id, result, { emailInline, baseUrl });
   if (outcome === 'completed' || outcome === 'already_completed' || outcome === 'revived') return { outcome: 'completed', status: 'PAID' };
   return { outcome: 'attention', status: 'PAID', reason: `paid_but_${outcome}` };
 }
@@ -67,6 +67,8 @@ export async function settleUnpaidOrder(params: {
   abandoned?: boolean;
   baseUrl?: string;
   now?: number;
+  /** El email del pedido que se complete se envía en el acto (el cron, que acota su concurrencia y su tiempo) en vez de tras la respuesta. */
+  emailInline?: boolean;
 }): Promise<SettleResult> {
   const result = await decideUnpaidOrder(params);
   const { kind, order } = params;
@@ -104,6 +106,7 @@ async function decideUnpaidOrder(params: {
   abandoned?: boolean;
   baseUrl?: string;
   now?: number;
+  emailInline?: boolean;
 }): Promise<SettleResult> {
   const { kind, order } = params;
   const now = params.now ?? Date.now();
@@ -153,7 +156,7 @@ async function decideUnpaidOrder(params: {
     logUnknown(reason, status);
     return { outcome: 'unknown', status, reason };
   }
-  if (status === 'PAID') return completePaid(kind, order.id, first, params.baseUrl);
+  if (status === 'PAID') return completePaid(kind, order.id, first, params.baseUrl, params.emailInline);
   if (status === 'PROCESSING') return { outcome: 'processing', status };
   if (status === 'REFUNDED') return refundedWhilePending(status);
   if (status === 'EXPIRED') {
@@ -173,7 +176,7 @@ async function decideUnpaidOrder(params: {
 
   const { cancel, result: second } = await expireThenVerify(provider, paymentId);
   const status2 = effectiveStatus(second);
-  if (status2 === 'PAID') return completePaid(kind, order.id, second, params.baseUrl);
+  if (status2 === 'PAID') return completePaid(kind, order.id, second, params.baseUrl, params.emailInline);
   if (status2 === 'UNKNOWN') {
     const reason = `verification_failed_after_expire: ${second.error ?? 'sin detalle'}`;
     logUnknown(reason, status2);

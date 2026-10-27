@@ -4,11 +4,11 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { CheckCircle, Clock, Package, XCircle, Loader2 } from 'lucide-react';
+import { CheckCircle, Clock, Mail, Package, XCircle, Loader2 } from 'lucide-react';
 import { ReceiptPrinter, usePrintSequence } from '@/components/receipt-printer';
 import { useBrand } from '@/components/brand-provider';
 import { cartMatchesOrderItems, readCart, writeCart } from '@/lib/shop-cart';
-import { confirmationView, shouldKeepPolling, type PaymentCheck } from '@/lib/confirmation-state';
+import { confirmationView, emailNotice, shouldKeepPolling, type EmailDelivery, type PaymentCheck } from '@/lib/confirmation-state';
 
 export type ShopOrderView = {
   id: string;
@@ -20,6 +20,8 @@ export type ShopOrderView = {
   paymentId?: string | null;
   /** Resultado de comprobar contra la pasarela un pedido anulado con pago (lo añade la API del pedido). */
   paymentCheck?: PaymentCheck;
+  /** Estado REAL del email de confirmación (lo calcula la API del pedido): la pantalla no afirma haberlo enviado sin comprobarlo. */
+  emailDelivery?: EmailDelivery | null;
   shippingAddress: string;
   shippingCity: string;
   shippingZip: string;
@@ -36,11 +38,16 @@ export type ShopOrderView = {
 };
 
 const MAX_POLLS = 12;
+// Mientras el email está «enviándose» o «reintentándose» se vuelve a preguntar (no es el sondeo del pago): cada 5 s, hasta un minuto.
+const MAX_EMAIL_POLLS = 12;
+const EMAIL_POLL_INTERVAL_MS = 5000;
 
 export default function ShopConfirmationClient({ orderId, accessToken }: { orderId: string; accessToken?: string }) {
   const [order, setOrder] = useState<ShopOrderView | null>(null);
   const [loading, setLoading] = useState(true);
   const [pollCount, setPollCount] = useState(0);
+  const [emailPollCount, setEmailPollCount] = useState(0);
+  const [resend, setResend] = useState<'idle' | 'sending' | 'queued' | 'error' | 'limited'>('idle');
   const tokenQs = accessToken ? `?t=${encodeURIComponent(accessToken)}` : '';
 
   const load = useCallback(async () => {
@@ -81,6 +88,34 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
     }, 2500);
     return () => clearTimeout(t);
   }, [view, pollCount, load]);
+
+  // El servidor envía el email por su cuenta (y lo reintenta): aquí solo se refleja el estado real, preguntando de nuevo mientras pueda cambiar.
+  const emailPolling = emailNotice({ delivery: order?.emailDelivery, kind: 'tienda', email: '' }).keepPolling;
+  useEffect(() => {
+    if (view !== 'confirmed' || !emailPolling || emailPollCount >= MAX_EMAIL_POLLS) return;
+    const t = setTimeout(() => {
+      setEmailPollCount((c) => c + 1);
+      void load();
+    }, EMAIL_POLL_INTERVAL_MS);
+    return () => clearTimeout(t);
+  }, [view, emailPolling, emailPollCount, load]);
+
+  const resendEmail = async () => {
+    setResend('sending');
+    try {
+      const res = await fetch(`/api/shop/orders/${orderId}/send-email${tokenQs}`, { method: 'POST' });
+      if (res.status === 429) {
+        setResend('limited');
+        return;
+      }
+      const data = await res.json().catch(() => null);
+      setResend(data?.success ? 'queued' : 'error');
+      setEmailPollCount(0);
+      void load();
+    } catch {
+      setResend('error');
+    }
+  };
 
   if (loading && !order) {
     return (
@@ -192,15 +227,33 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
   }
 
   // PAID / PROCESSING / SHIPPED / DELIVERED
+  const notice = emailNotice({ delivery: order.emailDelivery, kind: 'tienda', email: order.buyerEmail });
   return (
     <div className="space-y-6 py-8">
       <div className="text-center">
         <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
         <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Pedido confirmado</h1>
-        <p className="text-muted-foreground mt-2">
-          Te hemos enviado un email de confirmación a {order.buyerEmail}
-        </p>
+        <p className="text-muted-foreground mt-2">Hemos recibido tu pago.</p>
       </div>
+
+      <Card>
+        <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3" role="status" aria-live="polite">
+            <Mail className={`h-5 w-5 mt-0.5 shrink-0 ${notice.tone === 'problem' ? 'text-destructive' : 'text-primary'}`} />
+            <div>
+              <p className="font-medium leading-tight">{notice.title}</p>
+              <p className="text-sm text-muted-foreground">{notice.detail}</p>
+              {resend === 'queued' && <p className="text-sm text-muted-foreground mt-1">Hecho: te lo estamos enviando de nuevo.</p>}
+              {resend === 'error' && <p className="text-sm text-destructive mt-1">No hemos podido reenviarlo ahora. Guarda esta página: es tu justificante.</p>}
+              {resend === 'limited' && <p className="text-sm text-destructive mt-1">Has pedido demasiados reenvíos de este pedido. Prueba de nuevo más tarde.</p>}
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={resendEmail} disabled={resend === 'sending'} className="gap-2 shrink-0">
+            {resend === 'sending' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+            Reenviar a mi email
+          </Button>
+        </CardContent>
+      </Card>
 
       <ShopReceiptPrinter order={order} />
 

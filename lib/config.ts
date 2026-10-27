@@ -191,6 +191,35 @@ export async function getConfigs(keys: string[]): Promise<Record<string, string>
   }
 }
 
+/** La BD no respondió al leer la configuración (distinto de «no está configurado»). El mensaje no lleva datos de la conexión. */
+export class ConfigReadError extends Error {
+  constructor() {
+    super('No se pudo leer la configuración (error de base de datos)');
+    this.name = 'ConfigReadError';
+  }
+}
+
+/**
+ * Igual que `getConfigs`, pero un fallo de la BD LANZA `ConfigReadError` en vez de degradar a los valores por defecto. Para quien tiene que
+ * distinguir «sin configurar» de «no se pudo leer» (el SMTP: un pico de errores de BD no puede diagnosticarse como «No hay SMTP configurado»).
+ * Un valor cifrado ilegible sigue degradando a '' como en `getConfigs`.
+ */
+export async function getConfigsOrFail(keys: string[]): Promise<Record<string, string>> {
+  let configs: { key: string; value: string }[];
+  try {
+    configs = await prisma.appConfig.findMany({ where: { key: { in: keys } }, select: { key: true, value: true } });
+  } catch (error) {
+    console.error('[config] Error de BD al leer la configuración:', error instanceof Error ? error.name : 'desconocido');
+    throw new ConfigReadError();
+  }
+  const result: Record<string, string> = {};
+  for (const k of keys) {
+    const found = configs.find((c) => c.key === k);
+    result[k] = decryptConfigValue(k, found?.value ?? configDefault(k), false);
+  }
+  return result;
+}
+
 export async function setConfig(key: string, value: string, label?: string, group?: string) {
   const storedValue = isSensitiveConfigKey(key) ? encryptSecret(value, key) : value;
   await prisma.appConfig.upsert({

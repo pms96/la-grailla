@@ -133,13 +133,13 @@ describe('puerta de esquema', () => {
 });
 
 describe('detalle (con el secreto de cron del cliente)', () => {
-  it('forma EXACTA: status, version, platform, tenantId, tenantMarker, db, schema y onboarding', async () => {
+  it('forma EXACTA: status, version, platform, tenantId, tenantMarker, db, schema y onboarding, más el bloque ADITIVO `ops`', async () => {
     await fill('a');
     const res = await detailOf('a');
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('no-store');
     const body = await res.json();
-    expect(Object.keys(body).sort()).toEqual(['db', 'onboarding', 'platform', 'schema', 'serving', 'status', 'tenantId', 'tenantMarker', 'version']);
+    expect(Object.keys(body).sort()).toEqual(['db', 'onboarding', 'ops', 'platform', 'schema', 'serving', 'status', 'tenantId', 'tenantMarker', 'version']);
     expect(body).toEqual({
       status: 'ok',
       version: 'abcdef1',
@@ -150,6 +150,8 @@ describe('detalle (con el secreto de cron del cliente)', () => {
       db: { ok: true, latencyMs: expect.any(Number) },
       schema: { applied: latestMigrationOnDisk(), expected: latestMigrationOnDisk(), minRequired: FRONT_MIN_SCHEMA, upToDate: true },
       onboarding: { complete: true, missing: [] },
+      // `ops` (P0-07): aditivo; BD sin pedidos ni pasada del cron. Su forma y sus valores se prueban en ops-health.test.ts.
+      ops: { generatedAt: expect.any(String), pendingOldestMinutes: null, pendingOver20min: 0, emailsUnsent: 0, emailsFailed: 0, reconcile: null },
     });
     expect(Object.keys(body.db).sort()).toEqual(['latencyMs', 'ok']);
     expect(Object.keys(body.schema).sort()).toEqual(['applied', 'expected', 'minRequired', 'upToDate']);

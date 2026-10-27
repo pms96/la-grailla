@@ -12,6 +12,7 @@ import { CHECKOUT_RELEASE_AFTER_MS } from '@/lib/checkout-hold';
 import { PENDING_LIMIT_CONFIG_KEY, parsePendingLimit, MAX_SHOP_LINES_PER_ORDER, MAX_SHOP_UNITS_PER_LINE, MAX_SHOP_UNITS_PER_ORDER } from '@/lib/checkout-limits';
 import { resumeCheckoutUrl } from '@/lib/reconciliation/close-session';
 import { handleApiError } from '@/lib/api-error';
+import { captureOpsError } from '@/lib/observability/capture';
 import { completeShopOrder } from '@/lib/reconciliation/tienda';
 import { reserveShopStock, releaseShopStock } from '@/lib/product-stock';
 import { shopOrderAccessQuery, signShopOrderAccess } from '@/lib/access-token';
@@ -234,6 +235,7 @@ export async function POST(request: Request) {
       }
     } catch (error) {
       console.error('Shop checkout session error:', error instanceof Error ? error.message : error);
+      captureOpsError(error, { route: 'POST /api/shop/orders', kind: 'tienda', provider: paymentProviderForCleanup?.name ?? provider, orderId: createdOrder.id, reason: 'checkout_session_failed' });
       // Si la sesión SÍ se creó en la pasarela y lo que falló fue lo de después, se cierra: el pedido se cancela y no debe poder pagarse.
       if (createdSessionId && paymentProviderForCleanup?.cancelPayment) await paymentProviderForCleanup.cancelPayment(createdSessionId).catch(() => {});
       await releasePendingSlot(createdOrder.id);

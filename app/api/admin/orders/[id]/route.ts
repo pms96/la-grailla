@@ -10,6 +10,8 @@ import { handleApiError } from '@/lib/api-error';
 import { invalidateOrder, completeOrder } from '@/lib/reconciliation/entradas';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
+import { getEmailState } from '@/lib/email-delivery';
+import { adminEmailView } from '@/lib/order-email';
 
 const updateOrderSchema = z.object({
   action: z.enum(['cancel', 'refund', 'verify', 'complete', 'update-email']),
@@ -39,7 +41,7 @@ export async function GET(_request: Request, props: { params: Promise<{ id: stri
     if (!order) {
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
     }
-    return NextResponse.json(order);
+    return NextResponse.json({ ...order, emailDelivery: adminEmailView(await getEmailState('entradas', order.id)) });
   } catch (error) {
     return handleApiError(error, 'GET /api/admin/orders/[id]');
   }
@@ -127,7 +129,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       where: { id: params?.id },
       include: orderInclude,
     });
-    return NextResponse.json(order);
+    return NextResponse.json(order ? { ...order, emailDelivery: adminEmailView(await getEmailState('entradas', order.id)) } : order);
   } catch (error) {
     return handleApiError(error, 'PATCH /api/admin/orders/[id]');
   }

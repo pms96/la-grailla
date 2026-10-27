@@ -89,6 +89,7 @@ export async function handleProviderWebhook(providerName: string, request: Reque
     }
     return NextResponse.json({ received: true });
   } catch (error) {
-    return handleApiError(error, route);
+    // Con proveedor y tipo de cuenta: un 500 en un webhook es dinero en vuelo y se avisa a Sentry con ese contexto.
+    return handleApiError(error, route, { provider: target.provider, kind: target.scope });
   }
 }

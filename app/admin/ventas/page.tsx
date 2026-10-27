@@ -36,13 +36,22 @@ const channelLabels: Record<string, string> = {
   INVITACION: 'Invitación',
 };
 
+/** Estado real del email del pedido (lo calcula la API: lib/email-delivery.ts). */
+type EmailDelivery = {
+  status: 'sent' | 'sending' | 'pending' | 'retrying' | 'exhausted' | 'unknown';
+  attempts: number;
+  lastError: string | null;
+  sentAt: string | null;
+  nextAttemptAt: string | null;
+} | null;
+
 type OrderListItem = Prisma.OrderGetPayload<{
   include: {
     event: { select: { id: true; name: true; date: true } };
     tickets: { select: { id: true; status: true } };
     _count: { select: { tickets: true } };
   };
-}>;
+}> & { emailDelivery?: EmailDelivery };
 
 type OrderDetail = Prisma.OrderGetPayload<{
   include: {
@@ -52,7 +61,35 @@ type OrderDetail = Prisma.OrderGetPayload<{
     };
     invitation: { select: { id: true; guestName: true; listId: true } };
   };
-}>;
+}> & { emailDelivery?: EmailDelivery };
+
+const madrid = (d: string | Date) => new Date(d).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' });
+
+/** Etiqueta corta del email en el listado: nada si está enviado (o no aplica: solo los pedidos online llevan email), «pendiente» mientras se reintenta, «fallido» al agotar. */
+function emailBadge(order: { status: string; channel: string; emailDelivery?: EmailDelivery }): { label: string; destructive: boolean } | null {
+  const d = order.emailDelivery;
+  if (order.status !== 'COMPLETED' || order.channel !== 'ONLINE' || !d || d.status === 'sent' || d.status === 'unknown') return null;
+  return d.status === 'exhausted' ? { label: 'Email fallido', destructive: true } : { label: 'Email pendiente', destructive: false };
+}
+
+/** Línea de estado del email en el detalle. */
+function emailLine(d: NonNullable<EmailDelivery>): string {
+  const tries = d.attempts > 0 ? ` (${d.attempts} intento${d.attempts === 1 ? '' : 's'})` : '';
+  switch (d.status) {
+    case 'sent':
+      return d.sentAt ? madrid(d.sentAt) : 'enviado';
+    case 'sending':
+      return `enviándose ahora${tries}`;
+    case 'pending':
+      return 'pendiente del primer envío';
+    case 'retrying':
+      return `no enviado${d.lastError ? ` — ${d.lastError}` : ''}${tries}. Reintento automático${d.nextAttemptAt ? ` a partir de las ${new Date(d.nextAttemptAt).toLocaleTimeString('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' })}` : ''}`;
+    case 'exhausted':
+      return `FALLIDO${d.lastError ? ` — ${d.lastError}` : ''}${tries}. No se reintentará solo: revisa el SMTP y reenvíalo`;
+    default:
+      return 'sin registro';
+  }
+}
 
 export default function VentasPage() {
   const [orders, setOrders] = useState<OrderListItem[]>([]);
@@ -133,18 +170,18 @@ export default function VentasPage() {
   const resendTickets = async (orderId: string) => {
     setActionLoading('resend');
     try {
-      const res = await fetch(`/api/orders/${orderId}/send-tickets`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force: true }),
-      });
-      const data = await res.json();
-      if (!res.ok || data?.error) throw new Error(data?.error ?? 'Error al reenviar');
-      toast.success('Entradas reenviadas por email');
+      // Punto único de envío (concesión atómica, rastro del intento); solo ADMIN y queda en el log de auditoría.
+      const res = await fetch(`/api/admin/orders/${orderId}/resend-email`, { method: 'POST' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.status === 'sending' ? 'Ya se está enviando: espera un momento' : (data?.error ?? 'Error al reenviar'));
+      }
+      toast.success('Email reenviado');
       if (selectedId === orderId) await openDetail(orderId);
       fetchOrders();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'No se pudieron reenviar');
+      toast.error(e instanceof Error ? e.message : 'No se pudo reenviar');
+      if (selectedId === orderId) await openDetail(orderId);
     } finally {
       setActionLoading(null);
     }
@@ -174,7 +211,7 @@ export default function VentasPage() {
       if (!res.ok) throw new Error(data?.error ?? 'Error');
       setDetail(data);
       setEmailDialogOpen(false);
-      toast.success('Email actualizado — usa "Reenviar entradas" para mandarlas a la nueva dirección');
+      toast.success('Email actualizado — usa "Reenviar email" para mandarlas a la nueva dirección');
       fetchOrders();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'No se pudo actualizar el email');
@@ -338,9 +375,10 @@ export default function VentasPage() {
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <Badge variant={statusVariant[order.status]}>{statusLabels[order.status]}</Badge>
-                      {order.status === 'COMPLETED' && !order.emailSentAt && (
-                        <Badge variant="destructive" className="text-xs">Sin email</Badge>
-                      )}
+                      {(() => {
+                        const b = emailBadge(order);
+                        return b ? <Badge variant={b.destructive ? 'destructive' : 'outline'} className="text-xs">{b.label}</Badge> : null;
+                      })()}
                       <span className="font-bold text-primary">{order.totalAmount.toFixed(2)}€</span>
                     </div>
                   </CardContent>
@@ -420,17 +458,9 @@ export default function VentasPage() {
                       {detail.paymentId || 'sin guardar — no se puede verificar automáticamente'}
                     </p>
                   )}
-                  {detail.emailSentAt && (
-                    <p>
-                      <span className="text-muted-foreground">Email:</span>{' '}
-                      {new Date(detail.emailSentAt).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}
-                    </p>
-                  )}
-                  {detail.status === 'COMPLETED' && !detail.emailSentAt && (
-                    <p className="text-destructive">
-                      <span className="text-muted-foreground">Email:</span> no enviado
-                      {detail.emailLastError ? ` — ${detail.emailLastError}` : ''}
-                      {detail.emailAttempts > 0 ? ` (${detail.emailAttempts} intento${detail.emailAttempts === 1 ? '' : 's'})` : ''}
+                  {detail.status === 'COMPLETED' && detail.emailDelivery && (
+                    <p className={detail.emailDelivery.status === 'exhausted' ? 'text-destructive' : undefined}>
+                      <span className="text-muted-foreground">Email:</span> {emailLine(detail.emailDelivery)}
                     </p>
                   )}
                   {detail.invitation && (
@@ -499,7 +529,7 @@ export default function VentasPage() {
                       {actionLoading === 'resend'
                         ? <Loader2 className="h-4 w-4 animate-spin" />
                         : <Mail className="h-4 w-4" />}
-                      Reenviar entradas
+                      Reenviar email
                     </Button>
                   )}
                   {detail.status === 'COMPLETED' && (
@@ -558,7 +588,7 @@ export default function VentasPage() {
             />
             <p className="text-xs text-muted-foreground">
               Corrige el email si el comprador se equivocó al escribirlo. Después usa &ldquo;Reenviar
-              entradas&rdquo; para mandarlas a la dirección corregida.
+              email&rdquo; para mandarlas a la dirección corregida.
             </p>
           </div>
           <DialogFooter>
