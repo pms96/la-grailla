@@ -16,6 +16,8 @@ const seed = () =>
   tenantClient('a').appConfig.createMany({
     data: [
       { key: 'admin_email', value: 'dueno@cliente.es', label: 'x', group: 'general' },
+      { key: 'smtp_host', value: 'smtp.dueno.es', label: 'x', group: 'general' },
+      { key: 'social_instagram', value: '@dueno', label: 'x', group: 'social' },
       { key: 'commission_percentage', value: '15', label: 'x', group: 'payment' },
       { key: 'sponsor_tiers', value: '[]', label: 'x', group: 'sponsors' },
       { key: 'google_wallet_issuer_id', value: '3388', label: 'x', group: 'wallets' },
@@ -105,10 +107,33 @@ describe('PUT /api/admin/config — solo guarda claves de módulos activos y val
     expect(await stored('admin_email')).toBe('dueno@cliente.es');
   });
 
-  it('un rol con el módulo núcleo sí ve las claves del núcleo', async () => {
+  it('un rol con el módulo núcleo ve las claves del núcleo (contenido, redes) pero NO el correo saliente ni el email de administración', async () => {
     await seed();
     state.modules = ['nucleo'];
-    expect(await getKeys(TODO)).toEqual(['admin_email']);
+    expect(await getKeys(TODO)).toEqual(['social_instagram']);
+  });
+
+  // P1-03: sin esto, el rol «Contenido y mensajes» podría sustituir el SMTP y desviar los correos con datos de compradores.
+  it('un rol con el módulo núcleo NO puede cambiar el SMTP ni el email de administración, y sí el resto del núcleo', async () => {
+    await seed();
+    state.modules = ['nucleo'];
+    const res = await put([
+      { key: 'smtp_host', value: 'smtp.atacante.es' },
+      { key: 'admin_email', value: 'atacante@x.es' },
+      { key: 'social_instagram', value: '@nuevo' },
+    ], TODO);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { ignored: string[] }).ignored.sort()).toEqual(['admin_email', 'smtp_host']);
+    expect(await stored('smtp_host')).toBe('smtp.dueno.es');
+    expect(await stored('admin_email')).toBe('dueno@cliente.es');
+    expect(await stored('social_instagram')).toBe('@nuevo');
+  });
+
+  it('el propietario sigue pudiendo cambiar el SMTP y el email de administración', async () => {
+    await seed();
+    await put([{ key: 'smtp_host', value: 'smtp.nuevo.es' }, { key: 'admin_email', value: 'nuevo@cliente.es' }], TODO);
+    expect(await stored('smtp_host')).toBe('smtp.nuevo.es');
+    expect(await stored('admin_email')).toBe('nuevo@cliente.es');
   });
 
   it('un valor inválido da 400 y no se guarda NADA de ese envío', async () => {

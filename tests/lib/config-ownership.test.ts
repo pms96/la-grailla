@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { CONFIG_DEFAULT_KEYS } from '@/lib/config';
-import { INTERNAL_CONFIG_KEYS, configKeyOwners, invalidConfigValue, isConfigKeyAllowed } from '@/lib/config-ownership';
+import { INTERNAL_CONFIG_KEYS, OWNER_ONLY_CONFIG_KEYS, configKeyOwners, invalidConfigValue, isConfigKeyAllowed } from '@/lib/config-ownership';
 
 // Revisión de módulos (2026-10): la API de configuración devolvía y aceptaba TODAS las claves de todos los módulos; la pantalla solo
 // ocultaba pestañas. Cada clave debe declarar a qué módulo(s) pertenece, y una clave nueva sin dueño debe romper la CI.
@@ -75,5 +75,39 @@ describe('Validación del valor de cada clave', () => {
 
   it('las claves de texto libre no se validan', () => {
     expect(invalidConfigValue('legal_notice', 'cualquier cosa')).toBeNull();
+  });
+});
+
+/* P1-03: el rol «Contenido y mensajes» tiene el módulo núcleo, dueño del SMTP y de `admin_email`. Si pudiera cambiarlos, desviaría los correos
+ * con datos de compradores. Esas claves son solo del propietario (sin restricción de módulos). */
+describe('Claves solo del propietario (correo saliente)', () => {
+  const nucleoActivo = ['nucleo', 'entradas', 'tienda'] as const;
+
+  it('el propietario (sin rol restringido) las ve y las guarda', () => {
+    for (const k of OWNER_ONLY_CONFIG_KEYS) {
+      expect(isConfigKeyAllowed(k, nucleoActivo), k).toBe(true);
+      expect(isConfigKeyAllowed(k, nucleoActivo, null), k).toBe(true);
+    }
+  });
+
+  it('un rol restringido, aunque tenga el núcleo, NO puede verlas ni guardarlas', () => {
+    for (const k of OWNER_ONLY_CONFIG_KEYS) {
+      expect(isConfigKeyAllowed(k, nucleoActivo, ['nucleo']), k).toBe(false);
+      expect(isConfigKeyAllowed(k, nucleoActivo, ['nucleo', 'entradas', 'tienda']), k).toBe(false);
+    }
+  });
+
+  it('cubren todo el SMTP y el email de administración, y existen como claves de configuración', () => {
+    const smtp = CONFIG_DEFAULT_KEYS.filter((k) => k.startsWith('smtp_'));
+    expect(smtp.length).toBeGreaterThan(0);
+    for (const k of smtp) expect(OWNER_ONLY_CONFIG_KEYS, k).toContain(k);
+    expect(OWNER_ONLY_CONFIG_KEYS).toContain('admin_email');
+    for (const k of OWNER_ONLY_CONFIG_KEYS) expect(CONFIG_DEFAULT_KEYS, k).toContain(k);
+  });
+
+  it('el resto de claves del núcleo siguen siendo de un rol con el núcleo (contenido, redes, legal)', () => {
+    for (const k of ['social_instagram', 'home_about_text', 'legal_notice', 'notify_email_contacto', 'cookies_banner_enabled']) {
+      expect(isConfigKeyAllowed(k, nucleoActivo, ['nucleo']), k).toBe(true);
+    }
   });
 });

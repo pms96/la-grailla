@@ -80,6 +80,55 @@ describe('administrador con rol restringido (gestor de tienda)', () => {
   });
 });
 
+/* P1-03: la puerta y las APIs de personal fuera de /admin también son de un módulo (Entradas). Aquí se prueba con la sesión firmada, en el borde. */
+describe('superficies de personal fuera de /admin (P1-03)', () => {
+  const STAFF = [
+    ['POST', '/api/taquilla/sale'],
+    ['GET', '/api/taquilla/print-settings'],
+    ['POST', '/api/invitations'],
+    ['GET', '/api/invitations'],
+    ['POST', '/api/guest-lists'],
+    ['POST', '/api/scan'],
+    ['GET', '/api/access/events'],
+    ['GET', '/api/access/capacity'],
+  ] as const;
+
+  it('un gestor de tienda NO vende en taquilla, no emite invitaciones, no escanea y no entra en la puerta', async () => {
+    const c = await adminCookie(['tienda']);
+    for (const [m, p] of STAFF) expect((await platformMiddleware(req(p, c, m))).status, `${m} ${p}`).toBe(403);
+    const door = await platformMiddleware(req('/acceso', c));
+    expect(door.status).toBe(307);
+    expect(new URL(door.headers.get('location')!).pathname).toBe('/admin');
+  });
+
+  it('lo mismo para un contable, un gestor de sponsors y el rol de contenido (núcleo)', async () => {
+    for (const mods of [['contabilidad'], ['sponsors'], ['nucleo']]) {
+      const c = await adminCookie(mods);
+      for (const [m, p] of STAFF) expect((await platformMiddleware(req(p, c, m))).status, `${mods} ${m} ${p}`).toBe(403);
+    }
+  });
+
+  it('un gestor de entradas SÍ entra en todas, y el propietario también', async () => {
+    for (const c of [await adminCookie(['entradas', 'wallets']), await adminCookie()]) {
+      for (const [m, p] of STAFF) expect(passes(await platformMiddleware(req(p, c, m))), `${m} ${p}`).toBe(true);
+      expect(passes(await platformMiddleware(req('/acceso', c)))).toBe(true);
+    }
+  });
+
+  it('el personal de puerta (TAQUILLA) no se ve afectado: no tiene rol por módulos', async () => {
+    const secret = await deriveInstallationSecret(parseMasterKey(env.PLATFORM_SESSION_MASTER), T, 0, 'session');
+    const cookie = `${SESSION_COOKIE_HOST}=${await encode({ token: { id: 'u2', role: 'TAQUILLA', tid: T }, secret })}`;
+    for (const [m, p] of STAFF) expect(passes(await platformMiddleware(req(p, cookie, m))), `${m} ${p}`).toBe(true);
+    expect(passes(await platformMiddleware(req('/acceso', cookie)))).toBe(true);
+  });
+
+  it('sin sesión, las invitaciones y las listas de invitados dan 401 en el borde (antes solo respondía su handler)', async () => {
+    for (const p of ['/api/invitations', '/api/guest-lists']) {
+      expect((await platformMiddleware(req(p, ''))).status, p).toBe(401);
+    }
+  });
+});
+
 describe('propietario (sin restricción)', () => {
   it('entra en todo lo de los módulos de su cliente, usuarios y roles incluidos', async () => {
     const c = await adminCookie();

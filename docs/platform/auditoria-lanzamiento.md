@@ -73,13 +73,14 @@ Auditoría técnica y funcional de solo lectura de Tienda, Entradas, Contabilida
 | P1 | Estado |
 |---|---|
 | P1-02 | **Hecho.** `lib/ticket-validity.ts`: solo un pedido COMPLETED de un evento no cancelado vale, para el escáner (`/api/scan`, que además exige `eventId`), el PDF y los pases de Wallet (410). La pantalla de confirmación ya estaba resuelta con el paquete del pedido pendiente. |
+| P1-03 | **Hecho.** La puerta (`/acceso`) y las APIs de personal fuera de `/admin` (`/api/taquilla`, `/api/invitations`, `/api/guest-lists`, `/api/scan`, `/api/access`) pertenecen a Entradas para los roles restringidos (`STAFF_SURFACE_PREFIXES`, en los dos middlewares); un test obliga a clasificar cualquier API de personal nueva. El correo saliente (SMTP) y `admin_email` son solo del propietario (`OWNER_ONLY_CONFIG_KEYS`). El personal de puerta (TAQUILLA) no se ve afectado. |
 | P1-05, P1-09, P1-19 | Hechos en la tanda 0. |
 | P1-07 | **Hecho.** Totales en céntimos enteros y redondeados una vez (`lib/pricing.ts`), tolerancia explícita de 1 céntimo, el webhook de Stripe lleva el importe y lo contrasta, pedidos de 0 € sin pasarela, mínimo de pago de 0,50 € (pedido, tienda y precio de los tipos de entrada). |
 | P1-08 | Hecho con el paquete del pedido pendiente (el reintento devuelve la sesión viva). |
 | P1-14 | Parcial: conciliación diaria pasarela↔BD hecha (OB-11); falta el export contable normalizado. |
 | P1-17 | Parcial: el IVA 0 % de los artículos de Compras ya se guarda (`parsePercentOr`); falta el modelo de proveedor/gasto (NIF, IBAN, retención, adjuntos) y el resultado económico único. |
 | P1-21 | Parcial: tiempos y `maxDuration` del reconcile, emails con reintento y Sentry; falta `after()` en las alertas de aforo, logs con `tenant` y medir el pool. |
-| Resto | Pendientes: P1-01, 03, 04, 06, 10, 11, 12, 13, 15, 16, 18, 20, 22, 23, 24, 25. |
+| Resto | Pendientes: P1-01, 04, 06, 10, 11, 12, 13, 15, 16, 18, 20, 22, 23, 24, 25. |
 
 ### P2 · Roadmap y optimización (resumen)
 

@@ -40,12 +40,25 @@ const OWNER_ONLY = ['/admin/usuarios', '/api/admin/users', '/admin/roles', '/api
 const OPEN_TO_ADMINS = ['/admin/configuracion', '/api/admin/config', '/api/admin/change-password', '/api/admin/upload'];
 
 /**
- * ¿Puede un administrador con estos módulos usar esta ruta? `null` = propietario. Solo restringe la zona de administración
- * (`/admin` y `/api/admin`); la web pública y las APIs públicas no cambian. Una ruta de administración sin dueño se deniega.
+ * Superficies de STAFF fuera de `/admin`: la puerta (`/acceso`) y las APIs que solo usa el personal. Pertenecen a un módulo igual que las rutas de
+ * administración: un «Gestor de tienda» no puede vender en taquilla ni emitir invitaciones, aunque esas rutas no cuelguen de `/admin` (P1-03).
+ * Solo se listan las que son EXCLUSIVAMENTE de personal: las APIs públicas con el mismo dueño (`/api/events`, `/api/orders`, `/api/tickets`,
+ * `/api/wallet`…) las usa el comprador y no se tocan. Un test (tests/lib/staff-surfaces.test.ts) falla si una API nueva que comprueba sesión de
+ * personal no está clasificada aquí ni en su lista de excepciones.
+ */
+export const STAFF_SURFACE_PREFIXES: readonly string[] = ['/acceso', '/api/taquilla', '/api/invitations', '/api/guest-lists', '/api/scan', '/api/access'];
+
+/**
+ * ¿Puede un administrador con estos módulos usar esta ruta? `null` = propietario. Restringe la zona de administración (`/admin` y `/api/admin`) y
+ * las superficies de personal de arriba; la web pública y las APIs públicas no cambian. Una ruta de personal o de administración sin dueño se deniega.
  */
 export function pathAllowedForModules(path: string, modules: readonly string[] | null): boolean {
   if (modules === null) return true;
   const p = path.length > 1 ? path.replace(/\/+$/, '') : path;
+  if (STAFF_SURFACE_PREFIXES.some((s) => prefixMatch(p, s))) {
+    const owner = ownerOfPath(p);
+    return owner !== null && modules.includes(owner);
+  }
   if (!(p === '/admin' || p.startsWith('/admin/') || p === '/api/admin' || p.startsWith('/api/admin/'))) return true;
   if (p === '/admin') return true;
   if (OWNER_ONLY.some((o) => prefixMatch(p, o))) return false;

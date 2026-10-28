@@ -53,6 +53,14 @@ export const CONFIG_KEY_OWNERS: Readonly<Record<string, Owners>> = Object.fromEn
   ['abacus_ai_api_key', ['contabilidad', 'sponsors'] as Owners],
 ]);
 
+/**
+ * Claves que SOLO toca el propietario, aunque su dueño sea el núcleo: el correo saliente y `admin_email`. Un rol restringido con el módulo núcleo
+ * («Contenido y mensajes») podría, si no, sustituir el SMTP y desviar los correos con datos de compradores a su propio servidor (P1-03).
+ */
+export const OWNER_ONLY_CONFIG_KEYS: readonly string[] = [
+  'admin_email', 'smtp_enabled', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_password', 'smtp_secure', 'smtp_from_email', 'smtp_from_name',
+];
+
 /** Claves del sistema: ni se muestran ni se guardan desde la API de administración (el tema tiene su propia ruta). */
 export const INTERNAL_CONFIG_KEYS: readonly string[] = [
   'site_theme',
@@ -75,6 +83,7 @@ export function configKeyOwners(key: string): Owners | null {
  */
 export function isConfigKeyAllowed(key: string, activeModules: readonly ModuleKey[], userModules?: readonly string[] | null): boolean {
   if (INTERNAL_CONFIG_KEYS.includes(key)) return false;
+  if (userModules != null && OWNER_ONLY_CONFIG_KEYS.includes(key)) return false;
   const owners = configKeyOwners(key);
   return owners !== null && owners.some((m) => ownerEnabled(m, activeModules) && (userModules == null || userModules.includes(m)));
 }

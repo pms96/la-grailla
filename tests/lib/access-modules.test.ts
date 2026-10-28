@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MODULE_KEYS } from '@grailla/contracts';
-import { PRESET_ROLES, modulesKey, pathAllowedForModules, presetRoleModules, validateCustomRole } from '@/lib/modules/access';
+import { PRESET_ROLES, STAFF_SURFACE_PREFIXES, modulesKey, pathAllowedForModules, presetRoleModules, validateCustomRole } from '@/lib/modules/access';
 
 // Decisión del dueño (2026-10-15): permisos por módulo dentro de un cliente, con roles predefinidos y otros que crea el cliente con un
 // alias eligiendo módulos de la lista. Antes cualquier ADMIN veía y tocaba todo.
@@ -87,5 +87,49 @@ describe('Validación de un rol personalizado', () => {
 
   it('el alias no puede coincidir con el de un rol predefinido', () => {
     expect(validateCustomRole({ name: PRESET_ROLES.tienda.label, modules: ['tienda'] })).not.toBeNull();
+  });
+});
+
+/* P1-03: las superficies de PERSONAL fuera de /admin (la puerta, la taquilla, las invitaciones, las listas de invitados, el escáner) también
+ * pertenecen a un módulo. Antes solo se restringía /admin y /api/admin, y un «Gestor de tienda» vendía en taquilla y emitía invitaciones. */
+describe('Matriz rol × superficie de personal (P1-03)', () => {
+  const STAFF_PATHS = ['/acceso', '/api/taquilla/sale', '/api/taquilla/print-settings', '/api/taquilla/print/abc', '/api/invitations', '/api/invitations/abc', '/api/guest-lists', '/api/scan', '/api/access/events', '/api/access/capacity'];
+
+  it('el propietario (sin restricción) entra en todas', () => {
+    for (const p of STAFF_PATHS) expect(pathAllowedForModules(p, null), p).toBe(true);
+  });
+
+  it.each([
+    ['entradas', ['entradas', 'wallets']],
+    ['con entradas entre varios', ['tienda', 'entradas']],
+  ])('un rol con Entradas (%s) entra en todas', (_label, mods) => {
+    for (const p of STAFF_PATHS) expect(pathAllowedForModules(p, mods), p).toBe(true);
+  });
+
+  it.each([
+    ['tienda', ['tienda']],
+    ['contabilidad', ['contabilidad']],
+    ['sponsors', ['sponsors']],
+    ['contenido (núcleo)', ['nucleo']],
+    ['sin Entradas, con casi todo lo demás', ['nucleo', 'tienda', 'contabilidad', 'sponsors', 'wallets']],
+  ])('un rol SIN Entradas (%s) no entra en ninguna: no vende en taquilla, no emite invitaciones, no escanea', (_label, mods) => {
+    for (const p of STAFF_PATHS) expect(pathAllowedForModules(p, mods), p).toBe(false);
+  });
+
+  it('las APIs públicas con el mismo dueño siguen abiertas (las usa el comprador, no el personal)', () => {
+    for (const p of ['/api/orders', '/api/events', '/api/tickets/abc/pdf-html', '/api/wallet/apple/abc', '/api/queue/join']) {
+      expect(pathAllowedForModules(p, ['tienda']), p).toBe(true);
+    }
+  });
+
+  it('un prefijo parecido no se cuela (ni se bloquea): /acceso-publico no es /acceso', () => {
+    expect(pathAllowedForModules('/accesorios', ['tienda'])).toBe(true);
+    expect(pathAllowedForModules('/api/scanner-info', ['tienda'])).toBe(true);
+    expect(pathAllowedForModules('/acceso/', ['tienda'])).toBe(false); // la barra final no es una vía de escape
+  });
+
+  it('toda superficie de personal tiene un dueño en el registro (si no, se denegaría a todo rol restringido)', async () => {
+    const { ownerOfPath } = await import('@/lib/modules/registry');
+    for (const prefix of STAFF_SURFACE_PREFIXES) expect(ownerOfPath(prefix), prefix).toBe('entradas');
   });
 });

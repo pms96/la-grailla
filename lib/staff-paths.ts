@@ -11,7 +11,11 @@ export function isStaffApiPath(path: string): boolean {
     path.startsWith('/api/admin') ||
     path.startsWith('/api/taquilla') ||
     path.startsWith('/api/scan') ||
-    path.startsWith('/api/access')
+    path.startsWith('/api/access') ||
+    // Invitaciones y listas de invitados: solo personal (sus handlers ya lo exigen). Estar aquí hace que el middleware de plataforma lea la sesión y
+    // aplique el control por módulo (P1-03); antes solo lo hacía con las rutas de arriba y estas quedaban fuera.
+    path.startsWith('/api/invitations') ||
+    path.startsWith('/api/guest-lists')
   );
 }
 

@@ -29,7 +29,9 @@ export default function ConfiguracionPage() {
   const mine = (m: Parameters<typeof ownerEnabled>[0]) => userModules === null || userModules.includes(m);
   const has = (m: Parameters<typeof ownerEnabled>[0]) => ownerEnabled(m, modules) && mine(m);
   const core = mine('nucleo');
-  const showConnections = core || has('sponsors') || has('contabilidad');
+  // El correo saliente y el email de administración son solo del propietario (un rol restringido no puede desviar los correos): la API los ignora igual.
+  const owner = userModules === null;
+  const showConnections = owner || has('sponsors') || has('contabilidad');
   const [configs, setConfigs] = useState<AppConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -308,7 +310,7 @@ export default function ConfiguracionPage() {
 
         <TabsContent value="connections">
           <div className="space-y-6">
-            {core && (
+            {owner && (
             <Card><CardContent className="p-6 space-y-4">
               <div>
                 <h3 className="font-semibold">Correo saliente (SMTP)</h3>
@@ -398,7 +400,7 @@ export default function ConfiguracionPage() {
 
         <TabsContent value="general">
           <Card><CardContent className="p-6 space-y-4">
-            <ConfigField label="Email de administración" value={values?.admin_email ?? ''} onChange={(v) => updateValue('admin_email', v)} />
+            {owner && <ConfigField label="Email de administración" value={values?.admin_email ?? ''} onChange={(v) => updateValue('admin_email', v)} />}
             <div>
               <Label>Banner de cookies</Label>
               <Select value={values?.cookies_banner_enabled ?? 'true'} onValueChange={(v: string) => updateValue('cookies_banner_enabled', v)}>
