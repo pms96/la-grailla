@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import type { CompleteOutcome } from '@/lib/reconciliation/shared';
+import type { CompleteOutcome, PaidInfo } from '@/lib/reconciliation/shared';
 
 /* Reconciliación de pedidos cuando solo se conoce su id (webhooks de cobro): decide a qué módulo pertenece y delega. La lógica de cada
  * módulo vive en lib/reconciliation/{entradas,tienda}.ts y se carga solo cuando hace falta: confirmar un pedido de la tienda no importa
@@ -17,15 +17,16 @@ const assertResolved = (orderId: string, outcome: CompleteOutcome) => {
 };
 
 /** Resuelve si el orderId del metadata de la pasarela es pedido de entradas o de tienda. */
-export async function resolvePaidCheckout(orderId: string, baseUrl?: string): Promise<'ticket' | 'shop' | null> {
+/** `paid`: lo que la pasarela dice haber cobrado, si el webhook lo trae; se contrasta con el total del pedido antes de completarlo (P1-07). */
+export async function resolvePaidCheckout(orderId: string, baseUrl?: string, paid?: PaidInfo): Promise<'ticket' | 'shop' | null> {
   if (await prisma.order.findUnique({ where: { id: orderId }, select: { id: true } })) {
     const { completeOrder } = await import('@/lib/reconciliation/entradas');
-    assertResolved(orderId, await completeOrder(orderId, baseUrl));
+    assertResolved(orderId, await completeOrder(orderId, baseUrl, paid));
     return 'ticket';
   }
   if (await prisma.shopOrder.findUnique({ where: { id: orderId }, select: { id: true } })) {
     const { completeShopOrder } = await import('@/lib/reconciliation/tienda');
-    assertResolved(orderId, await completeShopOrder(orderId, undefined, { baseUrl }));
+    assertResolved(orderId, await completeShopOrder(orderId, paid, { baseUrl }));
     return 'shop';
   }
   return null;

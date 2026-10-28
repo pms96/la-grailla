@@ -170,6 +170,11 @@ describe('Stripe.parseWebhook', () => {
     expect(await stripe().parseWebhook!(body, headers(sign(body)))).toEqual({ kind: 'payment_succeeded', eventId: 'evt_paid', orderId: 'ord_1' });
   });
 
+  it('el importe y la moneda que dice la pasarela viajan con el evento (para contrastarlos con el pedido antes de completarlo)', async () => {
+    const body = event('checkout.session.completed', { id: 'cs_1', payment_status: 'paid', amount_total: 3349, currency: 'eur', metadata: { orderId: 'ord_1' } }, 'evt_amt');
+    expect(await stripe().parseWebhook!(body, headers(sign(body)))).toEqual({ kind: 'payment_succeeded', eventId: 'evt_amt', orderId: 'ord_1', amount: 33.49, currency: 'eur' });
+  });
+
   it('pago asíncrono confirmado también cuenta', async () => {
     const body = event('checkout.session.async_payment_succeeded', { payment_status: 'paid', metadata: { orderId: 'ord_2' } }, 'evt_async');
     expect((await stripe().parseWebhook!(body, headers(sign(body)))).kind).toBe('payment_succeeded');

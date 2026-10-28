@@ -6,6 +6,7 @@ import { buildApplePass } from '@/lib/wallet';
 import { handleApiError } from '@/lib/api-error';
 import { allowTicketAccess, getTokenFromRequest } from '@/lib/access-token';
 import { isModuleEnabled } from '@/lib/modules/runtime';
+import { ticketUnusable } from '@/lib/ticket-validity';
 
 export async function GET(request: Request, props: { params: Promise<{ ticketId: string }> }) {
   const params = await props.params;
@@ -17,7 +18,7 @@ export async function GET(request: Request, props: { params: Promise<{ ticketId:
     const ticketId = params?.ticketId;
     const ticket = await prisma.ticket.findUnique({
       where: { id: ticketId },
-      include: { event: true, ticketType: true },
+      include: { event: true, ticketType: true, order: { select: { status: true } } },
     });
     if (!ticket || !ticket.event) {
       return NextResponse.json({ error: 'Entrada no encontrada' }, { status: 404 });
@@ -26,6 +27,10 @@ export async function GET(request: Request, props: { params: Promise<{ ticketId:
     if (!(await allowTicketAccess(ticketId, ticket.orderId, getTokenFromRequest(request)))) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
+
+    // Un pase de un pedido anulado, reembolsado o sin pagar, o de un evento cancelado, no se emite (P1-02).
+    const unusable = ticketUnusable(ticket.order, ticket.event);
+    if (unusable) return NextResponse.json({ error: unusable.buyerMessage, code: unusable.reason }, { status: 410 });
 
     const buffer = await buildApplePass({
       ticketId: ticket.id,

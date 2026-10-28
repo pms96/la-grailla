@@ -16,6 +16,7 @@ import { CATEGORIAS_ARTICULO } from '@/lib/compras/constantes';
 import { precioFinalUnidad } from '@/lib/compras/calculadora';
 import { downloadArticulosExport } from '@/lib/compras/articulos-export';
 import { ImportarArticulosDialog } from '@/app/admin/compras/_components/importar-articulos-dialog';
+import { parsePercentOr } from '@/lib/pricing';
 
 type ArticuloConPrecios = WithNumberFields<Articulo, 'ivaPercent'> & {
   precios: (WithNumberFields<PrecioArticulo, 'precioSinIva' | 'descuentoPercent'> & { proveedor: Proveedor })[];
@@ -109,7 +110,8 @@ export function TabArticulos() {
         categoria: form.categoria,
         formato: form.formato.trim(),
         unidadesPorCaja: Number(form.unidadesPorCaja) || 1,
-        ivaPercent: Number(form.ivaPercent) || 21,
+        // Vacío o no válido = 21 %; un 0 escrito a propósito (exento) se respeta (`|| 21` lo convertía en 21: P1-17).
+        ivaPercent: parsePercentOr(form.ivaPercent, 21),
         precios: form.precios
           .filter((p) => p.proveedorId && p.precioSinIva !== '')
           .map((p) => ({

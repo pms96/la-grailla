@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { rateLimit } from '@/lib/rate-limit';
 import { currentTenant } from '@/lib/tenant/context';
 import { sendPlatformAlert } from '@/lib/observability/platform-alert';
+import { toCents } from '@/lib/pricing';
 
 /** Qué ha pasado al confirmar un pago sobre un pedido (ver completeOrder / completeShopOrder). */
 export type CompleteOutcome =
@@ -95,7 +96,8 @@ export async function paymentMatchesOrder(kind: 'entradas' | 'tienda', orderId: 
   if (!row) return true; // el llamante ya gestiona un pedido inexistente
   const expected = Number(row.totalAmount);
   const currencyOk = !paid.currency || paid.currency.toUpperCase() === 'EUR';
-  if (currencyOk && Math.abs(paid.amount - expected) < 0.01) return true;
+  // Tolerancia explícita de UN céntimo, en enteros (con flotantes, `< 0.01` fallaba por 1e-15 según el caso: P1-07).
+  if (currencyOk && Math.abs(toCents(paid.amount) - toCents(expected)) <= 1) return true;
 
   console.error(
     `[order-reconciliation] El cobro de ${kind} ${orderId} no cuadra: la pasarela dice ${paid.amount} ${paid.currency ?? ''} y el pedido es de ${expected} EUR. No se completa.`

@@ -6,12 +6,14 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { MIN_ONLINE_PAYMENT } from '@/lib/pricing';
 
 const createTicketTypeSchema = z.object({
   eventId: z.string().min(1),
   name: z.string().min(1),
   description: z.string().optional(),
-  price: z.coerce.number().min(0).optional(),
+  // 0 (gratuita) o al menos 0,50 €: Stripe no admite cobros menores y el comprador vería un error al pagar.
+  price: z.coerce.number().min(0).refine((p) => p === 0 || p >= MIN_ONLINE_PAYMENT, 'El precio debe ser 0 (gratuita) o de al menos 0,50 €').optional(),
   phase: z.coerce.number().optional(),
   phaseName: z.string().optional(),
   maxQuantity: z.coerce.number().min(0).optional(),

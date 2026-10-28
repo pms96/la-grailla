@@ -12,7 +12,8 @@ vi.mock('@/lib/auth', () => ({
   authOptions: {},
 }));
 
-const { DELETE: deleteTicketType } = await import('@/app/api/admin/ticket-types/[id]/route');
+const { DELETE: deleteTicketType, PUT: updateTicketType } = await import('@/app/api/admin/ticket-types/[id]/route');
+const { POST: createTicketTypeRoute } = await import('@/app/api/admin/ticket-types/route');
 
 describe('DELETE /api/admin/ticket-types/[id]', () => {
   let event: Awaited<ReturnType<typeof createTestEvent>>;
@@ -66,5 +67,43 @@ describe('DELETE /api/admin/ticket-types/[id]', () => {
     expect(res.status).toBe(200);
     const gone = await prisma.ticketType.findUnique({ where: { id: ticketType.id } });
     expect(gone).toBeNull();
+  });
+});
+
+/* P1-07: precio 0 (gratuita) o al menos 0,50 € (el mínimo de Stripe). Solo se exige al CREAR y al CAMBIAR el precio: editar otro campo de un tipo antiguo con un
+ * precio menor no debe fallar. */
+describe('precio mínimo de los tipos de entrada (0 o ≥ 0,50 €)', () => {
+  let event: Awaited<ReturnType<typeof createTestEvent>>;
+  beforeAll(async () => {
+    event = await createTestEvent();
+  });
+  afterAll(async () => {
+    await prisma.ticketType.deleteMany({ where: { eventId: event.id } });
+    await cleanupTestEvent(event.id);
+  });
+
+  const put = (id: string, body: unknown) =>
+    updateTicketType(new Request('http://localhost', { method: 'PUT', body: JSON.stringify(body) }), { params: Promise.resolve({ id }) });
+  const create = (price: number) =>
+    createTicketTypeRoute(new Request('http://localhost', { method: 'POST', body: JSON.stringify({ eventId: event.id, name: `T-${price}`, price }) }));
+
+  it('crear con 0,30 € se rechaza; con 0, 0,50 o 12 se acepta', async () => {
+    expect((await create(0.3)).status).toBeGreaterThanOrEqual(400);
+    for (const price of [0, 0.5, 12]) expect((await create(price)).status).toBe(200);
+  });
+
+  it('cambiar el precio a 0,30 € se rechaza con un mensaje claro y no lo guarda', async () => {
+    const tt = await createTicketType(event.id, { price: 10 });
+    const res = await put(tt.id, { price: 0.3 });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/0,50/);
+    expect(Number((await prisma.ticketType.findUniqueOrThrow({ where: { id: tt.id } })).price)).toBe(10);
+  });
+
+  it('editar otro campo de un tipo antiguo con precio de 0,30 € (el formulario reenvía el precio) NO falla', async () => {
+    const tt = await createTicketType(event.id, { price: 0.3 });
+    const res = await put(tt.id, { name: 'Renombrado', price: 0.3 });
+    expect(res.status).toBe(200);
+    expect((await prisma.ticketType.findUniqueOrThrow({ where: { id: tt.id } })).name).toBe('Renombrado');
   });
 });

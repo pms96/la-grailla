@@ -26,7 +26,7 @@ import {
 import { toast } from 'sonner';
 import { FadeIn, PressScale } from '@/components/ui/animate';
 import { cn } from '@/lib/utils';
-import { calculateCommission } from '@/lib/pricing';
+import { calculateCommission, sumMoney, toCents } from '@/lib/pricing';
 import { getEventAgeWarningMessage } from '@/lib/age-warning';
 import { LegalAcceptance } from '@/components/legal-acceptance';
 
@@ -142,13 +142,13 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
 
   const totalItems = Object.values(quantities ?? {}).reduce((s: number, q: number) => s + (q ?? 0), 0);
   const totalPrice = ticketTypes.reduce((s: number, tt: TicketType) => {
-    return s + (tt?.price ?? 0) * (quantities?.[tt?.id] ?? 0);
-  }, 0);
+    return s + toCents(tt?.price ?? 0) * (quantities?.[tt?.id] ?? 0);
+  }, 0) / 100;
   // Misma función que app/api/orders/route.ts usa al cobrar de verdad — así
   // lo que se ve aquí nunca puede divergir del total real en la pasarela.
   const commissionPercent = event?.commissionPercent ?? 0;
   const commissionAmount = calculateCommission(totalPrice, commissionPercent);
-  const grandTotal = totalPrice + commissionAmount;
+  const grandTotal = sumMoney(totalPrice, commissionAmount);
   const showCommission = commissionPercent > 0 && totalItems > 0;
 
   const validate = (): FieldErrors => {

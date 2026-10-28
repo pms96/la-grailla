@@ -3,6 +3,7 @@ import type Stripe from 'stripe';
 import { getConfig, getConfigOrThrow, hasConfigRow } from '@/lib/config';
 import { isModuleEnabled } from '@/lib/modules/runtime';
 import { stripeExpiresAt, sumUpValidUntil } from '@/lib/checkout-hold';
+import { roundMoney, toCents } from '@/lib/pricing';
 
 export interface PaymentSession {
   sessionId: string;
@@ -56,9 +57,9 @@ export interface ProviderCapabilities {
   inPerson: boolean;
 }
 
-/** Lo que significa un webhook ya verificado, igual para todos los proveedores. */
+/** Lo que significa un webhook ya verificado, igual para todos los proveedores. `amount`/`currency`: lo que la pasarela dice haber cobrado, para contrastarlo con el pedido. */
 export type WebhookEvent =
-  | { kind: 'payment_succeeded'; eventId: string; orderId: string }
+  | { kind: 'payment_succeeded'; eventId: string; orderId: string; amount?: number; currency?: string }
   | { kind: 'payment_expired'; eventId: string; orderId: string }
   | { kind: 'ignored'; eventId?: string };
 
@@ -269,7 +270,15 @@ export class StripeAdapter implements PaymentProvider {
       case 'checkout.session.async_payment_succeeded': {
         const session = event.data.object as Stripe.Checkout.Session;
         const orderId = session.metadata?.orderId;
-        if (orderId && session.payment_status === 'paid') return { kind: 'payment_succeeded', eventId: event.id, orderId };
+        if (orderId && session.payment_status === 'paid') {
+          return {
+            kind: 'payment_succeeded',
+            eventId: event.id,
+            orderId,
+            ...(session.amount_total != null ? { amount: session.amount_total / 100 } : {}),
+            ...(session.currency ? { currency: session.currency } : {}),
+          };
+        }
         return { kind: 'ignored', eventId: event.id };
       }
       case 'checkout.session.expired':
@@ -319,7 +328,7 @@ export class StripeAdapter implements PaymentProvider {
           price_data: {
             currency: params.currency,
             product_data: { name: params.description },
-            unit_amount: Math.round(params.amount * 100),
+            unit_amount: toCents(params.amount),
           },
           quantity: 1,
         }],
@@ -529,7 +538,8 @@ export class SumUpAdapter implements PaymentProvider {
       },
       body: JSON.stringify({
         checkout_reference: params.orderId,
-        amount: params.amount,
+        // Siempre con 2 decimales exactos: el mismo importe que se guardó en el pedido (un float crudo podía llevar 3 decimales).
+        amount: roundMoney(params.amount),
         currency: params.currency.toUpperCase(),
         merchant_code: this.merchantCode,
         description: params.description,

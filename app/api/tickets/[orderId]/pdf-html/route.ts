@@ -10,6 +10,7 @@ import { escapeHtml as esc } from '@/lib/html-escape';
 import { getBrand } from '@/lib/brand/brand';
 import { brandLogoHtml } from '@/lib/brand/email';
 import { EVENT_TIMEZONE } from '@/lib/event-time';
+import { ticketUnusable } from '@/lib/ticket-validity';
 
 export async function GET(request: Request, props: { params: Promise<{ orderId: string }> }) {
   const params = await props.params;
@@ -29,6 +30,13 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
 
     if (!order) {
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
+    }
+
+    // Un pedido anulado, reembolsado o sin pagar, o un evento cancelado, no emite QR (P1-02): se explica en vez de imprimir una entrada que no vale.
+    const unusable = ticketUnusable(order, order.event);
+    if (unusable) {
+      const page = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Entradas no disponibles</title></head><body style="font-family: Arial, sans-serif; max-width: 480px; margin: 80px auto; padding: 0 20px; text-align: center; color: #1a1a1a;"><h1 style="font-size: 20px;">Entradas no disponibles</h1><p style="color: #555;">${esc(unusable.buyerMessage)}</p></body></html>`;
+      return new NextResponse(page, { status: 410, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     }
 
     const brand = await getBrand();

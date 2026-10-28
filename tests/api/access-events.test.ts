@@ -24,7 +24,8 @@ describe('GET /api/access/events (lista de eventos del escáner)', () => {
   beforeAll(async () => {
     published = await createTestEvent({ maxCapacity: 300 });
     draft = await createTestEvent({ status: 'DRAFT' });
-    finished = await createTestEvent({ status: 'FINISHED' });
+    // Terminado hace semanas: ya no es de la puerta. (Uno terminado hace POCO sí lo es: ver tests/api/ticket-validity.test.ts.)
+    finished = await createTestEvent({ status: 'FINISHED', date: new Date(Date.now() - 20 * 24 * 3600_000) });
     await createTicketType(published.id, { price: 25 });
     await prisma.event.update({ where: { id: published.id }, data: { currentCount: 7 } });
   });
@@ -41,7 +42,7 @@ describe('GET /api/access/events (lista de eventos del escáner)', () => {
     currentRole = 'TAQUILLA';
   });
 
-  it('TAQUILLA y ADMIN reciben solo los eventos publicados', async () => {
+  it('TAQUILLA y ADMIN reciben los eventos publicados y los terminados hace poco, no los borradores ni los antiguos', async () => {
     for (const role of ['TAQUILLA', 'ADMIN']) {
       currentRole = role;
       const res = await listDoorEvents();

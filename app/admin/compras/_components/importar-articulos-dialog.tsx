@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Loader2, ImageUp, Plus, Trash2, Sparkles, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { CATEGORIAS_ARTICULO } from '@/lib/compras/constantes';
+import { parsePercentOr } from '@/lib/pricing';
 
 type ArticuloConPrecios = WithNumberFields<Articulo, 'ivaPercent'> & {
   precios: (WithNumberFields<PrecioArticulo, 'precioSinIva' | 'descuentoPercent'> & { proveedor: Proveedor })[];
@@ -182,7 +183,7 @@ export function ImportarArticulosDialog({ open, onClose, proveedores, articulos,
             nombre: f.nombre.trim(),
             categoria: f.categoria,
             formato: f.formato.trim(),
-            ivaPercent: Number(f.ivaPercent) || 21,
+            ivaPercent: parsePercentOr(f.ivaPercent, 21), // un 0 % escrito a propósito se respeta
             precioSinIva: Number(f.precioSinIva) || 0,
             descuentoPercent: Number(f.descuentoPercent) || 0,
             formatoVenta: f.formatoVenta.trim() || 'Unidad',

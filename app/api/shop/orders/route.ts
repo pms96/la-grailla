@@ -9,6 +9,7 @@ import { getBaseUrl } from '@/lib/url';
 import { getConfig } from '@/lib/config';
 import { rateLimit, getClientIp, countPendingSlots, takePendingSlot, releasePendingSlot } from '@/lib/rate-limit';
 import { captchaRejection, verifyCaptcha } from '@/lib/captcha';
+import { MIN_ONLINE_PAYMENT, fromCents, toCents } from '@/lib/pricing';
 import { CHECKOUT_RELEASE_AFTER_MS } from '@/lib/checkout-hold';
 import { PENDING_LIMIT_CONFIG_KEY, parsePendingLimit, MAX_SHOP_LINES_PER_ORDER, MAX_SHOP_UNITS_PER_LINE, MAX_SHOP_UNITS_PER_ORDER } from '@/lib/checkout-limits';
 import { resumeCheckoutUrl } from '@/lib/reconciliation/close-session';
@@ -131,7 +132,7 @@ export async function POST(request: Request) {
     let shopOrder: ShopOrderWithItems | undefined;
     try {
       shopOrder = await prisma.$transaction(async (tx) => {
-        let totalAmount = 0;
+        let totalCents = 0;
         const itemsData: Prisma.ShopOrderItemUncheckedCreateWithoutShopOrderInput[] = [];
         const reserveItems: { productId: string; quantity: number; size?: string | null; color?: string | null }[] = [];
 
@@ -139,7 +140,7 @@ export async function POST(request: Request) {
           const product = await tx.product.findUnique({ where: { id: item?.productId } });
           if (!product || !product.isActive) continue;
           const qty = item?.quantity ?? 1;
-          totalAmount += (product?.price ?? 0) * qty;
+          totalCents += toCents(product?.price ?? 0) * qty;
           itemsData.push({
             productId: product.id,
             quantity: qty,
@@ -157,6 +158,11 @@ export async function POST(request: Request) {
 
         if (itemsData.length === 0) {
           throw new Error('NO_VALID_ITEMS');
+        }
+        // En céntimos enteros: el total que se guarda y el que se manda a la pasarela son el mismo, sin error de coma flotante (P1-07).
+        const totalAmount = fromCents(totalCents);
+        if (gatewayIsLive && totalAmount > 0 && totalAmount < MIN_ONLINE_PAYMENT) {
+          throw Object.assign(new Error('El importe mínimo para pagar online es 0,50 €. Añade algún producto más.'), { code: 'BELOW_MIN_PAYMENT' as const });
         }
 
         // Cupo de pedidos sin pagar por IP. El recuento + la inserción se serializan con un cerrojo por IP: sin él, N peticiones simultáneas
@@ -213,6 +219,9 @@ export async function POST(request: Request) {
       }
       if (error instanceof Error && error.message === 'NO_VALID_ITEMS') {
         return NextResponse.json({ error: 'No hay productos válidos en el pedido' }, { status: 400 });
+      }
+      if (error instanceof Error && 'code' in error && (error as Error & { code?: string }).code === 'BELOW_MIN_PAYMENT') {
+        return NextResponse.json({ error: error.message }, { status: 400 });
       }
       if (
         error instanceof Error &&

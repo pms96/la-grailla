@@ -9,6 +9,7 @@ import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { checkCapacityAlerts } from '@/lib/capacity-alerts';
 import { handleApiError } from '@/lib/api-error';
 import { formatMadridTime } from '@/lib/event-time';
+import { ticketUnusable } from '@/lib/ticket-validity';
 
 const scanTicketSchema = z.object({
   qrCode: z.string().min(1),
@@ -31,6 +32,14 @@ export async function POST(request: Request) {
     }
 
     const { qrCode, eventId } = scanTicketSchema.parse(await request.json());
+
+    // Sin evento elegido no se valida: una entrada de otro evento (o de otra fecha) se marcaría USED y contaría en el aforo equivocado (EN-13).
+    if (!eventId) {
+      return NextResponse.json(
+        { result: 'NO_EVENT', message: 'ELIGE EL EVENTO — Selecciona el evento en la pantalla antes de escanear', color: 'yellow' },
+        { status: 400 }
+      );
+    }
 
     const ticket = await prisma.ticket.findUnique({
       where: { qrCode },
@@ -66,23 +75,6 @@ export async function POST(request: Request) {
       });
     }
 
-    // Pago todav\u00eda no confirmado por la pasarela: no dejar pasar.
-    if (ticket.status === 'PENDING') {
-      await prisma.scanLog.create({
-        data: {
-          ticketId: ticket.id,
-          eventId: ticket.eventId,
-          scannerId: session.user?.id,
-          result: 'PENDING_PAYMENT',
-        },
-      });
-      return NextResponse.json({
-        result: 'PENDING_PAYMENT',
-        message: 'PAGO NO CONFIRMADO \u2014 Entrada no v\u00e1lida todav\u00eda',
-        color: 'red',
-      });
-    }
-
     // Check if for another event
     if (eventId && ticket.eventId !== eventId) {
       await prisma.scanLog.create({
@@ -99,6 +91,33 @@ export async function POST(request: Request) {
         eventName: ticket.event?.name,
         eventDate: ticket.event?.date,
         color: 'yellow',
+      });
+    }
+
+    // El estado del PEDIDO y del EVENTO manda sobre el de la entrada: un reembolso hecho fuera de la app, o un proceso que murió a medias al
+    // anular, dejan la entrada en VALID con el pedido ya devuelto (P1-02).
+    const unusable = ticketUnusable(ticket.order, ticket.event);
+    if (unusable && unusable.reason !== 'order_pending') {
+      await prisma.scanLog.create({
+        data: { ticketId: ticket.id, eventId: ticket.eventId, scannerId: session.user?.id, result: 'CANCELLED' },
+      });
+      return NextResponse.json({ result: 'CANCELLED', message: unusable.scanMessage, color: 'red' });
+    }
+
+    // Pago todav\u00eda no confirmado por la pasarela: no dejar pasar.
+    if (ticket.status === 'PENDING' || unusable?.reason === 'order_pending') {
+      await prisma.scanLog.create({
+        data: {
+          ticketId: ticket.id,
+          eventId: ticket.eventId,
+          scannerId: session.user?.id,
+          result: 'PENDING_PAYMENT',
+        },
+      });
+      return NextResponse.json({
+        result: 'PENDING_PAYMENT',
+        message: 'PAGO NO CONFIRMADO \u2014 Entrada no v\u00e1lida todav\u00eda',
+        color: 'red',
       });
     }
 

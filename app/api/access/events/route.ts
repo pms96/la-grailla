@@ -17,7 +17,9 @@ export async function GET() {
   }
   try {
     const events = await prisma.event.findMany({
-      where: { status: 'PUBLISHED' },
+      // Publicados, y los terminados HACE POCO: el personal puede cerrar el evento antes que la puerta, y el escáner exige elegir evento (sin él no
+      // valida nada), así que un evento FINISHED de esta noche tiene que seguir en la lista.
+      where: { OR: [{ status: 'PUBLISHED' }, { status: 'FINISHED', date: { gte: new Date(Date.now() - 3 * 24 * 60 * 60_000) } }] },
       select: { id: true, name: true, date: true, status: true, currentCount: true, maxCapacity: true },
       orderBy: { date: 'asc' },
     });

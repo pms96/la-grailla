@@ -19,7 +19,7 @@ import { captureOpsError } from '@/lib/observability/capture';
 import { orderAccessQuery, signOrderAccess } from '@/lib/access-token';
 import { captchaRejection, verifyCaptcha } from '@/lib/captcha';
 import { hasEventEnded } from '@/lib/active-event';
-import { calculateCommission } from '@/lib/pricing';
+import { MIN_ONLINE_PAYMENT, calculateCommissionCents, fromCents, toCents } from '@/lib/pricing';
 import { getEventAgeWarningMessage } from '@/lib/age-warning';
 import { currentVatRate } from '@/lib/fiscal';
 import { TermsChangedError, recordTermsVersion } from '@/lib/legal-terms';
@@ -222,6 +222,9 @@ export async function POST(request: Request) {
 
     let totalAmount = 0;
     let commissionAmount = 0;
+    // ¿Hay que cobrar en la pasarela? Un pedido de 0 € (lista gratuita, invitación online) nace completado y no abre ninguna sesión: Stripe no admite
+    // importes por debajo de 0,50 € y devolvía un 502 al comprador (EN-18). Se decide dentro de la transacción, cuando ya se conoce el total.
+    let payNow = isGatewayLive;
 
     // Create order + tickets (PENDING hasta que se confirme el pago; VALID solo
     // si no hay pasarela real configurada, para no romper el flujo en local/dev).
@@ -241,6 +244,7 @@ export async function POST(request: Request) {
         });
 
         const ticketData: { ticketTypeId: string; quantity: number; name: string }[] = [];
+        let subtotalCents = 0;
         for (const [ticketTypeId, quantity] of requestedQuantities) {
           const tt = freshTicketTypes.find((t) => t.id === ticketTypeId);
           // Se vuelve a comprobar con los datos frescos y el lock tomado: el admin pudo desactivarlo mientras se esperaba.
@@ -248,11 +252,17 @@ export async function POST(request: Request) {
           if (tt.soldCount + quantity > tt.maxQuantity) {
             throw new OrderRejectedError(`No hay suficientes entradas de ${tt.name}`);
           }
-          totalAmount += tt.price * quantity;
+          subtotalCents += toCents(tt.price) * quantity;
           ticketData.push({ ticketTypeId: tt.id, quantity, name: tt.name });
         }
-        commissionAmount = calculateCommission(totalAmount, commissionPct);
-        totalAmount += commissionAmount;
+        // Todo en céntimos enteros y redondeado UNA vez: el mismo importe va a la BD y a la pasarela (P1-07).
+        const commissionCents = calculateCommissionCents(subtotalCents, commissionPct);
+        commissionAmount = fromCents(commissionCents);
+        totalAmount = fromCents(subtotalCents + commissionCents);
+        payNow = isGatewayLive && totalAmount > 0;
+        if (payNow && totalAmount < MIN_ONLINE_PAYMENT) {
+          throw new OrderRejectedError(`El importe mínimo para pagar online es ${MIN_ONLINE_PAYMENT.toFixed(2).replace('.', ',')} €. Añade otra entrada o consulta con el organizador.`);
+        }
 
         // Aforo: comparar contra entradas emitidas (vendidas), no contra el
         // aforo físico (currentCount), que solo refleja a quienes ya han
@@ -291,7 +301,7 @@ export async function POST(request: Request) {
         // Cupo de pedidos sin pagar por IP y evento (solo si hay pasarela real: sin ella el pedido nace pagado).
         const pendingScope = 'orders';
         const pendingIdentifier = `${clientIp}:${eventId}`;
-        if (isGatewayLive && (await countPendingSlots(tx, pendingScope, pendingIdentifier)) >= maxPendingPerIp) {
+        if (payNow && (await countPendingSlots(tx, pendingScope, pendingIdentifier)) >= maxPendingPerIp) {
           throw new TooManyPendingOrdersError();
         }
 
@@ -305,9 +315,10 @@ export async function POST(request: Request) {
               buyerEmail,
               totalAmount,
               commission: commissionAmount,
-              paymentMethod: 'CARD',
-              paymentProvider: paymentProvider.name,
-              status: isGatewayLive ? 'PENDING' : 'COMPLETED',
+              // Sin importe que cobrar (0 €) no hay pasarela de por medio: pedido gratuito, sin proveedor ni justificante de compra.
+              paymentMethod: totalAmount > 0 ? 'CARD' : 'FREE',
+              paymentProvider: payNow ? paymentProvider.name : 'mock',
+              status: payNow ? 'PENDING' : 'COMPLETED',
               idempotencyKey: idempotencyKey ?? null,
               termsAcceptedAt,
               termsVersion,
@@ -339,11 +350,11 @@ export async function POST(request: Request) {
             ticketTypeId: td.ticketTypeId,
             qrCode: generateQRCode(),
             holderName: `${buyerName} ${buyerLastName}`,
-            status: (isGatewayLive ? 'PENDING' : 'VALID') as TicketStatus,
+            status: (payNow ? 'PENDING' : 'VALID') as TicketStatus,
           }))
         );
         await tx.ticket.createMany({ data: ticketsToCreate });
-        if (isGatewayLive) await takePendingSlot(tx, pendingScope, pendingIdentifier, newOrder.id, CHECKOUT_RELEASE_AFTER_MS);
+        if (payNow) await takePendingSlot(tx, pendingScope, pendingIdentifier, newOrder.id, CHECKOUT_RELEASE_AFTER_MS);
 
         // Reserva de stock: se cuenta como vendida desde que se reserva en el
         // checkout, no solo cuando se confirma el pago (igual que el aforo).
@@ -409,7 +420,7 @@ export async function POST(request: Request) {
         ? prisma.waitingRoomEntry.update({ where: { id: queueEntry.id }, data: { status: 'COMPLETED' } }).catch(() => {})
         : Promise.resolve();
 
-    if (!isGatewayLive) {
+    if (!payNow) {
       void checkCapacityAlerts(eventId);
       await releaseQueueSlot();
       return NextResponse.json({

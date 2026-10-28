@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { MIN_ONLINE_PAYMENT, toCents } from '@/lib/pricing';
 
 const updateTicketTypeSchema = z.object({
   name: z.string().min(1).optional(),
@@ -26,6 +27,14 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
   }
   try {
     const body = updateTicketTypeSchema.parse(await request.json());
+    // 0 (gratuita) o al menos 0,50 €: Stripe no admite cobros menores y el comprador vería un error al pagar. Solo se exige si el precio CAMBIA: editar
+    // otro campo de un tipo antiguo con un precio menor (el formulario reenvía el precio) no debe fallar por esto.
+    if (body.price !== undefined && body.price > 0 && body.price < MIN_ONLINE_PAYMENT) {
+      const current = await prisma.ticketType.findUnique({ where: { id: params?.id }, select: { price: true } });
+      if (current && toCents(Number(current.price)) !== toCents(body.price)) {
+        return NextResponse.json({ error: 'El precio debe ser 0 (gratuita) o de al menos 0,50 €' }, { status: 400 });
+      }
+    }
     const tt = await prisma.ticketType.update({
       where: { id: params?.id },
       data: {

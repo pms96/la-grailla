@@ -68,6 +68,19 @@ Auditoría técnica y funcional de solo lectura de Tienda, Entradas, Contabilida
 | P1-24 | **Sin entradas nominativas ni transferencia ni recuperación por el comprador**: todas llevan el nombre del comprador en un único PDF. | Fricción y reclamaciones al regalar o perder el correo. | Asignación opcional de nombre por entrada, reenvío y recuperación por email. | L | EN-14 |
 | P1-25 | **Compras diseñado solo para bebidas de caseta**: categorías e IA no configurables, consumo histórico solo por script, «temporada anterior» por año. | El módulo no encaja con otro negocio. | Categorías y prompts configurables por cliente. | M | CO-12 |
 
+**Estado de los P1 (2026-10-28):**
+
+| P1 | Estado |
+|---|---|
+| P1-02 | **Hecho.** `lib/ticket-validity.ts`: solo un pedido COMPLETED de un evento no cancelado vale, para el escáner (`/api/scan`, que además exige `eventId`), el PDF y los pases de Wallet (410). La pantalla de confirmación ya estaba resuelta con el paquete del pedido pendiente. |
+| P1-05, P1-09, P1-19 | Hechos en la tanda 0. |
+| P1-07 | **Hecho.** Totales en céntimos enteros y redondeados una vez (`lib/pricing.ts`), tolerancia explícita de 1 céntimo, el webhook de Stripe lleva el importe y lo contrasta, pedidos de 0 € sin pasarela, mínimo de pago de 0,50 € (pedido, tienda y precio de los tipos de entrada). |
+| P1-08 | Hecho con el paquete del pedido pendiente (el reintento devuelve la sesión viva). |
+| P1-14 | Parcial: conciliación diaria pasarela↔BD hecha (OB-11); falta el export contable normalizado. |
+| P1-17 | Parcial: el IVA 0 % de los artículos de Compras ya se guarda (`parsePercentOr`); falta el modelo de proveedor/gasto (NIF, IBAN, retención, adjuntos) y el resultado económico único. |
+| P1-21 | Parcial: tiempos y `maxDuration` del reconcile, emails con reintento y Sentry; falta `after()` en las alertas de aforo, logs con `tenant` y medir el pool. |
+| Resto | Pendientes: P1-01, 03, 04, 06, 10, 11, 12, 13, 15, 16, 18, 20, 22, 23, 24, 25. |
+
 ### P2 · Roadmap y optimización (resumen)
 
 Detalle en los anexos. Los más relevantes: capacidad real de la sala de espera y pool de Neon sin medir (OB-16, EN-17); RUM de LCP/CLS en las páginas de compra (OB-18); alertas de costes (Vercel Image Optimization, Blob, Neon); posible deadlock al reservar varias líneas de tienda en distinto orden (TI-19); un pago con importe distinto queda PENDING reteniendo stock (TI-20); reembolso de tienda no exento con módulo apagado (TI-21); accesibilidad del checkout (TI-23); `/api/products` expone el stock exacto (TI-24); `Ticket` no guarda precio ni IVA (CO-13); sin retención ni anonimización RGPD (CO-20); estadísticas y exportaciones de entradas inconsistentes (EN-20); gaps de mercado (promociones, lista de espera, QR rotativo, Wallet actualizable, Bizum, EN-23); residuos de navegación en seis listas manuales (MO-13…19).

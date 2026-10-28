@@ -63,7 +63,7 @@ export async function handleProviderWebhook(providerName: string, request: Reque
 
     const baseUrl = getBaseUrl(request);
     if (event.kind === 'payment_succeeded' || event.kind === 'payment_expired') {
-      const resolved = event.kind === 'payment_succeeded' ? await resolvePaidCheckout(event.orderId, baseUrl) : await resolveExpiredCheckout(event.orderId);
+      const resolved = event.kind === 'payment_succeeded' ? await resolvePaidCheckout(event.orderId, baseUrl, { amount: event.amount, currency: event.currency }) : await resolveExpiredCheckout(event.orderId);
       if (resolved === null) {
         // OB-03: el `orderId` no existe en la BD de ESTE cliente (webhook de otro entorno o de otro cliente, pedido borrado, metadata errónea):
         // un cobro sin pedido. No se marca como procesado (nada se procesó) y queda en el log con todo lo necesario para localizarlo. Se
