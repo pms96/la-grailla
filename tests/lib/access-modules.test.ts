@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MODULE_KEYS } from '@grailla/contracts';
-import { PRESET_ROLES, STAFF_SURFACE_PREFIXES, modulesKey, pathAllowedForModules, presetRoleModules, validateCustomRole } from '@/lib/modules/access';
+import { PRESET_ROLES, STAFF_SURFACE_PREFIXES, adminLacksModule, modulesKey, pathAllowedForModules, presetRoleModules, validateCustomRole } from '@/lib/modules/access';
 
 // Decisión del dueño (2026-10-15): permisos por módulo dentro de un cliente, con roles predefinidos y otros que crea el cliente con un
 // alias eligiendo módulos de la lista. Antes cualquier ADMIN veía y tocaba todo.
@@ -131,5 +131,25 @@ describe('Matriz rol × superficie de personal (P1-03)', () => {
   it('toda superficie de personal tiene un dueño en el registro (si no, se denegaría a todo rol restringido)', async () => {
     const { ownerOfPath } = await import('@/lib/modules/registry');
     for (const prefix of STAFF_SURFACE_PREFIXES) expect(ownerOfPath(prefix), prefix).toBe('entradas');
+  });
+});
+
+describe('adminLacksModule (comprobación en los handlers, P1-03)', () => {
+  it('un ADMIN restringido sin el módulo, sí; con el módulo, no', () => {
+    expect(adminLacksModule({ role: 'ADMIN', modules: ['tienda'] }, 'entradas')).toBe(true);
+    expect(adminLacksModule({ role: 'ADMIN', modules: ['tienda', 'entradas'] }, 'entradas')).toBe(false);
+    expect(adminLacksModule({ role: 'ADMIN', modules: [] }, 'entradas')).toBe(true);
+  });
+  it('el propietario (ADMIN con modules nulo) nunca carece de un módulo', () => {
+    expect(adminLacksModule({ role: 'ADMIN', modules: null }, 'entradas')).toBe(false);
+    expect(adminLacksModule({ role: 'ADMIN' }, 'sponsors')).toBe(false);
+  });
+  it('el personal de puerta (TAQUILLA) trae modules nulo y no tiene rol por módulos: no se le aplica, venga lo que venga', () => {
+    expect(adminLacksModule({ role: 'TAQUILLA', modules: null }, 'entradas')).toBe(false);
+    expect(adminLacksModule({ role: 'TAQUILLA', modules: ['tienda'] }, 'entradas')).toBe(false);
+  });
+  it('sin sesión no hay nada que restringir aquí (de eso se ocupa la comprobación de rol)', () => {
+    expect(adminLacksModule(null, 'entradas')).toBe(false);
+    expect(adminLacksModule(undefined, 'entradas')).toBe(false);
   });
 });

@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
+import { adminLacksModule } from '@/lib/modules/access';
 import { authOptions } from '@/lib/auth';
 import { generateQRCode } from '@/lib/qr';
 import { sendOrderEmail, sendResultResponse } from '@/lib/order-email';
@@ -28,6 +29,7 @@ async function requireStaff() {
   const session = await getServerSession(authOptions);
   const role = session?.user?.role ?? '';
   if (!session?.user || !['ADMIN', 'TAQUILLA'].includes(role)) return null;
+  if (adminLacksModule(session.user, 'entradas')) return null; // rol restringido sin Entradas (el middleware ya responde 403; esto es la red de seguridad)
   return session;
 }
 

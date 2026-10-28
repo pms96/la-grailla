@@ -23,14 +23,14 @@ import { PrinterSettings } from './_sections/printer-settings';
  * cuenta de cobro. La API (lib/config-ownership.ts) hace cumplir lo mismo en el servidor: no es solo ocultar pestañas. */
 export default function ConfiguracionPage() {
   const { contactFormEnabled, modules } = useBrand();
-  const { data: session } = useSession() || {};
+  const { data: session, status: sessionStatus } = useSession() || {};
   // Con un rol por módulos solo salen las pestañas de SUS módulos (la API filtra las claves igual: esto solo evita pestañas vacías).
   const userModules = session?.user?.modules ?? null;
   const mine = (m: Parameters<typeof ownerEnabled>[0]) => userModules === null || userModules.includes(m);
   const has = (m: Parameters<typeof ownerEnabled>[0]) => ownerEnabled(m, modules) && mine(m);
   const core = mine('nucleo');
   // El correo saliente y el email de administración son solo del propietario (un rol restringido no puede desviar los correos): la API los ignora igual.
-  const owner = userModules === null;
+  const owner = sessionStatus === 'authenticated' && userModules === null; // hasta cargar la sesión no se enseñan (evita el parpadeo para un rol restringido)
   const showConnections = owner || has('sponsors') || has('contabilidad');
   const [configs, setConfigs] = useState<AppConfig[]>([]);
   const [loading, setLoading] = useState(true);

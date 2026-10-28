@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
+import { adminLacksModule } from '@/lib/modules/access';
 import { authOptions } from '@/lib/auth';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { checkCapacityAlerts } from '@/lib/capacity-alerts';
@@ -29,6 +30,9 @@ export async function POST(request: Request) {
     const session = await getServerSession(authOptions);
     if (!session?.user || !['ADMIN', 'TAQUILLA'].includes(session.user?.role ?? '')) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+    if (adminLacksModule(session.user, 'entradas')) {
+      return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 });
     }
 
     const { qrCode, eventId } = scanTicketSchema.parse(await request.json());

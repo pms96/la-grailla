@@ -67,6 +67,18 @@ export function pathAllowedForModules(path: string, modules: readonly string[] |
   return owner !== null && modules.includes(owner);
 }
 
+/**
+ * ¿Es un administrador con rol restringido al que le FALTA este módulo? Es la comprobación de los handlers (la barrera real es el middleware, pero la
+ * ruta puede llegar por una variante que el middleware no normalice, y la sesión del handler está contrastada con la BD, no es la foto del token).
+ * `modules` nulo es el propietario SOLO para un ADMIN: el personal de puerta (TAQUILLA) también trae `modules: null` y no tiene rol por módulos, así que
+ * no se le aplica. Pura y edge-safe.
+ */
+export function adminLacksModule(user: { role?: string | null; modules?: readonly string[] | null } | null | undefined, owner: ModuleKey): boolean {
+  if (!user || user.role !== 'ADMIN') return false;
+  const mods = user.modules ?? null;
+  return mods !== null && !mods.includes(owner);
+}
+
 const NAME_MAX = 40;
 
 /** Motivo por el que un rol personalizado no es válido, o null si lo es. */

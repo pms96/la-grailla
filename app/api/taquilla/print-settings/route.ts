@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
+import { adminLacksModule } from '@/lib/modules/access';
 import { authOptions } from '@/lib/auth';
 import { getConfigs } from '@/lib/config';
 import { handleApiError } from '@/lib/api-error';
@@ -25,6 +26,9 @@ export async function GET() {
   const role = session?.user?.role ?? '';
   if (!session?.user || !['ADMIN', 'TAQUILLA'].includes(role)) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  }
+  if (adminLacksModule(session.user, 'entradas')) {
+    return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 });
   }
   try {
     const configs = await getConfigs([...KEYS]);

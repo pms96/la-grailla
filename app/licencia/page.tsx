@@ -5,6 +5,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getBrand } from '@/lib/brand/brand';
 import { providerContact } from '@/lib/license-support';
+import { adminLacksModule } from '@/lib/modules/access';
 import { isLinkVisible } from '@/lib/modules/registry';
 import { getActiveModules, getLicenseNotice } from '@/lib/modules/runtime';
 import { isLegacyTenant } from '@/lib/tenant/context';
@@ -14,28 +15,29 @@ import { LicenseNotice } from './_components/license-notice';
 // o fuera del modo plataforma, no hay nada que avisar y se vuelve a la web.
 export const metadata = { title: 'Servicio no disponible', robots: { index: false, follow: false } };
 
-/** Rol de staff de quien mira, si hay sesión. Cualquier fallo al leerla (BD, cookie) equivale a «sin sesión»: el aviso nunca debe romperse. */
-async function staffRole(): Promise<'ADMIN' | 'TAQUILLA' | null> {
+/** Rol de staff de quien mira, si hay sesión, y si puede usar la puerta (un ADMIN con rol restringido sin Entradas no). Cualquier fallo al leerla (BD, cookie) equivale a «sin sesión»: el aviso nunca debe romperse. */
+async function staffRole(): Promise<{ role: 'ADMIN' | 'TAQUILLA' | null; door: boolean }> {
   try {
-    const role = (await getServerSession(authOptions))?.user?.role;
-    return role === 'ADMIN' || role === 'TAQUILLA' ? role : null;
+    const user = (await getServerSession(authOptions))?.user;
+    const role = user?.role === 'ADMIN' || user?.role === 'TAQUILLA' ? user.role : null;
+    return { role, door: role !== null && !adminLacksModule(user, 'entradas') };
   } catch {
-    return null;
+    return { role: null, door: false };
   }
 }
 
 export default async function LicensePage() {
   const notice = getLicenseNotice();
   if (!notice || (notice.phase !== 'PANEL_BLOCKED' && notice.phase !== 'BLOCKED')) redirect('/');
-  const [brand, role] = await Promise.all([getBrand(), staffRole()]);
+  const [brand, staff] = await Promise.all([getBrand(), staffRole()]);
 
   return (
     <LicenseNotice
       phase={notice.phase}
       legacy={isLegacyTenant()}
       brandName={brand.name}
-      role={role}
-      scanner={isLinkVisible('/acceso', getActiveModules())}
+      role={staff.role}
+      scanner={isLinkVisible('/acceso', getActiveModules()) && staff.door}
       contact={providerContact()}
     />
   );

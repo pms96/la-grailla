@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
+import { adminLacksModule } from '@/lib/modules/access';
 import { authOptions } from '@/lib/auth';
 import { buildTicketsPdfForRoll } from '@/lib/ticket-pdf';
 import { handleApiError } from '@/lib/api-error';
@@ -13,6 +14,9 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
   const role = session?.user?.role ?? '';
   if (!session?.user || !['ADMIN', 'TAQUILLA'].includes(role)) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  }
+  if (adminLacksModule(session.user, 'entradas')) {
+    return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 });
   }
   try {
     const order = await prisma.order.findUnique({

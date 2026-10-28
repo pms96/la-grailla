@@ -1,5 +1,20 @@
 const STAFF_ROLES = ['ADMIN', 'TAQUILLA'];
 
+/**
+ * Ruta con los `%XX` decodificados, para decidir permisos. `new URL('/api/%73can').pathname` conserva `%73`, y Next resuelve después la variante
+ * decodificada hasta el handler de `/api/scan`: un middleware que mirara solo la ruta cruda no la reconocería como ruta de personal. Se decide siempre
+ * sobre la forma decodificada (más estricta: puede que una ruta decodificada caiga en una zona protegida; nunca al revés). Si la ruta está mal
+ * codificada se devuelve tal cual. Pura y edge-safe.
+ */
+export function decodedPath(path: string): string {
+  try {
+    const decoded = decodeURIComponent(path);
+    return decoded.length > 1 ? decoded.replace(/\/{2,}/g, '/') : decoded;
+  } catch {
+    return path;
+  }
+}
+
 // Red de seguridad para las API de staff: cada route handler ya comprueba su
 // propia sesión/rol (algunas admiten TAQUILLA además de ADMIN, p.ej.
 // /api/admin/scans), así que aquí solo se exige "alguna sesión de staff" en

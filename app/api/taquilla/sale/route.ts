@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
+import { adminLacksModule } from '@/lib/modules/access';
 import { authOptions } from '@/lib/auth';
 import { generateQRCode } from '@/lib/qr';
 import { checkCapacityAlerts } from '@/lib/capacity-alerts';
@@ -40,6 +41,9 @@ export async function POST(request: Request) {
     const role = session?.user?.role ?? '';
     if (!session?.user || !['ADMIN', 'TAQUILLA'].includes(role)) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+    if (adminLacksModule(session.user, 'entradas')) {
+      return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 });
     }
 
     const { eventId, buyerName, buyerLastName, buyerEmail, items, paymentMethod, duringEvent, idempotencyKey } =

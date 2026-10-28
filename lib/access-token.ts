@@ -2,6 +2,8 @@ import crypto from 'crypto';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getInstallationSecret } from '@/lib/tenant/installation-secret';
+import { adminLacksModule } from '@/lib/modules/access';
+import type { ModuleKey } from '@grailla/contracts';
 
 const HKDF_INFO = 'la-grailla-access-token-v1';
 const TOKEN_BYTES = 16;
@@ -63,7 +65,7 @@ export async function allowShopOrderAccess(
   token: string | null | undefined
 ): Promise<boolean> {
   if (verifyShopOrderAccess(shopOrderId, token)) return true;
-  return isStaffSession();
+  return isStaffSessionFor('tienda');
 }
 
 /** Token para descargar wallet de una entrada concreta. */
@@ -94,6 +96,23 @@ export async function isStaffSession(): Promise<boolean> {
   return role === 'ADMIN' || role === 'TAQUILLA';
 }
 
+/**
+ * Personal (ADMIN o TAQUILLA) que además puede usar el módulo dueño de lo que se pide. Un ADMIN con un rol restringido (p. ej. «Contable») sin ese
+ * módulo NO pasa: antes el fallback de «o sesión de personal» le dejaba leer pedidos, PDFs y portales de sponsors de cualquier cliente final (P1-03).
+ */
+export async function isStaffSessionFor(owner: ModuleKey): Promise<boolean> {
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role ?? '';
+  if (role !== 'ADMIN' && role !== 'TAQUILLA') return false;
+  return !adminLacksModule(session?.user, owner);
+}
+
+/** Solo ADMIN con el módulo `owner`: para lo que el personal de puerta (TAQUILLA) no debe ver ni tocar (borradores, sponsors). */
+export async function isAdminSessionFor(owner: ModuleKey): Promise<boolean> {
+  const session = await getServerSession(authOptions);
+  return session?.user?.role === 'ADMIN' && !adminLacksModule(session.user, owner);
+}
+
 /** Solo ADMIN: para lo que el personal de puerta (TAQUILLA) no debe ver ni tocar (borradores, sponsors). */
 export async function isAdminSession(): Promise<boolean> {
   const session = await getServerSession(authOptions);
@@ -106,7 +125,7 @@ export async function allowOrderAccess(
   token: string | null | undefined
 ): Promise<boolean> {
   if (verifyOrderAccess(orderId, token)) return true;
-  return isStaffSession();
+  return isStaffSessionFor('entradas');
 }
 
 /** Token de ticket, token del pedido padre, o staff. */
@@ -117,7 +136,7 @@ export async function allowTicketAccess(
 ): Promise<boolean> {
   if (verifyTicketAccess(ticketId, token)) return true;
   if (orderId && verifyOrderAccess(orderId, token)) return true;
-  return isStaffSession();
+  return isStaffSessionFor('entradas');
 }
 
 /**
@@ -159,7 +178,7 @@ export async function allowSponsorAccess(
   token: string | null | undefined
 ): Promise<boolean> {
   if (verifySponsorAccess(sponsorId, tokenVersion, token)) return true;
-  return isAdminSession();
+  return isAdminSessionFor('sponsors');
 }
 
 export function getTokenFromRequest(request: Request): string | null {

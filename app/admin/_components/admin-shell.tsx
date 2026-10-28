@@ -140,7 +140,8 @@ export default function AdminShell({ children, modules, licenseGrace }: AdminShe
       items: g.items.filter((i) => (!modules || isLinkVisible(i.href, modules)) && pathAllowedForModules(i.href, userModules)),
     }))
     .filter((g) => g.items.length > 0);
-  const showScanner = !modules || isLinkVisible('/acceso', modules);
+  // El escáner también es de un módulo: un rol restringido sin Entradas no lo ve (el middleware lo redirigiría al inicio).
+  const showScanner = (!modules || isLinkVisible('/acceso', modules)) && pathAllowedForModules('/acceso', userModules);
 
   return (
     <div className="min-h-screen flex">

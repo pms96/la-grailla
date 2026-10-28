@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
-import { isAdminSession } from '@/lib/access-token';
+import { isAdminSessionFor } from '@/lib/access-token';
 import { toPublicEvent } from '@/lib/public-event';
 
 export async function GET(request: Request, props: { params: Promise<{ slug: string }> }) {
@@ -20,7 +20,7 @@ export async function GET(request: Request, props: { params: Promise<{ slug: str
     });
 
     // Un borrador solo existe para el ADMIN; para el resto es como si no estuviera.
-    if (!event || (event.status === 'DRAFT' && !(await isAdminSession()))) {
+    if (!event || (event.status === 'DRAFT' && !(await isAdminSessionFor('entradas')))) {
       return NextResponse.json({ error: 'Evento no encontrado' }, { status: 404 });
     }
 

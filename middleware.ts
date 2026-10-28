@@ -1,7 +1,7 @@
 import { withAuth, type NextRequestWithAuth } from 'next-auth/middleware';
 import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server';
 import { isCrossOriginMutation, isOriginCheckExempt } from '@/lib/origin-check';
-import { isAuthorizedStaffRequest } from '@/lib/staff-paths';
+import { decodedPath, isAuthorizedStaffRequest } from '@/lib/staff-paths';
 import { pathAllowedForModules } from '@/lib/modules/access';
 import { isPlatformMode } from '@/lib/tenant/mode';
 import { platformMiddleware } from '@/lib/tenant/middleware';
@@ -12,7 +12,7 @@ export { isStaffApiPath, isAuthorizedStaffRequest } from '@/lib/staff-paths';
 const legacyMiddleware = withAuth(
   function middleware(req) {
     const token = req.nextauth?.token;
-    const path = req.nextUrl?.pathname ?? '';
+    const path = decodedPath(req.nextUrl?.pathname ?? '');
 
     // CSRF: una petición que modifica datos y que el navegador marca como
     // originada en otro sitio no llega a ningún handler (ver lib/origin-check.ts).
@@ -49,7 +49,7 @@ const legacyMiddleware = withAuth(
   {
     callbacks: {
       authorized: ({ token, req }) => {
-        const path = req.nextUrl?.pathname ?? '';
+        const path = decodedPath(req.nextUrl?.pathname ?? '');
         if (path?.startsWith('/admin') || path?.startsWith('/acceso')) {
           return !!token;
         }
@@ -64,7 +64,7 @@ const legacyMiddleware = withAuth(
 export default function middleware(req: NextRequest, event: NextFetchEvent) {
   if (isPlatformMode()) return platformMiddleware(req);
   // Modo normal: las páginas públicas no pasan por next-auth (como antes, cuando el matcher no las incluía).
-  const path = req.nextUrl.pathname;
+  const path = decodedPath(req.nextUrl.pathname);
   if (!path.startsWith('/admin') && !path.startsWith('/acceso') && !path.startsWith('/api/')) return NextResponse.next();
   return legacyMiddleware(req as NextRequestWithAuth, event);
 }

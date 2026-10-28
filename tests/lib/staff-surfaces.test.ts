@@ -8,13 +8,27 @@ import { STAFF_SURFACE_PREFIXES } from '@/lib/modules/access';
  * Una API de staff nueva fuera de /api/admin que se olvide de esto rompe la CI en vez de quedar abierta a cualquier rol restringido. */
 
 const API_DIR = path.join(process.cwd(), 'app', 'api');
-const STAFF_CHECK = /getServerSession|isStaffSession|isAdminSession/;
+// También las rutas que dejan pasar a «una sesión de personal» por un helper de lib/ (allow…Access, requireStaff): no llevan `getServerSession` en su fuente.
+const STAFF_CHECK = /getServerSession|isStaffSession|isAdminSession|allow(Order|ShopOrder|Ticket|Sponsor)Access|requireStaff/;
 
 /** APIs públicas que miran la sesión solo para dar MÁS al personal (o para ceder el paso al comprador con su token). No son superficies de personal. */
 const PUBLIC_WITH_OPTIONAL_STAFF: Record<string, string> = {
   '/api/events': 'listado público de eventos; con sesión de personal añade borradores (solo lectura)',
   '/api/events/[slug]': 'ficha pública del evento; con sesión de personal ve también los no publicados',
   '/api/orders/[orderId]/send-tickets': 'reenvío de entradas: lo usa el comprador con su token o el personal desde el admin',
+  // Token del comprador o del sponsor, o personal CON el módulo dueño: el fallback de personal es module-aware (isStaffSessionFor / isAdminSessionFor).
+  '/api/orders/[orderId]': 'confirmación del comprador (token) o personal de Entradas',
+  '/api/shop/orders/[orderId]': 'confirmación del comprador (token) o personal de Tienda',
+  '/api/shop/orders/[orderId]/send-email': 'reenvío del email de la tienda: token o personal de Tienda',
+  '/api/tickets/[orderId]/pdf-html': 'PDF imprimible: token del comprador o personal de Entradas',
+  '/api/wallet/apple/[ticketId]': 'pase de Wallet: token del comprador o personal de Entradas',
+  '/api/wallet/google/[ticketId]': 'pase de Wallet: token del comprador o personal de Entradas',
+  '/api/sponsors/portal/[sponsorId]': 'portal del sponsor: token o ADMIN con Sponsors',
+  '/api/sponsors/portal/[sponsorId]/datos': 'portal del sponsor: token o ADMIN con Sponsors',
+  '/api/sponsors/portal/[sponsorId]/logo': 'portal del sponsor: token o ADMIN con Sponsors',
+  '/api/sponsors/portal/[sponsorId]/logo/upload-token': 'portal del sponsor: token o ADMIN con Sponsors',
+  '/api/sponsors/portal/[sponsorId]/creatividad': 'portal del sponsor: token o ADMIN con Sponsors',
+  '/api/sponsors/portal/[sponsorId]/assets/[assetId]': 'portal del sponsor: token o ADMIN con Sponsors',
 };
 
 function routeFiles(dir: string): string[] {

@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import type { EventStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
-import { isAdminSession } from '@/lib/access-token';
+import { isAdminSessionFor } from '@/lib/access-token';
 import { toPublicEvent } from '@/lib/public-event';
 
 export async function GET(request: Request) {
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
     const status = searchParams.get('status');
 
     // Los borradores son solo del ADMIN: antes cualquiera podía pedir ?status=DRAFT y ver eventos sin publicar.
-    if (status === 'DRAFT' && !(await isAdminSession())) {
+    if (status === 'DRAFT' && !(await isAdminSessionFor('entradas'))) {
       return NextResponse.json([]);
     }
 

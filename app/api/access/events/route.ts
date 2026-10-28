@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
+import { adminLacksModule } from '@/lib/modules/access';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 
@@ -14,6 +15,9 @@ export async function GET() {
   const session = await getServerSession(authOptions);
   if (session?.user?.role !== 'ADMIN' && session?.user?.role !== 'TAQUILLA') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  }
+  if (adminLacksModule(session.user, 'entradas')) {
+    return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 });
   }
   try {
     const events = await prisma.event.findMany({
