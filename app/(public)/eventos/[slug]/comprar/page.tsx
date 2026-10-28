@@ -5,6 +5,7 @@ import { Container } from '@/components/layouts/container';
 import { Button } from '@/components/ui/button';
 import { hasEventEnded } from '@/lib/active-event';
 import { getConfig } from '@/lib/config';
+import { getCaptchaSiteKey } from '@/lib/captcha';
 import { currentVatRate } from '@/lib/fiscal';
 import { computeTermsVersion } from '@/lib/legal-terms';
 import { getOnlineSalesClosedLabel, getOnlineSalesClosedMessage } from '@/lib/online-sales-closed';
@@ -70,7 +71,8 @@ export default async function ComprarPage(props: { params: Promise<{ slug: strin
   const vatRate = await currentVatRate('entradas');
   // Versión de las condiciones con las que se pinta ESTA pantalla: el pedido la devuelve y el servidor comprueba que no han cambiado (409 si cambiaron).
   const termsVersion = await computeTermsVersion('entradas', event.conditions ?? '').then((t) => t.hash).catch(() => undefined);
-  const serializedEvent = { ...JSON.parse(JSON.stringify(event)), commissionPercent, vatRate, termsVersion };
+  const captchaSiteKey = await getCaptchaSiteKey();
+  const serializedEvent = { ...JSON.parse(JSON.stringify(event)), commissionPercent, vatRate, termsVersion, captchaSiteKey };
 
   return (
     <Container size="md">

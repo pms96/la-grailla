@@ -49,6 +49,9 @@ const CONFIG_DEFAULTS: Record<string, string> = {
   abacus_ai_api_key: '',
   cookies_banner_enabled: 'true',
   maps_provider: 'osm',
+  // Captcha (Cloudflare Turnstile) del pedido, la tienda y la sala de espera: vacío = desactivado (ver lib/captcha.ts).
+  turnstile_site_key: '',
+  turnstile_secret_key: '',
   orders_rate_limit_per_ip: '10',
   orders_rate_limit_window_seconds: '60',
   orders_max_pending_per_ip: '10',

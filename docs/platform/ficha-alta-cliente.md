@@ -34,6 +34,8 @@ El dinero va **a la cuenta del propio cliente**. Pasarela: [ ] SumUp · [ ] Stri
 
 Las claves las pega el propio administrador del cliente en el admin de su web (Configuración). **No** se meten en el panel del proveedor.
 
+**Comprobación anti-bots (recomendada antes de abrir ventas con demanda):** el cliente crea un widget gratuito de Cloudflare Turnstile para SU dominio y pega las dos claves en Configuración → General. Detalle y límites en [`captcha.md`](captcha.md).
+
 ## 4. Cómo se ve
 
 - [ ] **Plantilla:** `feria` (oscura, degradados, pegatinas de borde grueso) o `editorial` (sobria, mucho aire, titular grande)
@@ -71,7 +73,7 @@ Los redacta el cliente (o su abogado). El proveedor no los inventa.
 2. [ ] Asistente de alta en el panel (`/tenants/new`) con los apartados 1, 2, 5 y 7
 3. [ ] Registro DNS creado y dominio verificado; dominio añadido en Vercel
 4. [ ] Invitación enviada; el administrador fija su contraseña y entra
-5. [ ] El administrador completa Configuración (pagos, correo, redes sociales)
+5. [ ] El administrador completa Configuración (pagos, correo, redes sociales y, si habrá venta con demanda, las claves de Turnstile)
 6. [ ] Apariencia (apartado 4)
 7. [ ] **Comprobar salud** en el panel: «Sirviendo al cliente: sí»
 8. [ ] **Compra de prueba de importe mínimo y su reembolso**, antes de abrir ventas

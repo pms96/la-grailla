@@ -17,6 +17,7 @@ import { getBaseUrl } from '@/lib/url';
 import { handleApiError } from '@/lib/api-error';
 import { captureOpsError } from '@/lib/observability/capture';
 import { orderAccessQuery, signOrderAccess } from '@/lib/access-token';
+import { captchaRejection, verifyCaptcha } from '@/lib/captcha';
 import { hasEventEnded } from '@/lib/active-event';
 import { calculateCommission } from '@/lib/pricing';
 import { getEventAgeWarningMessage } from '@/lib/age-warning';
@@ -71,6 +72,8 @@ const createOrderSchema = z.object({
     .min(1)
     .max(MAX_TICKET_LINES_PER_ORDER),
   queueToken: z.string().optional(),
+  // Token del captcha (Turnstile) si el cliente lo tiene activado; ver lib/captcha.ts.
+  captchaToken: z.string().max(2100).optional(),
   idempotencyKey: z.string().optional(),
   // P0-11: el servidor exige la aceptación (la casilla del formulario no es la barrera: se puede llamar a la API directamente).
   acceptedTerms: z.boolean().optional(),
@@ -102,7 +105,7 @@ export async function POST(request: Request) {
     }
 
     const body = createOrderSchema.parse(await request.json());
-    const { eventId, buyerName, buyerLastName, buyerEmail, items, queueToken, idempotencyKey, acceptedTerms, ageConfirmed, termsVersion: seenTermsVersion } = body;
+    const { eventId, buyerName, buyerLastName, buyerEmail, items, queueToken, captchaToken, idempotencyKey, acceptedTerms, ageConfirmed, termsVersion: seenTermsVersion } = body;
 
     // Un reintento (red, doble clic, "atrás" + reenviar) con la misma clave
     // que un pedido que ya existe no debe crear un segundo pedido/cobro —
@@ -168,6 +171,10 @@ export async function POST(request: Request) {
           { status: 403 }
         );
       }
+    } else {
+      // Sin sala de espera, el captcha va aquí. Con ella, ya lo pasó al entrar en la cola (el turno ADMITTED lo demuestra) y no se le pide dos veces.
+      const captcha = await verifyCaptcha(request, captchaToken, 'order');
+      if (!captcha.ok) return captchaRejection(captcha);
     }
 
     // Solo validamos aquí que los ticketTypeId pedidos existen y pertenecen al

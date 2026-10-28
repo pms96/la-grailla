@@ -410,6 +410,15 @@ export default function ConfiguracionPage() {
               </Select>
             </div>
           </CardContent></Card>
+
+          <Card className="mt-6"><CardContent className="p-6 space-y-4">
+            <div>
+              <h3 className="font-display font-semibold">Comprobación anti-bots (Cloudflare Turnstile)</h3>
+              <p className="text-sm text-muted-foreground">Frena a los scripts que reservan entradas o stock sin pagar. Se pide al entrar en la sala de espera y al crear un pedido, y casi siempre es invisible para el comprador. Crea un widget gratuito en el panel de Cloudflare (Turnstile → Add widget), añade el dominio de esta web y pega aquí sus dos claves. Si dejas una vacía, la comprobación queda desactivada.</p>
+            </div>
+            <ConfigField label="Clave del sitio (pública)" value={values?.turnstile_site_key ?? ''} onChange={(v) => updateValue('turnstile_site_key', v)} placeholder="0x4AAAAAAA..." />
+            <ConfigField label="Clave secreta" type="password" value={values?.turnstile_secret_key ?? ''} onChange={(v) => updateValue('turnstile_secret_key', v)} placeholder="0x4AAAAAAA..." description="Se guarda cifrada y no se vuelve a mostrar. Si Cloudflare no responde, la compra no se bloquea." />
+          </CardContent></Card>
         </TabsContent>
       </Tabs>
     </div>

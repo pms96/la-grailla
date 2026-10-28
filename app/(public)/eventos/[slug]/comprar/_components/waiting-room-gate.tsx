@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { FadeIn } from '@/components/ui/animate';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { CaptchaWidget } from '@/components/captcha-widget';
 import BuyTicketsForm, { type EventData } from './buy-tickets-form';
 
 // Curva de ease-out reforzada (equivalente a --ease-out en globals.css).
@@ -17,6 +18,7 @@ type WaitingRoomEvent = EventData & { waitingRoomEnabled: boolean };
 
 type QueueState =
   | { status: 'CHECKING' }
+  | { status: 'CAPTCHA' }
   | { status: 'WAITING'; token: string; position: number; message: string | null }
   | { status: 'ADMITTED'; token: string; expiresAt: string }
   | { status: 'EXPIRED' }
@@ -28,6 +30,7 @@ type QueueApiResult = {
   position?: number;
   expiresAt?: string;
   waitingRoomMessage?: string | null;
+  code?: string;
 };
 
 // Intervalo de polling adaptativo: cuanta más gente por delante, menos falta
@@ -68,6 +71,10 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
   const networkFailsRef = useRef(0);
   // Evita que un poll tardío pise un estado STUCK / EXPIRED tras reintento manual.
   const generationRef = useRef(0);
+  // Token del captcha para el PRÓXIMO intento de entrar en la cola: vale una sola vez, así que se vacía al enviarlo.
+  const captchaTokenRef = useRef<string | null>(null);
+  // Si el widget no puede cargar se intenta UNA vez entrar sin token (el servidor deja pasar si Cloudflare está caído); si lo rechaza, se queda el aviso.
+  const captchaTriedBlindRef = useRef(false);
   const joinRef = useRef<() => void>(() => {});
   const pollRef = useRef<() => void>(() => {});
 
@@ -151,14 +158,22 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
   const join = useCallback(async () => {
     const gen = generationRef.current;
     const token = typeof window !== 'undefined' ? window.localStorage.getItem(storageKey(event.id)) : null;
+    const captchaToken = captchaTokenRef.current;
+    captchaTokenRef.current = null;
     try {
       const res = await fetch('/api/queue/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId: event.id, token }),
+        body: JSON.stringify({ eventId: event.id, token, captchaToken }),
       });
       if (generationRef.current !== gen) return;
       const data = (await res.json()) as QueueApiResult;
+      // Entrar en la cola pide la comprobación de seguridad (solo con captcha activado): se pinta el widget y, con su token, se reintenta.
+      if (res.status === 400 && event.captchaSiteKey && (data?.code === 'captcha_required' || data?.code === 'captcha_failed')) {
+        if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+        setState({ status: 'CAPTCHA' });
+        return;
+      }
       // Un 429 (rate limit) o un 5xx no tienen "status" de cola en el body —
       // sin este chequeo, applyResult no reconoce la forma de la respuesta y
       // no hace nada, dejando al comprador colgado en "comprobando" para
@@ -175,7 +190,7 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
       // bloquear al comprador con una pantalla de error.
       scheduleRetry(() => joinRef.current(), 3000, gen);
     }
-  }, [event.id, applyResult, scheduleRetry]);
+  }, [event.id, event.captchaSiteKey, applyResult, scheduleRetry]);
 
   const poll = useCallback(async () => {
     const gen = generationRef.current;
@@ -258,6 +273,44 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
               Estamos viendo si hay cola para este evento. No cierres la pestaña.
             </p>
           </div>
+          <BackToEvent slug={event.slug} />
+        </div>
+      </FadeIn>
+    );
+  }
+
+  if (state.status === 'CAPTCHA') {
+    return (
+      <FadeIn>
+        <div className="rounded-lg border border-border bg-card p-8 md:p-12 text-center space-y-4" role="status" aria-live="polite">
+          <Hourglass className="h-8 w-8 text-primary mx-auto" aria-hidden />
+          <div className="space-y-2">
+            <h1 className="font-display text-xl font-bold tracking-tight">Una comprobación rápida</h1>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+              Antes de entrar en la cola comprobamos que eres una persona. Suele ser automático y no pierdes tu sitio.
+            </p>
+          </div>
+          <CaptchaWidget
+            siteKey={event.captchaSiteKey ?? ''}
+            action="queue"
+            className="flex flex-col items-center"
+            onUnavailable={() => {
+              if (captchaTriedBlindRef.current) return;
+              captchaTriedBlindRef.current = true;
+              void join();
+            }}
+            onToken={(token) => {
+              if (!token) return;
+              captchaTriedBlindRef.current = false;
+              captchaTokenRef.current = token;
+              generationRef.current += 1;
+              networkFailsRef.current = 0;
+              clearTimers();
+              setState({ status: 'CHECKING' });
+              startSlowWatch();
+              void join();
+            }}
+          />
           <BackToEvent slug={event.slug} />
         </div>
       </FadeIn>

@@ -2,6 +2,7 @@
 
 import { MAX_TICKETS_PER_TYPE } from '@/lib/checkout-limits';
 import { useRef, useState } from 'react';
+import { CaptchaWidget, type CaptchaWidgetHandle } from '@/components/captcha-widget';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -59,6 +60,8 @@ export interface EventData {
   ageWarningMessage?: string | null;
   vatRate?: number | null;
   termsVersion?: string;
+  /** Clave pública del captcha (Turnstile) del cliente; vacía = sin captcha. Con sala de espera no se usa aquí: ya lo pasó al entrar en la cola. */
+  captchaSiteKey?: string;
 }
 
 type FieldErrors = {
@@ -98,6 +101,13 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
   const [loading, setLoading] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [ageConfirmed, setAgeConfirmed] = useState(false);
+  // Captcha: el widget está siempre que el cliente lo tenga activado, aunque haya turno de cola (si el admin apaga la cola a media venta, el servidor
+  // pasa a exigirlo). Solo se EXIGE token aquí si no hay turno: con turno, ya lo pasó al entrar. Cada token vale para un único envío.
+  const captchaSiteKey = event?.captchaSiteKey || '';
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  // El widget no puede cargar (bloqueador, Cloudflare caído): se envía sin token y decide el servidor, que deja pasar si Cloudflare está caído.
+  const [captchaUnavailable, setCaptchaUnavailable] = useState(false);
+  const captchaRef = useRef<CaptchaWidgetHandle>(null);
   // Se genera una vez por intento y se manda en cada llamada a /api/orders,
   // incluida cualquier repetición de ESE MISMO intento (reintento de red,
   // doble clic antes de que se desactive el botón) — así el servidor puede
@@ -165,6 +175,11 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
       return;
     }
 
+    if (captchaSiteKey && !queueToken && !captchaToken && !captchaUnavailable) {
+      toast.info('Estamos haciendo una comprobación de seguridad. Inténtalo de nuevo en unos segundos.');
+      return;
+    }
+
     setLoading(true);
     if (!idempotencyKeyRef.current) {
       idempotencyKeyRef.current = crypto.randomUUID();
@@ -184,6 +199,7 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
           buyerEmail: buyerEmail?.trim(),
           items,
           queueToken,
+          captchaToken: captchaToken ?? undefined,
           idempotencyKey: idempotencyKeyRef.current,
           acceptedTerms,
           termsVersion: event?.termsVersion,
@@ -192,6 +208,8 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
       });
 
       const data = await res.json();
+      // El token ya se gastó (valga o no): se pide otro para el siguiente intento.
+      if (captchaSiteKey) captchaRef.current?.reset();
       if (!res.ok || !data?.success) {
         // Respuesta definitiva del servidor: si había un pedido a medias, ya
         // lo ha cancelado y liberado la clave por su cuenta — un reintento
@@ -207,6 +225,7 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
       const tokenQs = data?.accessToken ? `?t=${encodeURIComponent(data.accessToken)}` : '';
       router.push(`/confirmacion/${data.orderId}${tokenQs}`);
     } catch {
+      if (captchaSiteKey) captchaRef.current?.reset();
       // Fallo de red: no sabemos si el servidor llegó a procesar la
       // petición, así que se conserva la clave para que un reintento se
       // reconozca como el mismo intento en vez de crear un pedido duplicado.
@@ -454,6 +473,18 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
                 ageError={errors.age}
                 vatIncluded={(event?.vatRate ?? 0) > 0}
               />
+              {captchaSiteKey && (
+                <CaptchaWidget
+                  ref={captchaRef}
+                  siteKey={captchaSiteKey}
+                  action="order"
+                  onToken={(t) => {
+                    setCaptchaToken(t);
+                    if (t) setCaptchaUnavailable(false);
+                  }}
+                  onUnavailable={() => setCaptchaUnavailable(true)}
+                />
+              )}
             </div>
           </CardContent>
         </Card>

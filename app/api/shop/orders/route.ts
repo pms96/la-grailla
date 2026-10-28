@@ -8,6 +8,7 @@ import { getPaymentProvider } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
 import { getConfig } from '@/lib/config';
 import { rateLimit, getClientIp, countPendingSlots, takePendingSlot, releasePendingSlot } from '@/lib/rate-limit';
+import { captchaRejection, verifyCaptcha } from '@/lib/captcha';
 import { CHECKOUT_RELEASE_AFTER_MS } from '@/lib/checkout-hold';
 import { PENDING_LIMIT_CONFIG_KEY, parsePendingLimit, MAX_SHOP_LINES_PER_ORDER, MAX_SHOP_UNITS_PER_LINE, MAX_SHOP_UNITS_PER_ORDER } from '@/lib/checkout-limits';
 import { resumeCheckoutUrl } from '@/lib/reconciliation/close-session';
@@ -28,6 +29,8 @@ const createShopOrderSchema = z.object({
   shippingZip: z.string().min(1),
   shippingPhone: z.string().optional().nullable(),
   idempotencyKey: z.string().optional(),
+  // Token del captcha (Turnstile) si el cliente lo tiene activado; ver lib/captcha.ts.
+  captchaToken: z.string().max(2100).optional(),
   // P0-11: el servidor exige la aceptación (la casilla del formulario no es la barrera: se puede llamar a la API directamente).
   acceptedTerms: z.boolean().optional(),
   // Versión de las condiciones con la que se pintó SU pantalla: si cambiaron mientras compraba, 409 (no acepta lo que no vio).
@@ -81,6 +84,7 @@ export async function POST(request: Request) {
       shippingPhone,
       items,
       idempotencyKey,
+      captchaToken,
       acceptedTerms,
       termsVersion: seenTermsVersion,
     } = body;
@@ -96,6 +100,9 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    const captcha = await verifyCaptcha(request, captchaToken, 'shop-order');
+    if (!captcha.ok) return captchaRejection(captcha);
 
     // Unidades en total por pedido (además del tope por línea y de líneas): sin él, 20 líneas de 10 unidades siguen reservando medio catálogo.
     const totalUnits = items.reduce((sum, i) => sum + (i.quantity ?? 1), 0);

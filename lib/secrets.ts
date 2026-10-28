@@ -38,6 +38,8 @@ export const SENSITIVE_CONFIG_KEYS = [
   'apple_wallet_cert_p12_base64',
   'apple_wallet_cert_password',
   'abacus_ai_api_key',
+  // Clave secreta del captcha (Cloudflare Turnstile); la clave del sitio es pública y va en claro.
+  'turnstile_secret_key',
 ];
 
 // `smtp_password` se guardó siempre en claro. Se publica primero la LECTURA

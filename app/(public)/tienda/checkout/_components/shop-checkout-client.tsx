@@ -11,6 +11,7 @@ import { FadeIn } from '@/components/ui/animate';
 import { ArrowLeft, CreditCard, Loader2, Lock, ShoppingBag } from 'lucide-react';
 import { type CartLine, cartTotals, readCart } from '@/lib/shop-cart';
 import { LegalAcceptance } from '@/components/legal-acceptance';
+import { CaptchaWidget, type CaptchaWidgetHandle } from '@/components/captcha-widget';
 
 type FieldErrors = Partial<
   Record<'buyerName' | 'buyerEmail' | 'shippingAddress' | 'shippingCity' | 'shippingZip' | 'terms', string>
@@ -20,7 +21,16 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-export default function ShopCheckoutClient({ vatIncluded = false, termsVersion }: { vatIncluded?: boolean; termsVersion?: string }) {
+export default function ShopCheckoutClient({
+  vatIncluded = false,
+  termsVersion,
+  captchaSiteKey = '',
+}: {
+  vatIncluded?: boolean;
+  termsVersion?: string;
+  /** Clave pública del captcha (Turnstile) del cliente; vacía = sin captcha. */
+  captchaSiteKey?: string;
+}) {
   const router = useRouter();
   const [cart, setCart] = useState<CartLine[]>([]);
   const [hydrated, setHydrated] = useState(false);
@@ -29,6 +39,11 @@ export default function ShopCheckoutClient({ vatIncluded = false, termsVersion }
   const [errors, setErrors] = useState<FieldErrors>({});
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const termsRef = useRef<HTMLDivElement>(null);
+  // Captcha: cada token vale para un único envío, así que se pide otro tras cada respuesta.
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const captchaRef = useRef<CaptchaWidgetHandle>(null);
+  // El widget no puede cargar (bloqueador, Cloudflare caído): se envía sin token y decide el servidor, que deja pasar si Cloudflare está caído.
+  const [captchaUnavailable, setCaptchaUnavailable] = useState(false);
   const [form, setForm] = useState({
     buyerName: '',
     buyerEmail: '',
@@ -87,6 +102,11 @@ export default function ShopCheckoutClient({ vatIncluded = false, termsVersion }
       return;
     }
 
+    if (captchaSiteKey && !captchaToken && !captchaUnavailable) {
+      setFormError('Estamos haciendo una comprobación de seguridad. Inténtalo de nuevo en unos segundos.');
+      return;
+    }
+
     setSubmitting(true);
     if (!idempotencyKeyRef.current) {
       idempotencyKeyRef.current = crypto.randomUUID();
@@ -103,6 +123,7 @@ export default function ShopCheckoutClient({ vatIncluded = false, termsVersion }
           shippingZip: form.shippingZip.trim(),
           shippingPhone: form.shippingPhone.trim(),
           idempotencyKey: idempotencyKeyRef.current,
+          captchaToken: captchaToken ?? undefined,
           acceptedTerms,
           termsVersion,
           items: cart.map((l) => ({
@@ -114,6 +135,8 @@ export default function ShopCheckoutClient({ vatIncluded = false, termsVersion }
         }),
       });
       const data = await res.json();
+      // El token ya se gastó (valga o no): se pide otro para el siguiente intento.
+      if (captchaSiteKey) captchaRef.current?.reset();
       if (!res.ok || !data?.success) {
         idempotencyKeyRef.current = null;
         setFormError(data?.error ?? 'No se ha podido procesar el pedido. Inténtalo de nuevo.');
@@ -128,6 +151,7 @@ export default function ShopCheckoutClient({ vatIncluded = false, termsVersion }
       const tokenQs = data?.accessToken ? `?t=${encodeURIComponent(data.accessToken)}` : '';
       router.push('/tienda/confirmacion/' + data.orderId + tokenQs);
     } catch {
+      if (captchaSiteKey) captchaRef.current?.reset();
       setFormError('Sin conexión. Revisa la red e inténtalo otra vez — no se cobrará dos veces.');
     } finally {
       setSubmitting(false);
@@ -309,6 +333,18 @@ export default function ShopCheckoutClient({ vatIncluded = false, termsVersion }
                     error={errors.terms}
                     vatIncluded={vatIncluded}
                   />
+                  {captchaSiteKey && (
+                    <CaptchaWidget
+                      ref={captchaRef}
+                      siteKey={captchaSiteKey}
+                      action="shop-order"
+                      onToken={(t) => {
+                        setCaptchaToken(t);
+                        if (t) setCaptchaUnavailable(false);
+                      }}
+                      onUnavailable={() => setCaptchaUnavailable(true)}
+                    />
+                  )}
                 </div>
               </CardContent>
             </Card>

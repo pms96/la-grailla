@@ -497,8 +497,10 @@ describe('entrega del email del pedido (P0-08)', () => {
 
     it('comprueba el plazo ENTRE emails, no solo entre grupos: con concurrencia 1 y plazo corto, no empieza los que ya no caben', async () => {
       for (let i = 0; i < 5; i++) await mkOrder({ touchedAgoMs: (30 + i) * MIN });
-      ctl.delayMs = 80;
-      const r = await sweepUnsentOrderEmails({ deadline: Date.now() + 200, concurrency: 1, limit: 5 });
+      // Márgenes holgados a propósito: el plazo se mide con reloj real y en el CI cada email suma la lista y los accesos a BD. Con 400 ms por envío
+      // y 1 s de plazo, el 2.º siempre empieza (aguanta ~300 ms de sobrecarga por email) y el 5.º nunca (haría falta que los 4 anteriores cupieran).
+      ctl.delayMs = 400;
+      const r = await sweepUnsentOrderEmails({ deadline: Date.now() + 1_000, concurrency: 1, limit: 5 });
       expect(r.examined).toBeGreaterThanOrEqual(2);
       expect(r.examined).toBeLessThan(5);
       expect(r.deferred).toBe(5 - r.examined);

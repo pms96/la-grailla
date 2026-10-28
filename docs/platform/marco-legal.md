@@ -24,6 +24,7 @@
 - **No guarda NIF ni datos fiscales del comprador.**
 - **Taquilla (venta en persona)**: no registra aceptación de condiciones ni IVA (no hay checkout online).
 - **Marketing**: no hay casilla de consentimiento de marketing (no se envía marketing).
+- **Captcha (Cloudflare Turnstile), opcional por cliente**: si el cliente lo activa, el navegador del comprador carga un script de Cloudflare y le envía datos técnicos para decidir si es una persona (Cloudflare declara que no usa cookies de seguimiento ni lo usa para publicidad). Es un **subencargado más**: el abogado debe decidir si hace falta mencionarlo en la política de privacidad y en el DPA del cliente (ver [`captcha.md`](captcha.md)). El texto de privacidad por defecto **no** lo menciona.
 - **Pedidos anteriores a este cambio** no tienen aceptación registrada (`termsAcceptedAt` nulo).
 
 ## 3. Textos por defecto — pendientes de revisión del abogado

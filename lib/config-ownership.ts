@@ -26,7 +26,7 @@ export const CONFIG_KEY_OWNERS: Readonly<Record<string, Owners>> = Object.fromEn
     'legal_notice', 'privacy_policy', 'cookies_policy', 'fiscal_legal_name', 'fiscal_nif', 'fiscal_address',
     'social_instagram', 'social_tiktok', 'social_twitter', 'social_facebook',
     'admin_email', 'smtp_enabled', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_password', 'smtp_secure', 'smtp_from_email', 'smtp_from_name',
-    'cookies_banner_enabled', 'maps_provider', 'contact_form_enabled', 'notify_email_contacto',
+    'cookies_banner_enabled', 'maps_provider', 'contact_form_enabled', 'notify_email_contacto', 'turnstile_site_key', 'turnstile_secret_key',
     'home_hero_badge_fallback', 'home_hero_subtitle_1', 'home_hero_subtitle_2', 'home_about_title', 'home_about_text',
     'footer_tagline', 'footer_copyright',
     // Secciones de contenido de la portada (servicios, proyectos, equipo, preguntas frecuentes): un JSON por sección, ver lib/content/sections.ts.

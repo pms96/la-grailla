@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { sweepAndAdmit } from '@/lib/waiting-room';
 import { handleApiError } from '@/lib/api-error';
+import { captchaRejection, verifyCaptcha } from '@/lib/captcha';
 
 // Valores por defecto si el admin activa la sala de espera sin rellenar los
 // campos numéricos (evita que se quede sin admitir a nadie por slots=0).
@@ -24,6 +25,8 @@ const MAX_LIVE_ENTRIES_PER_IP = 3;
 const joinSchema = z.object({
   eventId: z.string().min(1),
   token: z.string().optional().nullable(),
+  // Token del captcha (Turnstile) si el cliente lo tiene activado: solo hace falta para ENTRAR en la cola, no para seguir en ella.
+  captchaToken: z.string().max(2100).optional().nullable(),
 });
 
 export async function POST(request: Request) {
@@ -73,6 +76,10 @@ export async function POST(request: Request) {
           { status: 429 }
         );
       }
+      // Entrar en la cola (turno nuevo) exige el captcha; quien ya tiene turno vivo y solo lo consulta no lo ve nunca. El navegador intenta sin token
+      // y, si llega `captcha_required`, pinta el widget y reintenta con él. Va DESPUÉS del tope por IP: quien ya no puede entrar no gasta un token.
+      const captcha = await verifyCaptcha(request, body.captchaToken, 'queue');
+      if (!captcha.ok) return captchaRejection(captcha);
       entry = await prisma.waitingRoomEntry.create({
         data: { eventId: event.id, token: crypto.randomUUID(), ip },
       });

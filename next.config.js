@@ -98,13 +98,13 @@ const nextConfig = {
     // más importa mantener rápido en una web de venta de entradas. El resto
     // de directivas sí quedan cerradas: nada de scripts/objetos/frames
     // externos salvo los que el sitio usa de verdad (imágenes de Vercel
-    // Blob, mapa embebido de Google).
+    // Blob, mapa embebido de Google, y el captcha Turnstile de Cloudflare, que solo se carga si el cliente lo activa).
     // next dev usa eval() para el Fast Refresh/HMR de webpack — no aplica a
     // production build, así que 'unsafe-eval' solo se permite en desarrollo.
     const isDev = process.env.NODE_ENV !== 'production';
     const csp = [
       `default-src 'self'`,
-      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
+      `script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com${isDev ? " 'unsafe-eval'" : ''}`,
       `worker-src 'self' blob:`,
       `style-src 'self' 'unsafe-inline'`,
       `img-src 'self' data: blob: https://*.public.blob.vercel-storage.com`,
@@ -118,8 +118,8 @@ const nextConfig = {
       // de https://vercel.com/api/blob (no directamente al dominio de
       // *.public.blob.vercel-storage.com, que solo sirve lecturas) — sin
       // ambos orígenes aquí, el PUT del navegador lo bloquea la CSP.
-      `connect-src 'self' https://vercel.com https://*.public.blob.vercel-storage.com`,
-      `frame-src https://www.google.com https://maps.google.com`,
+      `connect-src 'self' https://vercel.com https://*.public.blob.vercel-storage.com https://challenges.cloudflare.com`,
+      `frame-src https://www.google.com https://maps.google.com https://challenges.cloudflare.com`,
       `object-src 'none'`,
       `base-uri 'self'`,
       `form-action 'self'`,
