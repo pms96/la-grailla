@@ -12,6 +12,7 @@ import { authorizeCron } from '@/lib/cron-auth';
 import { currentTenant } from '@/lib/tenant/context';
 import { captureOpsError } from '@/lib/observability/capture';
 import { emailSweepBudgetMs, sweepUnsentOrderEmails } from '@/lib/order-email';
+import { runEventNoticeSweep, type EventNoticeSweepResult } from '@/lib/event-cancellation';
 import { getFallbackBaseUrl } from '@/lib/url';
 import { OPS_RECONCILE_KEY, type ReconcileSummary } from '@/lib/ops-health';
 
@@ -218,6 +219,14 @@ export async function GET(request: Request) {
     } catch (error) {
       console.error(`[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] Error en el barrido de emails:`, error instanceof Error ? error.message : error);
     }
+    // P1-04: continúa las cancelaciones de evento (reembolsos y avisos) y los avisos de cambio de fecha que sigan en marcha. Presupuesto propio y corto, sin
+    // pasar del plazo de la pasada; nunca lanza (un fallo aquí no tumba la conciliación).
+    let eventNotices: EventNoticeSweepResult | null = null;
+    try {
+      eventNotices = await runEventNoticeSweep({ deadline: Math.min(deadline, Date.now() + 15_000), concurrency: CONCURRENCY });
+    } catch (error) {
+      console.error(`[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] Error en el barrido de avisos de evento:`, error instanceof Error ? error.message : error);
+    }
     return NextResponse.json(
       {
         // Pedidos atendidos en esta pasada; `deferred` = los que no cupieron en el presupuesto de tiempo y quedan para la siguiente.
@@ -234,6 +243,8 @@ export async function GET(request: Request) {
         oldestPendingMinutes,
         // Barrido de reintentos de emails (P0-08); null si no pudo ejecutarse.
         emails,
+        // Cancelaciones y cambios de fecha de evento atendidos (P1-04); null si no pudo ejecutarse.
+        eventNotices,
       },
       { status: failedPass ? 502 : 200 }
     );

@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -10,6 +11,7 @@ import { handleApiError } from '@/lib/api-error';
 import { seasonLinkEnabled } from '@/lib/modules/season-link';
 import { releaseUnusedBlobs } from '@/lib/blob-cleanup';
 import { parseEventDateInput } from '@/lib/event-time';
+import { countDateChangeRecipients, hasCancellationJob, processDateChange, startDateChangeNotice } from '@/lib/event-cancellation';
 
 const updateEventSchema = z.object({
   name: z.string().min(1).optional(),
@@ -38,6 +40,8 @@ const updateEventSchema = z.object({
   waitingRoomPurchaseWindowSeconds: z.union([z.number(), z.string(), z.null()]).optional(),
   waitingRoomMessage: z.string().optional().nullable(),
   status: z.enum(['DRAFT', 'PUBLISHED', 'FINISHED', 'CANCELLED']).optional(),
+  /** Cambio de fecha con compradores: true = avisarles por email; false = cambiarla sin avisar. Sin indicar, el servidor pide confirmación (409). */
+  notifyDateChange: z.boolean().optional(),
   latitude: z.union([z.number(), z.string(), z.null()]).optional(),
   longitude: z.union([z.number(), z.string(), z.null()]).optional(),
   temporadaId: z.string().optional().nullable(),
@@ -63,6 +67,35 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
     // Sin zona (el `datetime-local` del formulario) es hora de Madrid; con `Z` u offset se respeta. Vacío = no se toca.
     const date = body?.date ? parseEventDateInput(body.date) : undefined;
     if (date === null) return NextResponse.json({ error: 'Fecha y hora no válidas' }, { status: 400 });
+    // P1-04: cancelar un evento con pedidos y cambiar la fecha de uno con compradores tienen su propio flujo (reembolso, avisos por email). Antes este PUT
+    // solo cambiaba la fila: compradores sin enterarse, entradas válidas y ninguna devolución.
+    const before = body?.status !== undefined || date ? await prisma.event.findUnique({ where: { id: params?.id }, select: { status: true, date: true } }) : null;
+    if (before && body?.status === 'CANCELLED' && before.status !== 'CANCELLED') {
+      const withOrders = await prisma.order.count({ where: { eventId: params?.id, status: { in: ['COMPLETED', 'PENDING'] } } });
+      if (withOrders > 0) {
+        return NextResponse.json(
+          { error: 'Este evento ya tiene pedidos. Para cancelarlo usa «Cancelar evento» (reembolsa y avisa a los compradores).', code: 'use_cancel_flow', orders: withOrders },
+          { status: 409 }
+        );
+      }
+    }
+    // Con un minuto de tolerancia: el formulario trabaja a minutos y una fecha guardada con segundos no cuenta como «cambio» solo por reenviarse.
+    // Un evento cancelado con el flujo de cancelación ya reembolsó y avisó: volver a publicarlo con un simple cambio de estado dejaría compradores
+    // reembolsados con entradas que ya no existen. Si fue un error, se crea un evento nuevo.
+    if (before && before.status === 'CANCELLED' && body?.status && body.status !== 'CANCELLED' && (await hasCancellationJob(params?.id))) {
+      return NextResponse.json(
+        { error: 'Este evento se canceló con «Cancelar evento»: ya se avisó a los compradores y se reembolsó. Para volver a venderlo, crea un evento nuevo.', code: 'cancelled_event_locked' },
+        { status: 409 }
+      );
+    }
+    const dateChanged = Boolean(before && date && Math.abs(date.getTime() - before.date.getTime()) >= 60_000);
+    const recipients = dateChanged ? await countDateChangeRecipients(params?.id) : 0;
+    if (dateChanged && recipients > 0 && body?.notifyDateChange === undefined) {
+      return NextResponse.json(
+        { error: `Este evento tiene ${recipients} comprador${recipients === 1 ? '' : 'es'}. Confirma si quieres avisarles del cambio de fecha por email.`, code: 'date_change_needs_confirmation', buyers: recipients },
+        { status: 409 }
+      );
+    }
     // Si cambia el cartel, el anterior se borra de Blob cuando ya está guardado el nuevo.
     const previous = body?.imageUrl !== undefined ? await prisma.event.findUnique({ where: { id: params?.id }, select: { imageUrl: true } }) : null;
     const event = await prisma.event.update({
@@ -111,6 +144,15 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
         temporadaId: body?.temporadaId === undefined || !seasonLinkEnabled() ? undefined : body.temporadaId || null,
       },
     });
+    // Aviso del cambio de fecha: se anota el trabajo y se envía un primer lote ya; el resto sigue en el cron. Un fallo aquí no deshace el cambio.
+    if (dateChanged && recipients > 0 && body?.notifyDateChange === true && before) {
+      try {
+        await startDateChangeNotice(event.id, before.date, event.date);
+        await processDateChange(event.id, { deadline: Date.now() + 15_000 });
+      } catch (error) {
+        console.error('[PUT /api/admin/events/[id]] No se pudo lanzar el aviso de cambio de fecha:', error instanceof Error ? error.message : error);
+      }
+    }
     // Con pedidos hechos, el cartel anterior puede estar en emails enviados y en pases de Google Wallet (los dos lo guardan por URL): no se borra.
     if (previous && (await prisma.order.count({ where: { eventId: event.id } })) === 0) {
       await releaseUnusedBlobs([previous.imageUrl], [event.imageUrl]);

@@ -111,3 +111,12 @@ describe('Claves solo del propietario (correo saliente)', () => {
     }
   });
 });
+
+describe('Claves de trabajos de evento (P1-04)', () => {
+  it('las filas internas de cancelación y cambio de fecha de evento no se ven ni se guardan desde la API de configuración', () => {
+    for (const k of ['event_cancellation:abc123', 'event_datechange:abc123']) {
+      expect(isConfigKeyAllowed(k, ['nucleo', 'entradas', 'tienda', 'contabilidad', 'sponsors', 'wallets']), k).toBe(false);
+      expect(isConfigKeyAllowed(k, ['nucleo', 'entradas'], null), k).toBe(false);
+    }
+  });
+});

@@ -97,6 +97,8 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
   const taquillaOnlyLabel = getOnlineSalesClosedLabel(event ?? { onlineSalesClosed: false });
   const taquillaOnlyMessage = getOnlineSalesClosedMessage(event ?? { onlineSalesClosed: false });
   const eventEnded = hasEventEnded(event?.date);
+  // Cancelado por el organizador (P1-04): sin botón de compra y con un aviso claro; la venta ya está cerrada en el servidor.
+  const eventCancelled = event?.status === 'CANCELLED';
   const ageWarningMessage = getEventAgeWarningMessage(event ?? { ageWarningEnabled: false });
 
   // Todas las plantillas llevan su propia cabecera salvo Feria, que conserva la de siempre (la de La Grailla).
@@ -149,7 +151,9 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
         </h2>
         <p className="text-sm text-muted-foreground mb-4 flex items-center gap-1">
           <Users className="h-3.5 w-3.5" />
-          {eventEnded
+          {eventCancelled
+            ? <span className="text-destructive font-medium">Evento cancelado</span>
+            : eventEnded
             ? 'Evento finalizado'
             : taquillaOnly
             ? <span className="text-warm-yellow font-medium">{taquillaOnlyLabel}</span>
@@ -181,7 +185,12 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
             );
           })}
         </div>
-        {!soldOut && !taquillaOnly && !eventEnded && (
+        {eventCancelled && (
+          <p className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm" role="status">
+            Este evento se ha cancelado y ya no se venden entradas. Quien ya compró recibe un aviso por email con lo que pasa con su pedido.
+          </p>
+        )}
+        {!soldOut && !taquillaOnly && !eventEnded && !eventCancelled && (
           <div className="hidden lg:block">
             <AgeWarningGate
               href={`/eventos/${event?.slug ?? ''}/comprar`}
@@ -193,7 +202,7 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
             </AgeWarningGate>
           </div>
         )}
-        {taquillaOnly && !eventEnded && (
+        {taquillaOnly && !eventEnded && !eventCancelled && (
           <div className="hidden lg:flex items-start gap-2 mt-4 rounded-lg border border-warm-yellow/30 bg-warm-yellow/5 p-3 text-sm text-muted-foreground">
             <Store className="h-4 w-4 text-warm-yellow shrink-0 mt-0.5" />
             <span>{taquillaOnlyMessage}</span>
@@ -372,6 +381,7 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
         taquillaOnly={taquillaOnly}
         taquillaOnlyLabel={taquillaOnlyLabel}
         ended={eventEnded}
+        cancelled={eventCancelled}
         ageWarningMessage={ageWarningMessage}
       />
     </>

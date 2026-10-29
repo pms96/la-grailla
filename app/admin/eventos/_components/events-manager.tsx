@@ -11,11 +11,12 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
-import { Plus, Pencil, Trash2, Loader2, Calendar, Hourglass, ShoppingCart, Archive, ArchiveRestore, ShieldCheck, MonitorOff } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, Calendar, Hourglass, ShoppingCart, Archive, ArchiveRestore, ShieldCheck, MonitorOff, Ban } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
 import { ConfirmDeleteDialog } from '@/app/admin/_components/confirm-delete-dialog';
+import { CancelEventDialog } from './cancel-event-dialog';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 import { hasEventEnded } from '@/lib/active-event';
 import { EVENT_TIMEZONE, formatMadridLocal } from '@/lib/event-time';
@@ -69,6 +70,9 @@ export default function EventsManager() {
   const [verArchivados, setVerArchivados] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Cancelar un evento con compradores y cambiar su fecha tienen flujo propio (reembolso y avisos por email, P1-04).
+  const [cancelTarget, setCancelTarget] = useState<{ id: string; name: string; status: string } | null>(null);
+  const [dateConfirm, setDateConfirm] = useState<{ buyers: number } | null>(null);
   const [editingEvent, setEditingEvent] = useState<EventWithCount | null>(null);
   const [form, setForm] = useState<Partial<EventFormState>>({});
   const [saving, setSaving] = useState(false);
@@ -138,7 +142,7 @@ export default function EventsManager() {
     setDialogOpen(true);
   };
 
-  const handleSave = async () => {
+  const handleSave = async (extra: { notifyDateChange?: boolean } = {}) => {
     setSaving(true);
     try {
       const url = editingEvent ? `/api/admin/events/${editingEvent.id}` : '/api/admin/events';
@@ -146,6 +150,7 @@ export default function EventsManager() {
       const { waitingRoomPurchaseWindowMinutes, ...rest } = form;
       const payload = {
         ...rest,
+        ...extra,
         waitingRoomPurchaseWindowSeconds:
           waitingRoomPurchaseWindowMinutes === '' || waitingRoomPurchaseWindowMinutes == null
             ? ''
@@ -157,7 +162,14 @@ export default function EventsManager() {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (data?.error) {
+      if (data?.code === 'date_change_needs_confirmation') {
+        // Hay compradores: se pregunta si avisarles antes de cambiar la fecha (el servidor no cambia nada hasta que se confirma).
+        setDateConfirm({ buyers: data.buyers ?? 0 });
+      } else if (data?.code === 'use_cancel_flow' && editingEvent) {
+        toast.info('Este evento ya tiene pedidos: cancélalo desde aquí para reembolsar y avisar a los compradores.');
+        setDialogOpen(false);
+        setCancelTarget({ id: editingEvent.id, name: editingEvent.name, status: editingEvent.status });
+      } else if (data?.error) {
         toast.error(data.error);
       } else {
         toast.success(editingEvent ? 'Evento actualizado' : 'Evento creado');
@@ -475,7 +487,7 @@ export default function EventsManager() {
                 )}
               </div>
 
-              <Button onClick={handleSave} disabled={saving} className="w-full">
+              <Button onClick={() => handleSave()} disabled={saving} className="w-full">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 {editingEvent ? 'Guardar Cambios' : 'Crear Evento'}
               </Button>
@@ -524,6 +536,15 @@ export default function EventsManager() {
                       <Archive className="h-3.5 w-3.5" />
                     </Button>
                   )}
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => setCancelTarget({ id: event.id, name: event.name, status: event.status })}
+                    title={event?.status === 'CANCELLED' ? 'Ver la cancelación' : 'Cancelar evento'}
+                    aria-label={event?.status === 'CANCELLED' ? 'Ver la cancelación' : 'Cancelar evento'}
+                  >
+                    <Ban className="h-3.5 w-3.5" />
+                  </Button>
                   <Button variant="ghost" size="icon-sm" onClick={() => openEdit(event)}><Pencil className="h-3.5 w-3.5" /></Button>
                   <Button variant="ghost" size="icon-sm" onClick={() => setDeleteTarget(event)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
                 </div>
@@ -532,6 +553,24 @@ export default function EventsManager() {
           );
         })}
       </div>
+
+      <CancelEventDialog event={cancelTarget} onClose={() => setCancelTarget(null)} onChanged={fetchEvents} />
+
+      <Dialog open={!!dateConfirm} onOpenChange={(open) => !open && setDateConfirm(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cambio de fecha con compradores</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Este evento tiene {dateConfirm?.buyers ?? 0} comprador{dateConfirm?.buyers === 1 ? '' : 'es'} online. Sus entradas siguen siendo válidas para la nueva fecha. ¿Quieres avisarles por email?
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2 justify-end">
+            <Button variant="outline" onClick={() => setDateConfirm(null)}>Volver</Button>
+            <Button variant="outline" onClick={() => { setDateConfirm(null); void handleSave({ notifyDateChange: false }); }}>Cambiar sin avisar</Button>
+            <Button onClick={() => { setDateConfirm(null); void handleSave({ notifyDateChange: true }); }}>Cambiar y avisar</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDeleteDialog
         open={!!deleteTarget}
