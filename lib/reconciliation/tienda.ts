@@ -2,7 +2,8 @@ import type { ShopOrderStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { escapeHtml as esc } from '@/lib/html-escape';
-import { scheduleOrderEmail } from '@/lib/order-email';
+import { runAfterResponse, scheduleOrderEmail } from '@/lib/order-email';
+import { notifyShopNewOrder } from '@/lib/shop/shop-notices';
 import { trackEmail } from '@/lib/email-delivery';
 import { getFallbackBaseUrl } from '@/lib/url';
 import { alertOperator, alertPaidButInactiveOrder, logPaymentEvent, paymentMatchesOrder, type CompleteOutcome, type PaidInfo } from './shared';
@@ -58,6 +59,9 @@ export async function completeShopOrder(orderId: string, paid?: PaidInfo, opts: 
   // Pagado (o reactivado): el email de confirmación. En un pago tardío reactivado el marcador se anota aquí (la transición no es la de arriba).
   await trackEmail('tienda', orderId).catch(() => {});
   await scheduleOrderEmail('tienda', orderId, { baseUrl: opts.baseUrl ?? getFallbackBaseUrl(), inline: opts.emailInline });
+  // Y el aviso al VENDEDOR de pedido nuevo (P1-10), igual de fuera de la ruta crítica; si falla, lo recupera el barrido del cron. No lanza.
+  if (opts.emailInline) await notifyShopNewOrder(orderId, { capMs: 8_000 });
+  else await runAfterResponse(() => notifyShopNewOrder(orderId));
   return outcome;
 }
 

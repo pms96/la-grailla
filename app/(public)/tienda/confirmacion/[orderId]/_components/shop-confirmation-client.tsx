@@ -26,6 +26,8 @@ export type ShopOrderView = {
   emailDelivery?: EmailDelivery | null;
   /** Vendedor e IVA del justificante (lo añade la API del pedido con el pedido pagado). */
   fiscal?: FiscalView | null;
+  /** Número de seguimiento que puso el vendedor al enviarlo (lo devuelve la API del pedido). */
+  trackingNumber?: string | null;
   shippingAddress: string;
   shippingCity: string;
   shippingZip: string;
@@ -239,6 +241,22 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
         <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Pedido confirmado</h1>
         <p className="text-muted-foreground mt-2">Hemos recibido tu pago.</p>
       </div>
+
+      {(order.status === 'PROCESSING' || order.status === 'SHIPPED' || order.status === 'DELIVERED') && (
+        <Card>
+          <CardContent className="p-4 flex items-start gap-3">
+            <Package className="h-5 w-5 mt-0.5 shrink-0 text-primary" aria-hidden />
+            <div>
+              <p className="font-medium leading-tight">
+                {order.status === 'PROCESSING' ? 'Estamos preparando tu pedido' : order.status === 'SHIPPED' ? 'Tu pedido ya ha salido' : 'Tu pedido ha sido entregado'}
+              </p>
+              {order.trackingNumber?.trim() && order.status !== 'PROCESSING' && (
+                <p className="text-sm text-muted-foreground">Seguimiento: <span className="font-mono text-foreground">{order.trackingNumber.trim()}</span></p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

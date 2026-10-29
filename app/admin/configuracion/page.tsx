@@ -184,7 +184,7 @@ export default function ConfiguracionPage() {
 
               <Card><CardContent className="p-6 space-y-4">
                 <h3 className="font-semibold">Avisos de la tienda</h3>
-                <ConfigField label="Avisar a (opcional)" value={values?.notify_email_tienda ?? ''} onChange={(v) => updateValue('notify_email_tienda', v)} placeholder="Por defecto, el email de administración" description="Pagos que no cuadran o llegan sobre un pedido ya anulado." />
+                <ConfigField label="Avisar a (opcional)" value={values?.notify_email_tienda ?? ''} onChange={(v) => updateValue('notify_email_tienda', v)} placeholder="Por defecto, el email de administración" description="Cada pedido nuevo pagado (con líneas, talla y dirección de envío), pagos que no cuadran o llegan sobre un pedido ya anulado." />
               </CardContent></Card>
 
               <Card><CardContent className="p-6 space-y-4">

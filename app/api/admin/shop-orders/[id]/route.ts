@@ -1,4 +1,6 @@
 export const dynamic = 'force-dynamic';
+// El email de envío sale en la propia petición (tope duro de 15 s).
+export const maxDuration = 30;
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -9,12 +11,15 @@ import { handleApiError } from '@/lib/api-error';
 import { invalidateShopOrder } from '@/lib/reconciliation/tienda';
 import { seasonLinkEnabled } from '@/lib/modules/season-link';
 import { canChangeShopOrderStatus } from '@/lib/shop-order-status';
+import { sendShopShippedEmail } from '@/lib/shop/shop-notices';
 
 const updateShopOrderSchema = z.object({
   status: z.enum(['PENDING', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED']).optional(),
   trackingNumber: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   temporadaId: z.string().optional().nullable(),
+  /** Volver a enviar al comprador el aviso de envío (el pedido debe estar «Enviado»). */
+  resendShippedEmail: z.boolean().optional(),
 });
 
 export async function PUT(request: Request, props: { params: Promise<{ id: string }> }) {
@@ -40,11 +45,9 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
     }
 
     // Cambio de estado "plano": solo transiciones con sentido (ver canChangeShopOrderStatus).
-    if (body?.status !== undefined) {
-      const current = await prisma.shopOrder.findUnique({ where: { id: params?.id }, select: { status: true } });
-      if (current && !canChangeShopOrderStatus(current.status, body.status)) {
-        return NextResponse.json({ error: `Un pedido ${current.status} no puede pasar a ${body.status}.` }, { status: 422 });
-      }
+    const current = await prisma.shopOrder.findUnique({ where: { id: params?.id }, select: { status: true, trackingNumber: true } });
+    if (body?.status !== undefined && current && !canChangeShopOrderStatus(current.status, body.status)) {
+      return NextResponse.json({ error: `Un pedido ${current.status} no puede pasar a ${body.status}.` }, { status: 422 });
     }
 
     const order = await prisma.shopOrder.update({
@@ -56,7 +59,14 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
         temporadaId: body?.temporadaId === undefined || !seasonLinkEnabled() ? undefined : body.temporadaId || null,
       },
     });
-    return NextResponse.json(order);
+
+    // P1-10: al pasar a «Enviado» el comprador recibe un email con su enlace y el seguimiento; si el número llega o cambia después, otro con el nuevo.
+    // `resendShippedEmail` (botón del admin) lo vuelve a enviar. El fallo del correo NO deshace el cambio de estado: se devuelve para avisar al admin.
+    const nowTracking = (order.trackingNumber ?? '').trim();
+    const becameShipped = order.status === 'SHIPPED' && current?.status !== 'SHIPPED';
+    const trackingArrived = order.status === 'SHIPPED' && body?.trackingNumber !== undefined && nowTracking !== '' && nowTracking !== (current?.trackingNumber ?? '').trim();
+    const shippedEmail = becameShipped || trackingArrived || body?.resendShippedEmail ? await sendShopShippedEmail(order.id, { force: body?.resendShippedEmail === true }) : undefined;
+    return NextResponse.json({ ...order, shippedEmail });
   } catch (error) {
     return handleApiError(error, 'PUT /api/admin/shop-orders/[id]');
   }

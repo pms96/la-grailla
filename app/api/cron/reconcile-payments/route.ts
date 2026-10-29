@@ -13,6 +13,7 @@ import { currentTenant } from '@/lib/tenant/context';
 import { captureOpsError } from '@/lib/observability/capture';
 import { emailSweepBudgetMs, sweepUnsentOrderEmails } from '@/lib/order-email';
 import { runEventNoticeSweep, type EventNoticeSweepResult } from '@/lib/event-cancellation';
+import { sweepShopNewOrderNotices } from '@/lib/shop/shop-notices';
 import { getFallbackBaseUrl } from '@/lib/url';
 import { OPS_RECONCILE_KEY, type ReconcileSummary } from '@/lib/ops-health';
 
@@ -227,6 +228,8 @@ export async function GET(request: Request) {
     } catch (error) {
       console.error(`[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] Error en el barrido de avisos de evento:`, error instanceof Error ? error.message : error);
     }
+    // P1-10: reintenta los avisos de pedido nuevo al vendedor que no salieron. Presupuesto corto y propio; nunca lanza.
+    const shopNotices = await sweepShopNewOrderNotices({ deadline: Math.min(deadline, Date.now() + 10_000) });
     return NextResponse.json(
       {
         // Pedidos atendidos en esta pasada; `deferred` = los que no cupieron en el presupuesto de tiempo y quedan para la siguiente.
@@ -245,6 +248,8 @@ export async function GET(request: Request) {
         emails,
         // Cancelaciones y cambios de fecha de evento atendidos (P1-04); null si no pudo ejecutarse.
         eventNotices,
+        // Avisos de pedido nuevo de la tienda reintentados (P1-10).
+        shopNotices,
       },
       { status: failedPass ? 502 : 200 }
     );

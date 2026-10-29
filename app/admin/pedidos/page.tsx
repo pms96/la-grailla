@@ -85,7 +85,7 @@ export default function PedidosPage() {
     return () => clearTimeout(t);
   }, [fetchOrders]);
 
-  const updateOrder = async (id: string, data: Partial<Pick<ShopOrderWithItems, 'status' | 'trackingNumber' | 'temporadaId'>>) => {
+  const updateOrder = async (id: string, data: Partial<Pick<ShopOrderWithItems, 'status' | 'trackingNumber' | 'temporadaId'>> & { resendShippedEmail?: boolean }) => {
     if (
       (data.status === 'CANCELLED' || data.status === 'REFUNDED') &&
       !confirm(`¿Marcar este pedido como ${statusLabels[data.status]?.toLowerCase()}?`)
@@ -100,7 +100,11 @@ export default function PedidosPage() {
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error ?? 'Error');
-      toast.success('Actualizado');
+      // Al pasar a «Enviado» (o llegar el seguimiento) el servidor avisa al comprador por email: se dice qué pasó, sin callar un fallo.
+      if (body?.shippedEmail === 'sent') toast.success('Actualizado y aviso de envío enviado al comprador');
+      else if (body?.shippedEmail === 'failed') toast.error('Actualizado, pero no se pudo enviar el aviso de envío: revisa el correo y pulsa «Reenviar aviso de envío»');
+      else if (body?.shippedEmail === 'no_recipient') toast.warning('Actualizado, pero el email del comprador no es válido: no se envió el aviso de envío');
+      else toast.success('Actualizado');
       fetchOrders();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error');
@@ -223,6 +227,13 @@ export default function PedidosPage() {
                   )}
                   {order?.notes && (
                     <p className="break-words"><StickyNote className="h-3 w-3 inline mr-1" /> {order.notes}</p>
+                  )}
+                  {order?.status === 'SHIPPED' && (
+                    <p>
+                      <Button variant="outline" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={() => updateOrder(order.id, { resendShippedEmail: true })}>
+                        <Mail className="h-3 w-3" /> Reenviar aviso de envío
+                      </Button>
+                    </p>
                   )}
                   {PAID_STATUSES.includes(order?.status ?? '') && order?.emailDelivery && (
                     <p className={`flex flex-wrap items-center gap-2 ${order.emailDelivery.status === 'exhausted' ? 'text-destructive' : ''}`}>
