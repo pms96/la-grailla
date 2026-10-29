@@ -71,7 +71,7 @@ describe('publicar el registro', () => {
     expect(pendingChanges(await loadSubscription(prisma, subscription.id))).toBe(true);
     await publishSubscription(subscription.id, actor, store);
     expect(pendingChanges(await loadSubscription(prisma, subscription.id))).toBe(false);
-    await setModules(subscription.id, ['tienda', 'wallets'], actor);
+    await setModules(subscription.id, ['tienda', 'contabilidad'], actor);
     expect(pendingChanges(await loadSubscription(prisma, subscription.id))).toBe(true);
     await publishSubscription(subscription.id, actor, store);
     expect(pendingChanges(await loadSubscription(prisma, subscription.id))).toBe(false);

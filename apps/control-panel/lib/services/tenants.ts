@@ -83,7 +83,10 @@ async function resolveModules(tx: Prisma.TransactionClient, productKey: string, 
   const unknown = requested.filter((m) => !known.has(m));
   if (unknown.length) throw new ServiceError('unknown_module', `Módulo desconocido para este producto: ${unknown.join(', ')}`);
   const core = defs.filter((d) => d.isCore).map((d) => d.key);
-  return [...new Set([...core, ...requested])].sort();
+  const wanted = [...new Set([...core, ...requested])].sort();
+  // Wallets solo emite pases de entradas: sin Entradas sería un producto cobrado que no funciona (el front lo ignoraría igualmente).
+  if (wanted.includes('wallets') && !wanted.includes('entradas')) throw new ServiceError('module_requires', 'Wallets necesita el módulo Entradas');
+  return wanted;
 }
 
 export async function createTenant(input: CreateTenantInput, actor: ActingOperator, now: number = Date.now()) {

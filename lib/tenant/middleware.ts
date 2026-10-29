@@ -86,6 +86,17 @@ function plain(status: number, message: string, extra: Record<string, string> = 
   return new NextResponse(message, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', ...noStore, ...extra } });
 }
 
+/** 404 de una PÁGINA de un módulo que este cliente no tiene (o un enlace antiguo): una pantalla mínima con salida, no un texto suelto sin forma de volver. Sin datos del cliente: sale antes de autenticar. */
+function moduleNotFoundPage(path: string): NextResponse {
+  const home = path.startsWith('/admin') ? '/admin' : '/';
+  const html =
+    '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Página no disponible</title>' +
+    '<style>body{margin:0;min-height:100vh;display:grid;place-items:center;font:16px/1.5 system-ui,sans-serif;background:#fff;color:#111}main{padding:24px;max-width:28rem;text-align:center}' +
+    'a{display:inline-block;margin-top:12px;padding:8px 16px;border-radius:8px;background:#111;color:#fff;text-decoration:none}@media(prefers-color-scheme:dark){body{background:#111;color:#f3f3f3}a{background:#f3f3f3;color:#111}}</style></head>' +
+    `<body><main><h1 style="font-size:1.25rem;margin:0 0 8px">Esta página no está disponible</h1><p style="margin:0;opacity:.75">No existe o no está incluida en tu plan.</p><a href="${home}">Volver al ${home === '/admin' ? 'panel' : 'inicio'}</a></main></body></html>`;
+  return new NextResponse(html, { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8', ...noStore } });
+}
+
 let cachedMaster: { raw: string; value: Uint8Array } | null = null;
 function sessionMaster(): Uint8Array | null {
   const raw = process.env.PLATFORM_SESSION_MASTER;
@@ -147,7 +158,7 @@ export async function platformMiddleware(req: NextRequest): Promise<NextResponse
   }
 
   const gate = gateByModuleAndLicense(path, req.method, ctx.modules, phase);
-  if (gate?.kind === 'not_found') return path.startsWith('/api/') ? NextResponse.json({ error: 'No encontrado' }, { status: 404, headers: noStore }) : plain(404, 'No encontrado');
+  if (gate?.kind === 'not_found') return path.startsWith('/api/') ? NextResponse.json({ error: 'No encontrado' }, { status: 404, headers: noStore }) : moduleNotFoundPage(path);
   // Sin la fase en el cuerpo: esta respuesta sale antes de autenticar y no debe contarle a un anónimo el estado de pago del cliente.
   if (gate?.kind === 'api') return NextResponse.json({ error: gate.error }, { status: gate.status, headers: noStore });
 

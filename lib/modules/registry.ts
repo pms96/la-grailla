@@ -124,8 +124,12 @@ export function isLinkVisible(href: string, active: readonly ModuleKey[]): boole
 /** Prefijos registrados (para el test que enumera las rutas de `app/`). */
 export const REGISTERED_PREFIXES: readonly string[] = rules.map((r) => r.prefix);
 
-/** Un wallet sólo tiene sentido con entradas o con tienda: el módulo no basta por sí solo. */
-export const MODULE_REQUIRES_ANY: Partial<Record<ModuleKey, readonly ModuleKey[]>> = { wallets: ['entradas', 'tienda'] };
+/**
+ * Un wallet sólo tiene sentido con entradas: hoy solo emite pases de entradas (`/api/wallet/*` y `getWalletAvailability` leen Tickets). La tarjeta de
+ * fidelización de la Tienda aún no existe, así que «Wallets + Tienda» sería cobrar un módulo sin función (P1-18 / MO-08). Cuando exista, se añade
+ * `'tienda'` aquí.
+ */
+export const MODULE_REQUIRES_ANY: Partial<Record<ModuleKey, readonly ModuleKey[]>> = { wallets: ['entradas'] };
 
 /** ¿Pueden usarse las rutas de este dueño con estos módulos activos? */
 export function ownerEnabled(owner: RouteOwner, active: readonly ModuleKey[]): boolean {

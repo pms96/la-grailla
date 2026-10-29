@@ -399,19 +399,13 @@ export default function ConfiguracionPage() {
         </TabsContent>
 
         <TabsContent value="general">
-          <Card><CardContent className="p-6 space-y-4">
-            {owner && <ConfigField label="Email de administración" value={values?.admin_email ?? ''} onChange={(v) => updateValue('admin_email', v)} />}
-            <div>
-              <Label>Banner de cookies</Label>
-              <Select value={values?.cookies_banner_enabled ?? 'true'} onValueChange={(v: string) => updateValue('cookies_banner_enabled', v)}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="true">Mostrar</SelectItem>
-                  <SelectItem value="false">Ocultar</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent></Card>
+          {/* El banner de cookies ya no se puede apagar desde aquí: el selector «Ocultar» no hacía nada (el banner se mostraba igual) y la web usa
+              cookies de terceros (pagos, anti-bots) sobre las que hay que informar. */}
+          {owner && (
+            <Card><CardContent className="p-6 space-y-4">
+              <ConfigField label="Email de administración" value={values?.admin_email ?? ''} onChange={(v) => updateValue('admin_email', v)} />
+            </CardContent></Card>
+          )}
 
           <Card className="mt-6"><CardContent className="p-6 space-y-4">
             <div>

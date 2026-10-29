@@ -72,6 +72,14 @@ describe('createTenant', () => {
 });
 
 describe('módulos, estado y época', () => {
+  it('Wallets sin Entradas se rechaza: solo emite pases de entradas, sería un módulo cobrado sin función', async () => {
+    const { actor } = await makeOperator('SUPERADMIN');
+    await expect(createTenant(tenantInput({ modules: ['tienda', 'wallets'] }), actor)).rejects.toMatchObject({ code: 'module_requires' });
+    const { subscription } = await createTenant(tenantInput({ modules: ['tienda'] }), actor);
+    await expect(setModules(subscription.id, ['tienda', 'wallets'], actor)).rejects.toMatchObject({ code: 'module_requires' });
+    await expect(setModules(subscription.id, ['entradas', 'wallets'], actor)).resolves.toBeTruthy();
+  });
+
   it('setModules añade y quita, y no deja quitar el núcleo', async () => {
     const { actor } = await makeOperator('SUPERADMIN');
     const { subscription } = await createTenant(tenantInput({ modules: ['tienda'] }), actor);

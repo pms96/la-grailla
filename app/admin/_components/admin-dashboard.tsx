@@ -30,9 +30,11 @@ type DashboardStats = {
 
 type MargenTemporada = { nombre: string; margen: number; nEventosEnlazados: number };
 
-export default function AdminDashboard() {
+/** `accounting`: el usuario puede abrir Contabilidad (sin ello no se sondea su resumen: daría 404/403 y llenaría la consola). */
+export default function AdminDashboard({ accounting = false }: { accounting?: boolean }) {
   const { name: brandName } = useBrand();
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [failed, setFailed] = useState(false);
   const [margenTemporada, setMargenTemporada] = useState<MargenTemporada | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState<string | null>(null);
@@ -57,13 +59,17 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     fetch('/api/admin/stats')
-      .then((r) => r.json())
-      .then((data) => setStats(data))
-      .catch(() => {})
+      .then(async (r) => {
+        // Un error (403 por rol, 500…) NO son «cero ventas»: se dice que no se pudo cargar en vez de pintar ceros.
+        if (!r.ok) throw new Error(String(r.status));
+        setStats(await r.json());
+      })
+      .catch(() => setFailed(true))
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
+    if (!accounting) return;
     fetch('/api/admin/compras/temporadas')
       .then((r) => r.json())
       .then((temporadas: { id: string; nombre: string; status: string }[]) => {
@@ -74,7 +80,7 @@ export default function AdminDashboard() {
           .then((resumen) => setMargenTemporada({ nombre: activa.nombre, margen: resumen?.margen ?? 0, nEventosEnlazados: resumen?.nEventosEnlazados ?? 0 }));
       })
       .catch(() => {});
-  }, []);
+  }, [accounting]);
 
   if (loading) {
     return (
@@ -99,6 +105,17 @@ export default function AdminDashboard() {
             <SkeletonPulse className="h-16 w-full rounded-lg" />
             <SkeletonPulse className="h-16 w-full rounded-lg" />
           </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (failed || !stats) {
+    return (
+      <div className="space-y-6">
+        <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Dashboard</h1>
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">No se han podido cargar los datos de entradas. Recarga la página; si sigue igual, comprueba que tu rol tiene acceso a Entradas.</CardContent>
         </Card>
       </div>
     );

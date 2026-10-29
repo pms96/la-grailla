@@ -58,10 +58,10 @@ describe('registro de módulos: default-deny', () => {
     expect(ownerEnabled('contabilidad', ['nucleo', 'entradas'])).toBe(false);
   });
 
-  it('wallets exige entradas o tienda', () => {
+  it('wallets exige entradas (la tarjeta de fidelización de la tienda aún no existe: con solo tienda no hay nada que servir)', () => {
     expect(ownerEnabled('wallets', ['nucleo', 'wallets'])).toBe(false);
     expect(ownerEnabled('wallets', ['nucleo', 'wallets', 'entradas'])).toBe(true);
-    expect(ownerEnabled('wallets', ['nucleo', 'wallets', 'tienda'])).toBe(true);
+    expect(ownerEnabled('wallets', ['nucleo', 'wallets', 'tienda'])).toBe(false);
   });
 });
 

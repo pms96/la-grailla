@@ -4,11 +4,13 @@ import { getConfigs } from '@/lib/config';
 import { getBrand } from '@/lib/brand/brand';
 import { isLinkVisible } from '@/lib/modules/registry';
 import { getActiveModules } from '@/lib/modules/runtime';
+import { SOCIAL_KEYS, socialLinks } from '@/lib/social-links';
 
 /* Las clases `site-footer*` no llevan estilo por sí solas: son el enganche de `components/templates/shell.css`, donde cada plantilla le da al pie su
  * forma (Feria y Editorial se quedan con las clases de Tailwind de abajo, que son las de siempre). */
 export default async function PublicFooter({ contact = false }: { contact?: boolean } = {}) {
-  const [copy, brand] = await Promise.all([getConfigs(['footer_tagline', 'footer_copyright']), getBrand()]);
+  const [copy, brand] = await Promise.all([getConfigs(['footer_tagline', 'footer_copyright', ...SOCIAL_KEYS]), getBrand()]);
+  const socials = socialLinks(copy);
   // Los textos del pie son editables en Configuración → Contenido; sin ellos, el eslogan de la marca y un © con la razón social.
   const tagline = copy.footer_tagline || brand.tagline;
   const copyright = copy.footer_copyright || `© ${new Date().getFullYear()} ${brand.legalName}`;
@@ -35,6 +37,15 @@ export default async function PublicFooter({ contact = false }: { contact?: bool
               {show('/sponsors') && <Link href="/sponsors" className="text-muted-foreground hover:text-primary transition-colors">Patrocinio</Link>}
               {contact && <Link href="/#contacto" className="text-muted-foreground hover:text-primary transition-colors">Contacto</Link>}
             </div>
+            {socials.length > 0 && (
+              <div className="site-footer__social flex flex-wrap justify-center gap-x-4 gap-y-1 text-sm">
+                {socials.map((s) => (
+                  <a key={s.label} href={s.href} target="_blank" rel="noopener noreferrer me" className="text-muted-foreground hover:text-primary transition-colors">
+                    {s.label}
+                  </a>
+                ))}
+              </div>
+            )}
             <div className="site-footer__legal flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <Link href="/legal/aviso-legal" className="hover:text-primary transition-colors">Aviso legal</Link>
               {show('/eventos') && <Link href="/legal/condiciones-entradas" className="hover:text-primary transition-colors">Condiciones de entradas</Link>}

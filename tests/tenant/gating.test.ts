@@ -81,8 +81,25 @@ describe('módulos: default-deny por ruta', () => {
     expect((await platformMiddleware(req('/api/wallet/apple/abc'))).status).toBe(404);
     reg.data.clear();
     resetResolverStateForTests();
+    // Wallets solo emite pases de entradas: con Tienda y sin Entradas sigue sin existir (no se cobra un módulo sin función).
     await publish({ modules: ['wallets', 'tienda'], seq: 2 });
+    expect((await platformMiddleware(req('/api/wallet/apple/abc'))).status).toBe(404);
+    reg.data.clear();
+    resetResolverStateForTests();
+    await publish({ modules: ['wallets', 'entradas'], seq: 3 });
     expect((await platformMiddleware(req('/api/wallet/apple/abc'))).status).not.toBe(404);
+  });
+
+  it('la página de un módulo ausente da un 404 HTML con salida (no un texto suelto); en admin, la salida es el panel', async () => {
+    await publish({ modules: ['tienda'] });
+    const page = await platformMiddleware(req('/eventos'));
+    expect(page.status).toBe(404);
+    expect(page.headers.get('content-type')).toMatch(/text\/html/);
+    const html = await page.text();
+    expect(html).toContain('href="/"');
+    const admin = await platformMiddleware(req('/admin/eventos'));
+    expect(admin.status).toBe(404);
+    expect(await admin.text()).toContain('href="/admin"');
   });
 
   it('una ruta SIN dueño no existe (default-deny), aunque el cliente tenga todos los módulos', async () => {

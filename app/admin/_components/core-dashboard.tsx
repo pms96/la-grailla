@@ -1,26 +1,36 @@
 import Link from 'next/link';
-import { MessageSquare, Palette, Settings, Users } from 'lucide-react';
+import { Coins, Handshake, MessageSquare, Palette, Settings, ShoppingCart, Users, Wallet, type LucideIcon } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { prisma } from '@/lib/prisma';
 import { getBrand, hasSavedTheme } from '@/lib/brand/brand';
 import { isContactFormEnabled } from '@/lib/contact';
+import { pathAllowedForModules } from '@/lib/modules/access';
+import { isLinkVisible } from '@/lib/modules/registry';
 
-/* Panel de inicio del núcleo: para un cliente que no tiene ni Entradas ni Tienda. Lo que hay que hacer primero (marca, contacto) y
- * lo pendiente (mensajes sin responder). */
+/* Panel de inicio del núcleo: para quien no tiene a mano ni Entradas ni Tienda (un cliente sin ellas, o un usuario con un rol de otro módulo).
+ * Lo que hay que hacer primero (marca, contacto), lo pendiente (mensajes sin responder) y accesos a SUS módulos: cada acceso sale solo si el
+ * módulo está activo en el cliente y el rol del usuario lo permite (los mismos criterios que el menú y el servidor). */
 
-export default async function CoreDashboard() {
+type Entry = { href: string; icon: LucideIcon; title: string; text: string; highlight?: boolean };
+
+export default async function CoreDashboard({ modules, userModules }: { modules: Parameters<typeof isLinkVisible>[1]; userModules: readonly string[] | null }) {
   const [brand, themed, contactOn, unanswered] = await Promise.all([
     getBrand(),
     hasSavedTheme(),
     isContactFormEnabled(),
     prisma.contactMessage.count({ where: { status: 'NEW' } }).catch(() => 0),
   ]);
-  const links = [
+  const entries: Entry[] = [
     { href: '/admin/mensajes', icon: MessageSquare, title: 'Mensajes', text: unanswered > 0 ? `${unanswered} sin responder` : contactOn ? 'Al día' : 'El formulario de contacto está oculto', highlight: unanswered > 0 },
     { href: '/admin/apariencia', icon: Palette, title: 'Apariencia', text: themed ? 'Logo, colores y textos de tu web' : 'Personaliza tu web: logo, colores y textos', highlight: !themed },
+    { href: '/admin/compras', icon: ShoppingCart, title: 'Compras', text: 'Proveedores, artículos y pedidos' },
+    { href: '/admin/gastos', icon: Wallet, title: 'Gastos', text: 'Contabilidad real de lo que se ha gastado' },
+    { href: '/admin/ingresos', icon: Coins, title: 'Ingresos', text: 'Lo que ha entrado fuera de las ventas online' },
+    { href: '/admin/sponsors', icon: Handshake, title: 'Sponsors', text: 'Portal de sponsors y su pipeline' },
     { href: '/admin/usuarios', icon: Users, title: 'Usuarios', text: 'Quién puede entrar al panel' },
-    { href: '/admin/configuracion', icon: Settings, title: 'Configuración', text: 'Contenido, email, redes y textos legales' },
+    { href: '/admin/configuracion', icon: Settings, title: 'Configuración', text: 'Contenido, email y textos legales' },
   ];
+  const links = entries.filter((e) => isLinkVisible(e.href, modules) && pathAllowedForModules(e.href, userModules));
   return (
     <div className="space-y-6">
       <div>

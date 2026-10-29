@@ -13,15 +13,21 @@ type Props = { temporadaId: string | null };
 // temporada de compras/gastos seleccionada, con acceso directo a cada uno.
 export function EventosEnlazados({ temporadaId }: Props) {
   const [eventos, setEventos] = useState<Event[]>([]);
+  // Sin Entradas en el cliente (404) o sin permiso sobre ellas (403) no hay eventos que enlazar: el botón no se pinta (no apunta a una pantalla inexistente).
+  const [available, setAvailable] = useState(false);
 
   useEffect(() => {
     fetch('/api/admin/events')
-      .then((r) => r.json())
-      .then((d) => setEventos(Array.isArray(d) ? d : []))
+      .then(async (r) => {
+        if (!r.ok) return;
+        const d = await r.json();
+        setEventos(Array.isArray(d) ? d : []);
+        setAvailable(true);
+      })
       .catch(() => {});
   }, []);
 
-  if (!temporadaId) return null;
+  if (!temporadaId || !available) return null;
   const enlazados = eventos.filter((e) => e.temporadaId === temporadaId);
 
   return (
