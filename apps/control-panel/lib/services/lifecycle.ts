@@ -37,6 +37,7 @@ export function describeMigration(res: MigrationRunResult): Outcome {
       details: [...(res.pending.length ? [`Pendientes: ${res.pending.length}`] : []), ...res.warnings],
     };
   }
+  if (res.blockedBySales) return { error: res.error ?? 'Venta en marcha: no se migra ahora. Repite fuera de la venta.' };
   if (res.dryRun) {
     return res.pending.length
       ? { ok: `Hay ${res.pending.length} migraciones por aplicar (desde ${res.fromVersion ?? 'ninguna'}). No se ha cambiado nada.`, details: [...list(res.pending), ...res.warnings] }

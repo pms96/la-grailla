@@ -52,7 +52,18 @@ export interface OpsBlock {
   reconcile: (Omit<ReconcileSummary, 'lastRunAt'> & { lastRunAt: string | null }) | null;
   /** Última conciliación diaria con la pasarela; null si aún no ha corrido o no se pudo leer. */
   gateway: GatewaySummary | null;
+  /** Actividad de venta ahora (P1-22): con ella el runner de migraciones y los despliegues saben si es mal momento. null = no se pudo medir. */
+  sales: SalesActivity | null;
 }
+
+export interface SalesActivity {
+  /** Pedidos de entradas creados en los últimos 15 minutos (cualquier estado). */
+  orders15min: number;
+  /** Personas en la sala de espera (WAITING o ADMITTED). */
+  waitingRoom: number;
+}
+
+const SALES_WINDOW_MS = 15 * 60_000;
 
 /** Tope de tiempo de TODO el bloque: el health lo lee el panel con un tiempo de espera corto. */
 export const OPS_TIMEOUT_MS = 3000;
@@ -96,7 +107,7 @@ export function parseReconcileSummary(raw: string | null | undefined): OpsBlock[
 
 export async function collectOps(now = Date.now(), timeoutMs = OPS_TIMEOUT_MS): Promise<OpsBlock | null> {
   try {
-    const out: OpsBlock = { generatedAt: new Date(now).toISOString(), pendingOldestMinutes: null, pendingOver20min: null, emailsUnsent: null, emailsFailed: null, reconcile: null, gateway: null };
+    const out: OpsBlock = { generatedAt: new Date(now).toISOString(), pendingOldestMinutes: null, pendingOver20min: null, emailsUnsent: null, emailsFailed: null, reconcile: null, gateway: null, sales: null };
     let collected = 0;
     // Una medida que falla (o no llega a tiempo) deja su campo en null; las demás siguen.
     const measure = async (fn: () => Promise<void>) => {
@@ -136,6 +147,13 @@ export async function collectOps(now = Date.now(), timeoutMs = OPS_TIMEOUT_MS): 
       measure(async () => {
         const row = await prisma.appConfig.findUnique({ where: { key: OPS_GATEWAY_KEY }, select: { value: true } });
         out.gateway = parseGatewaySummary(row?.value);
+      }),
+      measure(async () => {
+        const [orders15min, waitingRoom] = await Promise.all([
+          prisma.order.count({ where: { createdAt: { gte: new Date(now - SALES_WINDOW_MS) } } }),
+          prisma.waitingRoomEntry.count({ where: { status: { in: ['WAITING', 'ADMITTED'] } } }),
+        ]);
+        out.sales = { orders15min, waitingRoom };
       }),
     ]);
     let timer: ReturnType<typeof setTimeout> | undefined;

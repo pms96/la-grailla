@@ -87,7 +87,7 @@ npm run migrate:tenants                                    # todos (concurrencia
 - Cada ejecución queda en `MigrationRun` (sin URLs ni credenciales) y en la auditoría; se ven en la ficha del cliente y en `/health`.
 - No hay «down»: se corrige hacia delante y se hace PITR antes de cualquier «contract».
 - `CREATE INDEX CONCURRENTLY` no puede ir en una migración de Prisma (va en una transacción): se hace como paso aparte.
-- **Ventana sin venta online activa:** el runner no la conoce. Para cualquier migración que tome bloqueos largos, ejecútalo fuera de horas de venta.
+- **Ventana de venta (P1-22):** antes de una migración REAL el runner lee el `/api/health` del cliente (bloque `ops.sales`: pedidos en 15 min y gente en sala de espera) y, si hay venta en marcha (**sala de espera con alguien, o 5 o más pedidos en 15 min**), **no migra a ese cliente**: queda `SKIPPED` con el motivo, no cuenta como fallo del lote (los demás se migran) y `migrate:tenants` sale con error. `--force-sales-window` lo salta (queda en la auditoría como `salesGuardOff`). No bloquea si el cliente no responde o su health no trae `sales`: migrar es justo lo que arregla un cliente en mantenimiento. Un `--dry-run` no se bloquea. También rige para el botón «Migrar» del panel (muestra el motivo). Mientras el runner te diga «venta en marcha», **no despliegues código que exija esa migración** (ver §7).
 
 > **El runner no corre en CI.** Necesita `SECRETS_KEYS` (con la que se abren las URLs de BD de todos los clientes). Darle esa clave a GitHub Actions es una decisión de confianza que no he tomado por ti: ejecútalo desde una máquina de operación o, si lo decides, desde un runner con esos secretos.
 
@@ -167,6 +167,32 @@ Tres proyectos desde este mismo repositorio. La configuración se hace en Vercel
 4. Recién entonces, **promocionar** el despliegue de `platform` (desactiva la promoción automática: Settings → Git → «Production Branch» manual, o Ignored Build Step) y comprobar `/health` del panel.
 
 La CI vigila dos cosas de este orden: toda migración posterior a `FRONT_MIN_SCHEMA` debe decidir por escrito si el front la necesita (`-- front-min-schema: not-required <motivo>`, o se sube `FRONT_MIN_SCHEMA`), y el front en modo plataforma y el panel se compilan de verdad (`next build`) en cada PR.
+
+## 7 · Despliegues, ventas y vigilancia (P1-22)
+
+**Por qué:** un despliegue o una migración en pleno lanzamiento reinicia funciones y, si el código exige un esquema que a un cliente le falta, esa web queda en mantenimiento (503, también los webhooks de pago, que el proveedor reintenta) justo cuando más gente compra. Cuatro piezas, todas reversibles:
+
+**1. Congelar despliegues de producción durante una venta.** `vercel.json` (raíz) declara `ignoreCommand: node scripts/ignore-build.js`. Se activa **sin tocar código**, con variables del proyecto en Vercel (la siguiente construcción las lee; no hace falta redesplegar):
+
+| Variable | Efecto |
+|---|---|
+| `SALES_FREEZE=1` | Los despliegues de **producción** no se construyen (quedan «cancelados»; la web que sirve no se toca) hasta quitar la variable. |
+| `SALES_FREEZE_UNTIL=2026-11-14T23:00:00Z` | Igual, hasta esa fecha y hora (ISO, con zona); se levanta sola. Una fecha ilegible **congela** por prudencia y lo dice en el log. |
+
+Las vistas previas no se ven afectadas. **Arreglo urgente** durante la congelación: un commit cuyo mensaje contenga `[deploy-anyway]` se construye igualmente. Poner la variable la víspera de la venta y quitarla al acabar; con `SALES_FREEZE_UNTIL` no hay que acordarse de quitarla. Aplica a los proyectos con raíz en el repositorio (el antiguo y `platform`); el panel tiene su propio `vercel.json` y no se congela. Probado: `tests/lib/ignore-build.test.ts`.
+
+**2. El runner de migraciones se niega en plena venta** (§2): evita justo la combinación mala, «migración con bloqueos + compradores en cola».
+
+**Qué hacer con un release pendiente cuando hay venta:** el orden de siempre es migrar y después desplegar. Si el runner deja a un cliente `SKIPPED` por venta en marcha, **ese cliente sigue en el esquema anterior: no despliegues el código que lo exige** (lo dejaría en 503). Espera al final de la venta, migra (`npm run migrate:tenants`), y entonces despliega. Si el release es urgente, `--force-sales-window` y vigila `/health` del panel: una migración aditiva con `lock_timeout` de 3 s falla en vez de bloquear la venta.
+
+**3. Smoke tras desplegar.** `.github/workflows/post-deploy-smoke.yml` se lanza solo cuando Vercel termina un despliegue de **producción** (y a mano desde la pestaña Actions) y ejecuta `scripts/smoke-check.ts` contra cada URL de la variable de repositorio **`SMOKE_URLS`** (Settings → Secrets and variables → Actions → Variables; URLs separadas por comas). Por cliente, solo lecturas públicas: `/` (200 con HTML), `/api/health` (200 y `{"status":"ok"}`: en mantenimiento da 503), `/eventos` y, si hay un evento publicado, su ficha y su página de compra. Un cliente sin módulo de entradas o sin eventos no es un fallo. Un 5xx o una caída puntual se reintenta una vez. Si algo falla, el despliegue queda en rojo en GitHub con una anotación por comprobación. **No crea pedidos** (no se arriesga un cobro): un `POST /api/orders` de prueba contra producción exigiría un cliente de pruebas con pasarela simulada; está sin hacer. Sin `SMOKE_URLS` el workflow avisa y no comprueba nada. A mano: `npx tsx scripts/smoke-check.ts https://www.lagrailla.es`.
+
+**4. Monitor externo (lo hace el dueño, no el código).** El panel guarda solo la **última** comprobación de cada cliente, y el propio panel puede caer: un vigilante que viva fuera. Cualquier servicio gratuito sirve (UptimeRobot, Better Stack, Uptime Kuma, healthchecks.io). Por cliente, **dos comprobaciones cada 1–5 min con aviso por email/móvil**:
+- `https://<dominio>/api/health` — espera **200** y el texto `"ok"` (un cliente en mantenimiento por esquema da 503 `maintenance`; sin BD, 503 `error`).
+- `https://<dominio>/eventos/<slug-del-evento-en-venta>/comprar` — espera **200** y el nombre del evento en la página (palabra clave): lo que el comprador de verdad ve.
+El histórico y el % de disponibilidad los guarda el propio servicio: no hace falta una tabla nueva en el panel (`TenantHealth` seguiría guardando solo lo último). Además, confirma que **`HEARTBEAT_URL`** (latido del panel, `observabilidad.md`) está puesto: avisa si el panel o su cron dejan de latir.
+
+**Lo que no cubre:** el monitor externo y el smoke no prueban un pago real ni el SMTP; el límite de pool de Neon en un pico no se ha medido (OB-16, prueba de carga aparte).
 
 ## Revisión independiente (aplicada)
 

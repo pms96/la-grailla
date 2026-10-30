@@ -31,10 +31,17 @@ const run = (over: Partial<MigrationRunResult> = {}): MigrationRunResult => ({
   error: null,
   warnings: [],
   republishFailed: false,
+  blockedBySales: false,
   ...over,
 });
 
 describe('describeMigration: el resultado del runner, en claro', () => {
+  it('venta en marcha (P1-22): es un error con el motivo del runner, no un «BD al día»', () => {
+    const o = describeMigration(run({ status: 'SKIPPED', blockedBySales: true, pending: [], toVersion: null, error: 'Venta en marcha (3 pedidos en los últimos 15 min, 40 en la sala de espera): no se migra ahora.' }));
+    expect(o.ok).toBeUndefined();
+    expect(o.error).toMatch(/Venta en marcha \(3 pedidos/);
+  });
+
   it('aplicada: cuenta cuántas y de qué versión a cuál, y avisa de que la web sale del mantenimiento', () => {
     const o = describeMigration(run({ pending: ['a', 'b', 'c'], fromVersion: null, toVersion: M1 }));
     expect(o.ok).toMatch(/Aplicadas 3 migraciones: BD vacía → 20270101000000_crea_tabla/);

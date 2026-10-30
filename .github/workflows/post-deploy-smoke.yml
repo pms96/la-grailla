@@ -1,0 +1,53 @@
+name: Smoke tras desplegar
+
+# P1-22 · OB-14/OB-15: tras cada despliegue a PRODUCCIÓN, comprobar que la web de cada cliente responde de verdad (home, /api/health,
+# listado de eventos y su página de compra). Solo lecturas públicas: no crea pedidos ni toca datos. Si algo falla, el despliegue queda en
+# rojo en GitHub y el equipo se entera en minutos, no cuando un comprador escribe.
+#
+# Configuración (una vez): Settings → Secrets and variables → Actions → Variables → `SMOKE_URLS` con las URLs de los clientes separadas por
+# comas, p. ej. `https://www.lagrailla.es,https://otro-cliente.es`. Sin ella, el workflow avisa y no comprueba nada.
+#
+# Vercel crea un «deployment» por cada proyecto y entorno: con varios proyectos sobre este repo el entorno se llama «Production – <proyecto>»,
+# de ahí el `startsWith`. Las vistas previas (Preview) no se comprueban: en modo plataforma no sirven ningún cliente por diseño.
+on:
+  deployment_status: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    # Manual, o un despliegue de producción terminado con éxito.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' && startsWith(github.event.deployment.environment, 'Production'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SMOKE_URLS: ${{ vars.SMOKE_URLS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Comprobar que hay URLs configuradas
+        id: urls
+        run: |
+          if [ -z "$SMOKE_URLS" ]; then
+            echo "::warning::Falta la variable de repositorio SMOKE_URLS: no se ha comprobado ningún cliente tras el despliegue."
+            # Un lanzamiento manual sin URLs es un error; un despliegue sin configurar todavía solo avisa.
+            [ "${{ github.event_name }}" = "workflow_dispatch" ] && exit 1
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # El alias del dominio puede tardar unos segundos en apuntar al despliegue nuevo.
+      - name: Esperar a que el dominio sirva el despliegue
+        if: steps.urls.outputs.skip != 'true'
+        run: sleep 20
+
+      - name: Smoke por cliente
+        if: steps.urls.outputs.skip != 'true'
+        run: npx --yes tsx@4.20.3 scripts/smoke-check.ts

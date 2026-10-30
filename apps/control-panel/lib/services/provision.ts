@@ -330,7 +330,7 @@ export async function provisionTenant(input: ProvisionInput, actor: ActingOperat
   result.tenantId = tenantId;
 
   // 4. Migrar (el mismo runner que usa el lote; sin republicar: aún no hay nada publicado).
-  const migration: MigrationRunResult = await runMigrationsForSubscription(subscriptionId, actor, { ...deps.migrate, republish: false });
+  const migration: MigrationRunResult = await runMigrationsForSubscription(subscriptionId, actor, { salesGuard: false, ...deps.migrate, republish: false });
   if (migration.status !== 'SUCCEEDED') return stop({ step: 'migrate', status: 'failed', detail: migration.error ?? 'La migración falló' });
   step({ step: 'migrate', status: migration.pending.length ? 'done' : 'skipped', detail: migration.pending.length ? `${migration.pending.length} migraciones → ${migration.toVersion}` : `ya estaba al día (${migration.toVersion})` });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OpsBlockSchema, parseOpsBlock } from '../src';
+import { OpsBlockSchema, SALES_BUSY_ORDERS_15MIN, isSalesWindowBusy, parseOpsBlock } from '../src';
 
 const ok = {
   generatedAt: '2026-10-27T10:00:00.000Z',
@@ -28,6 +28,22 @@ describe('bloque ops de la salud (contrato)', () => {
     expect(parseOpsBlock(ok)).toMatchObject({ status: 'ok' }); // front anterior
     expect(parseOpsBlock({ ...ok, gateway: { ...gateway, unmatched: -1 } })).toMatchObject({ status: 'invalid' });
     expect(parseOpsBlock({ ...ok, gateway: { ...gateway, truncated: 'no' } })).toMatchObject({ status: 'invalid' });
+  });
+
+  it('el bloque `sales` (actividad de venta, P1-22) es opcional y, si viene, se valida', () => {
+    const sales = { orders15min: 3, waitingRoom: 0 };
+    expect(parseOpsBlock({ ...ok, sales })).toEqual({ status: 'ok', ops: { ...ok, sales } });
+    expect(parseOpsBlock({ ...ok, sales: null })).toMatchObject({ status: 'ok' }); // no se pudo medir
+    expect(parseOpsBlock(ok)).toMatchObject({ status: 'ok' }); // front anterior
+    expect(parseOpsBlock({ ...ok, sales: { orders15min: -1, waitingRoom: 0 } })).toMatchObject({ status: 'invalid' });
+    expect(parseOpsBlock({ ...ok, sales: { orders15min: 1 } })).toMatchObject({ status: 'invalid' });
+  });
+
+  it('`isSalesWindowBusy`: sala de espera con gente, o ritmo de pedidos sostenido; con poco movimiento no', () => {
+    expect(isSalesWindowBusy({ orders15min: 0, waitingRoom: 0 })).toBe(false);
+    expect(isSalesWindowBusy({ orders15min: SALES_BUSY_ORDERS_15MIN - 1, waitingRoom: 0 })).toBe(false);
+    expect(isSalesWindowBusy({ orders15min: SALES_BUSY_ORDERS_15MIN, waitingRoom: 0 })).toBe(true);
+    expect(isSalesWindowBusy({ orders15min: 0, waitingRoom: 1 })).toBe(true);
   });
 
   it('ausente (front anterior) no es un error; null tampoco', () => {

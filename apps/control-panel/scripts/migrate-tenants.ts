@@ -1,7 +1,10 @@
 /* Aplica las migraciones del front a las BDs de los clientes (trabajo externo: nunca dentro del build ni de una petición).
  *
  *   npm run migrate:tenants -- [--dry-run] [--only <subId,subId>] [--canary <subId,subId>] \
- *                              [--concurrency 5] [--continue-on-failure] [--allow-destructive] [--no-republish]
+ *                              [--concurrency 5] [--continue-on-failure] [--allow-destructive] [--no-republish] [--force-sales-window]
+ *
+ * Se niega a migrar un cliente con una venta en marcha (sala de espera con gente o ritmo de pedidos sostenido): queda sin lanzar y el
+ * script sale con error. --force-sales-window lo salta.
  *
  * Para ante el primer fallo (los demás quedan SKIPPED). Con --dry-run solo lista lo pendiente y pasa el linter. */
 import type { ActingOperator } from '../lib/actor';
@@ -23,6 +26,8 @@ async function main() {
     stopOnFailure: !has('continue-on-failure'),
     allowDestructive: has('allow-destructive'),
     republish: !has('no-republish'),
+    // P1-22: con una venta en marcha el runner se niega a migrar a ese cliente. Solo con esta bandera se migra igualmente (queda en la auditoría).
+    salesGuard: !has('force-sales-window'),
   });
   for (const r of out.results) {
     const tag = r.status === 'SUCCEEDED' ? '✓' : r.status === 'SKIPPED' ? '·' : '✗';
@@ -31,9 +36,11 @@ async function main() {
     for (const w of r.warnings) console.log(`    aviso: ${w}`);
   }
   console.log(`\n${out.results.length} clientes · ${out.failed} fallidos · ${out.skipped} sin lanzar`);
+  const heldBySales = out.results.filter((r) => r.blockedBySales);
+  if (heldBySales.length) console.error(`\n${heldBySales.length} cliente(s) NO migrados porque tienen una venta en marcha: repite fuera de la venta (o con --force-sales-window si es imprescindible). Hasta entonces NO despliegues código que exija esa migración.`);
   const unsynced = out.results.filter((r) => r.republishFailed);
   if (unsynced.length) console.error(`\n${unsynced.length} cliente(s) migrados pero SIN republicar: pueden quedar en mantenimiento hasta publicar (npm run snapshots:refresh).`);
-  if (out.failed || unsynced.length) process.exitCode = 1;
+  if (out.failed || unsynced.length || heldBySales.length) process.exitCode = 1;
 }
 
 main()

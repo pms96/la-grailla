@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
+import { generateMasterKey } from '@grailla/contracts';
 import { prisma } from '@/lib/db';
 import { runMigrationsForAll, runMigrationsForSubscription, listLocalMigrations, frontPrismaDir, hardProblems } from '@/lib/services/migrations';
 import { createTenant } from '@/lib/services/tenants';
@@ -355,6 +356,128 @@ describe('runner de migraciones — en lote', () => {
     const out = await runMigrationsForAll(a.actor, { prismaDir: dir, republish: false, only: [a.subscription.id, c.subscription.id] });
     expect(out.results.map((r) => r.subscriptionId)).toEqual([a.subscription.id]);
     expect(b.subscription.id).not.toBe(a.subscription.id);
+  });
+});
+
+describe('runner de migraciones — venta en marcha (P1-22)', () => {
+  // El health del cliente lo simula `healthFetch`: ninguna llamada sale a la red.
+  const healthBody = (sales: unknown) => ({
+    status: 'ok', version: 'dev', platform: true, tenantId: 'x', db: { ok: true, latencyMs: 3 },
+    schema: { applied: null, expected: M2, minRequired: M2, upToDate: false }, onboarding: { complete: true, missing: [] },
+    ops: sales === undefined ? undefined : { generatedAt: new Date().toISOString(), pendingOldestMinutes: null, pendingOver20min: 0, emailsUnsent: 0, emailsFailed: 0, reconcile: null, sales },
+  });
+  const healthWith = (sales: unknown) => async () => new Response(JSON.stringify(healthBody(sales)), { status: 200 });
+  const BUSY = { orders15min: 3, waitingRoom: 40 };
+  const QUIET = { orders15min: 2, waitingRoom: 0 };
+  const savedMaster = process.env.PLATFORM_CRON_MASTER;
+  beforeAll(() => {
+    process.env.PLATFORM_CRON_MASTER = generateMasterKey();
+  });
+  afterAll(() => {
+    if (savedMaster === undefined) delete process.env.PLATFORM_CRON_MASTER;
+    else process.env.PLATFORM_CRON_MASTER = savedMaster;
+  });
+
+  /** Un cliente con dominio verificado (sin él no hay a quién preguntar). */
+  async function liveTenantOn(dbName: string) {
+    const t = await tenantOn(dbName);
+    const domain = await prisma.domain.findFirstOrThrow({ where: { subscriptionId: t.subscription.id } });
+    await verifyDomainManually(domain.id, t.actor);
+    return t;
+  }
+  const demoTable = (dbName: string) => queryScratch(dbName, `SELECT 1 FROM information_schema.tables WHERE table_name = 'demo'`);
+
+  it('con sala de espera con gente NO migra: queda SKIPPED con el motivo, la BD intacta y constancia en la auditoría', async () => {
+    const dir = makeFixturePrismaDir(GOOD);
+    const { actor, subscription, tenant } = await liveTenantOn(DBS[0]);
+    const res = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, republish: false, healthFetch: healthWith(BUSY) });
+    expect(res).toMatchObject({ status: 'SKIPPED', blockedBySales: true, toVersion: null });
+    expect(res.error).toMatch(/Venta en marcha \(3 pedidos.*40 en la sala de espera\)/);
+    expect(await demoTable(DBS[0])).toHaveLength(0);
+    expect((await prisma.subscription.findUnique({ where: { id: subscription.id } }))!.schemaVersion).toBeNull();
+    expect(await prisma.migrationRun.count({ where: { subscriptionId: subscription.id, status: 'SKIPPED' } })).toBe(1);
+    const audit = await prisma.auditLog.findFirst({ where: { tenantId: tenant.id, action: 'migration.skipped_sales_window' } });
+    expect(audit!.meta).toMatchObject({ orders15min: 3, waitingRoom: 40 });
+  });
+
+  it('un ritmo de pedidos sostenido también bloquea; con poco movimiento migra', async () => {
+    const dir = makeFixturePrismaDir(GOOD);
+    const { actor, subscription } = await liveTenantOn(DBS[0]);
+    const busy = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, republish: false, healthFetch: healthWith({ orders15min: 5, waitingRoom: 0 }) });
+    expect(busy).toMatchObject({ status: 'SKIPPED', blockedBySales: true });
+    const quiet = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, republish: false, healthFetch: healthWith(QUIET) });
+    expect(quiet).toMatchObject({ status: 'SUCCEEDED', blockedBySales: false, toVersion: M2 });
+    expect(await demoTable(DBS[0])).toHaveLength(1);
+  });
+
+  it('`salesGuard: false` migra igualmente, ni siquiera pregunta al cliente, y lo deja en la auditoría', async () => {
+    const dir = makeFixturePrismaDir(GOOD);
+    const { actor, subscription, tenant } = await liveTenantOn(DBS[0]);
+    let asked = 0;
+    const res = await runMigrationsForSubscription(subscription.id, actor, {
+      prismaDir: dir,
+      republish: false,
+      salesGuard: false,
+      healthFetch: async () => {
+        asked += 1;
+        return new Response(JSON.stringify(healthBody(BUSY)), { status: 200 });
+      },
+    });
+    expect(res).toMatchObject({ status: 'SUCCEEDED', blockedBySales: false });
+    expect(asked).toBe(0);
+    const audit = await prisma.auditLog.findFirst({ where: { tenantId: tenant.id, action: 'migration.run' } });
+    expect(audit!.meta).toMatchObject({ salesGuardOff: true });
+  });
+
+  it('si el cliente no responde, o su health no trae `sales`, NO bloquea (migrar es lo que arregla un cliente en mantenimiento)', async () => {
+    const dir = makeFixturePrismaDir(GOOD);
+    const down = await liveTenantOn(DBS[0]);
+    const a = await runMigrationsForSubscription(down.subscription.id, down.actor, {
+      prismaDir: dir,
+      republish: false,
+      healthFetch: async () => {
+        throw new Error('ECONNREFUSED');
+      },
+    });
+    expect(a.status).toBe('SUCCEEDED');
+    const old = await liveTenantOn(DBS[1]);
+    const b = await runMigrationsForSubscription(old.subscription.id, old.actor, { prismaDir: dir, republish: false, healthFetch: healthWith(undefined) });
+    expect(b.status).toBe('SUCCEEDED');
+    const unmeasured = await liveTenantOn(DBS[2]);
+    const c = await runMigrationsForSubscription(unmeasured.subscription.id, unmeasured.actor, { prismaDir: dir, republish: false, healthFetch: healthWith(null) });
+    expect(c.status).toBe('SUCCEEDED');
+  });
+
+  it('un ensayo (--dry-run) no se bloquea ni pregunta; un cliente sin dominio verificado tampoco', async () => {
+    const dir = makeFixturePrismaDir(GOOD);
+    let asked = 0;
+    const spy = async () => {
+      asked += 1;
+      return new Response(JSON.stringify(healthBody(BUSY)), { status: 200 });
+    };
+    const live = await liveTenantOn(DBS[0]);
+    const dry = await runMigrationsForSubscription(live.subscription.id, live.actor, { prismaDir: dir, dryRun: true, healthFetch: spy });
+    expect(dry).toMatchObject({ status: 'SUCCEEDED', dryRun: true, blockedBySales: false });
+    const fresh = await tenantOn(DBS[1]); // sin dominio verificado
+    const res = await runMigrationsForSubscription(fresh.subscription.id, fresh.actor, { prismaDir: dir, republish: false, healthFetch: spy });
+    expect(res.status).toBe('SUCCEEDED');
+    expect(asked).toBe(0);
+  });
+
+  it('en lote: el cliente en venta queda sin migrar, NO cuenta como fallo ni para el lote, y los demás se migran', async () => {
+    const dir = makeFixturePrismaDir(GOOD);
+    const busy = await liveTenantOn(DBS[0]);
+    const quiet = await liveTenantOn(DBS[1]);
+    const busyHost = (await prisma.domain.findFirstOrThrow({ where: { subscriptionId: busy.subscription.id } })).host;
+    const healthFetch = async (url: string) => new Response(JSON.stringify(healthBody(url.includes(busyHost) ? BUSY : QUIET)), { status: 200 });
+    const out = await runMigrationsForAll(busy.actor, { prismaDir: dir, republish: false, concurrency: 1, healthFetch });
+    expect(out.failed).toBe(0);
+    expect(out.stoppedEarly).toBe(false);
+    const by = (id: string) => out.results.find((r) => r.subscriptionId === id)!;
+    expect(by(busy.subscription.id)).toMatchObject({ status: 'SKIPPED', blockedBySales: true });
+    expect(by(quiet.subscription.id)).toMatchObject({ status: 'SUCCEEDED', blockedBySales: false });
+    expect(await demoTable(DBS[0])).toHaveLength(0);
+    expect(await demoTable(DBS[1])).toHaveLength(1);
   });
 });
 

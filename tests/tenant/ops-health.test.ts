@@ -74,7 +74,19 @@ afterAll(async () => {
 
 describe('bloque `ops` de /api/health', () => {
   it('BD sin pedidos: ceros, sin pendiente más antiguo y sin pasada del cron', async () => {
-    expect(await ops()).toEqual({ generatedAt: expect.any(String), pendingOldestMinutes: null, pendingOver20min: 0, emailsUnsent: 0, emailsFailed: 0, reconcile: null, gateway: null });
+    expect(await ops()).toEqual({ generatedAt: expect.any(String), pendingOldestMinutes: null, pendingOver20min: 0, emailsUnsent: 0, emailsFailed: 0, reconcile: null, gateway: null, sales: { orders15min: 0, waitingRoom: 0 } });
+  });
+
+  it('`sales` (P1-22): cuenta los pedidos de los últimos 15 min (cualquier estado) y la gente en sala de espera, no los de antes ni los ya terminados', async () => {
+    await order({ createdAgoMs: 2 * MIN });
+    await order({ status: 'PENDING', provider: 'stripe', paymentId: 'cs_s1', createdAgoMs: 14 * MIN });
+    await order({ createdAgoMs: 16 * MIN }); // fuera de la ventana
+    const queue = (status: 'WAITING' | 'ADMITTED' | 'COMPLETED' | 'EXPIRED') => db().waitingRoomEntry.create({ data: { eventId, token: `tok-${n++}`, status } });
+    await queue('WAITING');
+    await queue('ADMITTED');
+    await queue('COMPLETED'); // ya compró: no ocupa
+    await queue('EXPIRED'); // caducado: no ocupa
+    expect((await ops())!.sales).toEqual({ orders15min: 2, waitingRoom: 2 });
   });
 
   it('valores correctos con datos sembrados (pendientes con pago real, emails sin enviar y fallidos de entradas y tienda, resumen del cron)', async () => {
@@ -103,7 +115,7 @@ describe('bloque `ops` de /api/health', () => {
     await db().appConfig.create({ data: { key: OPS_RECONCILE_KEY, value: JSON.stringify({ lastRunAt, errors: 2, unknown: 1, processing: 3, stuckOver24h: 4 }) } });
 
     const block = (await ops())!;
-    expect(Object.keys(block).sort()).toEqual(['emailsFailed', 'emailsUnsent', 'gateway', 'generatedAt', 'pendingOldestMinutes', 'pendingOver20min', 'reconcile']);
+    expect(Object.keys(block).sort()).toEqual(['emailsFailed', 'emailsUnsent', 'gateway', 'generatedAt', 'pendingOldestMinutes', 'pendingOver20min', 'reconcile', 'sales']);
     expect(block.pendingOldestMinutes).toBe(90); // el PENDING de tienda de hace 90 min
     expect(block.pendingOver20min).toBe(2); // los de 45 y 90 min
     expect(block.emailsUnsent).toBe(3); // 2 de entradas + 1 de tienda
@@ -215,7 +227,7 @@ describe('bloque `ops` de /api/health', () => {
       await order({ attempts: EMAIL_MAX_ATTEMPTS });
       const body = await (await health('valid')).json();
       expect(Object.keys(body).sort()).toEqual(['db', 'onboarding', 'ops', 'platform', 'schema', 'serving', 'status', 'tenantId', 'tenantMarker', 'version']);
-      expect(body.ops).toEqual({ generatedAt: expect.any(String), pendingOldestMinutes: null, pendingOver20min: 0, emailsUnsent: 0, emailsFailed: 1, reconcile: null, gateway: null });
+      expect(body.ops).toEqual({ generatedAt: expect.any(String), pendingOldestMinutes: null, pendingOver20min: 0, emailsUnsent: 0, emailsFailed: 1, reconcile: null, gateway: null, sales: { orders15min: 0, waitingRoom: 0 } });
       expect(body.status).toBe('ok');
     });
 

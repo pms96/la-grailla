@@ -151,7 +151,7 @@ describe('detalle (con el secreto de cron del cliente)', () => {
       schema: { applied: latestMigrationOnDisk(), expected: latestMigrationOnDisk(), minRequired: FRONT_MIN_SCHEMA, upToDate: true },
       onboarding: { complete: true, missing: [] },
       // `ops` (P0-07): aditivo; BD sin pedidos ni pasada del cron. Su forma y sus valores se prueban en ops-health.test.ts.
-      ops: { generatedAt: expect.any(String), pendingOldestMinutes: null, pendingOver20min: 0, emailsUnsent: 0, emailsFailed: 0, reconcile: null, gateway: null },
+      ops: { generatedAt: expect.any(String), pendingOldestMinutes: null, pendingOver20min: 0, emailsUnsent: 0, emailsFailed: 0, reconcile: null, gateway: null, sales: { orders15min: 0, waitingRoom: 0 } },
     });
     expect(Object.keys(body.db).sort()).toEqual(['latencyMs', 'ok']);
     expect(Object.keys(body.schema).sort()).toEqual(['applied', 'expected', 'minRequired', 'upToDate']);

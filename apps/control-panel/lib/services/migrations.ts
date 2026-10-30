@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { MigrationRun, MigrationRunStatus } from '@prisma/client';
-import { migrationStamp } from '@grailla/contracts';
+import { isSalesWindowBusy, migrationStamp, type OpsSales } from '@grailla/contracts';
 // El linter de migraciones es el mismo que usa la CI del front: lo que el runner se niega a aplicar es lo que la CI ya rechaza.
 import { BASELINE_MIGRATION, lintMigrationSql } from '../../../../scripts/migration-lint';
 import type { ActingOperator } from '../actor';
@@ -12,7 +12,9 @@ import { assertCan } from '../permissions';
 import { openField } from '../secrets-store';
 import { notify } from './alerts';
 import { ServiceError } from './errors';
+import { probeTenantHealth } from './health';
 import { publishSubscription } from './snapshot';
+import type { FetchLike } from './tenant-calls';
 import { DB_URL_DIRECT_FIELD } from './tenants';
 
 /* Runner de migraciones (M7). Aplica las migraciones del front a la BD de cada cliente, de una en una o en lote, y deja constancia en
@@ -79,6 +81,14 @@ export type RunOptions = {
   sleep?: (ms: number) => Promise<void>;
   /** Republicar el registro tras migrar (por defecto, sí). */
   republish?: boolean;
+  /**
+   * P1-22: antes de una migración REAL se mira el `/api/health` del cliente y, si tiene una venta en marcha (sala de espera con gente o un
+   * ritmo de pedidos sostenido), NO se migra: queda SKIPPED con el motivo. `false` migra igualmente (queda en la auditoría). Un cliente sin
+   * dominio verificado, o cuyo health no responde o no trae `sales`, no se bloquea: migrar es justo lo que arregla un cliente en mantenimiento.
+   */
+  salesGuard?: boolean;
+  /** Cómo se llama al health del cliente (tests). */
+  healthFetch?: FetchLike;
 };
 
 export type MigrationRunResult = {
@@ -95,12 +105,14 @@ export type MigrationRunResult = {
   warnings: string[];
   /** La migración terminó pero el registro no se pudo republicar: el cliente puede quedar en mantenimiento hasta publicar. */
   republishFailed: boolean;
+  /** No se migró porque el cliente tiene una venta en marcha (estado SKIPPED): hay que repetir fuera de la venta. */
+  blockedBySales: boolean;
 };
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const last = (names: string[]) => [...names].sort().pop() ?? null;
 
-function toResult(run: MigrationRun, warnings: string[] = [], republishFailed = false): MigrationRunResult {
+function toResult(run: MigrationRun, warnings: string[] = [], republishFailed = false, blockedBySales = false): MigrationRunResult {
   return {
     runId: run.id,
     subscriptionId: run.subscriptionId,
@@ -114,6 +126,27 @@ function toResult(run: MigrationRun, warnings: string[] = [], republishFailed = 
     error: run.error,
     warnings,
     republishFailed,
+    blockedBySales,
+  };
+}
+
+/**
+ * ¿Tiene este cliente una venta en marcha ahora? Devuelve el motivo del rechazo, o null si se puede migrar. Mira el `/api/health` con el
+ * secreto de ese cliente. Sin dominio verificado, sin respuesta o sin bloque `sales` (front anterior, o no se pudo medir) NO bloquea.
+ */
+async function salesWindowBlock(
+  sub: { tenantId: string; schemaVersion: string | null; domains: { host: string; status: string; isPrimary: boolean }[] },
+  opts: Pick<RunOptions, 'healthFetch'>
+): Promise<{ message: string; sales: OpsSales } | null> {
+  const verified = sub.domains.filter((d) => d.status === 'VERIFIED');
+  const host = (verified.find((d) => d.isPrimary) ?? verified[0])?.host;
+  if (!host) return null;
+  const probe = await probeTenantHealth({ tenantId: sub.tenantId, host, declaredSchema: sub.schemaVersion }, { fetchImpl: opts.healthFetch, timeoutMs: 8_000 });
+  const sales = probe.reachable ? probe.ops?.sales : null;
+  if (!sales || !isSalesWindowBusy(sales)) return null;
+  return {
+    sales,
+    message: `Venta en marcha (${sales.orders15min} pedidos en los últimos 15 min, ${sales.waitingRoom} en la sala de espera): no se migra ahora. Repite fuera de la venta; el script admite --force-sales-window si es imprescindible.`,
   };
 }
 
@@ -148,10 +181,31 @@ export async function runMigrationsForSubscription(subscriptionId: string, actor
   const dryRun = !!opts.dryRun;
   const maxAttempts = opts.maxAttempts ?? MIGRATION_MAX_ATTEMPTS;
 
-  const sub = await prisma.subscription.findUnique({ where: { id: subscriptionId }, include: { tenant: true } });
+  const sub = await prisma.subscription.findUnique({ where: { id: subscriptionId }, include: { tenant: true, domains: true } });
   if (!sub) throw new ServiceError('not_found', 'Suscripción no encontrada');
   if (sub.tenant.status === 'PENDING_DELETION' || sub.tenant.status === 'DELETED') {
     throw new ServiceError('invalid_state', 'Este cliente está en borrado: no se migra');
+  }
+  // P1-22: una migración real en plena venta (bloqueos, reinicios) es lo que convierte «una venta» en «una caída». Se queda SKIPPED con el
+  // motivo, sin contar como fallo del lote: los demás clientes siguen. Un ensayo (`dryRun`) no toca nada y no se comprueba.
+  if (!dryRun && opts.salesGuard !== false) {
+    const block = await salesWindowBlock(sub, opts);
+    if (block) {
+      const skipped = await prisma.migrationRun.create({
+        data: { subscriptionId, tenantId: sub.tenantId, status: 'SKIPPED', dryRun: false, triggeredBy: actor.email, finishedAt: new Date(), error: block.message },
+      });
+      await prisma.$transaction((tx) =>
+        appendAudit(tx, {
+          actor,
+          action: 'migration.skipped_sales_window',
+          targetType: 'subscription',
+          targetId: subscriptionId,
+          tenantId: sub.tenantId,
+          meta: { runId: skipped.id, orders15min: block.sales.orders15min, waitingRoom: block.sales.waitingRoom },
+        })
+      );
+      return toResult(skipped, [], false, true);
+    }
   }
   const run = await reserveRun(subscriptionId, sub.tenantId, dryRun, actor);
   const warnings: string[] = [];
@@ -182,7 +236,7 @@ export async function runMigrationsForSubscription(subscriptionId: string, actor
         targetType: 'subscription',
         targetId: subscriptionId,
         tenantId: sub.tenantId,
-        meta: { runId: r.id, status: r.status, from: r.fromVersion, to: r.toVersion, pending: r.pending, attempts: r.attempts, allowDestructive: !!opts.allowDestructive, error: r.error ? r.error.slice(0, 200) : null },
+        meta: { runId: r.id, status: r.status, from: r.fromVersion, to: r.toVersion, pending: r.pending, attempts: r.attempts, allowDestructive: !!opts.allowDestructive, salesGuardOff: opts.salesGuard === false, error: r.error ? r.error.slice(0, 200) : null },
       })
     );
     // Una migración REAL que falla deja a un cliente a medias: hay que enterarse ya (un ensayo, `dryRun`, no es un aviso). `notify` no lanza.

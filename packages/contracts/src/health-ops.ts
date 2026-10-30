@@ -42,6 +42,27 @@ export const OpsGatewaySchema = z.object({
 });
 export type OpsGateway = z.infer<typeof OpsGatewaySchema>;
 
+/** Actividad de venta AHORA (P1-22): lo que decide si es buen momento para migrar o desplegar. Solo contadores, sin datos personales. */
+export const OpsSalesSchema = z.object({
+  /** Pedidos de entradas creados en los últimos 15 minutos (cualquier estado: un comprador en el checkout cuenta). */
+  orders15min: count,
+  /** Personas en la sala de espera (esperando o admitidas sin haber comprado todavía). */
+  waitingRoom: count,
+});
+export type OpsSales = z.infer<typeof OpsSalesSchema>;
+
+/** Pedidos en 15 min a partir de los cuales se considera «venta en marcha» aunque no haya sala de espera. */
+export const SALES_BUSY_ORDERS_15MIN = 5;
+
+/**
+ * ¿Hay una venta en marcha? Sala de espera con gente, o un ritmo de pedidos sostenido. Es la señal con la que el runner de migraciones se
+ * niega a tocar a un cliente (y con la que se decide congelar despliegues): una migración con bloqueos o un reinicio masivo en pleno
+ * lanzamiento es justo lo que convierte «una venta» en «una caída». `null` (no se pudo medir) NO es «ocupado»: lo decide quien llama.
+ */
+export function isSalesWindowBusy(sales: OpsSales): boolean {
+  return sales.waitingRoom > 0 || sales.orders15min >= SALES_BUSY_ORDERS_15MIN;
+}
+
 export const OpsBlockSchema = z.object({
   /** Cuándo se calculó el bloque (ISO). */
   generatedAt: isoDate,
@@ -57,6 +78,8 @@ export const OpsBlockSchema = z.object({
   reconcile: OpsReconcileSchema.nullable(),
   /** Conciliación diaria con la pasarela. Ausente = un front anterior que no la hace; null = aún no ha corrido. */
   gateway: OpsGatewaySchema.nullable().optional(),
+  /** Actividad de venta ahora (P1-22). Ausente = un front anterior que no la mide; null = no se pudo medir. */
+  sales: OpsSalesSchema.nullable().optional(),
 });
 export type OpsBlock = z.infer<typeof OpsBlockSchema>;
 

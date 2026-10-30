@@ -106,8 +106,11 @@ El front (otro paquete de trabajo) añade a `GET /api/health` con el secreto de 
 ```
 ops: { generatedAt, pendingOldestMinutes | null, pendingOver20min, emailsUnsent, emailsFailed,
        reconcile: { lastRunAt | null, errors, unknown, processing, stuckOver24h } | null,
-       gateway?: { lastRunAt, checked, unmatched, errors, skipped, truncated } | null }
+       gateway?: { lastRunAt, checked, unmatched, errors, skipped, truncated } | null,
+       sales?: { orders15min, waitingRoom } | null }
 ```
+
+`sales` (P1-22) es la actividad de venta ahora: pedidos de entradas creados en los últimos 15 min y personas en la sala de espera (esperando o admitidas). Solo contadores. No genera avisos: lo lee el runner de migraciones (`isSalesWindowBusy` en el contrato: sala de espera con gente, o 5 o más pedidos en 15 min) para negarse a migrar a un cliente en plena venta (`m7-operacion.md` §2 y §7).
 
 Es opcional: un front anterior sin `ops` sigue siendo válido (el panel no aplica ninguna regla) y los campos que el contrato no conoce se ignoran. Un `ops` que **no** cumple el contrato no deja al cliente como «no responde»: se señala como un problema aparte («el bloque ops no cumple el contrato»), sin copiar lo recibido.
 
