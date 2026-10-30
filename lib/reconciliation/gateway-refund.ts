@@ -5,6 +5,7 @@ import { getBrand } from '@/lib/brand/brand';
 import { brandLogoHtml } from '@/lib/brand/email';
 import { getFallbackBaseUrl } from '@/lib/url';
 import { refundReturnsStock } from '@/lib/shop-order-status';
+import { effectiveStatus, getPaymentProviderByName, type PaymentScope } from '@/lib/payment-adapter';
 import { alertOperator, logPaymentEvent } from './shared';
 
 /* Dinero devuelto FUERA de la app (auditoría P1-01 / EN-08, CO-02, TI-08/09). Hasta ahora solo existía el reembolso desde el admin: uno hecho en el panel de la
@@ -65,8 +66,8 @@ export async function sendRefundEmail(
 }
 
 /** Aviso al operador de algo que la pasarela ha hecho sin que lo pidiera la app. Una vez al día por pedido y motivo. */
-async function notifyOperator(kind: Kind, orderId: string, reason: string, subject: string, html: string, details?: Record<string, unknown>) {
-  await alertOperator({ kind, tag: '[gateway-refund]', orderId, reason, subject, html, dedupeKey: `${reason}:${orderId}`, ...(details ? { details } : {}) });
+async function notifyOperator(kind: Kind, orderId: string, reason: string, subject: string, html: string, details?: Record<string, unknown>, dedupeSuffix = '') {
+  await alertOperator({ kind, tag: '[gateway-refund]', orderId, reason, subject, html, dedupeKey: `${reason}:${orderId}${dedupeSuffix}`, ...(details ? { details } : {}) });
 }
 
 /** Aplica un reembolso (o contracargo perdido) hecho en la pasarela al pedido de la plataforma que nombra. */
@@ -88,7 +89,8 @@ async function partialAlert(kind: Kind, orderId: string, r: GatewayRefund, statu
     `⚠️ Reembolso parcial hecho en la pasarela (${orderId.slice(0, 8)})`,
     `<p>La pasarela ha devuelto <strong>${money(r.refunded)}</strong> de <strong>${money(r.total)}</strong> del pedido${kind === 'tienda' ? ' de tienda' : ''} <strong>${esc(orderId)}</strong> (estado: ${esc(status)}).</p>` +
       '<p>No se ha cambiado nada en la plataforma: un reembolso parcial no se puede repartir entre entradas o líneas. Si hay que anular algo, hazlo a mano; las ventas y los ingresos de este pedido siguen contando por el importe completo.</p>',
-    { refunded: r.refunded, total: r.total, status }
+    { refunded: r.refunded, total: r.total, status },
+    `:${r.refunded}` // un segundo reembolso parcial (otro importe) el mismo día también avisa
   );
 }
 
@@ -144,11 +146,20 @@ async function applyToShopOrder(
     return 'inactive';
   }
 
-  const before = order.status as (typeof SHOP_ACTIVE)[number];
-  const returnsStock = refundReturnsStock(before);
+  // El estado puede cambiar entre la lectura y la transición (el admin lo pasa de PAID a PROCESSING…): se reintenta releyéndolo, y solo se da por «ya
+  // anulado» si de verdad lo está.
+  let before = order.status as (typeof SHOP_ACTIVE)[number];
+  let returnsStock = refundReturnsStock(before);
   const applied = await prisma.$transaction(async (tx) => {
-    const claim = await tx.shopOrder.updateMany({ where: { id: order.id, status: before }, data: { status: 'REFUNDED', idempotencyKey: null } });
-    if (claim.count === 0) return false;
+    let claim = await tx.shopOrder.updateMany({ where: { id: order.id, status: before }, data: { status: 'REFUNDED', idempotencyKey: null } });
+    if (claim.count === 0) {
+      const fresh = await tx.shopOrder.findUnique({ where: { id: order.id }, select: { status: true } });
+      if (!fresh || !(SHOP_ACTIVE as readonly string[]).includes(fresh.status)) return false;
+      before = fresh.status as (typeof SHOP_ACTIVE)[number];
+      returnsStock = refundReturnsStock(before);
+      claim = await tx.shopOrder.updateMany({ where: { id: order.id, status: before }, data: { status: 'REFUNDED', idempotencyKey: null } });
+      if (claim.count === 0) return false;
+    }
     if (returnsStock) {
       const { releaseShopStock } = await import('@/lib/product-stock');
       await releaseShopStock(tx, order.items.map((i) => ({ productId: i.productId, quantity: i.quantity, size: i.size, color: i.color })));
@@ -185,27 +196,72 @@ export async function alertDisputeOpened(orderId: string, amount: number, reason
   return true;
 }
 
+/**
+ * ¿Consta el cobro REEMBOLSADO en la pasarela? Para decidir tras un reembolso que dio error o timeout (¿llegó o no?) y antes de dar por devuelto un
+ * pedido. 'unknown' = no se ha podido comprobar (nunca se interpreta como «no reembolsado» ni como «reembolsado»).
+ */
+export async function gatewayRefundState(providerName: string, paymentId: string, scope?: PaymentScope): Promise<'refunded' | 'paid' | 'unknown'> {
+  try {
+    const provider = await getPaymentProviderByName(providerName, scope);
+    const status = effectiveStatus(await provider.verifyPayment(paymentId));
+    if (status === 'REFUNDED') return 'refunded';
+    if (status === 'PAID') return 'paid';
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 /** Un REFUNDED con entradas activas se considera «en vuelo» (el reembolso del admin marca el pedido ANTES de llamar a la pasarela) hasta pasado este tiempo. */
 export const REFUND_REPAIR_MIN_AGE_MS = 15 * 60_000;
 
 /**
  * Repara los pedidos REFUNDED que se quedaron con entradas activas: el proceso murió (o falló la BD) entre «pedido REFUNDED» y «entradas anuladas + aforo
  * liberado» (EN-08.1). El escáner ya las rechaza (P1-02), pero siguen contando como vendidas y ocupando aforo. Solo toca pedidos REFUNDED desde hace más de
- * `REFUND_REPAIR_MIN_AGE_MS`, para no pisar un reembolso que aún está en curso. Idempotente. Nunca lanza.
+ * `REFUND_REPAIR_MIN_AGE_MS`, para no pisar un reembolso que aún está en curso.
+ *
+ * Ojo: el reembolso del admin marca el pedido ANTES de llamar a la pasarela, así que un REFUNDED con entradas activas también puede ser un reembolso que
+ * NUNCA salió (el proceso murió entre medias). Anular entonces las entradas lo daría por devuelto sin haberlo hecho, y borraría la señal de «reembolso a
+ * medias» del panel de cancelación de evento. Por eso, en pedidos con tarjeta de una pasarela real se pregunta antes a la pasarela:
+ *  - consta reembolsado  → se anulan las entradas y se libera el aforo;
+ *  - sigue cobrado       → el pedido vuelve a COMPLETED (compare-and-swap) para que el flujo normal o la cancelación de evento lo reintenten, y se avisa;
+ *  - no se puede saber   → no se toca nada en esta pasada (se reintenta en la siguiente).
+ * Los pedidos sin dinero que devolver (efectivo, simulados, gratis) se reparan directamente. Idempotente. Nunca lanza.
  */
-export async function repairRefundedOrders(opts: { now?: number; limit?: number } = {}): Promise<{ repaired: number; tickets: number }> {
+export async function repairRefundedOrders(opts: { now?: number; limit?: number } = {}): Promise<{ repaired: number; tickets: number; reverted: number; skipped: number }> {
   let repaired = 0;
   let tickets = 0;
+  let reverted = 0;
+  let skipped = 0;
   try {
     const before = new Date((opts.now ?? Date.now()) - REFUND_REPAIR_MIN_AGE_MS);
     const stuck = await prisma.order.findMany({
       where: { status: 'REFUNDED', updatedAt: { lt: before }, tickets: { some: { status: { in: ['PENDING', 'VALID'] } } } },
-      select: { id: true },
+      select: { id: true, paymentMethod: true, paymentProvider: true, paymentId: true },
       take: opts.limit ?? 20,
       orderBy: { updatedAt: 'asc' },
     });
-    for (const { id } of stuck) {
+    for (const o of stuck) {
+      const id = o.id;
       try {
+        const movesMoney = o.paymentMethod === 'CARD' && !!o.paymentProvider && o.paymentProvider !== 'mock' && !!o.paymentId;
+        if (movesMoney) {
+          const state = await gatewayRefundState(o.paymentProvider as string, o.paymentId as string);
+          if (state === 'unknown') {
+            skipped += 1;
+            continue;
+          }
+          if (state === 'paid') {
+            const back = await prisma.order.updateMany({ where: { id, status: 'REFUNDED' }, data: { status: 'COMPLETED' } });
+            if (back.count > 0) {
+              reverted += 1;
+              await notifyOperator('entradas', id, 'refund_incomplete_reverted', `⚠️ Reembolso que no llegó a hacerse: pedido devuelto a vigente (${id.slice(0, 8)})`,
+                `<p>El pedido <strong>${esc(id)}</strong> estaba marcado como reembolsado pero la pasarela sigue dando el cobro por PAGADO: el reembolso se interrumpió antes de llegar a hacerse.</p>` +
+                  '<p>El pedido ha vuelto a estar vigente (sus entradas siguen válidas). Vuelve a pulsar «Reembolsar» si quieres devolver el dinero.</p>');
+            }
+            continue;
+          }
+        }
         const n = await prisma.$transaction(async (tx) => {
           // Releer DENTRO de la transacción y exigir que siga REFUNDED: si el reembolso se revirtió entre medias, no se toca nada.
           const current = await tx.order.findFirst({ where: { id, status: 'REFUNDED' }, select: { id: true } });
@@ -230,5 +286,5 @@ export async function repairRefundedOrders(opts: { now?: number; limit?: number 
   } catch (error) {
     logPaymentEvent('[gateway-refund]', { reason: 'repair_sweep_failed', error: error instanceof Error ? error.message : String(error) });
   }
-  return { repaired, tickets };
+  return { repaired, tickets, reverted, skipped };
 }

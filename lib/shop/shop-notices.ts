@@ -22,6 +22,8 @@ const SINCE_KEY = 'shop_new_order_notice_since';
 /** Hasta cuándo se reintenta un aviso de pedido nuevo que no salió (después, el vendedor ya lo habrá visto en el panel). */
 const NOTICE_RETRY_WINDOW_MS = 48 * 3600_000;
 const DEFAULT_CAP_MS = 15_000;
+/** Tiempo mínimo que debe quedar en el presupuesto del barrido para intentar un envío. */
+const MIN_SWEEP_SEND_MS = 6_000;
 
 const money = (n: number) => `${Number(n).toFixed(2).replace('.', ',')} €`;
 
@@ -107,7 +109,7 @@ export function shopShippedEmailHtml(
   );
 }
 
-type SendOutcome = { success: boolean; error?: string };
+type SendOutcome = { success: boolean; error?: string; /** El tope de tiempo venció: el correo PUEDE haber salido igualmente (el SMTP no es cancelable). */ timedOut?: boolean };
 
 /** Envío con tope duro de tiempo (el SMTP tiene timeouts de inactividad, pero no uno total). */
 async function sendCapped(payload: Parameters<typeof sendMail>[0], capMs: number): Promise<SendOutcome> {
@@ -115,7 +117,7 @@ async function sendCapped(payload: Parameters<typeof sendMail>[0], capMs: number
   try {
     return await Promise.race([
       sendMail(payload).then((r): SendOutcome => ({ success: r.success, error: r.error })),
-      new Promise<SendOutcome>((resolve) => (timer = setTimeout(() => resolve({ success: false, error: 'el envío no terminó a tiempo' }), capMs))),
+      new Promise<SendOutcome>((resolve) => (timer = setTimeout(() => resolve({ success: false, error: 'el envío no terminó a tiempo', timedOut: true }), capMs))),
     ]);
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -131,6 +133,7 @@ export type NoticeResult = 'sent' | 'skipped' | 'failed' | 'no_recipient' | 'not
  * destinatario no se envía ni se anota nada (si lo configura después, el barrido de las últimas 48 h lo recupera).
  */
 export async function notifyShopNewOrder(orderId: string, opts: { capMs?: number } = {}): Promise<NoticeResult> {
+  let claimed: string | null = null;
   try {
     const order = await prisma.shopOrder.findUnique({ where: { id: orderId }, include: { items: { include: { product: true } } } });
     if (!order || !(SHOP_PAID_STATUSES as readonly string[]).includes(order.status)) return 'not_applicable';
@@ -139,6 +142,7 @@ export async function notifyShopNewOrder(orderId: string, opts: { capMs?: number
     const marker = `${NEW_ORDER_PREFIX}${orderId}`;
     const claim = await prisma.processedWebhookEvent.createMany({ data: [{ id: marker }], skipDuplicates: true });
     if (claim.count === 0) return 'skipped';
+    claimed = marker;
     const brand = await getBrand();
     const baseUrl = getFallbackBaseUrl();
     const sent = await sendCapped(
@@ -146,10 +150,17 @@ export async function notifyShopNewOrder(orderId: string, opts: { capMs?: number
       opts.capMs ?? DEFAULT_CAP_MS
     );
     if (sent.success) return 'sent';
+    if (sent.timedOut) {
+      // Venció el tiempo pero el correo pudo salir: se deja el marcador (mejor perder un reintento que repetir el aviso en cada pasada del cron).
+      console.error('[shop-notices] el aviso de pedido nuevo no terminó a tiempo; se da por enviado para no duplicarlo');
+      return 'failed';
+    }
     await prisma.processedWebhookEvent.deleteMany({ where: { id: marker } });
     console.error('[shop-notices] no se pudo avisar del pedido nuevo:', (sent.error ?? 'error').slice(0, 160));
     return 'failed';
   } catch (error) {
+    // Cualquier fallo tras reclamar el marcador (marca, plantilla, BD) lo libera: si no, el barrido lo excluiría para siempre y el aviso se perdería.
+    if (claimed) await prisma.processedWebhookEvent.deleteMany({ where: { id: claimed } }).catch(() => {});
     console.error('[shop-notices] error en el aviso de pedido nuevo:', error instanceof Error ? error.message : error);
     return 'failed';
   }
@@ -179,9 +190,10 @@ export async function sweepShopNewOrderNotices(opts: { deadline: number; limit?:
       ORDER BY d."processedAt" ASC
       LIMIT ${opts.limit ?? 5}`;
     for (const row of rows) {
-      if (Date.now() >= opts.deadline) break;
+      // Con menos de unos segundos no cabe un envío SMTP normal (conexión, TLS y autenticación): un tope de 1-3 s vencería casi siempre. Se deja para la siguiente pasada.
+      if (opts.deadline - Date.now() < MIN_SWEEP_SEND_MS) break;
       out.examined += 1;
-      const result = await notifyShopNewOrder(row.id, { capMs: Math.max(1_000, Math.min(DEFAULT_CAP_MS, opts.deadline - Date.now())) });
+      const result = await notifyShopNewOrder(row.id, { capMs: Math.min(DEFAULT_CAP_MS, opts.deadline - Date.now()) });
       if (result === 'sent') out.sent += 1;
       else if (result === 'failed') out.failed += 1;
       // Sin destinatario configurado no hay nada que hacer en ninguno: se deja el resto para cuando lo haya.
@@ -200,6 +212,7 @@ const trackingTag = (tracking: string | null) => createHash('sha1').update((trac
  * cambia después, otra vez con el nuevo. `force` (el botón del admin) vuelve a enviarlo aunque ya conste.
  */
 export async function sendShopShippedEmail(orderId: string, opts: { force?: boolean; capMs?: number } = {}): Promise<NoticeResult> {
+  let claimed: string | null = null;
   try {
     const order = await prisma.shopOrder.findUnique({ where: { id: orderId }, include: { items: { include: { product: true } } } });
     if (!order || order.status !== 'SHIPPED') return 'not_applicable';
@@ -208,6 +221,7 @@ export async function sendShopShippedEmail(orderId: string, opts: { force?: bool
     if (opts.force) await prisma.processedWebhookEvent.deleteMany({ where: { id: marker } });
     const claim = await prisma.processedWebhookEvent.createMany({ data: [{ id: marker }], skipDuplicates: true });
     if (claim.count === 0) return 'skipped';
+    claimed = marker;
     const brand = await getBrand();
     const operator = (await getOperatorEmail('tienda').catch(() => '')).trim();
     const sent = await sendCapped(
@@ -220,10 +234,16 @@ export async function sendShopShippedEmail(orderId: string, opts: { force?: bool
       opts.capMs ?? DEFAULT_CAP_MS
     );
     if (sent.success) return 'sent';
+    if (sent.timedOut) {
+      // Pudo salir igualmente: se deja el marcador para no duplicar; el botón «Reenviar» del admin lo fuerza si hiciera falta.
+      console.error('[shop-notices] el aviso de envío no terminó a tiempo; se da por enviado para no duplicarlo');
+      return 'failed';
+    }
     await prisma.processedWebhookEvent.deleteMany({ where: { id: marker } });
     console.error('[shop-notices] no se pudo enviar el aviso de envío:', (sent.error ?? 'error').slice(0, 160));
     return 'failed';
   } catch (error) {
+    if (claimed) await prisma.processedWebhookEvent.deleteMany({ where: { id: claimed } }).catch(() => {});
     console.error('[shop-notices] error en el aviso de envío:', error instanceof Error ? error.message : error);
     return 'failed';
   }

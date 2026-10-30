@@ -126,6 +126,9 @@ export default function AccessClient() {
   }, [selectedEvent]);
 
   const handleEventChange = (id: string) => {
+    // Los resultados de la búsqueda son del evento anterior: con su botón «Admitir» solo darían un WRONG_EVENT.
+    setFound(null);
+    setSearchMessage(null);
     setSelectedEvent(id);
     setStoredActiveEventId(id);
   };
@@ -172,6 +175,8 @@ export default function AccessClient() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...payload, eventId: selectedEvent || undefined }),
+        // Con la wifi del recinto degradada una conexión colgada no falla: sin tope, `scanning` se quedaba en true y la puerta ignoraba lecturas.
+        signal: AbortSignal.timeout(8000),
       });
       const data = await res.json().catch(() => null);
       // Un 429, 401 o 500 no trae veredicto: se explica qué ha pasado (P1-06) en vez de pintar un ❌ sin texto.
@@ -208,7 +213,7 @@ export default function AccessClient() {
     setSearching(true);
     setSearchMessage(null);
     try {
-      const res = await fetch(`/api/access/search?eventId=${encodeURIComponent(selectedEvent)}&q=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/access/search?eventId=${encodeURIComponent(selectedEvent)}&q=${encodeURIComponent(q)}`, { signal: AbortSignal.timeout(8000) });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         setFound(null);

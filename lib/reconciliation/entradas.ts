@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { scheduleOrderEmail } from '@/lib/order-email';
 import { hasEventEnded } from '@/lib/active-event';
+import { gatewayRefundState } from './gateway-refund';
 import { alertOperator, alertPaidButInactiveOrder, logPaymentEvent, paymentMatchesOrder, refundIdempotencyKey, type CompleteOutcome, type PaidInfo } from './shared';
 import { alertManuallyRefunded, confirmLatePayment, finishLateRefund, lateRefundMarker } from './late-payment';
 import { closeSessionBeforeCancel } from './close-session';
@@ -310,19 +311,21 @@ export async function invalidateOrder(
   await releasePendingSlot(orderId);
 
   if (mode === 'REFUNDED' && order.paymentMethod === 'CARD' && order.paymentProvider && order.paymentId && order.paymentProvider !== 'mock') {
+    let refundError: string | null = null;
     try {
       const provider = await getPaymentProviderByName(order.paymentProvider);
       const refund = await provider.refund(order.paymentId, order.totalAmount, refundIdempotencyKey(order.id));
-      if (!refund.success) {
-        await prisma.order.update({ where: { id: orderId }, data: { status: order.status } });
-        return { success: false, error: refund.error ?? 'El reembolso en la pasarela ha fallado' };
-      }
+      if (!refund.success) refundError = refund.error ?? 'El reembolso en la pasarela ha fallado';
     } catch (err) {
-      await prisma.order.update({ where: { id: orderId }, data: { status: order.status } });
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : 'Error al reembolsar en la pasarela',
-      };
+      refundError = err instanceof Error ? err.message : 'Error al reembolsar en la pasarela';
+    }
+    if (refundError !== null) {
+      // Un timeout o un error de red no dice si el reembolso se hizo: no se revierte un pedido cuyo cobro YA consta reembolsado (el webhook habría visto el
+      // pedido REFUNDED y no lo reprocesaría, y quedaría dinero devuelto con entradas válidas). Si no consta, se revierte como siempre.
+      if ((await gatewayRefundState(order.paymentProvider, order.paymentId)) !== 'refunded') {
+        await prisma.order.updateMany({ where: { id: orderId, status: mode }, data: { status: order.status } });
+        return { success: false, error: refundError };
+      }
     }
   }
 

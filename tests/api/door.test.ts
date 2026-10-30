@@ -15,6 +15,8 @@ vi.mock('@/lib/auth', () => ({ authOptions: {} }));
 const { POST: scan } = await import('@/app/api/scan/route');
 const { GET: search } = await import('@/app/api/access/search/route');
 const { GET: capacity } = await import('@/app/api/access/capacity/route');
+const { GET: noche } = await import('@/app/api/admin/noche/route');
+const { GET: adminEvents } = await import('@/app/api/admin/events/route');
 
 const IP = '203.0.113.77';
 const suffix = `${Date.now()}`;
@@ -43,6 +45,8 @@ describe('mensajes de la puerta (lib/door-errors)', () => {
   it('un 400 con mensaje del servidor lo enseña; sin mensaje cae en el genérico', () => {
     expect(doorFailure(400, 'Indica qrCode o ticketId').message).toBe('Indica qrCode o ticketId');
     expect(doorFailure(400).message).toMatch(/ERROR DEL SERVIDOR/);
+    // El código interno de un fallo de validación no es un texto para el personal.
+    expect(doorFailure(400, 'validation_error').message).toMatch(/ERROR DEL SERVIDOR/);
   });
 
   it('distingue un veredicto del escáner de un cuerpo de error', () => {
@@ -77,7 +81,7 @@ describe('puerta: escaneo, búsqueda y admisión manual', () => {
   let userB: string;
   const tickets: Record<string, { id: string; qr: string; orderId: string }> = {};
 
-  async function makeTicket(key: string, o: { holder: string; buyer?: [string, string]; email?: string; orderStatus?: 'COMPLETED' | 'REFUNDED' | 'PENDING'; ticketStatus?: 'VALID' | 'USED'; ev?: typeof event }) {
+  async function makeTicket(key: string, o: { holder: string; buyer?: [string, string]; email?: string; orderStatus?: 'COMPLETED' | 'REFUNDED' | 'PENDING'; ticketStatus?: 'VALID' | 'USED' | 'CANCELLED'; ev?: typeof event }) {
     const ev = o.ev ?? event;
     const qr = `QR-DOOR-${suffix}-${key}`;
     const order = await prisma.order.create({
@@ -118,6 +122,8 @@ describe('puerta: escaneo, búsqueda y admisión manual', () => {
     await makeTicket('ana', { holder: 'Ana Quiñones Ruiz', buyer: ['Lucía', 'Ferrer'], email: 'lucia.ferrer@door-test.example.com' });
     await makeTicket('bea', { holder: 'Beatriz Soto', buyer: ['Beatriz', 'Soto'] });
     await makeTicket('carla', { holder: 'Carla Sinusar' });
+    await makeTicket('dani', { holder: 'Dani Concurrente' });
+    await makeTicket('canc', { holder: 'Elena Anulada', ticketStatus: 'CANCELLED' });
     await makeTicket('used', { holder: 'Carlos Yaentró', ticketStatus: 'USED' });
     await makeTicket('refunded', { holder: 'Dora Reembolsada', orderStatus: 'REFUNDED' });
     await makeTicket('pending', { holder: 'Eva Pendiente', orderStatus: 'PENDING' });
@@ -220,10 +226,50 @@ describe('puerta: escaneo, búsqueda y admisión manual', () => {
       expect((await prisma.scanLog.findFirst({ where: { ticketId: tickets.bea.id } }))?.result).toBe('VALID');
     });
 
+    it('revisión P1-06: QR y admisión manual a la vez sobre la misma entrada admiten UNA sola vez y suman UNA al aforo', async () => {
+      const before = (await prisma.event.findUnique({ where: { id: event.id } }))!.currentCount;
+      const [a, b] = await Promise.all([
+        scan(scanReq({ qrCode: tickets.dani.qr, eventId: event.id })).then((r) => r.json()),
+        scan(scanReq({ ticketId: tickets.dani.id, eventId: event.id })).then((r) => r.json()),
+      ]);
+      expect([a.result, b.result].sort()).toEqual(['DUPLICATE', 'VALID']);
+      expect((await prisma.event.findUnique({ where: { id: event.id } }))!.currentCount).toBe(before + 1);
+      expect(await prisma.scanLog.count({ where: { ticketId: tickets.dani.id, result: { in: ['VALID', 'VALID_MANUAL'] } } })).toBe(1);
+    });
+
+    it('revisión P1-06: una entrada anulada por su propio estado, o de un evento cancelado, no se admite a mano', async () => {
+      expect((await (await scan(scanReq({ ticketId: tickets.canc.id, eventId: event.id }))).json()).result).toBe('CANCELLED');
+      const cancelled = await createTestEvent({ status: 'CANCELLED' });
+      try {
+        const tType = await createTicketType(cancelled.id);
+        const order = await prisma.order.create({
+          data: { eventId: cancelled.id, buyerName: 'C', buyerLastName: 'C', buyerEmail: 'c@door-test.example.com', totalAmount: 10, status: 'COMPLETED', tickets: { create: { eventId: cancelled.id, ticketTypeId: tType.id, qrCode: `QR-DOOR-${suffix}-cancev`, holderName: 'Fran Cancelado', status: 'VALID' } } },
+          include: { tickets: true },
+        });
+        const body = await (await scan(scanReq({ ticketId: order.tickets[0].id, eventId: cancelled.id }))).json();
+        expect(body.result).toBe('CANCELLED');
+        expect(body.message).toMatch(/EVENTO CANCELADO/);
+        await prisma.scanLog.deleteMany({ where: { eventId: cancelled.id } });
+      } finally {
+        await cleanupTestEvent(cancelled.id);
+      }
+    });
+
     it('el ritmo de entradas del aforo cuenta las manuales y las de QR', async () => {
       mock.user = { id: userA, role: 'TAQUILLA' };
       const res = await capacity(new Request(`http://localhost/api/access/capacity?eventId=${event.id}`));
-      expect((await res.json()).entryRate5min).toBe(2); // ana (manual) + bea (QR)
+      expect((await res.json()).entryRate5min).toBe(3); // ana (manual) + bea (QR) + dani (una de las dos vías)
+    });
+
+    it('revisión P1-06: lo mismo en Modo noche y en el listado de eventos del admin (ritmo, rechazos y ranking de escáneres)', async () => {
+      mock.user = { id: userA, role: 'ADMIN' };
+      const n = await (await noche(new Request(`http://localhost/api/admin/noche?eventId=${event.id}`))).json();
+      expect(n.capacity.entryRate5min).toBe(3);
+      expect(n.topScanners[0].count).toBe(3);
+      const list = await (await adminEvents(new Request('http://localhost/api/admin/events'))).json();
+      const mine = list.find((e: { id: string }) => e.id === event.id);
+      expect(mine.entryRate5min).toBe(3);
+      expect(mine.topScanners[0].count).toBe(3);
     });
   });
 
@@ -238,9 +284,16 @@ describe('puerta: escaneo, búsqueda y admisión manual', () => {
       expect(body.results.map((r: { ticketId: string }) => r.ticketId)).toContain(tickets.ana.id);
     });
 
-    it('encuentra por un trozo del email', async () => {
-      const body = await (await searchReq(event.id, 'lucia.ferrer@')).json();
+    it('encuentra por el email COMPLETO (el asistente lo dicta), sin distinguir mayúsculas', async () => {
+      const body = await (await searchReq(event.id, 'Lucia.Ferrer@door-test.example.com')).json();
       expect(body.results.map((r: { ticketId: string }) => r.ticketId)).toContain(tickets.ana.id);
+    });
+
+    it('revisión P1-06: un trozo del email NO encuentra nada (si no, se podría reconstruir el email que se enmascara probando carácter a carácter)', async () => {
+      for (const part of ['lucia.ferrer@', 'lucia.ferrer@door', '@door-test.example.com', 'lucia.f@']) {
+        const body = await (await searchReq(event.id, part)).json();
+        expect(body.results, part).toEqual([]);
+      }
     });
 
     it('encuentra por la referencia del pedido (últimos caracteres del id) y por el código QR exacto', async () => {

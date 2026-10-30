@@ -9,7 +9,7 @@ import { handleApiError } from '@/lib/api-error';
 import { SHOP_ACCOUNT_SINCE_KEY, hasConfigRow } from '@/lib/config';
 import { SECRET_MASK, encryptSecret, isSensitiveConfigKey, isWriteOnlyConfigKey } from '@/lib/secrets';
 import { isConfigKeyAllowed, invalidConfigValue } from '@/lib/config-ownership';
-import { getActiveModules } from '@/lib/modules/runtime';
+import { getActiveModules, isModuleEnabled } from '@/lib/modules/runtime';
 import { SECTION_CONFIG_KEYS, SECTION_KINDS, sectionImageUrls } from '@/lib/content/sections';
 import { releaseUnusedBlobs } from '@/lib/blob-cleanup';
 
@@ -94,22 +94,27 @@ export async function PUT(request: Request) {
 
     // P1-11: la PRIMERA vez que la Tienda guarda su propia pasarela deja de heredar la cuenta de Entradas. Se anota cuándo, para que los pedidos
     // cobrados antes sigan verificándose y reembolsándose con la cuenta con la que se cobraron (`accountScopeForOrder`). Solo la primera vez.
-    if (accepted.some((c) => c.key === 'shop_payment_gateway') && !(await hasConfigRow('shop_payment_gateway'))) {
-      await prisma.appConfig.upsert({
-        where: { key: SHOP_ACCOUNT_SINCE_KEY },
-        update: {},
-        create: { key: SHOP_ACCOUNT_SINCE_KEY, value: String(Date.now()), label: SHOP_ACCOUNT_SINCE_KEY, group: 'system' },
-      });
-    }
-
-    for (const cfg of accepted) {
-      const value = isSensitiveConfigKey(cfg.key) ? encryptSecret(cfg.value, cfg.key) : cfg.value;
-      await prisma.appConfig.upsert({
-        where: { key: cfg.key },
-        update: { value },
-        create: { key: cfg.key, value, label: cfg.label ?? cfg.key, group: cfg.group ?? 'general' },
-      });
-    }
+    // Solo si el módulo Entradas existe: sin él la tienda ya usaba sus propias claves y no había cuenta que heredar. Y en la MISMA transacción que el guardado:
+    // si éste falla a medias, la fecha no queda puesta sin que exista la fila de la pasarela (revisión de P1-11).
+    const markAccountChange =
+      isModuleEnabled('entradas') && accepted.some((c) => c.key === 'shop_payment_gateway') && !(await hasConfigRow('shop_payment_gateway'));
+    const prepared = accepted.map((cfg) => ({ cfg, value: isSensitiveConfigKey(cfg.key) ? encryptSecret(cfg.value, cfg.key) : cfg.value }));
+    await prisma.$transaction(async (tx) => {
+      if (markAccountChange) {
+        await tx.appConfig.upsert({
+          where: { key: SHOP_ACCOUNT_SINCE_KEY },
+          update: {},
+          create: { key: SHOP_ACCOUNT_SINCE_KEY, value: String(Date.now()), label: SHOP_ACCOUNT_SINCE_KEY, group: 'system' },
+        });
+      }
+      for (const { cfg, value } of prepared) {
+        await tx.appConfig.upsert({
+          where: { key: cfg.key },
+          update: { value },
+          create: { key: cfg.key, value, label: cfg.label ?? cfg.key, group: cfg.group ?? 'general' },
+        });
+      }
+    });
 
     const imagesBefore = sectionsBefore.flatMap((row) => sectionImageUrls(row.value, sectionKind(row.key)!));
     const imagesAfter = accepted.flatMap((c) => {

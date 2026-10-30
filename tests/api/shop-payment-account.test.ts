@@ -5,6 +5,7 @@ import { SHOP_ACCOUNT_SINCE_KEY } from '@/lib/config';
 import { accountScopeForOrder } from '@/lib/payment-adapter';
 import { closeSessionBeforeCancel } from '@/lib/reconciliation/close-session';
 import { invalidateShopOrder } from '@/lib/reconciliation/tienda';
+import { settleUnpaidOrder } from '@/lib/reconciliation/settle';
 
 const rec = vi.hoisted(() => ({ scopes: [] as string[], stripeKeys: [] as string[] }));
 
@@ -105,6 +106,17 @@ describe('cuenta de cobro de la tienda (P1-11)', () => {
       expect(rec.scopes).toEqual(['entradas']);
     });
 
+    it('revisión P1-11: el cron (settleUnpaidOrder) verifica un pedido anterior al cambio con la cuenta de Entradas y uno posterior con la de la tienda', async () => {
+      const since = Date.now() - 3600_000;
+      await setSince(since);
+      const old = await shopOrder(new Date(since - 60_000), 'PENDING');
+      const fresh = await shopOrder(new Date(since + 60_000), 'PENDING');
+      await settleUnpaidOrder({ kind: 'tienda', order: old });
+      expect(rec.scopes).toEqual(['entradas']);
+      await settleUnpaidOrder({ kind: 'tienda', order: fresh });
+      expect(rec.scopes).toEqual(['entradas', 'tienda']);
+    });
+
     it('sin cambio de cuenta registrado, todo sigue en la cuenta de la tienda', async () => {
       const o = await shopOrder(new Date(Date.now() - 86_400_000));
       await invalidateShopOrder(o.id, 'REFUNDED');
@@ -125,6 +137,12 @@ describe('cuenta de cobro de la tienda (P1-11)', () => {
       await new Promise((r) => setTimeout(r, 15));
       expect((await save([{ key: 'shop_payment_gateway', value: 'stripe' }])).status).toBe(200);
       expect(Number(await sinceValue())).toBe(first); // no se mueve al volver a guardar
+    });
+
+    it('revisión P1-11: un cliente que YA había guardado la pasarela de la tienda no recibe fecha de corte (si no, todos sus pedidos antiguos pasarían a la cuenta de Entradas)', async () => {
+      await prisma.appConfig.create({ data: { key: 'shop_payment_gateway', value: 'stripe', label: 'shop_payment_gateway', group: 'tienda' } });
+      expect((await save([{ key: 'shop_payment_gateway', value: 'sumup' }])).status).toBe(200);
+      expect(await sinceValue()).toBeNull();
     });
 
     it('guardar otra cosa no anota ningún cambio de cuenta', async () => {

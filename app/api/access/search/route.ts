@@ -50,7 +50,8 @@ export async function GET(request: Request) {
         { holderName: { contains: w, mode: 'insensitive' } },
         { order: { buyerName: { contains: w, mode: 'insensitive' } } },
         { order: { buyerLastName: { contains: w, mode: 'insensitive' } } },
-        { order: { buyerEmail: { contains: w, mode: 'insensitive' } } },
+        // El email solo casa ENTERO: con `contains` se podía reconstruir carácter a carácter el email que la respuesta enmascara (revisión de P1-06).
+        ...(w.includes('@') ? [{ order: { buyerEmail: { equals: w, mode: 'insensitive' as const } } }] : []),
         { order: { id: { endsWith: w.toLowerCase() } } },
         { qrCode: { equals: w, mode: 'insensitive' } },
       ],

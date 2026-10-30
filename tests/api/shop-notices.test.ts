@@ -1,16 +1,18 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
+import * as brand from '@/lib/brand/brand';
 import { syncProductVariants } from '@/lib/product-stock';
 import { completeShopOrder } from '@/lib/reconciliation/tienda';
 import { notifyShopNewOrder, sendShopShippedEmail, shopNewOrderEmailHtml, sweepShopNewOrderNotices } from '@/lib/shop/shop-notices';
 
-const mailer = vi.hoisted(() => ({ sent: [] as { to: string; subject: string; html: string; replyTo?: string }[], fail: false }));
+const mailer = vi.hoisted(() => ({ sent: [] as { to: string; subject: string; html: string; replyTo?: string }[], fail: false, delayMs: 0 }));
 
 vi.mock('next-auth', () => ({ getServerSession: vi.fn(async () => ({ user: { id: 'shop-notices-admin', role: 'ADMIN' } })) }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
 vi.mock('@/lib/mailer', async (orig) => ({
   ...(await orig<typeof import('@/lib/mailer')>()),
   sendMail: async (p: { to: string; subject: string; html: string; replyTo?: string }) => {
+    if (mailer.delayMs > 0) await new Promise((r) => setTimeout(r, mailer.delayMs));
     if (mailer.fail) return { success: false, transport: 'none' as const, error: 'smtp caído' };
     mailer.sent.push({ to: p.to, subject: p.subject, html: p.html, replyTo: p.replyTo });
     return { success: true, transport: 'smtp' as const };
@@ -53,7 +55,9 @@ describe('avisos de la tienda (P1-10)', () => {
   beforeEach(() => {
     mailer.sent = [];
     mailer.fail = false;
+    mailer.delayMs = 0;
   });
+  afterEach(() => vi.restoreAllMocks());
 
   async function order(status: 'PENDING' | 'PAID' | 'SHIPPED', over: { name?: string; email?: string; address?: string; tracking?: string | null } = {}) {
     const o = await prisma.shopOrder.create({
@@ -148,6 +152,37 @@ describe('avisos de la tienda (P1-10)', () => {
       const after = toSeller().length;
       await sweepShopNewOrderNotices({ deadline: Date.now() + 20_000, limit: 200 });
       expect(toSeller()).toHaveLength(after); // ya consta: no se repite
+    });
+
+    it('revisión P1-10: un fallo DESPUÉS de reclamar el marcador (aquí, la marca de la tienda) lo libera: el aviso no se pierde y el barrido lo recupera', async () => {
+      const o = await order('PAID');
+      await prisma.processedWebhookEvent.create({ data: { id: `email:shop:${o.id}:due` } }); // lo que programa completeShopOrder: el barrido parte de aquí
+      vi.spyOn(brand, 'getBrand').mockRejectedValueOnce(new Error('BD caída un instante'));
+      expect(await notifyShopNewOrder(o.id)).toBe('failed');
+      expect(await prisma.processedWebhookEvent.count({ where: { id: `${NOTICE_PREFIX}${o.id}` } })).toBe(0);
+      const sweep = await sweepShopNewOrderNotices({ deadline: Date.now() + 20_000, limit: 200 });
+      expect(sweep.sent).toBeGreaterThanOrEqual(1);
+      expect(toSeller().some((m) => m.subject.includes(`#${o.id.slice(0, 8)}`))).toBe(true);
+    });
+
+    it('revisión P1-10: si el tope de tiempo vence pero el correo sí sale, el marcador se queda y no se repite el aviso', async () => {
+      const o = await order('PAID');
+      mailer.delayMs = 150;
+      expect(await notifyShopNewOrder(o.id, { capMs: 20 })).toBe('failed'); // venció el tope
+      expect(await prisma.processedWebhookEvent.count({ where: { id: `${NOTICE_PREFIX}${o.id}` } })).toBe(1);
+      await new Promise((r) => setTimeout(r, 300)); // el correo llega
+      expect(toSeller().filter((m) => m.subject.includes(`#${o.id.slice(0, 8)}`))).toHaveLength(1);
+      mailer.delayMs = 0;
+      expect(await notifyShopNewOrder(o.id)).toBe('skipped'); // y un reintento no lo duplica
+      expect(toSeller().filter((m) => m.subject.includes(`#${o.id.slice(0, 8)}`))).toHaveLength(1);
+    });
+
+    it('revisión P1-10: con menos tiempo del que cabe en un envío el barrido no lo intenta (no hay topes de 1 s que venzan siempre)', async () => {
+      const o = await order('PAID');
+      await prisma.processedWebhookEvent.create({ data: { id: `email:shop:${o.id}:due` } });
+      const sweep = await sweepShopNewOrderNotices({ deadline: Date.now() + 2_000, limit: 200 });
+      expect(sweep.examined).toBe(0);
+      expect(await prisma.processedWebhookEvent.count({ where: { id: `${NOTICE_PREFIX}${o.id}` } })).toBe(0);
     });
 
     it('el barrido no avisa de pedidos pagados antes de instalar la función', async () => {

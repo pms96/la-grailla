@@ -23,7 +23,8 @@ export function doorFailure(status: number | null, serverMessage?: unknown): Doo
   if (status === 429) {
     return { result: 'ERROR', message: 'DEMASIADOS ESCANEOS — Espera unos segundos y vuelve a escanear', color: 'yellow' };
   }
-  if (status === 400 && typeof serverMessage === 'string' && serverMessage) {
+  // `validation_error` es el código interno de un fallo de validación, no un texto para el personal.
+  if (status === 400 && typeof serverMessage === 'string' && serverMessage && serverMessage !== 'validation_error') {
     return { result: 'ERROR', message: serverMessage, color: 'yellow' };
   }
   return { result: 'ERROR', message: 'ERROR DEL SERVIDOR — No se ha validado. Reintenta en unos segundos', color: 'yellow' };

@@ -6,6 +6,7 @@ import { POST as stripeWebhook } from '@/app/api/webhooks/stripe/route';
 import { alertDisputeOpened, applyGatewayRefund, repairRefundedOrders, sendRefundEmail } from '@/lib/reconciliation/gateway-refund';
 import { invalidateOrder } from '@/lib/reconciliation/entradas';
 import { refundIdempotencyKey, REFUND_KEY_WINDOW_MS } from '@/lib/reconciliation/shared';
+import { PATCH as patchOrder } from '@/app/api/admin/orders/[id]/route';
 import { createTestEvent, createTicketType, cleanupTestEvent, getAndSetConfig, restoreConfig } from '../helpers/fixtures';
 import { gateway } from '../helpers/fake-gateway';
 
@@ -18,6 +19,8 @@ vi.mock('@/lib/mailer', async (orig) => ({
     return { success: true, transport: 'smtp' as const };
   },
 }));
+vi.mock('next-auth', () => ({ getServerSession: vi.fn(async () => ({ user: { id: 'gr-admin', role: 'ADMIN' } })) }));
+vi.mock('@/lib/auth', () => ({ authOptions: {} }));
 vi.mock('@/lib/payment-adapter', async (orig) => {
   const actual = await orig<typeof import('@/lib/payment-adapter')>();
   const { gateway: g, fakeProvider } = await import('../helpers/fake-gateway');
@@ -84,14 +87,14 @@ describe('reembolsos fuera de la app (P1-01)', () => {
   afterEach(() => vi.restoreAllMocks());
 
   /** Pedido de entradas con N entradas VALID (y opcionalmente una USED). `soldCount` del tipo sube en consecuencia. */
-  async function makeOrder(o: { status?: 'COMPLETED' | 'PENDING' | 'REFUNDED'; valid?: number; used?: number; email?: string; provider?: string } = {}) {
+  async function makeOrder(o: { status?: 'COMPLETED' | 'PENDING' | 'REFUNDED'; valid?: number; used?: number; email?: string; provider?: string; method?: 'CARD' | 'CASH' } = {}) {
     const valid = o.valid ?? 2;
     const used = o.used ?? 0;
     const email = o.email ?? `gr-${suffix}-${n++}@example.com`;
     const order = await prisma.order.create({
       data: {
         eventId: event.id, buyerName: 'Gr', buyerLastName: 'Test', buyerEmail: email, totalAmount: 10, status: o.status ?? 'COMPLETED',
-        paymentMethod: 'CARD', paymentProvider: o.provider ?? 'stripe', paymentId: `cs_gr_${suffix}_${n}`,
+        paymentMethod: o.method ?? 'CARD', paymentProvider: o.provider ?? 'stripe', paymentId: o.method === 'CASH' ? null : `cs_gr_${suffix}_${n}`,
         tickets: {
           create: [
             ...Array.from({ length: valid }, (_, i) => ({ eventId: event.id, ticketTypeId: tt.id, qrCode: `QR-GR-${suffix}-${n}-v${i}`, holderName: 'Gr', status: 'VALID' as const })),
@@ -279,7 +282,9 @@ describe('reembolsos fuera de la app (P1-01)', () => {
     const age = (id: string, minutes: number) => prisma.$executeRaw`UPDATE "Order" SET "updatedAt" = now() - (${minutes} * interval '1 minute') WHERE "id" = ${id}`;
 
     it('repara uno antiguo: anula las entradas y libera el aforo, sin tocar las usadas', async () => {
-      const { order } = await makeOrder({ status: 'REFUNDED', valid: 2, used: 1 });
+      gateway.active = true;
+      const { order } = await makeOrder({ status: 'REFUNDED', valid: 2, used: 1, provider: 'fake' });
+      gateway.refunded.add(order.paymentId!); // la pasarela confirma que el dinero salió
       await age(order.id, 60);
       const before = await sold();
       const r = await repairRefundedOrders();
@@ -290,6 +295,37 @@ describe('reembolsos fuera de la app (P1-01)', () => {
       const again = await sold();
       await repairRefundedOrders();
       expect(await sold()).toBe(again);
+    });
+
+    it('revisión P1-01: si la pasarela dice que el cobro SIGUE pagado (el reembolso nunca salió), NO da el pedido por devuelto: lo devuelve a vigente y avisa', async () => {
+      gateway.active = true;
+      const { order } = await makeOrder({ status: 'REFUNDED', valid: 2, provider: 'fake' });
+      gateway.script(order.paymentId!, { success: true, paymentId: order.paymentId!, provider: 'fake', status: 'PAID' });
+      await age(order.id, 60);
+      const before = await sold();
+      const r = await repairRefundedOrders();
+      expect(r.reverted).toBeGreaterThanOrEqual(1);
+      expect(await statusOf(order.id)).toBe('COMPLETED');
+      expect(await ticketStatuses(order.id)).toEqual(['VALID', 'VALID']);
+      expect(await sold()).toBe(before);
+    });
+
+    it('revisión P1-01: si no se puede comprobar la pasarela, no toca nada (se reintenta en la siguiente pasada)', async () => {
+      gateway.active = true;
+      const { order } = await makeOrder({ status: 'REFUNDED', valid: 2, provider: 'fake' }); // sin guion: verifyPayment da UNKNOWN
+      await age(order.id, 60);
+      const r = await repairRefundedOrders();
+      expect(r.skipped).toBeGreaterThanOrEqual(1);
+      expect(await statusOf(order.id)).toBe('REFUNDED');
+      expect(await ticketStatuses(order.id)).toEqual(['VALID', 'VALID']);
+    });
+
+    it('un pedido sin dinero que devolver (efectivo) se repara directamente (sin pasarela que lo confirme, que daría UNKNOWN y lo dejaría sin tocar)', async () => {
+      gateway.active = true;
+      const { order } = await makeOrder({ status: 'REFUNDED', valid: 2, method: 'CASH' });
+      await age(order.id, 60);
+      await repairRefundedOrders();
+      expect(await ticketStatuses(order.id)).toEqual(['REFUNDED', 'REFUNDED']);
     });
 
     it('NO toca un reembolso reciente (puede estar en vuelo: el pedido se marca antes de llamar a la pasarela)', async () => {
@@ -334,6 +370,91 @@ describe('reembolsos fuera de la app (P1-01)', () => {
       await invalidateOrder(order.id, 'REFUNDED');
       expect(await applyGatewayRefund({ orderId: order.id, full: true, refunded: 10, total: 10, source: 'refund' })).toBe('already');
       expect(buyerMails(email)).toHaveLength(0); // el aviso lo da la ruta del admin, no el webhook
+    });
+  });
+
+  describe('reembolso del admin que falla o da timeout (revisión P1-01)', () => {
+    it('si el reembolso da error pero la pasarela dice que SÍ se hizo (respuesta perdida), no se revierte: el pedido queda REFUNDED con sus entradas anuladas', async () => {
+      gateway.active = true;
+      const { order } = await makeOrder({ provider: 'fake', valid: 2 });
+      gateway.refunded.add(order.paymentId!);
+      gateway.refundResult = new Error('timeout de red');
+      const res = await invalidateOrder(order.id, 'REFUNDED');
+      expect(res.success).toBe(true);
+      expect(await statusOf(order.id)).toBe('REFUNDED');
+      expect(await ticketStatuses(order.id)).toEqual(['REFUNDED', 'REFUNDED']);
+    });
+
+    it('si el reembolso da error y la pasarela no lo tiene hecho, se revierte a COMPLETED con el error, como siempre', async () => {
+      gateway.active = true;
+      const { order } = await makeOrder({ provider: 'fake', valid: 2 });
+      gateway.refundResult = { success: false, error: 'saldo insuficiente' };
+      const res = await invalidateOrder(order.id, 'REFUNDED');
+      expect(res).toEqual({ success: false, error: 'saldo insuficiente' });
+      expect(await statusOf(order.id)).toBe('COMPLETED');
+      expect(await ticketStatuses(order.id)).toEqual(['VALID', 'VALID']);
+    });
+  });
+
+  describe('resolución del pedido de un cargo o una disputa (lookupOrderId, sin mock)', () => {
+    const adapter = new StripeAdapter('sk_test_x');
+    const fakeStripe = (over: { sessions?: { metadata?: Record<string, string> }[]; charge?: Record<string, unknown> } = {}) => {
+      const calls: string[] = [];
+      const stripe = {
+        charges: { retrieve: async (id: string) => (calls.push(`charge:${id}`), over.charge ?? { payment_intent: 'pi_from_charge', metadata: {} }) },
+        checkout: { sessions: { list: async (p: { payment_intent: string }) => (calls.push(`sessions:${p.payment_intent}`), { data: over.sessions ?? [] }) } },
+      };
+      return { stripe: stripe as never, calls };
+    };
+
+    it('con metadata.orderId en el cargo no consulta nada', async () => {
+      const { stripe, calls } = fakeStripe();
+      expect(await adapter.lookupOrderId(stripe, { metadata: { orderId: 'o1' } })).toBe('o1');
+      expect(calls).toEqual([]);
+    });
+
+    it('un cobro anterior (sin metadata) se resuelve por la sesión de Checkout de su intención de pago', async () => {
+      const { stripe, calls } = fakeStripe({ sessions: [{ metadata: { orderId: 'o2' } }] });
+      expect(await adapter.lookupOrderId(stripe, { metadata: {}, paymentIntent: 'pi_1' })).toBe('o2');
+      expect(calls).toEqual(['sessions:pi_1']);
+    });
+
+    it('una disputa trae solo el id del cargo: se lee el cargo y de él, su intención de pago y su sesión', async () => {
+      const { stripe, calls } = fakeStripe({ sessions: [{ metadata: { orderId: 'o3' } }] });
+      expect(await adapter.lookupOrderId(stripe, { metadata: {}, chargeId: 'ch_9' })).toBe('o3');
+      expect(calls).toEqual(['charge:ch_9', 'sessions:pi_from_charge']);
+    });
+
+    it('un cargo que no es de esta plataforma (su sesión no lleva orderId) da null', async () => {
+      const { stripe } = fakeStripe({ sessions: [{ metadata: {} }] });
+      expect(await adapter.lookupOrderId(stripe, { metadata: {}, paymentIntent: 'pi_2' })).toBeNull();
+      expect(await adapter.lookupOrderId(fakeStripe().stripe, { metadata: {} })).toBeNull();
+    });
+  });
+
+  describe('rutas del admin: aviso al comprador (revisión P1-01)', () => {
+    const refund = (id: string) => patchOrder(new Request('http://localhost', { method: 'PATCH', body: JSON.stringify({ action: 'refund' }) }), { params: Promise.resolve({ id }) });
+
+    it('reembolsar un pedido de tarjeta por una pasarela real avisa al comprador', async () => {
+      gateway.active = true;
+      const { order, email } = await makeOrder({ provider: 'fake' });
+      expect((await refund(order.id)).status).toBe(200);
+      expect(buyerMails(email)).toHaveLength(1);
+    });
+
+    it('reembolsar un pedido en efectivo (sin dinero que devolver por la pasarela) NO avisa', async () => {
+      const { order, email } = await makeOrder({ method: 'CASH' });
+      expect((await refund(order.id)).status).toBe(200);
+      expect(await statusOf(order.id)).toBe('REFUNDED');
+      expect(buyerMails(email)).toHaveLength(0);
+    });
+
+    it('si el reembolso falla no se avisa de nada', async () => {
+      gateway.active = true;
+      const { order, email } = await makeOrder({ provider: 'fake' });
+      gateway.refundResult = { success: false, error: 'saldo insuficiente' };
+      expect((await refund(order.id)).status).toBe(422);
+      expect(buyerMails(email)).toHaveLength(0);
     });
   });
 
