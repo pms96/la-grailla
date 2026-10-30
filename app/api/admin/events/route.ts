@@ -8,6 +8,7 @@ import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { seasonLinkEnabled, withoutSeasonLink } from '@/lib/modules/season-link';
 import { parseEventDateInput } from '@/lib/event-time';
+import { ENTRY_RESULTS, isEntryResult } from '@/lib/scan-results';
 
 const createEventSchema = z.object({
   name: z.string().min(1),
@@ -76,7 +77,7 @@ export async function GET(request: Request) {
           }),
           prisma.scanLog.groupBy({
             by: ['eventId', 'scannerId'],
-            where: { eventId: { in: eventIds }, result: 'VALID' },
+            where: { eventId: { in: eventIds }, result: { in: [...ENTRY_RESULTS] } },
             _count: { _all: true },
           }),
         ])
@@ -90,7 +91,7 @@ export async function GET(request: Request) {
 
     const enriched = (events ?? []).map((ev) => {
       const scans = recentScans.filter((s) => s.eventId === ev.id);
-      const validCount = scans.find((s) => s.result === 'VALID')?._count?._all ?? 0;
+      const validCount = scans.filter((s) => isEntryResult(s.result)).reduce((sum, s) => sum + (s._count?._all ?? 0), 0);
       const totalCount = scans.reduce((sum, s) => sum + (s._count?._all ?? 0), 0);
       const topScanners = validScannerCounts
         .filter((c) => c.eventId === ev.id && c.scannerId)

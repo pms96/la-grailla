@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { ENTRY_RESULTS } from '@/lib/scan-results';
 
 const ENTRY_WINDOW_MS = 5 * 60 * 1000;
 
@@ -51,7 +52,7 @@ export async function GET(request: Request) {
           orderBy: { sortOrder: 'asc' },
         }),
         prisma.scanLog.count({
-          where: { eventId, result: 'VALID', createdAt: { gte: since } },
+          where: { eventId, result: { in: [...ENTRY_RESULTS] }, createdAt: { gte: since } },
         }),
         prisma.scanLog.count({
           where: { eventId, createdAt: { gte: since } },
@@ -85,7 +86,7 @@ export async function GET(request: Request) {
         }),
         prisma.scanLog.groupBy({
           by: ['scannerId'],
-          where: { eventId, result: 'VALID', createdAt: { gte: since } },
+          where: { eventId, result: { in: [...ENTRY_RESULTS] }, createdAt: { gte: since } },
           _count: { _all: true },
         }),
       ]);

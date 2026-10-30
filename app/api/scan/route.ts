@@ -12,14 +12,25 @@ import { handleApiError } from '@/lib/api-error';
 import { formatMadridTime } from '@/lib/event-time';
 import { ticketUnusable } from '@/lib/ticket-validity';
 
-const scanTicketSchema = z.object({
-  qrCode: z.string().min(1),
-  eventId: z.string().optional(),
-});
+// Se identifica la entrada por su QR (lectura con la cámara) o por su id (admisión MANUAL tras buscar al asistente por nombre/email, P1-06): una
+// admisión manual pasa por las MISMAS comprobaciones que un escaneo (anulada, pedido, evento, duplicada) y solo cambia cómo se registra.
+const scanTicketSchema = z
+  .object({
+    qrCode: z.string().min(1).optional(),
+    ticketId: z.string().min(1).optional(),
+    eventId: z.string().optional(),
+  })
+  .refine((v) => Boolean(v.qrCode) !== Boolean(v.ticketId), { message: 'Indica qrCode o ticketId' });
+
+// P1-06: antes había UN límite de 120/min por IP, y varias puertas en la wifi del recinto comparten IP: a ~2 lecturas/s agregadas empezaban los 429
+// y la puerta se paraba. Ahora el límite fino es POR USUARIO de la sesión (cada puerta/dispositivo el suyo) y el de IP queda como red de seguridad
+// muy alta, para cortar a quien inunde la ruta sin sesión.
+const SCAN_IP_LIMIT_PER_MIN = 1200;
+const SCAN_USER_LIMIT_PER_MIN = 240;
 
 export async function POST(request: Request) {
   try {
-    const limit = await rateLimit('scan', getClientIp(request), 120, 60_000);
+    const limit = await rateLimit('scan', getClientIp(request), SCAN_IP_LIMIT_PER_MIN, 60_000);
     if (!limit.ok) {
       return NextResponse.json(
         { error: 'Demasiadas peticiones. Espera unos segundos.' },
@@ -35,7 +46,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 });
     }
 
-    const { qrCode, eventId } = scanTicketSchema.parse(await request.json());
+    const userLimit = await rateLimit('scan-user', session.user.id, SCAN_USER_LIMIT_PER_MIN, 60_000);
+    if (!userLimit.ok) {
+      return NextResponse.json(
+        { error: 'Demasiadas peticiones. Espera unos segundos.' },
+        { status: 429, headers: { 'Retry-After': String(userLimit.retryAfter) } }
+      );
+    }
+
+    const { qrCode, ticketId, eventId } = scanTicketSchema.parse(await request.json());
+    const manual = Boolean(ticketId);
 
     // Sin evento elegido no se valida: una entrada de otro evento (o de otra fecha) se marcaría USED y contaría en el aforo equivocado (EN-13).
     if (!eventId) {
@@ -46,7 +66,7 @@ export async function POST(request: Request) {
     }
 
     const ticket = await prisma.ticket.findUnique({
-      where: { qrCode },
+      where: ticketId ? { id: ticketId } : { qrCode },
       include: {
         event: true,
         order: true,
@@ -57,7 +77,7 @@ export async function POST(request: Request) {
     if (!ticket) {
       return NextResponse.json({
         result: 'INVALID',
-        message: 'C\u00f3digo QR no reconocido',
+        message: manual ? 'Entrada no encontrada' : 'C\u00f3digo QR no reconocido',
         color: 'red',
       });
     }
@@ -177,7 +197,7 @@ export async function POST(request: Request) {
           ticketId: ticket.id,
           eventId: ticket.eventId,
           scannerId: session.user?.id,
-          result: 'VALID',
+          result: manual ? 'VALID_MANUAL' : 'VALID',
         },
       });
       return 'VALID' as const;
@@ -200,6 +220,7 @@ export async function POST(request: Request) {
       message: `ACCESO PERMITIDO \u2014 ${ticket.holderName ?? 'Invitado'}`,
       holderName: ticket.holderName,
       ticketType: ticket.ticketType?.name,
+      manual,
       color: 'green',
     });
   } catch (error) {

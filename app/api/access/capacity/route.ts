@@ -6,6 +6,7 @@ import { getServerSession } from 'next-auth';
 import { adminLacksModule } from '@/lib/modules/access';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { ENTRY_RESULTS } from '@/lib/scan-results';
 
 const ENTRY_WINDOW_MS = 5 * 60 * 1000;
 
@@ -33,7 +34,7 @@ export async function GET(request: Request) {
         select: { id: true, name: true, phaseName: true, soldCount: true, maxQuantity: true },
         orderBy: { sortOrder: 'asc' },
       }),
-      prisma.scanLog.count({ where: { eventId, result: 'VALID', createdAt: { gte: since } } }),
+      prisma.scanLog.count({ where: { eventId, result: { in: [...ENTRY_RESULTS] }, createdAt: { gte: since } } }),
       prisma.scanLog.count({ where: { eventId, createdAt: { gte: since } } }),
     ]);
 

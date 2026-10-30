@@ -59,6 +59,7 @@ const channelLabels: Record<string, string> = {
 
 const scanResultLabel: Record<string, string> = {
   VALID: 'Válido',
+  VALID_MANUAL: 'Válido (manual)',
   DUPLICATE: 'Duplicado',
   INVALID: 'Inválido',
   CANCELLED: 'Anulado',

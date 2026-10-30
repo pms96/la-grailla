@@ -9,7 +9,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { QrCode, Users, RefreshCw, Keyboard, Camera, LogOut, Ticket, UserPlus, TrendingUp, AlertTriangle, Moon } from 'lucide-react';
+import { QrCode, Users, RefreshCw, Keyboard, Camera, LogOut, Ticket, UserPlus, TrendingUp, AlertTriangle, Moon, Search } from 'lucide-react';
+import { doorFailure, isDoorVerdict } from '@/lib/door-errors';
 import { signOut } from 'next-auth/react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -35,6 +36,34 @@ type ScanResult = {
   eventDate?: string;
 };
 
+/** Un asistente encontrado en la búsqueda manual (`GET /api/access/search`). */
+type FoundTicket = {
+  ticketId: string;
+  holderName: string;
+  ticketType: string | null;
+  status: string;
+  entryTime: string | null;
+  buyerName: string;
+  buyerEmail: string;
+  orderRef: string;
+  admittable: boolean;
+  blockedMessage: string | null;
+};
+
+/** Qué se admite: una lectura de QR, o una admisión manual de un asistente encontrado en la búsqueda. */
+type Admission = { qrCode: string } | { ticketId: string };
+
+/** Por qué no se puede admitir a un asistente (el servidor ya da el motivo si es del pedido o del evento). */
+function foundNote(t: FoundTicket): string {
+  if (t.blockedMessage) return t.blockedMessage;
+  if (t.status === 'USED') {
+    const at = t.entryTime ? new Date(t.entryTime).toLocaleTimeString('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' }) : '';
+    return `YA ENTRÓ${at ? ` a las ${at}` : ''}`;
+  }
+  if (t.status === 'PENDING') return 'PAGO NO CONFIRMADO';
+  return 'ENTRADA ANULADA';
+}
+
 export type EventWithTicketTypes = Event & { ticketTypes: WithNumberFields<TicketType, 'price'>[] };
 
 /** Lo que el escáner necesita de un evento (`GET /api/access/events`, que sigue vivo con la licencia vencida). */
@@ -53,6 +82,10 @@ export default function AccessClient() {
   const [mode, setMode] = useState<'camera' | 'manual'>('camera');
   const [manualCode, setManualCode] = useState('');
   const [scanning, setScanning] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [found, setFound] = useState<FoundTicket[] | null>(null);
+  const [foundTruncated, setFoundTruncated] = useState(false);
+  const [searchMessage, setSearchMessage] = useState<string | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadEvents = useCallback(() => {
@@ -120,43 +153,77 @@ export default function AccessClient() {
     return () => clearInterval(i);
   }, [refreshCapacity]);
 
-  const handleScan = useCallback(async (qrCode: string) => {
-    if (scanning || !qrCode) return;
+  const handleScan = useCallback(async (admission: Admission | string) => {
+    const payload: Admission = typeof admission === 'string' ? { qrCode: admission } : admission;
+    if (scanning || ('qrCode' in payload && !payload.qrCode)) return;
     setScanning(true);
-    try {
-      const res = await fetch('/api/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qrCode, eventId: selectedEvent || undefined }),
-      });
-      const data = await res.json();
-      setScanResult(data);
 
-      // Update capacity if valid
-      if (data?.result === 'VALID') {
-        setCapacity((prev) => ({ ...prev, current: (prev?.current ?? 0) + 1 }));
-        // Also update events list
-        setEvents((prev) => (prev ?? []).map((e) =>
-          e?.id === selectedEvent ? { ...e, currentCount: (e?.currentCount ?? 0) + 1 } : e
-        ));
-      }
-
-      // Clear result after 4 seconds
+    // Clear result after 4 seconds (también cuando falla: la pantalla nunca se queda bloqueada).
+    const clearLater = () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = setTimeout(() => {
         setScanResult(null);
         setScanning(false);
       }, 4000);
+    };
+
+    try {
+      const res = await fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, eventId: selectedEvent || undefined }),
+      });
+      const data = await res.json().catch(() => null);
+      // Un 429, 401 o 500 no trae veredicto: se explica qué ha pasado (P1-06) en vez de pintar un ❌ sin texto.
+      const verdict: ScanResult = isDoorVerdict(data) ? data : doorFailure(res.status, (data as { error?: unknown } | null)?.error);
+      setScanResult(verdict);
+
+      // Update capacity if valid
+      if (verdict.result === 'VALID') {
+        setCapacity((prev) => ({ ...prev, current: (prev?.current ?? 0) + 1 }));
+        // Also update events list
+        setEvents((prev) => (prev ?? []).map((e) =>
+          e?.id === selectedEvent ? { ...e, currentCount: (e?.currentCount ?? 0) + 1 } : e
+        ));
+        // Una admisión manual ya está hecha: se quita de la lista para no admitirla dos veces.
+        if ('ticketId' in payload) setFound((prev) => (prev ?? []).map((t) => (t.ticketId === payload.ticketId ? { ...t, status: 'USED', admittable: false, entryTime: new Date().toISOString() } : t)));
+      }
+      clearLater();
     } catch {
-      setScanResult({ result: 'ERROR', message: 'Error de conexión', color: 'red' });
-      setScanning(false);
+      setScanResult(doorFailure(null));
+      clearLater();
     }
   }, [scanning, selectedEvent]);
 
-  const handleManualSubmit = () => {
-    if (manualCode?.trim()) {
-      handleScan(manualCode.trim());
-      setManualCode('');
+  const handleSearch = async () => {
+    const q = manualCode.trim();
+    if (!selectedEvent) {
+      setSearchMessage('Elige primero el evento');
+      return;
+    }
+    if (q.length < 3) {
+      setSearchMessage('Escribe al menos 3 caracteres');
+      return;
+    }
+    setSearching(true);
+    setSearchMessage(null);
+    try {
+      const res = await fetch(`/api/access/search?eventId=${encodeURIComponent(selectedEvent)}&q=${encodeURIComponent(q)}`);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setFound(null);
+        setSearchMessage(typeof data?.error === 'string' && res.status !== 401 ? data.error : doorFailure(res.status).message);
+        return;
+      }
+      const list: FoundTicket[] = Array.isArray(data?.results) ? data.results : [];
+      setFound(list);
+      setFoundTruncated(Boolean(data?.truncated));
+      if (list.length === 0) setSearchMessage('No hay ninguna entrada que coincida en este evento');
+    } catch {
+      setFound(null);
+      setSearchMessage(doorFailure(null).message);
+    } finally {
+      setSearching(false);
     }
   };
 
@@ -179,7 +246,7 @@ export default function AccessClient() {
         <div className={`fixed inset-0 z-50 ${bgColor} flex items-center justify-center p-8 transition-all`} onClick={() => { setScanResult(null); setScanning(false); }}>
           <div className="text-center text-white max-w-lg">
             <p className="text-4xl md:text-6xl font-display font-bold mb-4">
-              {scanResult?.result === 'VALID' ? '✅' : scanResult?.result === 'DUPLICATE' ? '🔁' : scanResult?.result === 'WRONG_EVENT' ? '⚠️' : '❌'}
+              {scanResult?.result === 'VALID' ? '✅' : scanResult?.result === 'DUPLICATE' ? '🔁' : scanResult?.result === 'WRONG_EVENT' || scanResult?.result === 'ERROR' ? '⚠️' : '❌'}
             </p>
             <p className="text-2xl md:text-4xl font-bold mb-4">{scanResult?.message ?? ''}</p>
             {scanResult?.ticketType && <p className="text-lg opacity-80">Tipo: {scanResult.ticketType}</p>}
@@ -296,14 +363,36 @@ export default function AccessClient() {
               <div className="flex gap-2">
                 <Input
                   size="lg"
-                  placeholder="Introduce código QR"
+                  placeholder="Nombre, email, referencia o código QR"
                   value={manualCode}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setManualCode(e?.target?.value ?? '')}
-                  onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e?.key === 'Enter' && handleManualSubmit()}
+                  onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e?.key === 'Enter' && handleSearch()}
                   autoFocus
                 />
-                <Button size="lg" onClick={handleManualSubmit} disabled={!manualCode?.trim()}>Validar</Button>
+                <Button size="lg" className="gap-2" onClick={handleSearch} disabled={manualCode.trim().length < 3 || searching}>
+                  <Search className="h-4 w-4" /> Buscar
+                </Button>
               </div>
+              {searchMessage && <p className="text-sm text-muted-foreground mt-3" role="status">{searchMessage}</p>}
+              {found && found.length > 0 && (
+                <ul className="mt-3 divide-y divide-border">
+                  {found.map((t) => (
+                    <li key={t.ticketId} className="py-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold truncate">{t.holderName}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {[t.ticketType, t.buyerName, t.buyerEmail, `Ref. ${t.orderRef}`].filter(Boolean).join(' · ')}
+                        </p>
+                        {!t.admittable && <p className="text-xs font-semibold text-red-500 mt-0.5">{foundNote(t)}</p>}
+                      </div>
+                      {t.admittable && (
+                        <Button size="lg" disabled={scanning} onClick={() => handleScan({ ticketId: t.ticketId })}>Admitir</Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {foundTruncated && <p className="text-xs text-muted-foreground mt-2">Hay más resultados: afina la búsqueda.</p>}
             </CardContent>
           </Card>
         )}

@@ -33,6 +33,7 @@ type ScanRow = {
 const RESULT_OPTIONS = [
   { value: 'all', label: 'Todos los resultados' },
   { value: 'VALID', label: 'Válido' },
+  { value: 'VALID_MANUAL', label: 'Válido (manual)' },
   { value: 'DUPLICATE', label: 'Duplicado' },
   { value: 'INVALID', label: 'Inválido' },
   { value: 'CANCELLED', label: 'Anulado' },
@@ -41,6 +42,7 @@ const RESULT_OPTIONS = [
 
 const resultVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   VALID: 'default',
+  VALID_MANUAL: 'default',
   DUPLICATE: 'secondary',
   INVALID: 'destructive',
   CANCELLED: 'destructive',
@@ -49,6 +51,7 @@ const resultVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'o
 
 const resultLabel: Record<string, string> = {
   VALID: 'Válido',
+  VALID_MANUAL: 'Válido (manual)',
   DUPLICATE: 'Duplicado',
   INVALID: 'Inválido',
   CANCELLED: 'Anulado',
