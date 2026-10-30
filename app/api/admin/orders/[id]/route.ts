@@ -8,6 +8,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { invalidateOrder, completeOrder } from '@/lib/reconciliation/entradas';
+import { sendRefundEmail } from '@/lib/reconciliation/gateway-refund';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
 import { getEmailState } from '@/lib/email-delivery';
@@ -64,9 +65,14 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
 
     if (body.action === 'cancel' || body.action === 'refund') {
       const mode = body.action === 'refund' ? 'REFUNDED' : 'CANCELLED';
+      const before = mode === 'REFUNDED' ? await prisma.order.findUnique({ where: { id: params?.id }, select: { id: true, buyerName: true, buyerEmail: true, totalAmount: true, paymentMethod: true, paymentProvider: true, paymentId: true } }) : null;
       const result = await invalidateOrder(params?.id, mode);
       if (!result.success) {
         return NextResponse.json({ error: result.error }, { status: 422 });
+      }
+      // EN-08.6: el comprador no se enteraba del reembolso. Solo si de verdad se le devolvió dinero por la pasarela (no en efectivo, datáfono ni simulado).
+      if (before && before.paymentMethod === 'CARD' && before.paymentProvider && before.paymentProvider !== 'mock' && before.paymentId) {
+        await sendRefundEmail('entradas', before, Number(before.totalAmount));
       }
     } else if (body.action === 'verify') {
       const existing = await prisma.order.findUnique({ where: { id: params?.id } });

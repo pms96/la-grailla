@@ -25,6 +25,19 @@ export type CompleteOutcome =
   | 'inactive'
   | 'missing';
 
+/** Ventana de la clave de idempotencia del reembolso (TI-09). */
+export const REFUND_KEY_WINDOW_MS = 10 * 60_000;
+
+/**
+ * Clave de idempotencia del reembolso de un pedido. Antes era `refund_<pedido>` a secas: Stripe guarda y REPITE 24 h el resultado de la primera petición con
+ * una clave, incluidos los errores 4xx, así que un primer intento fallido por algo corregible (saldo insuficiente en una cuenta nueva…) dejaba el reembolso
+ * imposible un día entero. Con una ventana de 10 minutos, un timeout y su reintento inmediato siguen compartiendo clave (no se duplica nada) y, pasada la
+ * ventana, un reintento ya corregido funciona; si el primero SÍ llegó, Stripe responde «ya reembolsado» y el adaptador lo da por bueno.
+ */
+export function refundIdempotencyKey(orderId: string, now = Date.now()): string {
+  return `refund_${orderId}_${Math.floor(now / REFUND_KEY_WINDOW_MS)}`;
+}
+
 /** Log estructurado de pagos (una línea JSON tras una etiqueta greppable). Siempre con el cliente y sin datos personales. */
 export function logPaymentEvent(tag: string, fields: Record<string, unknown>, level: 'error' | 'warn' | 'info' = 'error'): void {
   const line = `${tag} ${JSON.stringify({ tenantId: currentTenant()?.tenantId ?? '-', ...fields })}`;

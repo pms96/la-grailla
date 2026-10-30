@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { scheduleOrderEmail } from '@/lib/order-email';
 import { hasEventEnded } from '@/lib/active-event';
-import { alertOperator, alertPaidButInactiveOrder, logPaymentEvent, paymentMatchesOrder, type CompleteOutcome, type PaidInfo } from './shared';
+import { alertOperator, alertPaidButInactiveOrder, logPaymentEvent, paymentMatchesOrder, refundIdempotencyKey, type CompleteOutcome, type PaidInfo } from './shared';
 import { alertManuallyRefunded, confirmLatePayment, finishLateRefund, lateRefundMarker } from './late-payment';
 import { closeSessionBeforeCancel } from './close-session';
 import { releasePendingSlot } from '@/lib/rate-limit';
@@ -312,7 +312,7 @@ export async function invalidateOrder(
   if (mode === 'REFUNDED' && order.paymentMethod === 'CARD' && order.paymentProvider && order.paymentId && order.paymentProvider !== 'mock') {
     try {
       const provider = await getPaymentProviderByName(order.paymentProvider);
-      const refund = await provider.refund(order.paymentId, order.totalAmount, `refund_${order.id}`);
+      const refund = await provider.refund(order.paymentId, order.totalAmount, refundIdempotencyKey(order.id));
       if (!refund.success) {
         await prisma.order.update({ where: { id: orderId }, data: { status: order.status } });
         return { success: false, error: refund.error ?? 'El reembolso en la pasarela ha fallado' };

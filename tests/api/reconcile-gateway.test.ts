@@ -149,6 +149,23 @@ describe('conciliación diaria pasarela → BD (OB-11)', () => {
       expect(calls[0].from.getTime()).toBe(NOW - GATEWAY_WINDOW_MS);
     });
 
+    it('P1-01: un cobro REEMBOLSADO en la pasarela cuyo pedido sigue vigente es un incidente (el reembolso no llegó); si el pedido ya está anulado o no existe, no', async () => {
+      await makeOrder('ord_R1', 'COMPLETED', 'cs_R1'); // reembolsado fuera y el pedido sigue COMPLETED: incidente
+      await makeOrder('ord_R2', 'REFUNDED', 'cs_R2'); // reembolsado y anulado: bien
+      await makeShop('shop_R3', 'PAID', 'cs_R3'); // tienda: reembolsado y el pedido sigue vigente: incidente
+      ctl.provider = stripeFake({
+        truncated: false,
+        sessions: [
+          session({ id: 'cs_R1', refunded: true }),
+          session({ id: 'cs_R2', refunded: true }),
+          session({ id: 'cs_R3', orderId: 'shop_R3', orderType: 'shop', refunded: true }),
+          session({ id: 'cs_R4', refunded: true }), // sin pedido en la BD: nada que cuadrar
+        ],
+      }).provider;
+      const { samples } = await runGatewayReconciliation({ now: NOW });
+      expect(samples.map((s) => `${s.reason}:${s.gatewayId}:${s.kind}`).sort()).toEqual(['refunded_order_active:cs_R1:entradas', 'refunded_order_active:cs_R3:tienda']);
+    });
+
     it('guarda el resultado para el health (`ops.gateway`) y avisa al operador UNA vez con un conjunto estable', async () => {
       ctl.provider = stripeFake({ truncated: false, sessions: [session({ id: 'cs_B' }), session({ id: 'cs_X', orderId: 'ord_X' })] }).provider;
       await runGatewayReconciliation({ now: NOW });

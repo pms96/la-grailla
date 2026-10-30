@@ -29,7 +29,7 @@ export type PlatformAlertDeps = { env?: NodeJS.ProcessEnv; fetchImpl?: (input: s
 export const PLATFORM_ALERT_TIMEOUT_MS = 4_000;
 
 /** Motivos que solo informan (no exigen actuar ya): salen como aviso, no como fallo. El resto toca dinero sin resolver y sale como fallo. */
-const INFO_REASONS = new Set(['refunded_no_capacity', 'refunded_in_gateway', 'stuck_processing']);
+const INFO_REASONS = new Set(['refunded_no_capacity', 'refunded_in_gateway', 'stuck_processing', 'refunded_in_gateway_applied', 'partial_refund_in_gateway']);
 export const severityForReason = (reason: string): PlatformAlertSeverity => (INFO_REASONS.has(reason) ? 'warning' : 'critical');
 
 export function platformAlertConfig(env: NodeJS.ProcessEnv = process.env): { url: string; token: string | null } | null {

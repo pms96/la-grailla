@@ -61,6 +61,10 @@ export interface ProviderCapabilities {
 export type WebhookEvent =
   | { kind: 'payment_succeeded'; eventId: string; orderId: string; amount?: number; currency?: string }
   | { kind: 'payment_expired'; eventId: string; orderId: string }
+  /** Dinero devuelto FUERA de la app (panel de la pasarela, o contracargo perdido). `full`: el cobro entero; si no, `refunded` < `total`. Importes en EUR. */
+  | { kind: 'payment_refunded'; eventId: string; orderId: string; full: boolean; refunded: number; total: number; source: 'refund' | 'dispute_lost' }
+  /** El comprador ha abierto una disputa (contracargo) sobre el cobro: aún no se ha perdido dinero, pero hay que actuar. */
+  | { kind: 'dispute_opened'; eventId: string; orderId: string; amount: number; reason?: string }
   | { kind: 'ignored'; eventId?: string };
 
 /** Un webhook que se rechaza (firma inválida, proveedor sin configurar…) con el código HTTP que corresponde. */
@@ -288,9 +292,51 @@ export class StripeAdapter implements PaymentProvider {
         if (orderId) return { kind: 'payment_expired', eventId: event.id, orderId };
         return { kind: 'ignored', eventId: event.id };
       }
+      // P1-01 / EN-08: un reembolso hecho en el panel de Stripe nunca llegaba a la BD (el pedido seguía COMPLETED y el QR entraba), y un contracargo
+      // tampoco. Estos eventos no se envían salvo que el endpoint del webhook esté suscrito a ellos (ver la guía en Configuración → pagos).
+      case 'charge.refunded': {
+        const charge = event.data.object as Stripe.Charge;
+        const orderId = await this.lookupOrderId(stripe, { metadata: charge.metadata, paymentIntent: charge.payment_intent });
+        if (!orderId) return { kind: 'ignored', eventId: event.id };
+        const total = charge.amount / 100;
+        const refunded = charge.amount_refunded / 100;
+        return { kind: 'payment_refunded', eventId: event.id, orderId, full: charge.refunded === true || charge.amount_refunded >= charge.amount, refunded, total, source: 'refund' };
+      }
+      case 'charge.dispute.created':
+      case 'charge.dispute.closed': {
+        const dispute = event.data.object as Stripe.Dispute;
+        // Una disputa ganada no cambia nada; solo importa al abrirse (avisar) y al perderse (el dinero ya no está).
+        if (event.type === 'charge.dispute.closed' && dispute.status !== 'lost') return { kind: 'ignored', eventId: event.id };
+        const orderId = await this.lookupOrderId(stripe, { metadata: dispute.metadata, paymentIntent: dispute.payment_intent, chargeId: typeof dispute.charge === 'string' ? dispute.charge : dispute.charge?.id });
+        if (!orderId) return { kind: 'ignored', eventId: event.id };
+        const amount = dispute.amount / 100;
+        if (event.type === 'charge.dispute.created') return { kind: 'dispute_opened', eventId: event.id, orderId, amount, ...(dispute.reason ? { reason: dispute.reason } : {}) };
+        return { kind: 'payment_refunded', eventId: event.id, orderId, full: true, refunded: amount, total: amount, source: 'dispute_lost' };
+      }
       default:
         return { kind: 'ignored', eventId: event.id };
     }
+  }
+
+  /**
+   * A qué pedido de la plataforma pertenece un cargo (o una disputa). Lo normal es que el cargo lleve `metadata.orderId` (se copia de la intención de
+   * pago, que la sesión de Checkout crea con él desde P1-01). Los cobros anteriores no lo llevan: se busca la sesión de Checkout de su intención de
+   * pago, que sí lo tenía. null = no es una venta de esta plataforma (la cuenta puede usarse para otras cosas).
+   */
+  async lookupOrderId(
+    stripe: Stripe,
+    ref: { metadata?: Stripe.Metadata | null; paymentIntent?: string | Stripe.PaymentIntent | null; chargeId?: string | null }
+  ): Promise<string | null> {
+    if (ref.metadata?.orderId) return ref.metadata.orderId;
+    let paymentIntent = typeof ref.paymentIntent === 'string' ? ref.paymentIntent : (ref.paymentIntent?.id ?? null);
+    if (!paymentIntent && ref.chargeId) {
+      const charge = await stripe.charges.retrieve(ref.chargeId);
+      paymentIntent = typeof charge.payment_intent === 'string' ? charge.payment_intent : (charge.payment_intent?.id ?? null);
+      if (charge.metadata?.orderId) return charge.metadata.orderId;
+    }
+    if (!paymentIntent) return null;
+    const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent, limit: 1 });
+    return sessions.data[0]?.metadata?.orderId ?? null;
   }
 
   // stripe.balance.retrieve() es la comprobación estándar que recomienda la
@@ -339,6 +385,8 @@ export class StripeAdapter implements PaymentProvider {
         cancel_url: params.cancelUrl,
         customer_email: params.customerEmail,
         metadata: { orderId: params.orderId, ...(params.metadata ?? {}) },
+        // La misma metadata en la intención de pago (Stripe la copia al cargo): así un reembolso o una disputa traen el pedido sin consultar nada más (P1-01).
+        payment_intent_data: { metadata: { orderId: params.orderId, ...(params.metadata ?? {}) } },
       },
       // Un timeout de red hacia Stripe (la sesión se crea en su lado pero la
       // respuesta no llega) no debe traducirse en una segunda sesión de

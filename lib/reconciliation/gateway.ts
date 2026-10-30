@@ -34,7 +34,7 @@ export const GATEWAY_MAX_PAGES = 10;
 export const GATEWAY_SUMUP_ORDER_CAP = 150;
 const CONCURRENCY = 5;
 
-export type UnmatchedReason = 'no_order' | 'order_not_confirmed' | 'paid_reference_without_id';
+export type UnmatchedReason = 'no_order' | 'order_not_confirmed' | 'paid_reference_without_id' | 'refunded_order_active';
 export interface UnmatchedPayment {
   kind: 'entradas' | 'tienda';
   provider: 'stripe' | 'sumup';
@@ -57,7 +57,12 @@ const REASON_TEXT: Record<UnmatchedReason, string> = {
   no_order: 'cobrado en la pasarela y sin pedido en la base de datos',
   order_not_confirmed: 'cobrado, pero su pedido sigue sin confirmar (pendiente o cancelado)',
   paid_reference_without_id: 'cobrado en SumUp, pero el pedido no guardó su cobro y no se ha confirmado',
+  refunded_order_active: 'reembolsado (total o parcialmente) en la pasarela, pero su pedido sigue activo (revisa si hay que anularlo)',
 };
+
+/** Estados de un pedido que cuenta como vendido y vigente: si su cobro consta reembolsado, algo no se ha sincronizado (P1-01). */
+const ACTIVE_ORDER = new Set(['COMPLETED']);
+const ACTIVE_SHOP = new Set(['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED']);
 
 const OK_ORDER = new Set(['COMPLETED', 'REFUNDED']);
 const OK_SHOP = new Set(['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'REFUNDED']);
@@ -67,7 +72,7 @@ const chunk = <T,>(xs: T[], n: number): T[][] => Array.from({ length: Math.ceil(
 
 /** Stripe: contrasta las sesiones pagadas con la BD. */
 async function checkStripeSessions(sessions: PaidSession[], now: number): Promise<UnmatchedPayment[]> {
-  const ours = sessions.filter((s) => !s.refunded && s.orderId);
+  const ours = sessions.filter((s) => s.orderId);
   const out: UnmatchedPayment[] = [];
   const orders = new Map<string, { id: string; status: string; shop: boolean }>();
   const byPayment = new Map<string, { id: string; status: string; shop: boolean }>();
@@ -91,6 +96,12 @@ async function checkStripeSessions(sessions: PaidSession[], now: number): Promis
     const found = byPayment.get(s.id) ?? orders.get(s.orderId as string);
     const shop = found ? found.shop : s.orderType === 'shop';
     const base = { kind: shop ? ('tienda' as const) : ('entradas' as const), provider: 'stripe' as const, gatewayId: s.id, amount: s.amount, ageMinutes: minutesAgo(now, s.createdAt) };
+    // Un cargo reembolsado se da por resuelto (el dinero volvió) SALVO que su pedido siga vigente: el reembolso se hizo fuera de la app y no llegó (el
+    // endpoint del webhook puede no estar suscrito a `charge.refunded`). Sin pedido, no hay nada que cuadrar.
+    if (s.refunded) {
+      if (found && (found.shop ? ACTIVE_SHOP : ACTIVE_ORDER).has(found.status)) out.push({ ...base, reason: 'refunded_order_active', orderId: found.id });
+      continue;
+    }
     if (!found) out.push({ ...base, reason: 'no_order', orderId: s.orderId });
     else if (!(found.shop ? OK_SHOP : OK_ORDER).has(found.status)) out.push({ ...base, reason: 'order_not_confirmed', orderId: found.id });
   }

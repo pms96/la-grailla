@@ -72,7 +72,7 @@ export function PaymentAccount({ prefix, values, onChange, webhookPath, unsetHin
           value={values[k('stripe_webhook_secret')] ?? ''}
           onChange={(v) => onChange(k('stripe_webhook_secret'), v)}
           placeholder="whsec_..."
-          description={`En Stripe Dashboard → Developers → Webhooks, crea un endpoint apuntando a ${webhookPath} escuchando checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed y checkout.session.expired. Copia aquí el 'Signing secret' que te da Stripe al crearlo.`}
+          description={`En Stripe Dashboard → Developers → Webhooks, crea un endpoint apuntando a ${webhookPath} escuchando checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed y checkout.session.expired. Añade también charge.refunded, charge.dispute.created y charge.dispute.closed: así un reembolso hecho desde el panel de Stripe anula el pedido y sus entradas aquí, y una disputa te avisa. Copia aquí el 'Signing secret' que te da Stripe al crearlo.`}
         />
         <Button type="button" variant="outline" size="sm" className="gap-2" disabled={testing === 'stripe'} onClick={() => test('stripe')}>
           {testing === 'stripe' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}

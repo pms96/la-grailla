@@ -6,6 +6,7 @@ import { getBaseUrl } from '@/lib/url';
 import { ProviderNotConfiguredError, WebhookRejected, getPaymentProviderByName, type PaymentScope } from '@/lib/payment-adapter';
 import { resolveExpiredCheckout, resolvePaidCheckout } from '@/lib/order-reconciliation';
 import { currentTenant } from '@/lib/tenant/context';
+import { alertDisputeOpened, applyGatewayRefund } from '@/lib/reconciliation/gateway-refund';
 
 /* Entrada común de los webhooks de cobro: `/api/webhooks/{proveedor}`. Cada proveedor aporta SU verificación de firma y su traducción
  * a un evento neutro (`PaymentProvider.parseWebhook`); aquí está todo lo demás, igual para todos: idempotencia, reconciliación del pedido
@@ -69,6 +70,21 @@ export async function handleProviderWebhook(providerName: string, request: Reque
         // un cobro sin pedido. No se marca como procesado (nada se procesó) y queda en el log con todo lo necesario para localizarlo. Se
         // responde 200 igualmente: un reintento no lo arreglaría y una pasarela con eventos ajenos (p. ej. webhook de pruebas) reintentaría
         // sin fin; el 200 + `unmatched` no lo enmascara porque no hay fila de «procesado».
+        console.error(
+          `[webhook] webhook.order_not_found ${JSON.stringify({ tenantId: currentTenant()?.tenantId ?? '-', provider: target.provider, route: name, kind: event.kind, eventId: event.eventId, orderId: event.orderId })}`
+        );
+        return NextResponse.json({ received: true, unmatched: true });
+      }
+    }
+
+    // P1-01: dinero devuelto fuera de la app (reembolso en el panel de la pasarela, contracargo perdido) y disputas abiertas. Mismo trato que un pago:
+    // un pedido que no existe en ESTA BD no se marca como procesado (nada se procesó) y queda en el log.
+    if (event.kind === 'payment_refunded' || event.kind === 'dispute_opened') {
+      const handled =
+        event.kind === 'payment_refunded'
+          ? (await applyGatewayRefund({ orderId: event.orderId, full: event.full, refunded: event.refunded, total: event.total, source: event.source })) !== 'missing'
+          : await alertDisputeOpened(event.orderId, event.amount, event.reason);
+      if (!handled) {
         console.error(
           `[webhook] webhook.order_not_found ${JSON.stringify({ tenantId: currentTenant()?.tenantId ?? '-', provider: target.provider, route: name, kind: event.kind, eventId: event.eventId, orderId: event.orderId })}`
         );

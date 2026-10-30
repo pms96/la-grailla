@@ -6,7 +6,7 @@ import { runAfterResponse, scheduleOrderEmail } from '@/lib/order-email';
 import { notifyShopNewOrder } from '@/lib/shop/shop-notices';
 import { trackEmail } from '@/lib/email-delivery';
 import { getFallbackBaseUrl } from '@/lib/url';
-import { alertOperator, alertPaidButInactiveOrder, logPaymentEvent, paymentMatchesOrder, type CompleteOutcome, type PaidInfo } from './shared';
+import { alertOperator, alertPaidButInactiveOrder, logPaymentEvent, paymentMatchesOrder, refundIdempotencyKey, type CompleteOutcome, type PaidInfo } from './shared';
 import { alertManuallyRefunded, confirmLatePayment, finishLateRefund, lateRefundMarker } from './late-payment';
 import { closeSessionBeforeCancel } from './close-session';
 import { releasePendingSlot } from '@/lib/rate-limit';
@@ -251,7 +251,7 @@ export async function invalidateShopOrder(
     try {
       // El reembolso va a la cuenta con la que SE COBRÓ el pedido (P1-11): si la tienda cambió de cuenta después, el pedido sigue en la de antes.
       const provider = await getPaymentProviderByName(order.paymentProvider, await accountScopeForOrder('tienda', order));
-      const refund = await provider.refund(order.paymentId, order.totalAmount, `refund_${order.id}`);
+      const refund = await provider.refund(order.paymentId, order.totalAmount, refundIdempotencyKey(order.id));
       if (!refund.success) {
         await prisma.shopOrder.update({ where: { id: shopOrderId }, data: { status: order.status } });
         return { success: false, error: refund.error ?? 'El reembolso en la pasarela ha fallado' };
