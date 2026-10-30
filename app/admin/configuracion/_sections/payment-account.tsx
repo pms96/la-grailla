@@ -28,10 +28,12 @@ export function PaymentAccount({ prefix, values, onChange, webhookPath, unsetHin
   const test = async (which: 'stripe' | 'sumup') => {
     setTesting(which);
     try {
+      // `scope`: la cuenta de ESTA pestaña. Sin él, un campo enmascarado se probaría contra la cuenta de Entradas.
+      const scope = prefix === 'shop_' ? 'tienda' : 'entradas';
       const body =
         which === 'stripe'
-          ? { gateway: which, secretKey: values[k('stripe_secret_key')] ?? '' }
-          : { gateway: which, apiKey: values[k('sumup_api_key')] ?? '', merchantCode: values[k('sumup_merchant_code')] ?? '' };
+          ? { gateway: which, scope, secretKey: values[k('stripe_secret_key')] ?? '' }
+          : { gateway: which, scope, apiKey: values[k('sumup_api_key')] ?? '', merchantCode: values[k('sumup_merchant_code')] ?? '' };
       const res = await fetch('/api/admin/config/test-gateway', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json();
       if (data?.ok) toast.success(which === 'stripe' ? 'Conexión con Stripe correcta' : 'Conexión con SumUp correcta');

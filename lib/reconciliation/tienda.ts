@@ -1,6 +1,6 @@
 import type { ShopOrderStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { getPaymentProviderByName } from '@/lib/payment-adapter';
+import { accountScopeForOrder, getPaymentProviderByName } from '@/lib/payment-adapter';
 import { escapeHtml as esc } from '@/lib/html-escape';
 import { runAfterResponse, scheduleOrderEmail } from '@/lib/order-email';
 import { notifyShopNewOrder } from '@/lib/shop/shop-notices';
@@ -101,7 +101,7 @@ export async function reviveShopOrder(orderId: string): Promise<ReviveShopResult
   });
 }
 
-async function handleLateShopPayment(order: { id: string; buyerName: string; buyerEmail: string; totalAmount: number; paymentProvider: string | null; paymentId: string | null }): Promise<CompleteOutcome> {
+async function handleLateShopPayment(order: { id: string; buyerName: string; buyerEmail: string; totalAmount: number; paymentProvider: string | null; paymentId: string | null; createdAt?: Date }): Promise<CompleteOutcome> {
   const gateway = await confirmLatePayment('tienda', order);
   const claim = async () => (await prisma.shopOrder.updateMany({ where: { id: order.id, status: 'CANCELLED' }, data: { status: 'REFUNDED' } })).count > 0;
   const readStatus = async () => (await prisma.shopOrder.findUnique({ where: { id: order.id }, select: { status: true } }))?.status;
@@ -249,7 +249,8 @@ export async function invalidateShopOrder(
 
   if (mode === 'REFUNDED' && paidWithRealGateway && order.paymentProvider && order.paymentId) {
     try {
-      const provider = await getPaymentProviderByName(order.paymentProvider, 'tienda');
+      // El reembolso va a la cuenta con la que SE COBRÓ el pedido (P1-11): si la tienda cambió de cuenta después, el pedido sigue en la de antes.
+      const provider = await getPaymentProviderByName(order.paymentProvider, await accountScopeForOrder('tienda', order));
       const refund = await provider.refund(order.paymentId, order.totalAmount, `refund_${order.id}`);
       if (!refund.success) {
         await prisma.shopOrder.update({ where: { id: shopOrderId }, data: { status: order.status } });

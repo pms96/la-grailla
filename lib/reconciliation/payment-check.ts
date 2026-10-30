@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { effectiveStatus, getPaymentProviderByName } from '@/lib/payment-adapter';
+import { accountScopeForOrder, effectiveStatus, getPaymentProviderByName } from '@/lib/payment-adapter';
 import { getClientIp, rateLimit } from '@/lib/rate-limit';
 import type { PaymentCheck } from '@/lib/confirmation-state';
 import type { CompleteOutcome, PaidInfo } from './shared';
@@ -42,7 +42,7 @@ async function writeCache(orderId: string, value: 'checking' | 'not_paid' | 'ref
 export async function checkCancelledOrderPayment(params: {
   kind: 'entradas' | 'tienda';
   request: Request;
-  order: { id: string; paymentProvider: string | null; paymentId: string | null };
+  order: { id: string; paymentProvider: string | null; paymentId: string | null; createdAt?: Date };
   complete: (paid: PaidInfo) => Promise<CompleteOutcome>;
 }): Promise<PaymentCheck> {
   const { kind, order } = params;
@@ -53,7 +53,7 @@ export async function checkCancelledOrderPayment(params: {
     const limit = await rateLimit('order-paycheck', `${getClientIp(params.request)}:${order.id}`, CHECKS_PER_MINUTE, 60_000);
     if (!limit.ok) return 'checking'; // sin consultar: lo último conocido no existe, y «comprobando» es lo honesto
 
-    const provider = await getPaymentProviderByName(order.paymentProvider, kind);
+    const provider = await getPaymentProviderByName(order.paymentProvider, await accountScopeForOrder(kind, order));
     const result = await provider.verifyPayment(order.paymentId);
     const status = effectiveStatus(result);
     if (status === 'PAID') {

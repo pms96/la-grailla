@@ -1,6 +1,6 @@
 /* Payment Adapter Pattern — extensible payment gateway abstraction */
 import type Stripe from 'stripe';
-import { getConfig, getConfigOrThrow, hasConfigRow } from '@/lib/config';
+import { getConfig, getConfigOrThrow, getShopAccountSince, hasConfigRow } from '@/lib/config';
 import { isModuleEnabled } from '@/lib/modules/runtime';
 import { stripeExpiresAt, sumUpValidUntil } from '@/lib/checkout-hold';
 import { roundMoney, toCents } from '@/lib/pricing';
@@ -779,6 +779,18 @@ async function paymentKeys(scope: PaymentScope): Promise<{ gateway: string; stri
   if (scope === 'entradas') return ENTRADAS_KEYS;
   if (isModuleEnabled('entradas') && !(await hasConfigRow(TIENDA_KEYS.gateway))) return ENTRADAS_KEYS;
   return TIENDA_KEYS;
+}
+
+/**
+ * La cuenta con la que se COBRÓ un pedido (P1-11 / TI-11). Entradas tiene una sola cuenta; la Tienda hereda la de Entradas hasta que guarda su propia
+ * pasarela (`shop_account_since`). Un pedido de tienda creado ANTES de ese cambio se cobró en la cuenta de Entradas: verificarlo o reembolsarlo con las claves
+ * nuevas fallaría («no existe esa sesión») y el cron lo anularía a las 24 h aunque estuviera pagado. Sin fecha de cambio (nunca cambió, o ya tenía cuenta
+ * propia antes de esta función) o sin Entradas (no hay otra cuenta), manda la cuenta actual de la Tienda. Nunca lanza.
+ */
+export async function accountScopeForOrder(kind: PaymentScope, order: { createdAt?: Date | null }): Promise<PaymentScope> {
+  if (kind !== 'tienda' || !order.createdAt || !isModuleEnabled('entradas')) return kind;
+  const since = await getShopAccountSince();
+  return since !== null && order.createdAt.getTime() < since ? 'entradas' : 'tienda';
 }
 
 /* Factory — lee la pasarela activa desde la config de la BD.

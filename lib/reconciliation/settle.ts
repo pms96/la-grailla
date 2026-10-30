@@ -1,4 +1,4 @@
-import { effectiveStatus, getPaymentProviderByName, type PaymentProvider, type PaymentResult, type PaymentScope } from '@/lib/payment-adapter';
+import { accountScopeForOrder, effectiveStatus, getPaymentProviderByName, type PaymentProvider, type PaymentResult } from '@/lib/payment-adapter';
 import { expireThenVerify } from './close-session';
 import { STALE_ORDER_SAFETY_NET_MS, isPastReleaseDeadline } from '@/lib/checkout-hold';
 import { completeOrder, releaseExpiredOrder } from './entradas';
@@ -50,8 +50,6 @@ export interface SettleOrder {
   paymentId: string | null;
   createdAt: Date;
 }
-
-const scopeOf = (kind: SettleKind): PaymentScope => kind;
 
 const releaseOrder = (kind: SettleKind, id: string) => (kind === 'entradas' ? releaseExpiredOrder(id) : releaseExpiredShopOrder(id));
 
@@ -141,7 +139,7 @@ async function decideUnpaidOrder(params: {
 
   let provider: PaymentProvider;
   try {
-    provider = await getPaymentProviderByName(order.paymentProvider!, scopeOf(kind));
+    provider = await getPaymentProviderByName(order.paymentProvider!, await accountScopeForOrder(kind, order));
   } catch (error) {
     const reason = `provider_unavailable: ${error instanceof Error ? error.message : String(error)}`;
     logUnknown(reason);

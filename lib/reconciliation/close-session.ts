@@ -1,4 +1,5 @@
 import {
+  accountScopeForOrder,
   effectiveStatus,
   getPaymentProviderByName,
   type CancelPaymentResult,
@@ -34,11 +35,11 @@ export async function expireThenVerify(
  */
 export async function closeSessionBeforeCancel(
   kind: 'entradas' | 'tienda',
-  order: { id: string; paymentProvider: string | null; paymentId: string | null }
+  order: { id: string; paymentProvider: string | null; paymentId: string | null; createdAt?: Date }
 ): Promise<{ paid?: PaymentResult }> {
   if (!order.paymentProvider || order.paymentProvider === 'mock' || !order.paymentId) return {};
   try {
-    const provider = await getPaymentProviderByName(order.paymentProvider, kind);
+    const provider = await getPaymentProviderByName(order.paymentProvider, await accountScopeForOrder(kind, order));
     if (!provider.capabilities.cancelCheckout || !provider.cancelPayment) return {};
     const { cancel, result } = await expireThenVerify(provider, order.paymentId);
     const status = effectiveStatus(result);
@@ -55,11 +56,11 @@ export async function closeSessionBeforeCancel(
 /** URL de la sesión de pago viva de un pedido PENDING, para devolverla en un reintento con la misma clave de idempotencia (TI-12 / EN-07). `null` si no hay. */
 export async function resumeCheckoutUrl(
   kind: 'entradas' | 'tienda',
-  order: { status: string; paymentProvider: string | null; paymentId: string | null }
+  order: { status: string; paymentProvider: string | null; paymentId: string | null; createdAt?: Date }
 ): Promise<string | null> {
   if (order.status !== 'PENDING' || !order.paymentId || !order.paymentProvider || order.paymentProvider === 'mock') return null;
   try {
-    const provider = await getPaymentProviderByName(order.paymentProvider, kind);
+    const provider = await getPaymentProviderByName(order.paymentProvider, await accountScopeForOrder(kind, order));
     return (await provider.resumeCheckout?.(order.paymentId)) ?? null;
   } catch {
     return null;

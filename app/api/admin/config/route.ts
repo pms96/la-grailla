@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { SHOP_ACCOUNT_SINCE_KEY, hasConfigRow } from '@/lib/config';
 import { SECRET_MASK, encryptSecret, isSensitiveConfigKey, isWriteOnlyConfigKey } from '@/lib/secrets';
 import { isConfigKeyAllowed, invalidConfigValue } from '@/lib/config-ownership';
 import { getActiveModules } from '@/lib/modules/runtime';
@@ -90,6 +91,16 @@ export async function PUT(request: Request) {
 
     // Imágenes de las secciones de contenido antes de guardar: las que se sustituyan o se quiten ya no las usa nadie.
     const sectionsBefore = await prisma.appConfig.findMany({ where: { key: { in: accepted.map((c) => c.key).filter((k) => sectionKind(k)) } } });
+
+    // P1-11: la PRIMERA vez que la Tienda guarda su propia pasarela deja de heredar la cuenta de Entradas. Se anota cuándo, para que los pedidos
+    // cobrados antes sigan verificándose y reembolsándose con la cuenta con la que se cobraron (`accountScopeForOrder`). Solo la primera vez.
+    if (accepted.some((c) => c.key === 'shop_payment_gateway') && !(await hasConfigRow('shop_payment_gateway'))) {
+      await prisma.appConfig.upsert({
+        where: { key: SHOP_ACCOUNT_SINCE_KEY },
+        update: {},
+        create: { key: SHOP_ACCOUNT_SINCE_KEY, value: String(Date.now()), label: SHOP_ACCOUNT_SINCE_KEY, group: 'system' },
+      });
+    }
 
     for (const cfg of accepted) {
       const value = isSensitiveConfigKey(cfg.key) ? encryptSecret(cfg.value, cfg.key) : cfg.value;

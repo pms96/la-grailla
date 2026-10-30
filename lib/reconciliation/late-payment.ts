@@ -1,4 +1,4 @@
-import { getPaymentProviderByName, effectiveStatus, type PaymentProvider, type PaymentScope } from '@/lib/payment-adapter';
+import { accountScopeForOrder, getPaymentProviderByName, effectiveStatus, type PaymentProvider } from '@/lib/payment-adapter';
 import { sendMail } from '@/lib/mailer';
 import { escapeHtml as esc } from '@/lib/html-escape';
 import { getBrand } from '@/lib/brand/brand';
@@ -15,7 +15,6 @@ export const lateRefundMarker = (orderId: string) => `late-refund:${orderId}`;
  * depende del módulo: comprobar de verdad el pago con la pasarela, devolver el dinero y avisar al comprador. */
 
 type Kind = 'entradas' | 'tienda';
-const scopeOf = (kind: Kind): PaymentScope => kind;
 
 export type LateGateway =
   /** La pasarela confirma el cobro y el importe cuadra con el pedido: se puede reactivar o reembolsar. */
@@ -38,14 +37,14 @@ export type LateGateway =
  */
 export async function confirmLatePayment(
   kind: Kind,
-  order: { id: string; paymentProvider: string | null; paymentId: string | null }
+  order: { id: string; paymentProvider: string | null; paymentId: string | null; createdAt?: Date }
 ): Promise<LateGateway> {
   if (!order.paymentProvider || order.paymentProvider === 'mock' || !order.paymentId) {
     return { state: 'unverifiable', reason: 'order_has_no_gateway_payment' };
   }
   let provider: PaymentProvider;
   try {
-    provider = await getPaymentProviderByName(order.paymentProvider, scopeOf(kind));
+    provider = await getPaymentProviderByName(order.paymentProvider, await accountScopeForOrder(kind, order));
   } catch (error) {
     return { state: 'unverifiable', reason: `provider_unavailable: ${error instanceof Error ? error.message : String(error)}` };
   }

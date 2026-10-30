@@ -175,6 +175,20 @@ export async function getConfigOrThrow(key: string): Promise<string> {
   return decryptConfigValue(key, raw, true);
 }
 
+/** Fila de sistema: cuándo guardó la Tienda su PROPIA pasarela por primera vez (ms desde epoch). Antes de eso cobraba con la cuenta de Entradas. */
+export const SHOP_ACCOUNT_SINCE_KEY = 'shop_account_since';
+
+/** Desde cuándo cobra la Tienda con su propia cuenta; null si nunca cambió (o no se pudo leer: se mantiene el comportamiento de siempre). */
+export async function getShopAccountSince(): Promise<number | null> {
+  try {
+    const row = await prisma.appConfig.findUnique({ where: { key: SHOP_ACCOUNT_SINCE_KEY }, select: { value: true } });
+    const n = Number(row?.value);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 /** ¿Existe la fila de esta clave? (distinto de "tiene valor": una clave guardada vacía o en «mock» existe). */
 export async function hasConfigRow(key: string): Promise<boolean> {
   try {

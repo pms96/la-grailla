@@ -4,7 +4,7 @@ export const maxDuration = 60;
 
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getPaymentProviderByName } from '@/lib/payment-adapter';
+import { accountScopeForOrder, getPaymentProviderByName } from '@/lib/payment-adapter';
 import { completeShopOrder } from '@/lib/reconciliation/tienda';
 import { handleApiError } from '@/lib/api-error';
 import { allowShopOrderAccess, getTokenFromRequest } from '@/lib/access-token';
@@ -39,7 +39,7 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
       order.paymentId
     ) {
       try {
-        const provider = await getPaymentProviderByName(order.paymentProvider, 'tienda');
+        const provider = await getPaymentProviderByName(order.paymentProvider, await accountScopeForOrder('tienda', order));
         const result = await provider.verifyPayment(order.paymentId);
         if (result.success) {
           await completeShopOrder(order.id, result);
