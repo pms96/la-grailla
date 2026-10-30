@@ -194,6 +194,27 @@ El histórico y el % de disponibilidad los guarda el propio servicio: no hace fa
 
 **Lo que no cubre:** el monitor externo y el smoke no prueban un pago real ni el SMTP; el límite de pool de Neon en un pico no se ha medido (OB-16, prueba de carga aparte).
 
+## 8 · Apagar un módulo (P1-20)
+
+**Por qué:** quitar Entradas o Tienda a un cliente con compradores a medias deja pagos sin resolver, personas con entrada para un evento próximo y paquetes sin enviar. Antes, el panel solo borraba la fila del módulo.
+
+**Qué hace ahora.** Al guardar los módulos de un cliente con **dominio verificado**, si se quita Entradas o Tienda, el panel pregunta a la web del cliente (su `/api/health`, con el secreto de ese cliente) por las obligaciones abiertas (`ops.obligations`) y **se niega** mientras las haya:
+
+| Módulo | Bloquea si hay |
+|---|---|
+| Entradas | pedidos de entradas PENDING de las últimas 24 h; eventos publicados que no han pasado (o empezaron hace menos de 12 h) con entradas válidas vendidas |
+| Tienda | pedidos de tienda PENDING de las últimas 24 h; pedidos PAID o PROCESSING sin enviar |
+
+Contabilidad, Wallets y Sponsors no tienen guarda (no dejan compradores esperando; Sponsors aún no tiene un modelo de cobro que medir).
+
+**Si no se puede comprobar** (la web no responde, o el front es anterior y no informa de sus obligaciones) **tampoco se da por bueno**: apagar es destructivo, así que pide anulación. Un cliente sin dominio verificado todavía no tiene compradores y no se comprueba.
+
+**Anulación.** El campo «Motivo para apagar con obligaciones abiertas» de la ficha (mínimo 10 caracteres) permite apagarlo igualmente. La auditoría (`subscription.set_modules`) guarda `override: { reason, blockers, unverified }`: quién lo hizo, por qué y qué obligaciones había. Lo habitual: el cliente cancela el evento y devuelve todo, o el cliente se da de baja.
+
+**Qué avisa la ficha.** Quitar un módulo hace que, **al publicar**, todas sus direcciones den 404, también las que ya estén indexadas.
+
+**Lo que NO está hecho (queda de P1-20):** el estado intermedio `WINDING_DOWN` (ventas nuevas cerradas y obligaciones abiertas hasta que no queden) y el paso a `OFF` automático; la exportación previa para el propietario; la retención con purga de datos personales; y el kill-switch por módulo (MO-12). Las guardas son del panel: quitar un módulo tocando la BD de control a mano las salta.
+
 ## Revisión independiente (aplicada)
 
 Un agente revisó M7 con mentalidad adversarial y verificó cada hallazgo; los reales se arreglaron con su test:

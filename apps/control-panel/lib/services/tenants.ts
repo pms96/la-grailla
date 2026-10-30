@@ -8,6 +8,8 @@ import { openField, sealField } from '../secrets-store';
 import { assertSameDatabase, databaseFingerprint } from './db-identity';
 import { claimDomain, parseHostOrThrow } from './domains';
 import { ServiceError } from './errors';
+import { GUARDED_MODULES, checkModuleRemoval } from './module-guards';
+import type { FetchLike } from './tenant-calls';
 import { readTenantMarker } from './tenant-db';
 
 export const DB_URL_POOLED_FIELD = 'db_url_pooled';
@@ -142,9 +144,39 @@ export async function createTenant(input: CreateTenantInput, actor: ActingOperat
   }
 }
 
-/** Sustituye la lista de módulos (el núcleo no se puede quitar). */
-export async function setModules(subscriptionId: string, requested: string[], actor: ActingOperator) {
+export const MIN_OVERRIDE_REASON = 10;
+
+/**
+ * Sustituye la lista de módulos (el núcleo no se puede quitar).
+ *
+ * Quitar Entradas o Tienda (P1-20) se comprueba ANTES contra la salud del cliente: con pedidos pendientes, eventos por venir con entradas
+ * vendidas o pedidos de tienda sin enviar, se niega. `override.reason` anula la guarda (también cuando no se puede comprobar) y queda en la
+ * auditoría con lo que se asumió. La comprobación va fuera de la transacción: es una llamada de red y la transacción caduca a los 5 s.
+ */
+export async function setModules(
+  subscriptionId: string,
+  requested: string[],
+  actor: ActingOperator,
+  opts: { override?: { reason: string }; healthFetch?: FetchLike } = {}
+) {
   assertCan(actor.role, 'tenants:write');
+  const pre = await prisma.subscription.findUnique({ where: { id: subscriptionId }, include: { modules: true, domains: true } });
+  if (!pre) throw new ServiceError('not_found', 'Suscripción no encontrada');
+  const preWanted = await resolveModules(prisma, pre.productKey, requested);
+  const preRemoved = pre.modules.map((m) => m.moduleKey).filter((m) => !preWanted.includes(m));
+  const check = await checkModuleRemoval(pre, preRemoved, { healthFetch: opts.healthFetch });
+  const open = check.blockers.length > 0 || check.unverified !== null;
+  const reason = opts.override?.reason.trim() ?? '';
+  if (open && !reason) {
+    const why = check.blockers.length ? `hay obligaciones abiertas (${check.blockers.join('; ')})` : check.unverified;
+    throw new ServiceError(
+      'module_obligations',
+      `No se apaga ${preRemoved.filter((m) => GUARDED_MODULES.includes(m)).join(' y ')}: ${why}. Espera a que se resuelvan o, si es imprescindible, apágalo indicando el motivo (queda en la auditoría).`
+    );
+  }
+  if (open && reason.length < MIN_OVERRIDE_REASON) {
+    throw new ServiceError('override_reason_required', `El motivo de la anulación debe tener al menos ${MIN_OVERRIDE_REASON} caracteres`);
+  }
   return prisma.$transaction(async (tx) => {
     const sub = await tx.subscription.findUnique({ where: { id: subscriptionId }, include: { modules: true } });
     if (!sub) throw new ServiceError('not_found', 'Suscripción no encontrada');
@@ -152,6 +184,10 @@ export async function setModules(subscriptionId: string, requested: string[], ac
     const current = sub.modules.map((m) => m.moduleKey);
     const added = wanted.filter((m) => !current.includes(m));
     const removed = current.filter((m) => !wanted.includes(m));
+    // Alguien cambió los módulos mientras se comprobaba: lo comprobado ya no es lo que se va a quitar.
+    if (removed.some((m) => GUARDED_MODULES.includes(m) && !preRemoved.includes(m))) {
+      throw new ServiceError('conflict', 'Los módulos cambiaron mientras se comprobaban los pedidos; repite la operación');
+    }
     if (added.length === 0 && removed.length === 0) return { added, removed };
     if (removed.length) await tx.subscriptionModule.deleteMany({ where: { subscriptionId, moduleKey: { in: removed } } });
     if (added.length) {
@@ -163,7 +199,8 @@ export async function setModules(subscriptionId: string, requested: string[], ac
       targetType: 'subscription',
       targetId: subscriptionId,
       tenantId: sub.tenantId,
-      meta: { added, removed },
+      // Con guarda anulada queda quién asumió qué: el motivo, las obligaciones que había y si ni siquiera se pudo comprobar.
+      meta: open ? { added, removed, override: { reason, blockers: check.blockers, unverified: check.unverified } } : { added, removed },
     });
     return { added, removed };
   });

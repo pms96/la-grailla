@@ -354,6 +354,13 @@ export default async function TenantPage({ params }: { params: { id: string } })
                         {m.monthlyAddon && <span className="muted"> · suplemento mensual</span>}
                       </label>
                     ))}
+                    <p className="muted">
+                      Quitar un módulo hace que, al publicar, todas sus direcciones den 404 (también las que ya estén en Google). Entradas y Tienda no se quitan con pedidos pendientes, eventos por venir con entradas vendidas o pedidos sin enviar.
+                    </p>
+                    <label>
+                      Motivo para apagar con obligaciones abiertas (solo si hace falta)
+                      <input name="overrideReason" type="text" maxLength={300} placeholder="Mínimo 10 caracteres; queda en la auditoría" />
+                    </label>
                   </ActionForm>
                 ) : (
                   <div className="chips">

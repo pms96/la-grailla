@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OpsBlockSchema, SALES_BUSY_ORDERS_15MIN, isSalesWindowBusy, parseOpsBlock } from '../src';
+import { OpsBlockSchema, SALES_BUSY_ORDERS_15MIN, isSalesWindowBusy, moduleObligations, parseOpsBlock } from '../src';
 
 const ok = {
   generatedAt: '2026-10-27T10:00:00.000Z',
@@ -44,6 +44,24 @@ describe('bloque ops de la salud (contrato)', () => {
     expect(isSalesWindowBusy({ orders15min: SALES_BUSY_ORDERS_15MIN - 1, waitingRoom: 0 })).toBe(false);
     expect(isSalesWindowBusy({ orders15min: SALES_BUSY_ORDERS_15MIN, waitingRoom: 0 })).toBe(true);
     expect(isSalesWindowBusy({ orders15min: 0, waitingRoom: 1 })).toBe(true);
+  });
+
+  it('`obligations` (P1-20): opcional, nullable y con cuatro contadores no negativos', () => {
+    const o = { ticketOrdersPending: 0, futureEventsWithTickets: 1, shopOrdersPending: 2, shopOrdersToShip: 3 };
+    expect(parseOpsBlock({ ...ok, obligations: o })).toEqual({ status: 'ok', ops: { ...ok, obligations: o } });
+    expect(parseOpsBlock({ ...ok, obligations: null }).status).toBe('ok');
+    expect(parseOpsBlock({ ...ok, obligations: { ...o, shopOrdersToShip: -1 } }).status).toBe('invalid');
+    expect(parseOpsBlock({ ...ok, obligations: { ticketOrdersPending: 1 } }).status).toBe('invalid');
+  });
+
+  it('`moduleObligations`: cada módulo solo mira lo suyo, y sin obligaciones no bloquea', () => {
+    const open = { ticketOrdersPending: 2, futureEventsWithTickets: 1, shopOrdersPending: 4, shopOrdersToShip: 5 };
+    expect(moduleObligations('entradas', open)).toEqual(['2 pedido(s) de entradas pendientes de pago', '1 evento(s) por venir con entradas vendidas']);
+    expect(moduleObligations('tienda', open)).toEqual(['4 pedido(s) de tienda pendientes de pago', '5 pedido(s) de tienda pagados sin enviar']);
+    for (const m of ['contabilidad', 'wallets', 'sponsors', 'nucleo']) expect(moduleObligations(m, open)).toEqual([]);
+    const none = { ticketOrdersPending: 0, futureEventsWithTickets: 0, shopOrdersPending: 0, shopOrdersToShip: 0 };
+    expect(moduleObligations('entradas', none)).toEqual([]);
+    expect(moduleObligations('tienda', none)).toEqual([]);
   });
 
   it('ausente (front anterior) no es un error; null tampoco', () => {

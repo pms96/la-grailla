@@ -63,6 +63,36 @@ export function isSalesWindowBusy(sales: OpsSales): boolean {
   return sales.waitingRoom > 0 || sales.orders15min >= SALES_BUSY_ORDERS_15MIN;
 }
 
+/** Obligaciones abiertas AHORA (P1-20): lo que impide apagar un módulo sin dejar a compradores colgados. Solo contadores, sin datos personales. */
+export const OpsObligationsSchema = z.object({
+  /** Pedidos de entradas PENDING de las últimas 24 h (un comprador a medio pago; los más viejos los resuelve la conciliación). */
+  ticketOrdersPending: count,
+  /** Eventos publicados que aún no han pasado (o empezaron hace menos de 12 h) con entradas válidas vendidas. */
+  futureEventsWithTickets: count,
+  /** Pedidos de tienda PENDING de las últimas 24 h. */
+  shopOrdersPending: count,
+  /** Pedidos de tienda pagados que todavía no se han enviado (PAID o PROCESSING). */
+  shopOrdersToShip: count,
+});
+export type OpsObligations = z.infer<typeof OpsObligationsSchema>;
+
+/** Módulos con obligaciones medibles hoy. Contabilidad y Wallets no dejan compradores esperando; Sponsors no tiene aún un modelo de cobro que medir. */
+export type GuardedModule = 'entradas' | 'tienda';
+
+/** Obligaciones abiertas que bloquean apagar `moduleKey`, en claro y con su cifra. Vacío = se puede apagar. */
+export function moduleObligations(moduleKey: string, o: OpsObligations): string[] {
+  const out: string[] = [];
+  if (moduleKey === 'entradas') {
+    if (o.ticketOrdersPending > 0) out.push(`${o.ticketOrdersPending} pedido(s) de entradas pendientes de pago`);
+    if (o.futureEventsWithTickets > 0) out.push(`${o.futureEventsWithTickets} evento(s) por venir con entradas vendidas`);
+  }
+  if (moduleKey === 'tienda') {
+    if (o.shopOrdersPending > 0) out.push(`${o.shopOrdersPending} pedido(s) de tienda pendientes de pago`);
+    if (o.shopOrdersToShip > 0) out.push(`${o.shopOrdersToShip} pedido(s) de tienda pagados sin enviar`);
+  }
+  return out;
+}
+
 export const OpsBlockSchema = z.object({
   /** Cuándo se calculó el bloque (ISO). */
   generatedAt: isoDate,
@@ -80,6 +110,8 @@ export const OpsBlockSchema = z.object({
   gateway: OpsGatewaySchema.nullable().optional(),
   /** Actividad de venta ahora (P1-22). Ausente = un front anterior que no la mide; null = no se pudo medir. */
   sales: OpsSalesSchema.nullable().optional(),
+  /** Obligaciones abiertas (P1-20). Ausente = un front anterior que no las mide; null = no se pudo medir. */
+  obligations: OpsObligationsSchema.nullable().optional(),
 });
 export type OpsBlock = z.infer<typeof OpsBlockSchema>;
 

@@ -193,7 +193,8 @@ export async function engineCheckAction(tenantId: string, subscriptionId: string
 
 export async function setModulesAction(tenantId: string, subscriptionId: string, _p: ActionState, fd: FormData) {
   return run('tenants:write', tenantId, async (actor) => {
-    await setModules(subscriptionId, fd.getAll('modules').filter((v): v is string => typeof v === 'string'), actor);
+    const reason = str(fd, 'overrideReason');
+    await setModules(subscriptionId, fd.getAll('modules').filter((v): v is string => typeof v === 'string'), actor, reason ? { override: { reason } } : {});
     return 'Módulos guardados. Publica para que lleguen a la web del cliente.';
   });
 }

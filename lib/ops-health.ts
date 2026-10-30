@@ -54,6 +54,15 @@ export interface OpsBlock {
   gateway: GatewaySummary | null;
   /** Actividad de venta ahora (P1-22): con ella el runner de migraciones y los despliegues saben si es mal momento. null = no se pudo medir. */
   sales: SalesActivity | null;
+  /** Obligaciones abiertas (P1-20): con ellas el panel se niega a apagar Entradas o Tienda con compradores a medias. null = no se pudo medir. */
+  obligations: OpenObligations | null;
+}
+
+export interface OpenObligations {
+  ticketOrdersPending: number;
+  futureEventsWithTickets: number;
+  shopOrdersPending: number;
+  shopOrdersToShip: number;
 }
 
 export interface SalesActivity {
@@ -64,6 +73,10 @@ export interface SalesActivity {
 }
 
 const SALES_WINDOW_MS = 15 * 60_000;
+/** Un pedido PENDING más viejo que esto es un pago abandonado (lo resuelve la conciliación), no un comprador esperando. */
+const OBLIGATION_PENDING_MS = 24 * 3_600_000;
+/** Un evento que empezó hace menos de esto sigue contando como «por venir»: la noche aún no ha terminado. */
+const EVENT_ONGOING_MS = 12 * 3_600_000;
 
 /** Tope de tiempo de TODO el bloque: el health lo lee el panel con un tiempo de espera corto. */
 export const OPS_TIMEOUT_MS = 3000;
@@ -107,7 +120,7 @@ export function parseReconcileSummary(raw: string | null | undefined): OpsBlock[
 
 export async function collectOps(now = Date.now(), timeoutMs = OPS_TIMEOUT_MS): Promise<OpsBlock | null> {
   try {
-    const out: OpsBlock = { generatedAt: new Date(now).toISOString(), pendingOldestMinutes: null, pendingOver20min: null, emailsUnsent: null, emailsFailed: null, reconcile: null, gateway: null, sales: null };
+    const out: OpsBlock = { generatedAt: new Date(now).toISOString(), pendingOldestMinutes: null, pendingOver20min: null, emailsUnsent: null, emailsFailed: null, reconcile: null, gateway: null, sales: null, obligations: null };
     let collected = 0;
     // Una medida que falla (o no llega a tiempo) deja su campo en null; las demás siguen.
     const measure = async (fn: () => Promise<void>) => {
@@ -154,6 +167,16 @@ export async function collectOps(now = Date.now(), timeoutMs = OPS_TIMEOUT_MS): 
           prisma.waitingRoomEntry.count({ where: { status: { in: ['WAITING', 'ADMITTED'] } } }),
         ]);
         out.sales = { orders15min, waitingRoom };
+      }),
+      measure(async () => {
+        const recent = { gte: new Date(now - OBLIGATION_PENDING_MS) };
+        const [ticketOrdersPending, futureEventsWithTickets, shopOrdersPending, shopOrdersToShip] = await Promise.all([
+          prisma.order.count({ where: { status: 'PENDING', createdAt: recent } }),
+          prisma.event.count({ where: { status: 'PUBLISHED', date: { gte: new Date(now - EVENT_ONGOING_MS) }, tickets: { some: { status: 'VALID' } } } }),
+          prisma.shopOrder.count({ where: { status: 'PENDING', createdAt: recent } }),
+          prisma.shopOrder.count({ where: { status: { in: ['PAID', 'PROCESSING'] } } }),
+        ]);
+        out.obligations = { ticketOrdersPending, futureEventsWithTickets, shopOrdersPending, shopOrdersToShip };
       }),
     ]);
     let timer: ReturnType<typeof setTimeout> | undefined;
