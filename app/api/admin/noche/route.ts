@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
-import { ENTRY_RESULTS } from '@/lib/scan-results';
+import { ENTRY_RESULTS, REENTRY_RESULT } from '@/lib/scan-results';
 
 const ENTRY_WINDOW_MS = 5 * 60 * 1000;
 
@@ -55,7 +55,8 @@ export async function GET(request: Request) {
           where: { eventId, result: { in: [...ENTRY_RESULTS] }, createdAt: { gte: since } },
         }),
         prisma.scanLog.count({
-          where: { eventId, createdAt: { gte: since } },
+          // Una reentrada autorizada no es un escaneo rechazado (H-077).
+          where: { eventId, result: { not: REENTRY_RESULT }, createdAt: { gte: since } },
         }),
         prisma.order.findMany({
           where: { eventId, status: 'COMPLETED' },

@@ -156,7 +156,7 @@ export default function AdminDashboard({ accounting = false }: { accounting?: bo
                 <p className="font-semibold">Evento en marcha</p>
                 <p className="text-sm text-muted-foreground truncate">{tonightEvent.name}</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {tonightEvent.currentCount ?? 0}/{tonightEvent.maxCapacity ?? 0} dentro · {tonightEvent.soldCount ?? 0} vendidas
+                  {tonightEvent.currentCount ?? 0}/{tonightEvent.maxCapacity ?? 0} han entrado ·{tonightEvent.soldCount ?? 0} vendidas
                 </p>
               </div>
             </div>

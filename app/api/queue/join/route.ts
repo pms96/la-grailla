@@ -113,6 +113,8 @@ export async function POST(request: Request) {
       status: fresh.status,
       token: fresh.token,
       expiresAt: fresh.expiresAt,
+      // Tiempo restante medido con el reloj del SERVIDOR (H-091): la cuenta atrás del comprador no depende de la hora de su dispositivo.
+      remainingMs: fresh.status === 'ADMITTED' && fresh.expiresAt ? Math.max(0, fresh.expiresAt.getTime() - Date.now()) : undefined,
       waitingRoomMessage: event.waitingRoomMessage,
     });
   } catch (error) {

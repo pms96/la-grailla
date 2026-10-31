@@ -67,7 +67,13 @@ export async function GET(request: Request) {
       });
     }
 
-    return NextResponse.json({ status: entry.status, token: entry.token, expiresAt: entry.expiresAt });
+    return NextResponse.json({
+      status: entry.status,
+      token: entry.token,
+      expiresAt: entry.expiresAt,
+      // Tiempo restante medido con el reloj del SERVIDOR (H-091): la cuenta atrás del comprador no depende de la hora de su dispositivo.
+      remainingMs: entry.status === 'ADMITTED' && entry.expiresAt ? Math.max(0, entry.expiresAt.getTime() - Date.now()) : undefined,
+    });
   } catch (error) {
     return handleApiError(error, 'GET /api/queue/status');
   }

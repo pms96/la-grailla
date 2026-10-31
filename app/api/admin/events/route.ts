@@ -9,7 +9,7 @@ import { handleApiError } from '@/lib/api-error';
 import { seasonLinkEnabled, withoutSeasonLink } from '@/lib/modules/season-link';
 import { parseEventDateInput } from '@/lib/event-time';
 import { parseEventNumberSettings } from '@/lib/waiting-room-settings';
-import { ENTRY_RESULTS, isEntryResult } from '@/lib/scan-results';
+import { ENTRY_RESULTS, REENTRY_RESULT, isEntryResult } from '@/lib/scan-results';
 
 const createEventSchema = z.object({
   name: z.string().min(1),
@@ -93,7 +93,8 @@ export async function GET(request: Request) {
     const enriched = (events ?? []).map((ev) => {
       const scans = recentScans.filter((s) => s.eventId === ev.id);
       const validCount = scans.filter((s) => isEntryResult(s.result)).reduce((sum, s) => sum + (s._count?._all ?? 0), 0);
-      const totalCount = scans.reduce((sum, s) => sum + (s._count?._all ?? 0), 0);
+      // Una reentrada autorizada no es un escaneo rechazado (H-077).
+      const totalCount = scans.filter((s) => s.result !== REENTRY_RESULT).reduce((sum, s) => sum + (s._count?._all ?? 0), 0);
       const topScanners = validScannerCounts
         .filter((c) => c.eventId === ev.id && c.scannerId)
         .sort((a, b) => (b._count?._all ?? 0) - (a._count?._all ?? 0))

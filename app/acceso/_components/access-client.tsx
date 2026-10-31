@@ -34,6 +34,10 @@ type ScanResult = {
   entryTime?: string;
   eventName?: string;
   eventDate?: string;
+  /** Solo en el veredicto de duplicado: lo que necesita el ADMIN para autorizar una reentrada (H-077). */
+  ticketId?: string;
+  /** Duplicado que es un reintento de la misma puerta (H-074): ámbar, sin botón de reentrada. */
+  retry?: boolean;
 };
 
 /** Un asistente encontrado en la búsqueda manual (`GET /api/access/search`). */
@@ -71,6 +75,7 @@ type DoorEvent = Pick<Event, 'id' | 'name' | 'date' | 'status' | 'currentCount' 
 
 export default function AccessClient() {
   const { data: session } = useSession() || {};
+  const isAdmin = session?.user?.role === 'ADMIN';
   const [events, setEvents] = useState<DoorEvent[]>([]);
   // Solo para la pestaña de taquilla (necesita los tipos de entrada y su precio): es una VENTA, así que con la licencia vencida o el
   // módulo apagado esta lectura falla y la lista queda vacía, sin afectar al escáner.
@@ -162,12 +167,13 @@ export default function AccessClient() {
     setScanning(true);
 
     // Clear result after 4 seconds (también cuando falla: la pantalla nunca se queda bloqueada).
-    const clearLater = () => {
+    // Un duplicado visto por un ADMIN se queda 8 s: es el tiempo para pulsar «Permitir reentrada» (H-077).
+    const clearLater = (ms = 4000) => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = setTimeout(() => {
         setScanResult(null);
         setScanning(false);
-      }, 4000);
+      }, ms);
     };
 
     try {
@@ -193,12 +199,35 @@ export default function AccessClient() {
         // Una admisión manual ya está hecha: se quita de la lista para no admitirla dos veces.
         if ('ticketId' in payload) setFound((prev) => (prev ?? []).map((t) => (t.ticketId === payload.ticketId ? { ...t, status: 'USED', admittable: false, entryTime: new Date().toISOString() } : t)));
       }
-      clearLater();
+      clearLater(canAllowReentry(verdict) ? 8000 : 4000);
     } catch {
       setScanResult(doorFailure(null));
       clearLater();
     }
-  }, [scanning, selectedEvent]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanning, selectedEvent, isAdmin]);
+
+  // El ADMIN autoriza que alguien que ya entró vuelva a entrar (salió a fumar): queda registrado, no suma a «han entrado» (H-077).
+  const canAllowReentry = (v: ScanResult | null) => isAdmin && v?.result === 'DUPLICATE' && !v.retry && Boolean(v.ticketId);
+  const allowReentry = async (ticketId: string) => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    try {
+      const res = await fetch('/api/scan/reentry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticketId, eventId: selectedEvent }),
+        signal: AbortSignal.timeout(8000),
+      });
+      const data = await res.json().catch(() => null);
+      setScanResult(isDoorVerdict(data) ? data : doorFailure(res.status, (data as { error?: unknown } | null)?.error, (data as { code?: unknown } | null)?.code));
+    } catch {
+      setScanResult(doorFailure(null));
+    }
+    timeoutRef.current = setTimeout(() => {
+      setScanResult(null);
+      setScanning(false);
+    }, 4000);
+  };
 
   const handleSearch = async () => {
     const q = manualCode.trim();
@@ -255,6 +284,18 @@ export default function AccessClient() {
             </p>
             <p className="text-2xl md:text-4xl font-bold mb-4">{scanResult?.message ?? ''}</p>
             {scanResult?.ticketType && <p className="text-lg opacity-80">Tipo: {scanResult.ticketType}</p>}
+            {canAllowReentry(scanResult) && scanResult?.ticketId && (
+              <button
+                type="button"
+                className="mt-6 rounded-lg bg-white px-6 py-3 text-lg font-semibold text-black shadow-lg"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void allowReentry(scanResult.ticketId as string);
+                }}
+              >
+                Permitir reentrada
+              </button>
+            )}
             <p className="text-sm opacity-60 mt-6">Toca para continuar</p>
           </div>
         </div>
@@ -306,7 +347,8 @@ export default function AccessClient() {
                 <Users className="h-5 w-5 text-primary" />
                 <div>
                   <span className="font-bold text-xl">{capacity?.current ?? 0} / {capacity?.max ?? 0}</span>
-                  <p className="text-xs text-muted-foreground">{capacity?.sold ?? 0} entradas vendidas</p>
+                  {/* «han entrado» es un acumulado de admitidos: no descuenta a quien sale (H-077). */}
+                  <p className="text-xs text-muted-foreground">han entrado · {capacity?.sold ?? 0} entradas vendidas</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">

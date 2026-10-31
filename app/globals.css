@@ -38,6 +38,8 @@
 
     /* Brand extras */
     --lima: 72 76% 56%;
+    /* Lima como color de TEXTO (H-093): el lima de fondo sobre blanco da ~1,4:1; este llega a 5:1. En oscuro vuelve a ser el lima de siempre. */
+    --lima-text: 72 90% 24%;
     --neon-pink: 330 100% 70%;
     --warm-yellow: 46 91% 53%;
     --lavender: 280 45% 78%;
@@ -103,6 +105,7 @@
     --destructive: 0 63% 31%;
     --destructive-foreground: 0 0% 98%;
     --destructive-text: 0 86% 72%;
+    --lima-text: 72 76% 56%;
 
     --border: 245 15% 18%;
     --input: 245 15% 18%;

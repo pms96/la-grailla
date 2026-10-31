@@ -92,6 +92,9 @@ export const CaptchaWidget = forwardRef<CaptchaWidgetHandle, Props>(function Cap
           'timeout-callback': () => onTokenRef.current(null),
           'error-callback': () => {
             onTokenRef.current(null);
+            // H-094: además de avisar a quien lo usa, se muestra el aviso con «Reintentar». Antes, tras el único intento «a ciegas» el comprador quedaba en
+            // «Una comprobación rápida» con un hueco vacío, sin error ni forma de reintentar.
+            setFailed(true);
             onUnavailableRef.current?.();
             return true;
           },

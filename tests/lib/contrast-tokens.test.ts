@@ -42,6 +42,21 @@ describe('contraste del texto de error (H-083)', () => {
     });
   }
 
+  // H-093: las pegatinas «En cola» y «Es tu turno» usaban `text-lima` (#C5E63A) sobre la tarjeta blanca: ~1,4:1 en tema claro. El texto lima usa `--lima-text`.
+  for (const [theme, block] of [['claro', light], ['oscuro', dark]] as const) {
+    it(`en tema ${theme}, --lima-text llega a 4,5:1 sobre el fondo y sobre las tarjetas`, () => {
+      const text = token(block, 'lima-text');
+      expect(contrast(text, token(block, 'background'))).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(text, token(block, 'card'))).toBeGreaterThanOrEqual(4.5);
+    });
+  }
+
+  it('las pegatinas de la sala de espera usan `text-lima-text`, no `text-lima`', () => {
+    const src = readFileSync(join(process.cwd(), 'app/(public)/eventos/[slug]/comprar/_components/waiting-room-gate.tsx'), 'utf8');
+    expect(src).not.toMatch(/brand-sticker[^"]*text-lima(?![-\w])/);
+    expect(src).toMatch(/brand-sticker[^"]*text-lima-text/);
+  });
+
   it('ningún texto usa `text-destructive` a secas (usa `text-destructive-text`); solo los iconos decorativos con opacidad', () => {
     const offenders: string[] = [];
     const walk = (dir: string) => {

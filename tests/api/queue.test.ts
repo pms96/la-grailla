@@ -81,6 +81,31 @@ describe('sala de espera (queue/join, queue/status)', () => {
     expect((await status.json()).status).toBe('ADMITTED');
   });
 
+  // H-091: la cuenta atrás del comprador usaba el reloj de su dispositivo. El servidor manda ahora el tiempo restante medido en SU reloj.
+  it('un turno ADMITIDO trae remainingMs (tiempo restante según el servidor) en el join y en el estado', async () => {
+    const event = await createWaitingRoomEvent({ concurrentSlots: 1, purchaseWindowSeconds: 300 });
+    createdEventIds.push(event.id);
+
+    const joinJson = await (await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.28'))).json();
+    expect(joinJson.status).toBe('ADMITTED');
+    expect(joinJson.remainingMs).toBeGreaterThan(290_000);
+    expect(joinJson.remainingMs).toBeLessThanOrEqual(300_000);
+
+    const statusJson = await (await queueStatus(statusRequest(event.id, joinJson.token, '203.0.113.28'))).json();
+    expect(statusJson.status).toBe('ADMITTED');
+    expect(statusJson.remainingMs).toBeGreaterThan(290_000);
+    expect(statusJson.remainingMs).toBeLessThanOrEqual(joinJson.remainingMs);
+  });
+
+  it('un turno en espera no trae remainingMs', async () => {
+    const event = await createWaitingRoomEvent({ concurrentSlots: 1 });
+    createdEventIds.push(event.id);
+    await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.27'));
+    const waiting = await (await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.26'))).json();
+    expect(waiting.status).toBe('WAITING');
+    expect(waiting.remainingMs).toBeUndefined();
+  });
+
   it('sin hueco libre, deja en espera con la posición correcta', async () => {
     const event = await createWaitingRoomEvent({ concurrentSlots: 1 });
     createdEventIds.push(event.id);

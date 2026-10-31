@@ -60,6 +60,7 @@ const config: Config = {
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
         lima: 'hsl(var(--lima))',
+        'lima-text': 'hsl(var(--lima-text))',
         'neon-pink': 'hsl(var(--neon-pink))',
         'warm-yellow': 'hsl(var(--warm-yellow))',
         lavender: 'hsl(var(--lavender))',

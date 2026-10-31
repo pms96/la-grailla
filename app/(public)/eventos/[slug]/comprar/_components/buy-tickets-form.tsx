@@ -1,7 +1,7 @@
 'use client';
 
 import { MAX_TICKETS_PER_TYPE } from '@/lib/checkout-limits';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CaptchaWidget, type CaptchaWidgetHandle } from '@/components/captcha-widget';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -91,7 +91,7 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-export default function BuyTicketsForm({ event, queueToken }: { event: EventData; queueToken?: string }) {
+export default function BuyTicketsForm({ event, queueToken, onSubmittingChange }: { event: EventData; queueToken?: string; onSubmittingChange?: (submitting: boolean) => void }) {
   const router = useRouter();
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [buyerName, setBuyerName] = useState('');
@@ -99,6 +99,10 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
   const [buyerEmail, setBuyerEmail] = useState('');
   const [errors, setErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(false);
+  // La sala de espera necesita saber si hay un envío en curso: no se desmonta el formulario (por caducidad del turno) en mitad de la compra (H-091).
+  useEffect(() => {
+    onSubmittingChange?.(loading);
+  }, [loading, onSubmittingChange]);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   // Captcha: el widget está siempre que el cliente lo tenga activado, aunque haya turno de cola (si el admin apaga la cola a media venta, el servidor

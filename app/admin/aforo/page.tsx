@@ -88,7 +88,7 @@ export default function AforoPage() {
                       <Users className="h-6 w-6 text-primary" />
                       <span className="font-display text-4xl font-bold">{ev?.currentCount ?? 0}</span>
                     </div>
-                    <span className="text-muted-foreground text-lg mb-1">/ {ev?.maxCapacity ?? 0} dentro</span>
+                    <span className="text-muted-foreground text-lg mb-1">han entrado · aforo {ev?.maxCapacity ?? 0}</span>
                   </div>
                   <CapacityBar current={ev?.currentCount ?? 0} max={ev?.maxCapacity ?? 0} sold={sold} size="lg" />
                   <div className="flex items-center justify-between mt-2">

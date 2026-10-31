@@ -95,6 +95,8 @@ describe('POST /api/scan', () => {
     const res = await scanTicket(scanRequest({ qrCode, eventId: event.id }));
     const json = await res.json();
     expect(json.result).toBe('DUPLICATE');
+    // La puerta lo necesita para que el ADMIN pueda autorizar una reentrada desde este veredicto (H-077).
+    expect(json.ticketId).toBe(ticketId);
   });
 
   it('la «hora de entrada» del duplicado va en hora de Madrid, no en la del servidor (UTC)', async () => {

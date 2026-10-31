@@ -9,6 +9,7 @@ import { FadeIn } from '@/components/ui/animate';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { CaptchaWidget } from '@/components/captcha-widget';
+import { busyRetryMs, countdownAnnouncement, createTokenStore, isBusyStatus, readJsonSafe, remainingFrom } from '@/lib/queue-client';
 import BuyTicketsForm, { type EventData } from './buy-tickets-form';
 
 // Curva de ease-out reforzada (equivalente a --ease-out en globals.css).
@@ -20,7 +21,8 @@ type QueueState =
   | { status: 'CHECKING' }
   | { status: 'CAPTCHA' }
   | { status: 'WAITING'; token: string; position: number; message: string | null }
-  | { status: 'ADMITTED'; token: string; expiresAt: string }
+  // `remainingMs` es el tiempo restante según el servidor y `receivedAt` el instante (reloj monótono) en que llegó: la cuenta atrás no depende de la hora del dispositivo (H-091).
+  | { status: 'ADMITTED'; token: string; expiresAt: string; remainingMs?: number; receivedAt: number }
   | { status: 'EXPIRED' }
   | { status: 'STUCK'; reason: 'slow' | 'network' | 'limit'; message?: string };
 
@@ -31,6 +33,7 @@ type QueueApiResult = {
   token?: string | null;
   position?: number;
   expiresAt?: string;
+  remainingMs?: number;
   waitingRoomMessage?: string | null;
   code?: string;
   // Cuánto esperar antes del siguiente sondeo, decidido por el servidor (P1-12). Ausente en un servidor anterior.
@@ -57,31 +60,38 @@ function nextPollMs(data: QueueApiResult, position: number): number {
   return pollIntervalFor(position);
 }
 
-function storageKey(eventId: string): string {
-  return `queue_token_${eventId}`;
-}
+// El turno se guarda en localStorage y, si el navegador lo bloquea, en memoria (H-102): ver `createTokenStore`.
+const tokens = createTokenStore();
 
-// `Number(header) * 1000 || 5000` trataba un `Retry-After: 0` real (el
-// servidor pidiendo reintentar ya mismo) como "sin cabecera", porque
-// `0 || 5000` cae al valor por defecto — retrasaba el reintento 5s de más
-// justo cuando el servidor pedía lo contrario.
-function retryAfterMs(res: Response, fallbackMs: number): number {
+// Un `Retry-After: 0` real (el servidor pidiendo reintentar ya mismo) es un valor válido, no «sin cabecera».
+function retryAfterSeconds(res: Response): number | null {
   const raw = res.headers.get('Retry-After');
-  const seconds = raw === null ? NaN : Number(raw);
-  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : fallbackMs;
+  if (raw === null) return null;
+  const seconds = Number(raw);
+  return Number.isFinite(seconds) ? seconds : null;
 }
 
 const CHECKING_SLOW_MS = 12000;
 const MAX_NETWORK_RETRIES_BEFORE_STUCK = 4;
+// Con el servidor «ocupado» (429/5xx) se sigue reintentando con calma, pero no para siempre: pasado esto se ofrece reintentar a mano (~10-20 min).
+const MAX_BUSY_RETRIES_BEFORE_STUCK = 40;
 
 export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) {
   const [state, setState] = useState<QueueState>(
-    event.waitingRoomEnabled ? { status: 'CHECKING' } : { status: 'ADMITTED', token: '', expiresAt: '' }
+    event.waitingRoomEnabled ? { status: 'CHECKING' } : { status: 'ADMITTED', token: '', expiresAt: '', receivedAt: 0 }
   );
   const reduceMotion = useReducedMotion();
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const slowTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const networkFailsRef = useRef(0);
+  // «Servidor ocupado» (429/5xx, esperado en un lanzamiento): se reintenta con calma y se avisa, sin contarlo como fallo de red (H-090).
+  const busyFailsRef = useRef(0);
+  const [busy, setBusy] = useState(false);
+  // ¿Hay un envío de la compra en curso? Si sí, la caducidad del turno no desmonta el formulario a medias (H-091).
+  const submittingRef = useRef(false);
+  const onSubmittingChange = useCallback((submitting: boolean) => {
+    submittingRef.current = submitting;
+  }, []);
   // Evita que un poll tardío pise un estado STUCK / EXPIRED tras reintento manual.
   const generationRef = useRef(0);
   // Token del captcha para el PRÓXIMO intento de entrar en la cola: vale una sola vez, así que se vacía al enviarlo.
@@ -116,24 +126,39 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
     }, ms);
   }, []);
 
+  // El servidor contestó 429/5xx: el turno sigue vivo, se reintenta con calma (lo que pida Retry-After, acotado) sin contarlo como fallo de red (H-090).
+  const scheduleBusyRetry = useCallback((fn: () => void, retryAfter: number | null, gen: number) => {
+    busyFailsRef.current += 1;
+    if (busyFailsRef.current >= MAX_BUSY_RETRIES_BEFORE_STUCK) {
+      if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+      setBusy(false);
+      setState({ status: 'STUCK', reason: 'slow' });
+      return;
+    }
+    // Mientras hay un aviso de «mucha gente» el aviso de lentitud de 12 s no tiene sentido: ya se explica y se reintenta solo.
+    if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+    setBusy(true);
+    timeoutRef.current = setTimeout(() => {
+      if (generationRef.current !== gen) return;
+      fn();
+    }, busyRetryMs(retryAfter));
+  }, []);
+
   const applyResult = useCallback(
     (data: QueueApiResult) => {
       networkFailsRef.current = 0;
+      busyFailsRef.current = 0;
+      setBusy(false);
       if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
 
-      if (data?.token && typeof window !== 'undefined') {
-        window.localStorage.setItem(storageKey(event.id), data.token);
-      }
+      if (data?.token) tokens.set(event.id, data.token);
       // El token del turno no siempre viaja en cada respuesta (p. ej. si algún
       // endpoint lo omite) — nunca lo pisamos con vacío, siempre caemos al que
-      // ya conocíamos en localStorage para no invalidar un turno válido.
-      const knownToken =
-        data?.token ??
-        (typeof window !== 'undefined' ? window.localStorage.getItem(storageKey(event.id)) : null) ??
-        '';
+      // ya conocíamos para no invalidar un turno válido.
+      const knownToken = data?.token ?? tokens.get(event.id) ?? '';
 
       if (data?.status === 'ADMITTED') {
-        setState({ status: 'ADMITTED', token: knownToken, expiresAt: data.expiresAt ?? '' });
+        setState({ status: 'ADMITTED', token: knownToken, expiresAt: data.expiresAt ?? '', remainingMs: data.remainingMs, receivedAt: performance.now() });
       } else if (data?.status === 'WAITING') {
         setState({
           status: 'WAITING',
@@ -155,7 +180,7 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
         if (data.status === 'COMPLETED') {
           toast.info('Ya completaste una compra para este evento. Te llevamos de nuevo a la cola por si quieres más entradas.');
         }
-        if (typeof window !== 'undefined') window.localStorage.removeItem(storageKey(event.id));
+        tokens.remove(event.id);
         setState({ status: 'CHECKING' });
         startSlowWatch();
         joinRef.current();
@@ -170,7 +195,7 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
 
   const join = useCallback(async () => {
     const gen = generationRef.current;
-    const token = typeof window !== 'undefined' ? window.localStorage.getItem(storageKey(event.id)) : null;
+    const token = tokens.get(event.id);
     const captchaToken = captchaTokenRef.current;
     captchaTokenRef.current = null;
     try {
@@ -180,7 +205,8 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
         body: JSON.stringify({ eventId: event.id, token, captchaToken }),
       });
       if (generationRef.current !== gen) return;
-      const data = (await res.json()) as QueueApiResult;
+      // Un 502 de la plataforma trae HTML: sin esto `res.json()` lanzaba y se ignoraba el código y el Retry-After (H-090).
+      const data = (await readJsonSafe<QueueApiResult>(res)) ?? ({} as QueueApiResult);
       // Entrar en la cola pide la comprobación de seguridad (solo con captcha activado): se pinta el widget y, con su token, se reintenta.
       if (res.status === 400 && event.captchaSiteKey && (data?.code === 'captcha_required' || data?.code === 'captcha_failed')) {
         if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
@@ -199,7 +225,11 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
           setState({ status: 'STUCK', reason: 'limit', message: typeof data.error === 'string' ? data.error : undefined });
           return;
         }
-        scheduleRetry(() => joinRef.current(), retryAfterMs(res, 5000), gen);
+        if (isBusyStatus(res.status)) {
+          scheduleBusyRetry(() => joinRef.current(), retryAfterSeconds(res), gen);
+          return;
+        }
+        scheduleRetry(() => joinRef.current(), 5000, gen);
         return;
       }
       applyResult(data);
@@ -209,11 +239,11 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
       // bloquear al comprador con una pantalla de error.
       scheduleRetry(() => joinRef.current(), 3000, gen);
     }
-  }, [event.id, event.captchaSiteKey, applyResult, scheduleRetry]);
+  }, [event.id, event.captchaSiteKey, applyResult, scheduleRetry, scheduleBusyRetry]);
 
   const poll = useCallback(async () => {
     const gen = generationRef.current;
-    const token = typeof window !== 'undefined' ? window.localStorage.getItem(storageKey(event.id)) : null;
+    const token = tokens.get(event.id);
     if (!token) {
       joinRef.current();
       return;
@@ -221,9 +251,13 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
     try {
       const res = await fetch(`/api/queue/status?eventId=${event.id}&token=${encodeURIComponent(token)}`);
       if (generationRef.current !== gen) return;
-      const data = (await res.json()) as QueueApiResult;
+      const data = (await readJsonSafe<QueueApiResult>(res)) ?? ({} as QueueApiResult);
       if (!res.ok) {
-        scheduleRetry(() => pollRef.current(), retryAfterMs(res, 5000), gen);
+        if (isBusyStatus(res.status)) {
+          scheduleBusyRetry(() => pollRef.current(), retryAfterSeconds(res), gen);
+          return;
+        }
+        scheduleRetry(() => pollRef.current(), 5000, gen);
         return;
       }
       applyResult(data);
@@ -231,7 +265,7 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
       if (generationRef.current !== gen) return;
       scheduleRetry(() => pollRef.current(), 3000, gen);
     }
-  }, [event.id, applyResult, scheduleRetry]);
+  }, [event.id, applyResult, scheduleRetry, scheduleBusyRetry]);
 
   joinRef.current = () => {
     void join();
@@ -244,6 +278,7 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
     if (!event.waitingRoomEnabled) return;
     generationRef.current += 1;
     networkFailsRef.current = 0;
+    busyFailsRef.current = 0;
     setState({ status: 'CHECKING' });
     startSlowWatch();
     void join();
@@ -257,6 +292,8 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
   const retryFromStuck = () => {
     generationRef.current += 1;
     networkFailsRef.current = 0;
+    busyFailsRef.current = 0;
+    setBusy(false);
     clearTimers();
     setState({ status: 'CHECKING' });
     startSlowWatch();
@@ -264,9 +301,11 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
   };
 
   const rejoin = () => {
-    if (typeof window !== 'undefined') window.localStorage.removeItem(storageKey(event.id));
+    tokens.remove(event.id);
     generationRef.current += 1;
     networkFailsRef.current = 0;
+    busyFailsRef.current = 0;
+    setBusy(false);
     clearTimers();
     setState({ status: 'CHECKING' });
     startSlowWatch();
@@ -291,6 +330,7 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
             <p className="text-sm text-muted-foreground max-w-sm mx-auto">
               Estamos viendo si hay cola para este evento. No cierres la pestaña.
             </p>
+            {busy && <BusyNotice />}
           </div>
           <BackToEvent slug={event.slug} />
         </div>
@@ -379,10 +419,10 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
           <div className="absolute top-0 right-0 w-40 h-40 rounded-full bg-lima/10 blur-3xl" />
           <div className="absolute bottom-0 left-0 w-40 h-40 rounded-full bg-neon-pink/8 blur-3xl" />
 
-          <div className="relative brand-sticker text-sm text-lima border-lima/60 shadow-lima/30 mx-auto">
+          <div className="relative brand-sticker text-sm text-lima-text mx-auto">
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-lima opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-lima" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-lima-text opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-lima-text" />
             </span>
             En cola
           </div>
@@ -416,6 +456,8 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
             </p>
           )}
 
+          {busy && <BusyNotice />}
+
           <div className="relative space-y-2 text-xs text-muted-foreground max-w-sm mx-auto">
             <p>Tu turno está guardado en este dispositivo. Si sales y vuelves a esta página, recuperas tu sitio.</p>
             <p>No hace falta refrescar: la cola avanza sola.</p>
@@ -434,7 +476,7 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
           <Hourglass className="h-10 w-10 text-muted-foreground mx-auto" aria-hidden />
           <h1 className="font-display text-xl font-bold tracking-tight">Tu turno ha terminado</h1>
           <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-            Se acabó el tiempo para completar la compra. Puedes volver a la cola — no se ha cobrado nada.
+            Se acabó el tiempo para completar la compra. Puedes volver a la cola. Si llegaste a pagar, te llegará la confirmación por correo; si no, no se ha cobrado nada.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <Button onClick={rejoin} className="gap-2">
@@ -450,14 +492,29 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
   // ADMITTED
   return (
     <div className="space-y-4">
-      <div className="brand-sticker text-sm text-lima border-lima/60 shadow-lima/30" role="status" aria-live="polite">
+      <div className="brand-sticker text-sm text-lima-text" role="status" aria-live="polite">
         <Ticket className="h-3.5 w-3.5" /> Es tu turno — completa la compra
       </div>
       {state.expiresAt && (
-        <AdmittedCountdown expiresAt={state.expiresAt} onExpire={() => setState({ status: 'EXPIRED' })} />
+        <AdmittedCountdown
+          expiresAt={state.expiresAt}
+          remainingMs={state.remainingMs}
+          receivedAt={state.receivedAt}
+          submittingRef={submittingRef}
+          onExpire={() => setState({ status: 'EXPIRED' })}
+        />
       )}
-      <BuyTicketsForm event={event} queueToken={state.token} />
+      <BuyTicketsForm event={event} queueToken={state.token} onSubmittingChange={onSubmittingChange} />
     </div>
+  );
+}
+
+// Aviso mientras el servidor contesta «ocupado» (429/5xx): se reintenta solo, no es un fallo de la conexión del comprador.
+function BusyNotice() {
+  return (
+    <p className="relative text-sm text-muted-foreground max-w-sm mx-auto" role="status">
+      Hay mucha gente entrando ahora mismo. Seguimos intentándolo solos; no pierdes tu sitio.
+    </p>
   );
 }
 
@@ -481,18 +538,44 @@ function BackToEvent({ slug, asButton }: { slug: string; asButton?: boolean }) {
   );
 }
 
-function AdmittedCountdown({ expiresAt, onExpire }: { expiresAt: string; onExpire: () => void }) {
-  const [remainingMs, setRemainingMs] = useState(() => new Date(expiresAt).getTime() - Date.now());
+function AdmittedCountdown({
+  expiresAt,
+  remainingMs: serverRemainingMs,
+  receivedAt,
+  submittingRef,
+  onExpire,
+}: {
+  expiresAt: string;
+  remainingMs?: number;
+  receivedAt: number;
+  submittingRef: { current: boolean };
+  onExpire: () => void;
+}) {
+  // El tiempo restante sale del reloj del servidor (H-091); el del dispositivo solo cuenta lo que pasa desde que llegó la respuesta.
+  const compute = () => remainingFrom({ remainingMs: serverRemainingMs, expiresAt }, receivedAt, performance.now(), Date.now());
+  const [remainingMs, setRemainingMs] = useState(compute);
+  // Aviso para lectores de pantalla SOLO al cruzar 60 s y 10 s (H-092): un `aria-live="assertive"` en el temporizador recitaba cada segundo durante un minuto.
+  const [announcement, setAnnouncement] = useState('');
+  const previousSecondsRef = useRef(Math.ceil(compute() / 1000));
 
   useEffect(() => {
     const i = setInterval(() => {
-      const remaining = new Date(expiresAt).getTime() - Date.now();
+      const remaining = compute();
       setRemainingMs(remaining);
-      if (remaining <= 0) onExpire();
+      const seconds = Math.max(0, Math.ceil(remaining / 1000));
+      const message = countdownAnnouncement(previousSecondsRef.current, seconds);
+      previousSecondsRef.current = seconds;
+      if (message) {
+        setAnnouncement(message);
+        // Aviso visible al llegar al último minuto: antes el formulario desaparecía a los 0 s sin más aviso que el rojo del contador (H-091).
+        if (seconds > 10) toast.warning('Te queda 1 minuto para completar la compra.');
+      }
+      // Con un envío en curso no se desmonta el formulario a mitad de la compra: se espera a que termine (el servidor decide si el turno aún valía).
+      if (remaining <= 0 && !submittingRef.current) onExpire();
     }, 1000);
     return () => clearInterval(i);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expiresAt]);
+  }, [expiresAt, serverRemainingMs, receivedAt]);
 
   const totalSeconds = Math.max(0, Math.floor(remainingMs / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -500,15 +583,15 @@ function AdmittedCountdown({ expiresAt, onExpire }: { expiresAt: string; onExpir
   const low = totalSeconds <= 60;
 
   return (
-    <p
-      className={cn(
-        'text-xs font-mono transition-colors duration-300',
-        low ? 'text-destructive-text' : 'text-muted-foreground'
-      )}
-      role="timer"
-      aria-live={low ? 'assertive' : 'off'}
-    >
-      Te quedan {minutes}:{String(seconds).padStart(2, '0')} para completar la compra
-    </p>
+    <div>
+      <p className={cn('text-xs font-mono transition-colors duration-300', low ? 'text-destructive-text' : 'text-muted-foreground')} role="timer" aria-live="off">
+        {remainingMs <= 0 && submittingRef.current
+          ? 'Terminando tu compra…'
+          : `Te quedan ${minutes}:${String(seconds).padStart(2, '0')} para completar la compra`}
+      </p>
+      <span className="sr-only" role="status" aria-live="polite">
+        {announcement}
+      </span>
+    </div>
   );
 }

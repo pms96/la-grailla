@@ -43,11 +43,11 @@ async function isRetryOfSameScanner(ticketId: string, scannerId: string | undefi
   return Boolean(log);
 }
 
-function duplicateVerdict(entryTime: Date | null | undefined, retry: boolean) {
+function duplicateVerdict(ticketId: string, entryTime: Date | null | undefined, retry: boolean) {
   const hora = formatMadridTime(entryTime);
   return retry
-    ? { result: 'DUPLICATE', message: `ACABA DE ENTRAR — reintento de la misma lectura (${hora})`, entryTime, color: 'yellow', retry: true }
-    : { result: 'DUPLICATE', message: `YA ENTRÓ — Hora de entrada: ${hora}`, entryTime, color: 'red' };
+    ? { result: 'DUPLICATE', ticketId, message: `ACABA DE ENTRAR — reintento de la misma lectura (${hora})`, entryTime, color: 'yellow', retry: true }
+    : { result: 'DUPLICATE', ticketId, message: `YA ENTRÓ — Hora de entrada: ${hora}`, entryTime, color: 'red' };
 }
 
 export async function POST(request: Request) {
@@ -178,7 +178,7 @@ export async function POST(request: Request) {
           result: 'DUPLICATE',
         },
       });
-      return NextResponse.json(duplicateVerdict(ticket.entryTime, await isRetryOfSameScanner(ticket.id, session.user?.id, ticket.entryTime)));
+      return NextResponse.json(duplicateVerdict(ticket.id, ticket.entryTime, await isRetryOfSameScanner(ticket.id, session.user?.id, ticket.entryTime)));
     }
 
     // Valid ticket — mark as used. El `ticket` de arriba se leyó fuera de esta
@@ -223,7 +223,7 @@ export async function POST(request: Request) {
 
     if (outcome === 'DUPLICATE') {
       const freshTicket = await prisma.ticket.findUnique({ where: { id: ticket.id } });
-      return NextResponse.json(duplicateVerdict(freshTicket?.entryTime, await isRetryOfSameScanner(ticket.id, session.user?.id, freshTicket?.entryTime)));
+      return NextResponse.json(duplicateVerdict(ticket.id, freshTicket?.entryTime, await isRetryOfSameScanner(ticket.id, session.user?.id, freshTicket?.entryTime)));
     }
 
     void checkCapacityAlerts(ticket.eventId);
