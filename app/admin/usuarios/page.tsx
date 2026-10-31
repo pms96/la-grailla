@@ -227,7 +227,7 @@ export default function UsuariosPage() {
                   title={user?.id === session?.user?.id ? 'No puedes eliminar tu propia cuenta' : undefined}
                   onClick={() => handleDelete(user?.id)}
                 >
-                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                  <Trash2 className="h-3.5 w-3.5 text-destructive-text" />
                 </Button>
               </div>
             </CardContent>

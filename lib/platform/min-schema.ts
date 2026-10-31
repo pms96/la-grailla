@@ -9,4 +9,4 @@
  * Un test comprueba que la carpeta existe y que no es posterior a la última migración del repo.
  *
  * Archivo sin dependencias de Node: lo importa el middleware (edge). */
-export const FRONT_MIN_SCHEMA = '20261031100000_accounting_controls';
+export const FRONT_MIN_SCHEMA = '20261101100000_waiting_room_heartbeat';

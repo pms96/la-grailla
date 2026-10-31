@@ -220,7 +220,7 @@ export default function ShopCheckoutClient({
                       aria-invalid={!!errors.buyerName}
                     />
                     {errors.buyerName && (
-                      <p className="text-sm text-destructive" role="alert">
+                      <p className="text-sm text-destructive-text" role="alert">
                         {errors.buyerName}
                       </p>
                     )}
@@ -242,7 +242,7 @@ export default function ShopCheckoutClient({
                       aria-invalid={!!errors.buyerEmail}
                     />
                     {errors.buyerEmail ? (
-                      <p className="text-sm text-destructive" role="alert">
+                      <p className="text-sm text-destructive-text" role="alert">
                         {errors.buyerEmail}
                       </p>
                     ) : (
@@ -265,7 +265,7 @@ export default function ShopCheckoutClient({
                       aria-invalid={!!errors.shippingAddress}
                     />
                     {errors.shippingAddress && (
-                      <p className="text-sm text-destructive" role="alert">
+                      <p className="text-sm text-destructive-text" role="alert">
                         {errors.shippingAddress}
                       </p>
                     )}
@@ -285,7 +285,7 @@ export default function ShopCheckoutClient({
                       aria-invalid={!!errors.shippingCity}
                     />
                     {errors.shippingCity && (
-                      <p className="text-sm text-destructive" role="alert">
+                      <p className="text-sm text-destructive-text" role="alert">
                         {errors.shippingCity}
                       </p>
                     )}
@@ -306,7 +306,7 @@ export default function ShopCheckoutClient({
                       aria-invalid={!!errors.shippingZip}
                     />
                     {errors.shippingZip && (
-                      <p className="text-sm text-destructive" role="alert">
+                      <p className="text-sm text-destructive-text" role="alert">
                         {errors.shippingZip}
                       </p>
                     )}
@@ -350,7 +350,7 @@ export default function ShopCheckoutClient({
             </Card>
 
             {formError && (
-              <p className="text-sm text-destructive" role="alert">
+              <p className="text-sm text-destructive-text" role="alert">
                 {formError}
               </p>
             )}

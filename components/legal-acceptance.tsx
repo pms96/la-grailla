@@ -56,7 +56,7 @@ export function LegalAcceptance({
         </Label>
       </div>
       {error && (
-        <p id={`terms-${kind}-error`} className="text-sm text-destructive" role="alert">
+        <p id={`terms-${kind}-error`} className="text-sm text-destructive-text" role="alert">
           {error}
         </p>
       )}
@@ -76,7 +76,7 @@ export function LegalAcceptance({
         </div>
       )}
       {ageError && (
-        <p className="text-sm text-destructive" role="alert">
+        <p className="text-sm text-destructive-text" role="alert">
           {ageError}
         </p>
       )}

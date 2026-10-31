@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
-import { pollAfterMsFor, sweepAndAdmit } from '@/lib/waiting-room';
+import { liveWaitingWhere, pollAfterMsFor, sweepAndAdmit, touchWaitingEntry } from '@/lib/waiting-room';
 import { handleApiError } from '@/lib/api-error';
 import { captchaRejection, verifyCaptcha } from '@/lib/captcha';
 
@@ -20,7 +20,12 @@ const DEFAULT_PURCHASE_WINDOW_SECONDS = 300;
 // ADMITTED, adelantando a compradores reales. Se cuentan solo entradas
 // vivas (WAITING/ADMITTED) — una vez COMPLETED/EXPIRED, ya no cuentan contra
 // el límite y esa IP puede volver a entrar.
-const MAX_LIVE_ENTRIES_PER_IP = 3;
+// H-072: eran 3 y una oficina, un wifi de local o una IP móvil compartida (CGNAT) dejaba a la 4.ª persona fuera. Es un freno contra scripts, no una
+// defensa completa (rotando IP se evade; la defensa real es el captcha): 10 por defecto, ajustable por despliegue con WAITING_ROOM_MAX_LIVE_PER_IP.
+const MAX_LIVE_ENTRIES_PER_IP = (() => {
+  const n = Number.parseInt(process.env.WAITING_ROOM_MAX_LIVE_PER_IP ?? '', 10);
+  return Number.isFinite(n) && n >= 1 && n <= 1000 ? n : 10;
+})();
 
 const joinSchema = z.object({
   eventId: z.string().min(1),
@@ -31,7 +36,8 @@ const joinSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const limit = await rateLimit('queue-join', getClientIp(request), 20, 60_000);
+    // Una entrada por persona: 60 por minuto y IP aguanta una oficina o una IP móvil compartida sin dejar pasar un script (el tope de turnos vivos lo frena igual).
+    const limit = await rateLimit('queue-join', getClientIp(request), 60, 60_000);
     if (!limit.ok) {
       return NextResponse.json(
         { error: 'Demasiados intentos. Espera un momento.' },
@@ -72,7 +78,7 @@ export async function POST(request: Request) {
       });
       if (liveEntriesFromIp >= MAX_LIVE_ENTRIES_PER_IP) {
         return NextResponse.json(
-          { error: 'Ya tienes demasiados turnos abiertos para este evento desde esta conexión.' },
+          { error: 'Ya hay demasiados turnos abiertos para este evento desde esta conexión. Espera a que alguno termine e inténtalo de nuevo.', code: 'queue_ip_limit' },
           { status: 429 }
         );
       }
@@ -81,8 +87,11 @@ export async function POST(request: Request) {
       const captcha = await verifyCaptcha(request, body.captchaToken, 'queue');
       if (!captcha.ok) return captchaRejection(captcha);
       entry = await prisma.waitingRoomEntry.create({
-        data: { eventId: event.id, token: crypto.randomUUID(), ip },
+        data: { eventId: event.id, token: crypto.randomUUID(), ip, lastSeenAt: new Date() },
       });
+    } else {
+      // Vuelve con su turno (recarga la página): cuenta como presente, para que el barrido no lo salte (H-071).
+      await touchWaitingEntry({ id: entry.id });
     }
 
     await sweepAndAdmit(event.id, concurrentSlots, windowSeconds);
@@ -94,7 +103,7 @@ export async function POST(request: Request) {
 
     if (fresh.status === 'WAITING') {
       const position = await prisma.waitingRoomEntry.count({
-        where: { eventId: event.id, status: 'WAITING', joinedAt: { lt: fresh.joinedAt } },
+        where: { eventId: event.id, ...liveWaitingWhere(), joinedAt: { lt: fresh.joinedAt } },
       });
       return NextResponse.json({
         status: 'WAITING',

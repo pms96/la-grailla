@@ -114,6 +114,41 @@ describe('cancelación de evento y cambio de fecha (P1-04)', () => {
     await prisma.appConfig.update({ where: { key: jobKey() }, data: { value: JSON.stringify(job) } });
   }
 
+  // H-041: el cron y el bucle de «continuar» del diálogo (~1 s) se solapaban; cada pasada lee el trabajo, procesa decenas de segundos y reescribe el
+  // objeto ENTERO: se pisaban `failed[].attempts`, `mailFailed` y `nextAt`. Ahora una sola pasada por evento (reserva con caducidad).
+  describe('una sola pasada a la vez por evento (H-041)', () => {
+    const lockId = () => `event-cancel-run:${event.id}`;
+    afterEach(async () => {
+      await prisma.processedWebhookEvent.deleteMany({ where: { id: lockId() } });
+    });
+
+    it('con otra pasada en marcha no procesa nada: devuelve el progreso tal cual', async () => {
+      const a = await mk({ total: 20 });
+      await startCancellation(event.id, { refund: true, notify: false, startedBy: 'admin-test' });
+      await prisma.processedWebhookEvent.create({ data: { id: lockId() } }); // otra pasada viva
+      const progress = await processCancellation(event.id, { deadline: farDeadline() });
+      expect(progress?.refundsRemaining).toBe(1);
+      expect(await status(a.id)).toBe('COMPLETED');
+      expect(gateway.count('refund')).toBe(0);
+    });
+
+    it('una reserva caducada (la pasada murió) se retoma', async () => {
+      const a = await mk({ total: 20 });
+      await startCancellation(event.id, { refund: true, notify: false, startedBy: 'admin-test' });
+      await prisma.processedWebhookEvent.create({ data: { id: lockId(), processedAt: new Date(Date.now() - 10 * 60_000) } });
+      await processCancellation(event.id, { deadline: farDeadline() });
+      expect(await status(a.id)).toBe('REFUNDED');
+    });
+
+    it('al terminar libera la reserva, también si falla el reembolso', async () => {
+      await mk({ total: 20 });
+      await startCancellation(event.id, { refund: true, notify: false, startedBy: 'admin-test' });
+      gateway.refundResult = new Error('pasarela caída');
+      await processCancellation(event.id, { deadline: farDeadline() });
+      expect(await prisma.processedWebhookEvent.count({ where: { id: lockId() } })).toBe(0);
+    });
+  });
+
   describe('vista previa', () => {
     it('cuenta lo reembolsable, lo que queda a mano, lo pendiente y a quién se puede avisar', async () => {
       await mk({ total: 20 });

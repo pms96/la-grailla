@@ -155,7 +155,7 @@ export default function EntradasPage() {
               </div>
               <div className="flex gap-1">
                 <Button variant="ghost" size="icon-sm" onClick={() => openEdit(tt)}><Pencil className="h-3.5 w-3.5" /></Button>
-                <Button variant="ghost" size="icon-sm" onClick={() => handleDelete(tt?.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                <Button variant="ghost" size="icon-sm" onClick={() => handleDelete(tt?.id)}><Trash2 className="h-3.5 w-3.5 text-destructive-text" /></Button>
               </div>
             </CardContent>
           </Card>

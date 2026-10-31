@@ -74,7 +74,7 @@ export async function POST(request: Request) {
           importeSinIva: body.importeSinIva,
           ivaPercent: body.ivaPercent,
           // Sin fecha: el día natural de Madrid como medianoche UTC (el formato de las demás filas), no el instante actual.
-          fecha: new Date(body.fecha ?? madridDayKey(new Date())),
+          fecha: new Date(body.fecha || madridDayKey(new Date())), // `||`: una fecha vacía ("") también es «sin fecha» (H-001)
           numDocumento: body.numDocumento || null,
           tipoDocumento: body.tipoDocumento,
           notas: body.notas || null,

@@ -53,6 +53,20 @@ export function IngresoDialog({ open, onOpenChange, editing, temporadaId, onSave
       });
     } else {
       setForm(emptyForm(fechaPorDefecto ?? madridDayKey(new Date())));
+      // La jornada propuesta puede llevar horas de retraso (la página se cargó con la pestaña abierta) o ignorar el corte si aún no había resumen:
+      // al abrir se le pregunta al servidor la de AHORA, y solo se aplica si la persona no ha tocado ya la fecha (H-002).
+      let cancelled = false;
+      fetch('/api/admin/ingresos/jornada')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data: { jornadaHoy?: string } | null) => {
+          if (cancelled || !data?.jornadaHoy) return;
+          const fresh = data.jornadaHoy;
+          setForm((f) => (f.fecha === (fechaPorDefecto ?? madridDayKey(new Date())) ? { ...f, fecha: fresh } : f));
+        })
+        .catch(() => {});
+      return () => {
+        cancelled = true;
+      };
     }
   }, [open, editing, fechaPorDefecto]);
 

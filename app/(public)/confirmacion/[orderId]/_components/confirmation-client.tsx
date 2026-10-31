@@ -353,7 +353,7 @@ export default function ConfirmationClient({
           <CardContent className="p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
-                <Mail className={`h-5 w-5 mt-0.5 shrink-0 ${notice.tone === 'problem' ? 'text-destructive' : 'text-primary'}`} />
+                <Mail className={`h-5 w-5 mt-0.5 shrink-0 ${notice.tone === 'problem' ? 'text-destructive-text' : 'text-primary'}`} />
                 <div role="status" aria-live="polite">
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.p
@@ -369,8 +369,8 @@ export default function ConfirmationClient({
                   </AnimatePresence>
                   <p className="text-sm text-muted-foreground">{notice.detail}</p>
                   {resend === 'queued' && <p className="text-sm text-muted-foreground mt-1">Hecho: te lo estamos enviando de nuevo.</p>}
-                  {resend === 'error' && <p className="text-sm text-destructive mt-1">No hemos podido reenviarlo ahora. Descarga tus entradas aquí mismo.</p>}
-                  {resend === 'limited' && <p className="text-sm text-destructive mt-1">Has pedido demasiados reenvíos de este pedido. Prueba de nuevo más tarde o descarga tus entradas aquí mismo.</p>}
+                  {resend === 'error' && <p className="text-sm text-destructive-text mt-1">No hemos podido reenviarlo ahora. Descarga tus entradas aquí mismo.</p>}
+                  {resend === 'limited' && <p className="text-sm text-destructive-text mt-1">Has pedido demasiados reenvíos de este pedido. Prueba de nuevo más tarde o descarga tus entradas aquí mismo.</p>}
                   {(notice.offerDownload || resend === 'error' || resend === 'limited') && (
                     <a
                       href={`/api/tickets/${orderId}/pdf-html${tokenQs}`}

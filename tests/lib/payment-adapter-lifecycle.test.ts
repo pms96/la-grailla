@@ -203,12 +203,25 @@ describe('reembolsos hechos a mano (M2): verifyPayment los detecta', () => {
 
   it.each([
     ['reembolso total (refunded: true)', { id: 'ch_1', amount_refunded: 1000, refunded: true }],
-    ['reembolso PARCIAL (amount_refunded > 0, refunded: false)', { id: 'ch_1', amount_refunded: 300, refunded: false }],
+    ['reembolso del importe entero sin la marca `refunded`', { id: 'ch_1', amount: 1000, amount_refunded: 1000, refunded: false }],
   ])('Stripe: %s → REFUNDED, no success, con motivo', async (_n, charge) => {
     stripeMock.retrieve.mockResolvedValue(paidSession(charge));
     const r = await stripe().verifyPayment('cs_1');
     expect(r).toMatchObject({ success: false, status: 'REFUNDED' });
     expect(r.error).toMatch(/reembolsado/);
+  });
+
+  // H-031: un reembolso PARCIAL hecho a mano NO es un reembolso total. Tratarlo como total anulaba entradas y liberaba aforo
+  // y el comprador se quedaba sin el resto. Sigue siendo PAID (el dinero que queda es el de un pedido vigente) y se informa de lo devuelto.
+  it('Stripe: reembolso PARCIAL (amount_refunded > 0, refunded: false) sigue siendo PAID y lleva el importe devuelto', async () => {
+    stripeMock.retrieve.mockResolvedValue(paidSession({ id: 'ch_1', amount: 1000, amount_refunded: 300, refunded: false }));
+    const r = await stripe().verifyPayment('cs_1');
+    expect(r).toMatchObject({ success: true, status: 'PAID', amount: 10, refundedAmount: 3 });
+  });
+
+  it('Stripe: un reembolso parcial sin `amount` en el cargo tampoco es total', async () => {
+    stripeMock.retrieve.mockResolvedValue(paidSession({ id: 'ch_1', amount_refunded: 300, refunded: false }));
+    expect(await stripe().verifyPayment('cs_1')).toMatchObject({ status: 'PAID', refundedAmount: 3 });
   });
 
   it('si el cargo no viene expandido (string o null) no se inventa un reembolso: PAID como siempre', async () => {

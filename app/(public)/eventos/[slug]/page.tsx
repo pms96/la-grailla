@@ -152,7 +152,7 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
         <p className="text-sm text-muted-foreground mb-4 flex items-center gap-1">
           <Users className="h-3.5 w-3.5" />
           {eventCancelled
-            ? <span className="text-destructive font-medium">Evento cancelado</span>
+            ? <span className="text-destructive-text font-medium">Evento cancelado</span>
             : eventEnded
             ? 'Evento finalizado'
             : taquillaOnly

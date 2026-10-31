@@ -225,6 +225,8 @@ model WaitingRoomEntry {
   joinedAt   DateTime          @default(now())
   admittedAt DateTime?
   expiresAt  DateTime?
+  // Última vez que el cliente sondeó (latido). Solo se admite a quien lo ha hecho hace poco (H-071); null = fila de un front anterior (cuenta como vista en `joinedAt`).
+  lastSeenAt DateTime?
   event      Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@index([eventId, status, joinedAt])

@@ -81,6 +81,15 @@ export async function rateLimit(scope: string, identifier: string, limit: number
   return { ok: true, remaining: limit - row.count, retryAfter: 0 };
 }
 
+/** Devuelve el cupo de un `rateLimit` (borra su fila). Para quien toma el cupo antes de hacer el trabajo y el trabajo falla. Nunca lanza. */
+export async function resetRateLimit(scope: string, identifier: string): Promise<void> {
+  try {
+    await prisma.rateLimitBucket.deleteMany({ where: { key: `${scope}:${identifier}` } });
+  } catch (error) {
+    console.error('[resetRateLimit]', error instanceof Error ? error.message : error);
+  }
+}
+
 /* Cupo de pedidos PENDIENTES simultáneos (P0-04). No cuenta intentos por minuto (eso es `rateLimit`): cuenta los pedidos que esa IP tiene SIN
  * PAGAR ahora mismo. Cada pedido pendiente ocupa una fila de `RateLimitBucket` (la infraestructura que ya hay, sin tablas nuevas) que se
  * libera al pagarse, liberarse o anularse el pedido y que, en todo caso, caduca sola con la retención. El recuento y la inserción van dentro de

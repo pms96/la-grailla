@@ -22,6 +22,8 @@ import { gateway } from '../helpers/fake-gateway';
 const ctl = vi.hoisted(() => ({
   calls: [] as { to: string; subject: string; html: string; attachments: number }[],
   mode: 'ok' as 'ok' | 'fail',
+  /** Con `mode: 'fail'`, deja pasar el aviso al operador (H-116: si el aviso no se entrega, el cupo de 24 h se devuelve y se reintenta). */
+  alertGetsThrough: false,
   failWith: 'smtp_failed: ETIMEDOUT: Connection timeout',
   /** `errorCode` que devuelve el mailer falso al fallar (smtp_failed = genérico; smtp_unavailable = sistémico; smtp_rejected = permanente). */
   errorCode: 'smtp_failed' as 'smtp_failed' | 'smtp_unavailable' | 'smtp_rejected' | 'smtp_not_configured',
@@ -51,7 +53,8 @@ vi.mock('@/lib/mailer', async (orig) => {
       } finally {
         ctl.active -= 1;
       }
-      return ctl.mode === 'fail' ? { success: false, transport: 'none' as const, error: ctl.failWith, errorCode: ctl.errorCode } : { success: true, transport: 'smtp' as const };
+      const isAlert = /emails de pedidos que no se pueden enviar/.test(p.subject);
+      return ctl.mode === 'fail' && !(ctl.alertGetsThrough && isAlert) ? { success: false, transport: 'none' as const, error: ctl.failWith, errorCode: ctl.errorCode } : { success: true, transport: 'smtp' as const };
     },
   };
 });
@@ -122,6 +125,7 @@ describe('entrega del email del pedido (P0-08)', () => {
     gateway.active = true; // los webhooks y el cron piden la pasarela: la falsa
     ctl.calls.length = 0;
     ctl.mode = 'ok';
+    ctl.alertGetsThrough = false;
     ctl.failWith = 'smtp_failed: ETIMEDOUT: Connection timeout';
     ctl.errorCode = 'smtp_failed';
     ctl.hang = false;
@@ -306,6 +310,7 @@ describe('entrega del email del pedido (P0-08)', () => {
       const b = await mkOrder({ attempts: EMAIL_MAX_ATTEMPTS - 1, touchedAgoMs: 201 * MIN, lastError: 'smtp_failed: ETIMEDOUT' });
       const c = await mkOrder({ attempts: EMAIL_MAX_ATTEMPTS - 1, touchedAgoMs: 202 * MIN, lastError: 'smtp_failed: ETIMEDOUT' });
       ctl.mode = 'fail'; // fallo genérico (no sistémico): consume intentos
+      ctl.alertGetsThrough = true; // el aviso al operador sí se entrega (si no, H-116 devuelve el cupo y se reintenta, que es otro caso)
       const r = await sweepUnsentOrderEmails({ deadline: Date.now() + 30_000, concurrency: 5 });
       expect(r).toMatchObject({ examined: 3, failed: 3, exhausted: 3, systemic: 0 });
       for (const o of [a, b, c]) expect((await getEmailState('entradas', o.id))?.status).toBe('exhausted');

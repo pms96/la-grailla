@@ -50,7 +50,7 @@ export async function POST(request: Request) {
     const body = createIngresoSchema.parse(await request.json());
     const open = await checkTemporadaAbierta(body.temporadaId);
     if (!open.ok) return NextResponse.json({ error: open.error, code: open.code }, { status: open.status });
-    const fecha = new Date(body.fecha ?? (await jornadaHoy()));
+    const fecha = new Date(body.fecha || (await jornadaHoy())); // `||`: una fecha vacía ("") también es «sin fecha» (H-001)
     // El ingreso y su rastro de auditoría se escriben juntos.
     const ingreso = await prisma.$transaction(async (tx) => {
       const created = await tx.ingreso.create({

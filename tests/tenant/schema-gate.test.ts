@@ -13,7 +13,7 @@ import { FakeRegistry, makeSigner, publishTenant } from '../helpers/registry';
 /* M7: puerta por versión de esquema. Un cliente cuya BD está por detrás de lo que exige este build recibe «en mantenimiento»;
  * el resto de clientes del mismo despliegue no se enteran. */
 
-const MIN = '20261031100000_accounting_controls';
+const MIN = '20261101100000_waiting_room_heartbeat';
 const OLDER = '20261008213000_contact_inbox';
 const NEWER = '20271231000000_futura';
 

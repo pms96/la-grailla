@@ -69,7 +69,7 @@ export default function SetPasswordForm({ token }: { token: string }) {
         <Input id="repeat" type="password" value={repeat} onChange={(e) => setRepeat(e.target.value)} className="mt-1" autoComplete="new-password" />
       </div>
       {error && (
-        <p className="text-sm text-destructive" role="alert">
+        <p className="text-sm text-destructive-text" role="alert">
           {error}
         </p>
       )}

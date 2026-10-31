@@ -10,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Plus, Pencil, Trash2, Coins } from 'lucide-react';
+import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 import { ConfirmDeleteDialog } from '@/app/admin/_components/confirm-delete-dialog';
@@ -75,20 +76,24 @@ export default function IngresosPage() {
   useEffect(() => { fetchDatos(); }, [fetchDatos]);
 
   const temporada = temporadas.find((t) => t.id === temporadaId) ?? null;
+  const { data: session } = useSession();
+  const puedeAnular = !session?.user?.modules && temporada?.status !== 'CERRADA';
 
   const openCreate = () => { setEditing(null); setDialogOpen(true); };
   const openEdit = (i: WithNumberFields<Ingreso, 'importe'>) => { setEditing(i); setDialogOpen(true); };
 
   // Un ingreso no se borra: se anula, con motivo. Deja de contar en las cifras y el registro de auditoría guarda quién y por qué.
   const confirmDelete = async (motivo?: string) => {
-    if (!deleteTarget) return;
+    if (!deleteTarget) return false;
     const res = await fetch(`/api/admin/ingresos/${deleteTarget.id}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ motivo }),
     });
-    if (res.ok) { toast.success('Ingreso anulado'); fetchDatos(); } else { toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo anular el ingreso'); }
-    setDeleteTarget(null);
+    if (res.ok) { toast.success('Ingreso anulado'); fetchDatos(); return true; }
+    // Si falla, el diálogo se queda abierto con el motivo escrito (H-011).
+    toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo anular el ingreso');
+    return false;
   };
 
   // Mismos registros que la lista, agrupados por día para que se vea como
@@ -140,7 +145,7 @@ export default function IngresosPage() {
             <Card>
               <CardContent className="p-4">
                 <p className="text-xs text-muted-foreground">Balance — lo que queda al final</p>
-                <p className={`text-2xl font-bold ${(resumen?.balance ?? 0) >= 0 ? 'text-green-500' : 'text-destructive'}`}>
+                <p className={`text-2xl font-bold ${(resumen?.balance ?? 0) >= 0 ? 'text-green-500' : 'text-destructive-text'}`}>
                   {(resumen?.balance ?? 0) >= 0 ? '+' : ''}{(resumen?.balance ?? 0).toFixed(2)}€
                 </p>
               </CardContent>
@@ -184,7 +189,10 @@ export default function IngresosPage() {
                             <div className="flex items-center gap-1.5 shrink-0">
                               <span className="font-semibold">{i.importe.toFixed(2)}€</span>
                               <Button variant="ghost" size="icon-sm" onClick={() => openEdit(i)}><Pencil className="h-3.5 w-3.5" /></Button>
-                              <Button variant="ghost" size="icon-sm" onClick={() => setDeleteTarget(i)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                              {/* Anular es solo del propietario y con la temporada abierta (H-011). */}
+                              {puedeAnular && (
+                                <Button variant="ghost" size="icon-sm" aria-label="Anular ingreso" onClick={() => setDeleteTarget(i)}><Trash2 className="h-3.5 w-3.5 text-destructive-text" /></Button>
+                              )}
                             </div>
                           </div>
                         ))}

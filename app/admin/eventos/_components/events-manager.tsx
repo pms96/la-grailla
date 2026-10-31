@@ -546,7 +546,7 @@ export default function EventsManager() {
                     <Ban className="h-3.5 w-3.5" />
                   </Button>
                   <Button variant="ghost" size="icon-sm" onClick={() => openEdit(event)}><Pencil className="h-3.5 w-3.5" /></Button>
-                  <Button variant="ghost" size="icon-sm" onClick={() => setDeleteTarget(event)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                  <Button variant="ghost" size="icon-sm" onClick={() => setDeleteTarget(event)}><Trash2 className="h-3.5 w-3.5 text-destructive-text" /></Button>
                 </div>
               </CardContent>
             </Card>

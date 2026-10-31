@@ -77,7 +77,7 @@ export default function ShopDashboard({ embedded = false }: { embedded?: boolean
   );
 
   if (failed) {
-    return <div className="space-y-6">{heading}<p role="alert" className="text-sm text-destructive">No se han podido cargar los datos de la tienda.</p></div>;
+    return <div className="space-y-6">{heading}<p role="alert" className="text-sm text-destructive-text">No se han podido cargar los datos de la tienda.</p></div>;
   }
   if (!stats) {
     return (

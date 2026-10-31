@@ -27,7 +27,7 @@ export const HealthDetailSchema = z.object({
 export type HealthDetail = z.infer<typeof HealthDetailSchema>;
 
 export type ProbeResult =
-  | { reachable: true; httpStatus: number; latencyMs: number; detail: HealthDetail; problems: string[]; /** Bloque `ops` válido del cliente (ausente en fronts anteriores). */ ops?: OpsBlock | null }
+  | { reachable: true; httpStatus: number; latencyMs: number; detail: HealthDetail; problems: string[]; /** Bloque `ops` válido del cliente (ausente en fronts anteriores). */ ops?: OpsBlock | null; /** Por qué `ops` es null: `absent` = front anterior sin el bloque; `invalid` = lo manda y no cumple el contrato. */ opsStatus?: 'ok' | 'absent' | 'invalid' }
   | { reachable: false; httpStatus: number | null; latencyMs: number; error: string; problems: string[] };
 
 /** Llama a /api/health y lo interpreta. `declaredSchema` es lo que el registro cree que hay en la BD (para detectar deriva). */
@@ -59,7 +59,7 @@ export async function probeTenantHealth(
   const opsRead = parseOpsBlock(d.ops);
   // Un `ops` que no cumple el contrato es un fallo del front (versión desfasada o un bug), no del cliente: se dice, sin copiar lo recibido.
   if (opsRead.status === 'invalid') problems.push(`El bloque «ops» de la salud no cumple el contrato (${opsRead.issue}): las señales de negocio de este cliente no se están vigilando`);
-  return { reachable: true, httpStatus: res.status, latencyMs: res.durationMs, detail: d, problems, ops: opsRead.status === 'ok' ? opsRead.ops : null };
+  return { reachable: true, httpStatus: res.status, latencyMs: res.durationMs, detail: d, problems, ops: opsRead.status === 'ok' ? opsRead.ops : null, opsStatus: opsRead.status };
 }
 
 /** ¿Está sano TÉCNICAMENTE? Responde, sin error declarado por el propio cliente y sin problemas (esquema atrasado, BD de otro cliente…). Las señales de negocio (`ops`) se tratan aparte. */

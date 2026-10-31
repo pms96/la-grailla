@@ -41,7 +41,7 @@ export function ContactForm() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(typeof data?.error === 'string' && data.error !== 'validation_error' ? data.error : 'No hemos podido enviar tu mensaje. Revisa los datos e inténtalo de nuevo.');
+        setError(typeof data?.error === 'string' && data.error !== 'validation_error' && data.code !== 'validation_error' ? data.error : 'No hemos podido enviar tu mensaje. Revisa los datos e inténtalo de nuevo.');
         return;
       }
       setSent(true);
@@ -113,8 +113,8 @@ export function ContactForm() {
           {' '}de {brandName} para el tratamiento de estos datos. *
         </Label>
       </div>
-      {consentTouched && !consent && <p className="-mt-2 text-xs text-destructive">Debes aceptar la política de privacidad para enviar el mensaje</p>}
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {consentTouched && !consent && <p className="-mt-2 text-xs text-destructive-text">Debes aceptar la política de privacidad para enviar el mensaje</p>}
+      {error && <p role="alert" className="text-sm text-destructive-text">{error}</p>}
 
       <Button type="submit" disabled={sending} className="gap-2">
         {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

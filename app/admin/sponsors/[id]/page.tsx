@@ -571,7 +571,7 @@ export default function SponsorDetailPage() {
                     {EMAIL_TYPE_LABELS[log.type] ?? log.type} · {log.recipient}
                     {' · '}{new Date(log.createdAt).toLocaleString('es-ES')}
                   </span>
-                  <span className={log.success ? 'text-lima shrink-0' : 'text-destructive shrink-0'}>
+                  <span className={log.success ? 'text-lima shrink-0' : 'text-destructive-text shrink-0'}>
                     {log.success ? 'Enviado' : `Falló${log.error ? `: ${log.error}` : ''}`}
                   </span>
                 </div>

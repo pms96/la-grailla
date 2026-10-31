@@ -96,6 +96,32 @@ export async function sweepAndAdmit(eventId: string, concurrentSlots: number, wi
   }
 }
 
+/* Latido (H-071). Quien espera sondea cada 2-24 s (lo decide el servidor, ver `pollAfterMsFor`) y cada sondeo refresca `lastSeenAt`. Solo se ADMITE
+ * (y solo se cuenta en la posición) a quien ha sondeado hace poco: antes los turnos abandonados —pestañas cerradas— se admitían igualmente y retenían
+ * hueco hasta caducar, que con miles en cola eran horas de huecos muertos. 2 minutos cubren con holgura el sondeo más lento (24 s) y un navegador que
+ * ralentiza las pestañas ocultas (~1 sondeo por minuto). Sin latido durante 15 minutos la espera caduca; si vuelve, entra de nuevo por detrás.
+ * Una fila sin `lastSeenAt` (la creó un front anterior) cuenta como vista al entrar. */
+export const QUEUE_ALIVE_SECONDS = 120;
+export const QUEUE_ABANDON_SECONDS = 15 * 60;
+/** Cada cuánto se refresca como máximo el latido de una misma entrada (el sondeo más rápido es de ~1,6 s: no hace falta escribir en cada uno). */
+export const QUEUE_HEARTBEAT_MIN_INTERVAL_MS = 15_000;
+
+/** Condición de Prisma: entradas WAITING que siguen ahí (para contar la posición). */
+export function liveWaitingWhere(now = new Date()) {
+  const since = new Date(now.getTime() - QUEUE_ALIVE_SECONDS * 1000);
+  return { status: 'WAITING' as const, OR: [{ lastSeenAt: { gte: since } }, { lastSeenAt: null, joinedAt: { gte: since } }] };
+}
+
+/** Refresca el latido de una entrada que espera (como mucho una vez cada `QUEUE_HEARTBEAT_MIN_INTERVAL_MS`). Nunca lanza: no es crítico. */
+export async function touchWaitingEntry(where: { id: string } | { token: string; eventId: string }): Promise<void> {
+  const stale = new Date(Date.now() - QUEUE_HEARTBEAT_MIN_INTERVAL_MS);
+  try {
+    await prisma.waitingRoomEntry.updateMany({ where: { ...where, status: 'WAITING', OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: stale } }] }, data: { lastSeenAt: new Date() } });
+  } catch (error) {
+    console.error('[waiting-room] no se pudo refrescar el latido:', error instanceof Error ? error.message : error);
+  }
+}
+
 async function runSweep(eventId: string, concurrentSlots: number, windowSeconds: number): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${eventId} || ':queue'))`;
@@ -103,6 +129,12 @@ async function runSweep(eventId: string, concurrentSlots: number, windowSeconds:
     await tx.$executeRaw`
       UPDATE "WaitingRoomEntry" SET status = 'EXPIRED'
       WHERE "eventId" = ${eventId} AND status = 'ADMITTED' AND "expiresAt" < now()`;
+
+    // Esperas sin latido desde hace mucho: nadie las está mirando.
+    await tx.$executeRaw`
+      UPDATE "WaitingRoomEntry" SET status = 'EXPIRED'
+      WHERE "eventId" = ${eventId} AND status = 'WAITING'
+        AND COALESCE("lastSeenAt", "joinedAt") < now() - (${QUEUE_ABANDON_SECONDS}::text || ' seconds')::interval`;
 
     const activeAdmitted = await tx.waitingRoomEntry.count({
       where: { eventId, status: 'ADMITTED', expiresAt: { gt: new Date() } },
@@ -114,6 +146,7 @@ async function runSweep(eventId: string, concurrentSlots: number, windowSeconds:
         WHERE id IN (
           SELECT id FROM "WaitingRoomEntry"
           WHERE "eventId" = ${eventId} AND status = 'WAITING'
+            AND COALESCE("lastSeenAt", "joinedAt") > now() - (${QUEUE_ALIVE_SECONDS}::text || ' seconds')::interval
           ORDER BY "joinedAt" ASC
           LIMIT ${freeSlots}
         )`;

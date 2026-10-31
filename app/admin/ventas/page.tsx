@@ -459,7 +459,7 @@ export default function VentasPage() {
                     </p>
                   )}
                   {detail.status === 'COMPLETED' && detail.emailDelivery && (
-                    <p className={detail.emailDelivery.status === 'exhausted' ? 'text-destructive' : undefined}>
+                    <p className={detail.emailDelivery.status === 'exhausted' ? 'text-destructive-text' : undefined}>
                       <span className="text-muted-foreground">Email:</span> {emailLine(detail.emailDelivery)}
                     </p>
                   )}
@@ -543,7 +543,7 @@ export default function VentasPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="gap-2 text-destructive"
+                      className="gap-2 text-destructive-text"
                       disabled={actionLoading !== null}
                       onClick={() => runAction(detail.id, 'cancel')}
                     >
@@ -557,7 +557,7 @@ export default function VentasPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="gap-2 text-destructive"
+                      className="gap-2 text-destructive-text"
                       disabled={actionLoading !== null}
                       onClick={() => runAction(detail.id, 'refund')}
                     >

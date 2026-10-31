@@ -7,8 +7,9 @@ import type { OpsBlock } from '@grailla/contracts';
  * del estado anterior: así se avisa solo en el CAMBIO (aparece una señal, escala, o todo vuelve a la normalidad) con el mecanismo que ya existe, sin
  * tabla ni columna nuevas. Cada señal se reconoce por una frase fija (`needle`): si se cambia el texto, hay que cambiarla aquí también (hay test). */
 
-/** Pedido pendiente de pago por encima de esto: de «aviso» a «fallo» (la pasarela o el reconcile no lo resuelven solos). */
-export const PENDING_CRITICAL_MIN = 30;
+/** Pedido pendiente de pago FUERA DE PLAZO por encima de esta edad: de «aviso» a «fallo» (la pasarela o el reconcile no lo resuelven solos).
+ *  El front solo informa de pendientes con más de ~45 min (el sistema los libera a los 40): a 60 min lleva ≥ 3 pasadas del reconcile sin resolverse (H-115). */
+export const PENDING_CRITICAL_MIN = 60;
 /** El reconcile corre cada 5 min; si la última pasada es más vieja que esto, no está corriendo. */
 export const RECONCILE_STALE_MIN = 15;
 /** Emails sin enviar: se avisa si la señal se mantiene al menos este tiempo (dos comprobaciones seguidas), no por un tropiezo suelto. */
@@ -26,8 +27,8 @@ const SEP = ' · ';
 
 /** Frase fija con la que se reconoce cada señal en la línea guardada. */
 const NEEDLE: Record<OpsKey, string> = {
-  pending: 'pendientes de pago con más de 20 min',
-  pending_critical: 'pendientes de pago sin resolver tras más de 30 min',
+  pending: 'pendientes de pago fuera de plazo',
+  pending_critical: 'pendientes de pago sin resolver tras más de 60 min',
   emails_unsent: 'emails de confirmación sin enviar',
   emails_failed: 'emails de confirmación con error de envío',
   reconcile_errors: 'el reconcile tiene errores',
@@ -83,7 +84,7 @@ const minutes = (n: number) => Math.round(n);
 /** Gravedad y título de cada señal, para poder CONSERVARLA tal cual cuando el front no pudo medirla en esta pasada. */
 const META: Record<OpsKey, { severity: OpsSeverity; title: string }> = {
   pending: { severity: 'warning', title: 'pedidos pendientes de pago' },
-  pending_critical: { severity: 'critical', title: 'pedidos pendientes de pago sin resolver (más de 30 min)' },
+  pending_critical: { severity: 'critical', title: 'pedidos pendientes de pago sin resolver (más de 60 min)' },
   emails_unsent: { severity: 'warning', title: 'emails sin enviar' },
   emails_failed: { severity: 'critical', title: 'emails con error de envío' },
   reconcile_errors: { severity: 'critical', title: 'el reconcile tiene errores' },
@@ -107,7 +108,7 @@ export function evaluateOps(ops: OpsBlock, now: number, previousError: string | 
   const prev = previousFindings(previousError);
   const findings: OpsFinding[] = [];
 
-  // 1. Pedidos pendientes de pago: > 20 min = aviso; el más antiguo > 30 min = fallo (y es lo único que se muestra: no se duplica la línea).
+  // 1. Pedidos pendientes de pago FUERA DE PLAZO (el front solo cuenta los de más de ~45 min): aviso; el más antiguo > 60 min = fallo (y es lo único que se muestra: no se duplica la línea).
   // Un contador NULO es «no se pudo medir» (falló la consulta del front), no «no hay nada»: se conserva lo que ya constaba en lugar de dar
   // por resuelto un problema que quizá sigue ahí (un falso «recuperado»).
   const carry = (...keys: OpsKey[]) => {
@@ -124,8 +125,8 @@ export function evaluateOps(ops: OpsBlock, now: number, previousError: string | 
     findings.push({
       key: 'pending_critical',
       severity: 'critical',
-      title: 'pedidos pendientes de pago sin resolver (más de 30 min)',
-      line: `${OPS_PREFIX}pedidos ${NEEDLE.pending_critical} — ${minutes(ops.pendingOver20min)} con más de 20 min${oldestTxt}`,
+      title: 'pedidos pendientes de pago sin resolver (más de 60 min)',
+      line: `${OPS_PREFIX}pedidos ${NEEDLE.pending_critical} — ${minutes(ops.pendingOver20min)} fuera de plazo${oldestTxt}`,
     });
   } else if (ops.pendingOver20min > 0) {
     findings.push({

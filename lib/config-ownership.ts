@@ -54,11 +54,22 @@ export const CONFIG_KEY_OWNERS: Readonly<Record<string, Owners>> = Object.fromEn
 ]);
 
 /**
- * Claves que SOLO toca el propietario, aunque su dueño sea el núcleo: el correo saliente y `admin_email`. Un rol restringido con el módulo núcleo
- * («Contenido y mensajes») podría, si no, sustituir el SMTP y desviar los correos con datos de compradores a su propio servidor (P1-03).
+ * Claves que SOLO toca el propietario, aunque su dueño sea otro módulo:
+ *  - el correo saliente y `admin_email`: un rol restringido con el módulo núcleo («Contenido y mensajes») podría, si no, sustituir el SMTP y desviar
+ *    los correos con datos de compradores a su propio servidor (P1-03);
+ *  - las credenciales de cobro de Entradas y de Tienda (pasarela, claves y secretos de webhook): quien las cambia desvía todo cobro online a su
+ *    cuenta o firma webhooks falsos (H-058);
+ *  - el captcha (`turnstile_*`: apagarlo abre la compra a bots) y los datos fiscales (`fiscal_*`, salen en los justificantes);
+ *  - las credenciales de wallet y la clave de IA (secretos de terceros).
+ * Un test obliga a que toda clave nueva con nombre de cobro, captcha, fiscal, certificado o IA esté aquí.
  */
 export const OWNER_ONLY_CONFIG_KEYS: readonly string[] = [
   'admin_email', 'smtp_enabled', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_password', 'smtp_secure', 'smtp_from_email', 'smtp_from_name',
+  'payment_gateway', 'stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_secret', 'sumup_api_key', 'sumup_merchant_code',
+  'shop_payment_gateway', 'shop_stripe_publishable_key', 'shop_stripe_secret_key', 'shop_stripe_webhook_secret', 'shop_sumup_api_key', 'shop_sumup_merchant_code',
+  'turnstile_site_key', 'turnstile_secret_key', 'fiscal_legal_name', 'fiscal_nif', 'fiscal_address',
+  'google_wallet_issuer_id', 'google_wallet_service_account', 'apple_wallet_pass_type_id', 'apple_wallet_team_id', 'apple_wallet_cert_p12_base64', 'apple_wallet_cert_password',
+  'abacus_ai_api_key',
 ];
 
 /** Claves del sistema: ni se muestran ni se guardan desde la API de administración (el tema tiene su propia ruta). */

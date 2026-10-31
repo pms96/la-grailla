@@ -95,15 +95,16 @@ describe('PUT /api/admin/config — solo guarda claves de módulos activos y val
     expect(await stored('apple_wallet_cert_expiry_alerted_for')).toBe('2026-01-01');
   });
 
-  it('un gestor de tienda solo ve y guarda las claves de la tienda, no las del núcleo ni las de otros módulos', async () => {
+  // H-058: la cuenta de cobro (claves de pasarela) es solo del propietario. Antes un gestor de tienda podía sustituirla y desviar todo cobro online a su cuenta.
+  it('un gestor de tienda no ve ni guarda la cuenta de cobro de la tienda, ni las claves del núcleo ni las de otros módulos', async () => {
     await seed();
     state.modules = ['tienda'];
     const keys = await getKeys(TODO);
-    expect(keys).toEqual(['shop_sumup_merchant_code']);
+    expect(keys).toEqual([]);
     const res = await put([{ key: 'shop_sumup_merchant_code', value: 'MCNUEVO' }, { key: 'admin_email', value: 'robado@x.es' }, { key: 'commission_percentage', value: '99' }], TODO);
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { ignored: string[] }).ignored.sort()).toEqual(['admin_email', 'commission_percentage']);
-    expect(await stored('shop_sumup_merchant_code')).toBe('MCNUEVO');
+    expect(((await res.json()) as { ignored: string[] }).ignored.sort()).toEqual(['admin_email', 'commission_percentage', 'shop_sumup_merchant_code']);
+    expect(await stored('shop_sumup_merchant_code')).toBe('MCSHOP');
     expect(await stored('admin_email')).toBe('dueno@cliente.es');
   });
 

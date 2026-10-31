@@ -392,7 +392,7 @@ describe('captcha: endpoints', () => {
     it('quien ya está al tope de turnos vivos de su IP recibe 429 SIN gastar un token (no se le pide otro captcha en bucle)', async () => {
       await queueEvent();
       const ip = '203.0.113.210';
-      for (let i = 0; i < 3; i++) await prisma.waitingRoomEntry.create({ data: { eventId: event.id, token: `live-${i}-${Math.random()}`, status: 'WAITING', ip } });
+      for (let i = 0; i < 10; i++) await prisma.waitingRoomEntry.create({ data: { eventId: event.id, token: `live-${i}-${Math.random()}`, status: 'WAITING', ip } }); // el tope por IP es 10 (H-072)
       const { spy } = fakeSiteverify();
       const res = await joinQueue(req('/api/queue/join', { eventId: event.id, captchaToken: 'bueno' }, ip));
       expect(res.status).toBe(429);

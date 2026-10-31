@@ -29,6 +29,8 @@
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
+    /* Color de TEXTO de error (H-083): `--destructive` es un color de fondo y como texto no llega a 4,5:1. */
+    --destructive-text: 0 72% 42%;
 
     --border: 240 6% 90%;
     --input: 240 6% 90%;
@@ -100,6 +102,7 @@
 
     --destructive: 0 63% 31%;
     --destructive-foreground: 0 0% 98%;
+    --destructive-text: 0 86% 72%;
 
     --border: 245 15% 18%;
     --input: 245 15% 18%;

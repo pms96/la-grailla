@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { countEmailBacklog } from '@/lib/email-delivery';
+import { CHECKOUT_RELEASE_AFTER_MS } from '@/lib/checkout-hold';
 
 /* Bloque `ops` de /api/health: las señales de negocio que el panel necesita para alertar antes que el comprador (P0-07 · OB-06).
  *
@@ -40,9 +41,9 @@ export interface ReconcileSummary {
 
 export interface OpsBlock {
   generatedAt: string;
-  /** Edad (min) del PENDING más antiguo con pago en una pasarela real (entradas + tienda); null si no hay ninguno (o no se pudo medir: ver el resto). */
+  /** Edad (min) del PENDING más antiguo FUERA DE PLAZO (más de ~45 min: el sistema ya debía haberlo liberado) con pago en una pasarela real (entradas + tienda); null si no hay ninguno (o no se pudo medir: ver el resto). */
   pendingOldestMinutes: number | null;
-  /** Pedidos PENDING con pago en la pasarela de más de 20 minutos. null = no se pudo medir. */
+  /** Pedidos PENDING con pago en la pasarela fuera de plazo (más de ~45 min). El nombre del campo es histórico (antes 20 min) y es parte del contrato. null = no se pudo medir. */
   pendingOver20min: number | null;
   /** Pedidos pagados con el email sin confirmar (con algún intento fallido o con más de 10 min sin intentarse) y con intentos pendientes. null = no se pudo medir. */
   emailsUnsent: number | null;
@@ -83,7 +84,8 @@ const EVENT_ONGOING_MS = 12 * 3_600_000;
 
 /** Tope de tiempo de TODO el bloque: el health lo lee el panel con un tiempo de espera corto. */
 export const OPS_TIMEOUT_MS = 3000;
-const PENDING_OVER_MS = 20 * 60_000;
+/** Un pendiente solo es señal si el sistema ya debía haberlo liberado (H-115): plazo de liberación (40 min) + 5 min de margen. Antes eran 20 min y cada abandono avisaba. */
+const PENDING_OVER_MS = CHECKOUT_RELEASE_AFTER_MS + 5 * 60_000;
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : null);
 
@@ -139,9 +141,11 @@ export async function collectOps(now = Date.now(), timeoutMs = OPS_TIMEOUT_MS): 
 
     const work = Promise.all([
       measure(async () => {
+        // Solo los que ya pasaron su plazo (H-115): el «más antiguo» es lo que el panel convierte en alerta crítica.
+        const overdue = { ...gatewayPending, createdAt: { lt: new Date(now - PENDING_OVER_MS) } };
         const [o, s] = await Promise.all([
-          prisma.order.aggregate({ where: gatewayPending, _min: { createdAt: true } }),
-          prisma.shopOrder.aggregate({ where: gatewayPending, _min: { createdAt: true } }),
+          prisma.order.aggregate({ where: overdue, _min: { createdAt: true } }),
+          prisma.shopOrder.aggregate({ where: overdue, _min: { createdAt: true } }),
         ]);
         const oldest = [o._min.createdAt, s._min.createdAt].filter((d): d is Date => d instanceof Date).sort((a, b) => a.getTime() - b.getTime())[0];
         out.pendingOldestMinutes = oldest ? Math.max(0, Math.floor((now - oldest.getTime()) / 60_000)) : null;

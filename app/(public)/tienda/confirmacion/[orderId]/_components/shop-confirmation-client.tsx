@@ -135,7 +135,7 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
   if (!order) {
     return (
       <div className="text-center py-16 space-y-4">
-        <XCircle className="h-12 w-12 text-destructive mx-auto" />
+        <XCircle className="h-12 w-12 text-destructive-text mx-auto" />
         <h1 className="font-display text-2xl font-bold">Pedido no encontrado</h1>
         <Button asChild variant="outline">
           <Link href="/tienda">Volver a la tienda</Link>
@@ -177,7 +177,7 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
     return (
       <div className="space-y-6 py-8">
         <div className="text-center">
-          <XCircle className="h-16 w-16 text-destructive mx-auto mb-4" />
+          <XCircle className="h-16 w-16 text-destructive-text mx-auto mb-4" />
           <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Te hemos devuelto el pago</h1>
           <p className="text-muted-foreground mt-2">
             Este pedido no se ha podido completar y te hemos devuelto el importe ({order.totalAmount.toFixed(2)}€). Puede tardar unos días en
@@ -197,7 +197,7 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
     return (
       <div className="space-y-6 py-8">
         <div className="text-center">
-          <XCircle className="h-16 w-16 text-destructive mx-auto mb-4" />
+          <XCircle className="h-16 w-16 text-destructive-text mx-auto mb-4" />
           <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Pedido no completado</h1>
           <p className="text-muted-foreground mt-2">
             Este pedido se ha cancelado o no se ha podido cobrar. No se ha realizado ningún cargo.
@@ -261,13 +261,13 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
       <Card>
         <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3" role="status" aria-live="polite">
-            <Mail className={`h-5 w-5 mt-0.5 shrink-0 ${notice.tone === 'problem' ? 'text-destructive' : 'text-primary'}`} />
+            <Mail className={`h-5 w-5 mt-0.5 shrink-0 ${notice.tone === 'problem' ? 'text-destructive-text' : 'text-primary'}`} />
             <div>
               <p className="font-medium leading-tight">{notice.title}</p>
               <p className="text-sm text-muted-foreground">{notice.detail}</p>
               {resend === 'queued' && <p className="text-sm text-muted-foreground mt-1">Hecho: te lo estamos enviando de nuevo.</p>}
-              {resend === 'error' && <p className="text-sm text-destructive mt-1">No hemos podido reenviarlo ahora. Guarda esta página: es tu justificante.</p>}
-              {resend === 'limited' && <p className="text-sm text-destructive mt-1">Has pedido demasiados reenvíos de este pedido. Prueba de nuevo más tarde.</p>}
+              {resend === 'error' && <p className="text-sm text-destructive-text mt-1">No hemos podido reenviarlo ahora. Guarda esta página: es tu justificante.</p>}
+              {resend === 'limited' && <p className="text-sm text-destructive-text mt-1">Has pedido demasiados reenvíos de este pedido. Prueba de nuevo más tarde.</p>}
             </div>
           </div>
           <Button variant="outline" size="sm" onClick={resendEmail} disabled={resend === 'sending'} className="gap-2 shrink-0">

@@ -152,7 +152,7 @@ export default function InvitationsManager({ selectedEvent }: Props) {
                     <p className="font-medium truncate">{l?.name ?? ''}</p>
                     <p className="text-xs text-muted-foreground">{l?.ownerName ?? 'Sin responsable'} · {(l?.invitations ?? []).length} invitación(es)</p>
                   </div>
-                  <Button variant="ghost" size="icon-sm" onClick={() => deleteList(l.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                  <Button variant="ghost" size="icon-sm" onClick={() => deleteList(l.id)}><Trash2 className="h-4 w-4 text-destructive-text" /></Button>
                 </div>
               ))}
             </div>
@@ -223,7 +223,7 @@ export default function InvitationsManager({ selectedEvent }: Props) {
                 {inv?.guestEmail && inv?.order?.id ? (
                   <Button variant="ghost" size="icon-sm" onClick={() => resend(inv.order!.id)} title="Reenviar entradas"><Mail className="h-4 w-4" /></Button>
                 ) : null}
-                <Button variant="ghost" size="icon-sm" onClick={() => deleteInvitation(inv.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                <Button variant="ghost" size="icon-sm" onClick={() => deleteInvitation(inv.id)}><Trash2 className="h-4 w-4 text-destructive-text" /></Button>
               </div>
             </div>
           ))}

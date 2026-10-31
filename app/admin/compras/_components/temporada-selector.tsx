@@ -71,9 +71,11 @@ export function TemporadaSelector({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: cerrar ? 'CERRADA' : 'ABIERTA', ...(motivo ? { motivo } : {}) }),
     });
-    if (!res.ok) { toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo cambiar el estado de la temporada'); return; }
+    // Si falla, el diálogo se queda abierto con el motivo escrito (H-011).
+    if (!res.ok) { toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo cambiar el estado de la temporada'); return false; }
     toast.success(cerrar ? `Temporada "${seleccionada.nombre}" cerrada` : `Temporada "${seleccionada.nombre}" reabierta`);
     onTemporadasChanged?.();
+    return true;
   };
 
   const archivar = async (temporada: Temporada, archivado: boolean) => {

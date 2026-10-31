@@ -10,9 +10,10 @@ import { captureOpsError, type OpsErrorContext } from '@/lib/observability/captu
 export function handleApiError(error: unknown, context: string, ops: Omit<OpsErrorContext, 'route'> = {}): NextResponse {
   console.error(`[${context}]`, error);
 
+  // `error` es SIEMPRE un texto para la persona (en español): ~40 pantallas lo enseñan tal cual (H-084/H-010). El código técnico va aparte, en `code`.
   if (error instanceof ZodError) {
     return NextResponse.json(
-      { error: 'validation_error', details: error.flatten() },
+      { error: 'Los datos enviados no son válidos. Revisa el formulario e inténtalo de nuevo.', code: 'validation_error', details: error.flatten() },
       { status: 400 }
     );
   }
@@ -30,5 +31,5 @@ export function handleApiError(error: unknown, context: string, ops: Omit<OpsErr
   }
 
   captureOpsError(error, { route: context, ...ops });
-  return NextResponse.json({ error: 'internal_server_error' }, { status: 500 });
+  return NextResponse.json({ error: 'Ha ocurrido un error inesperado. Inténtalo de nuevo en unos segundos; si sigue pasando, avísanos.', code: 'internal_server_error' }, { status: 500 });
 }

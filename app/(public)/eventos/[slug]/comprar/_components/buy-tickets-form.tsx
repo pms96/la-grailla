@@ -368,7 +368,7 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
               })}
             </div>
             {errors.tickets && (
-              <p className="text-sm text-destructive mt-3" role="alert">
+              <p className="text-sm text-destructive-text mt-3" role="alert">
                 {errors.tickets}
               </p>
             )}
@@ -397,7 +397,7 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
                   autoComplete="given-name"
                 />
                 {errors.buyerName && (
-                  <p id="name-error" className="text-sm text-destructive mt-1" role="alert">
+                  <p id="name-error" className="text-sm text-destructive-text mt-1" role="alert">
                     {errors.buyerName}
                   </p>
                 )}
@@ -420,7 +420,7 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
                   autoComplete="family-name"
                 />
                 {errors.buyerLastName && (
-                  <p id="lastName-error" className="text-sm text-destructive mt-1" role="alert">
+                  <p id="lastName-error" className="text-sm text-destructive-text mt-1" role="alert">
                     {errors.buyerLastName}
                   </p>
                 )}
@@ -446,7 +446,7 @@ export default function BuyTicketsForm({ event, queueToken }: { event: EventData
                 inputMode="email"
               />
               {errors.buyerEmail ? (
-                <p id="email-error" className="text-sm text-destructive mt-1" role="alert">
+                <p id="email-error" className="text-sm text-destructive-text mt-1" role="alert">
                   {errors.buyerEmail}
                 </p>
               ) : (

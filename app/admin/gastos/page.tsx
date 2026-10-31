@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Plus, Pencil, Trash2, Wallet, FileSpreadsheet, FileText } from 'lucide-react';
+import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 import { EventosEnlazados } from '@/app/admin/compras/_components/eventos-enlazados';
@@ -89,20 +90,24 @@ export default function GastosPage() {
   useEffect(() => { fetchDatos(); }, [fetchDatos]);
 
   const temporada = temporadas.find((t) => t.id === temporadaId) ?? null;
+  const { data: session } = useSession();
+  const puedeAnular = !session?.user?.modules && temporada?.status !== 'CERRADA';
 
   const openCreate = () => { setEditing(null); setDialogOpen(true); };
   const openEdit = (g: WithNumberFields<Gasto, 'importeSinIva' | 'ivaPercent'>) => { setEditing(g); setDialogOpen(true); };
 
   // Un gasto no se borra: se anula, con motivo. Deja de contar en las cifras y el registro de auditoría guarda quién y por qué.
   const confirmDelete = async (motivo?: string) => {
-    if (!deleteTarget) return;
+    if (!deleteTarget) return false;
     const res = await fetch(`/api/admin/gastos/${deleteTarget.id}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ motivo }),
     });
-    if (res.ok) { toast.success('Gasto anulado'); fetchDatos(); } else { toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo anular el gasto'); }
-    setDeleteTarget(null);
+    if (res.ok) { toast.success('Gasto anulado'); fetchDatos(); return true; }
+    // Si falla, el diálogo se queda abierto con el motivo escrito (H-011).
+    toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo anular el gasto');
+    return false;
   };
 
   const handleExport = async (format: 'excel' | 'pdf') => {
@@ -223,11 +228,14 @@ export default function GastosPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className={`font-bold ${g.importeSinIva < 0 ? 'text-destructive' : ''}`}>
+                      <span className={`font-bold ${g.importeSinIva < 0 ? 'text-destructive-text' : ''}`}>
                         {(g.importeSinIva * (1 + g.ivaPercent / 100)).toFixed(2)}€
                       </span>
                       <Button variant="ghost" size="icon-sm" onClick={() => openEdit(g)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon-sm" onClick={() => setDeleteTarget(g)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      {/* Anular es solo del propietario y con la temporada abierta: a nadie más se le ofrece un botón que acabaría en 403 o 423 (H-011). */}
+                      {puedeAnular && (
+                        <Button variant="ghost" size="icon-sm" aria-label="Anular gasto" onClick={() => setDeleteTarget(g)}><Trash2 className="h-4 w-4 text-destructive-text" /></Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

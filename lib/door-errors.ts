@@ -10,7 +10,7 @@ export interface DoorFailure {
 }
 
 /** `status`: código HTTP de la respuesta; `null` si ni siquiera hubo respuesta (sin red). */
-export function doorFailure(status: number | null, serverMessage?: unknown): DoorFailure {
+export function doorFailure(status: number | null, serverMessage?: unknown, serverCode?: unknown): DoorFailure {
   if (status === null) {
     return { result: 'ERROR', message: 'SIN CONEXIÓN — No se ha podido validar. Comprueba la red y vuelve a escanear', color: 'yellow' };
   }
@@ -24,7 +24,7 @@ export function doorFailure(status: number | null, serverMessage?: unknown): Doo
     return { result: 'ERROR', message: 'DEMASIADOS ESCANEOS — Espera unos segundos y vuelve a escanear', color: 'yellow' };
   }
   // `validation_error` es el código interno de un fallo de validación, no un texto para el personal.
-  if (status === 400 && typeof serverMessage === 'string' && serverMessage && serverMessage !== 'validation_error') {
+  if (status === 400 && typeof serverMessage === 'string' && serverMessage && serverMessage !== 'validation_error' && serverCode !== 'validation_error') {
     return { result: 'ERROR', message: serverMessage, color: 'yellow' };
   }
   return { result: 'ERROR', message: 'ERROR DEL SERVIDOR — No se ha validado. Reintenta en unos segundos', color: 'yellow' };

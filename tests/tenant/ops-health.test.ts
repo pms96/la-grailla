@@ -130,9 +130,26 @@ describe('bloque `ops` de /api/health', () => {
     expect((await ops())!.obligations).toEqual({ ticketOrdersPending: 2, futureEventsWithTickets: 2, cancelledEventsWithTickets: 1, shopOrdersPending: 2, shopOrdersToShip: 2 });
   });
 
+  // H-115: el sistema no libera un pedido hasta CHECKOUT_RELEASE_AFTER_MS (40 min). Un abandono normal (sin webhook en SumUp) NO es una señal: ni
+  // cuenta como pendiente ni mueve «el más antiguo», que es lo que el panel convierte en alerta CRÍTICA de dinero.
+  it('un pedido pendiente dentro del plazo de liberación (abandono normal) no cuenta ni mueve el «más antiguo»', async () => {
+    await order({ status: 'PENDING', provider: 'sumup', paymentId: 'cs_abandono', createdAgoMs: 35 * MIN });
+    await shop({ status: 'PENDING', provider: 'stripe', paymentId: 'cs_abandono_t', createdAgoMs: 39 * MIN, due: false });
+    const block = (await ops())!;
+    expect(block.pendingOver20min).toBe(0);
+    expect(block.pendingOldestMinutes).toBeNull();
+  });
+
+  it('pasado el plazo (más de 45 min sin liberar) sí es una señal', async () => {
+    await order({ status: 'PENDING', provider: 'sumup', paymentId: 'cs_atascado', createdAgoMs: 46 * MIN });
+    const block = (await ops())!;
+    expect(block.pendingOver20min).toBe(1);
+    expect(block.pendingOldestMinutes).toBe(46);
+  });
+
   it('valores correctos con datos sembrados (pendientes con pago real, emails sin enviar y fallidos de entradas y tienda, resumen del cron)', async () => {
     // Pendientes: solo cuentan los que tienen paymentId de una pasarela REAL (no la simulada) y siguen PENDING.
-    await order({ status: 'PENDING', provider: 'stripe', paymentId: 'cs_1', createdAgoMs: 45 * MIN });
+    await order({ status: 'PENDING', provider: 'stripe', paymentId: 'cs_1', createdAgoMs: 50 * MIN });
     await order({ status: 'PENDING', provider: 'sumup', paymentId: 'cs_2', createdAgoMs: 10 * MIN });
     await shop({ status: 'PENDING', provider: 'stripe', paymentId: 'cs_3', createdAgoMs: 90 * MIN, due: false });
     await order({ status: 'PENDING', provider: 'mock', paymentId: 'mock_1', createdAgoMs: 500 * MIN }); // simulada: no cuenta
@@ -158,7 +175,7 @@ describe('bloque `ops` de /api/health', () => {
     const block = (await ops())!;
     expect(Object.keys(block).sort()).toEqual(['emailsFailed', 'emailsUnsent', 'gateway', 'generatedAt', 'obligations', 'pendingOldestMinutes', 'pendingOver20min', 'reconcile', 'sales']);
     expect(block.pendingOldestMinutes).toBe(90); // el PENDING de tienda de hace 90 min
-    expect(block.pendingOver20min).toBe(2); // los de 45 y 90 min
+    expect(block.pendingOver20min).toBe(2); // los de 50 y 90 min (el de 10 min sigue dentro de su plazo)
     expect(block.emailsUnsent).toBe(3); // 2 de entradas + 1 de tienda
     expect(block.emailsFailed).toBe(2); // 1 de entradas + 1 de tienda
     expect(block.reconcile).toEqual({ lastRunAt, errors: 2, unknown: 1, processing: 3, stuckOver24h: 4 });

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { CONFIG_DEFAULT_KEYS } from '@/lib/config';
-import { INTERNAL_CONFIG_KEYS, OWNER_ONLY_CONFIG_KEYS, configKeyOwners, invalidConfigValue, isConfigKeyAllowed } from '@/lib/config-ownership';
+import { CONFIG_KEY_OWNERS, INTERNAL_CONFIG_KEYS, OWNER_ONLY_CONFIG_KEYS, configKeyOwners, invalidConfigValue, isConfigKeyAllowed } from '@/lib/config-ownership';
 
 // Revisión de módulos (2026-10): la API de configuración devolvía y aceptaba TODAS las claves de todos los módulos; la pantalla solo
 // ocultaba pestañas. Cada clave debe declarar a qué módulo(s) pertenece, y una clave nueva sin dueño debe romper la CI.
@@ -89,10 +89,12 @@ describe('Validación del valor de cada clave', () => {
 describe('Claves solo del propietario (correo saliente)', () => {
   const nucleoActivo = ['nucleo', 'entradas', 'tienda'] as const;
 
+  const todosActivos = ['nucleo', 'entradas', 'tienda', 'contabilidad', 'sponsors', 'wallets'] as const;
+
   it('el propietario (sin rol restringido) las ve y las guarda', () => {
     for (const k of OWNER_ONLY_CONFIG_KEYS) {
-      expect(isConfigKeyAllowed(k, nucleoActivo), k).toBe(true);
-      expect(isConfigKeyAllowed(k, nucleoActivo, null), k).toBe(true);
+      expect(isConfigKeyAllowed(k, todosActivos), k).toBe(true);
+      expect(isConfigKeyAllowed(k, todosActivos, null), k).toBe(true);
     }
   });
 
@@ -108,7 +110,36 @@ describe('Claves solo del propietario (correo saliente)', () => {
     expect(smtp.length).toBeGreaterThan(0);
     for (const k of smtp) expect(OWNER_ONLY_CONFIG_KEYS, k).toContain(k);
     expect(OWNER_ONLY_CONFIG_KEYS).toContain('admin_email');
-    for (const k of OWNER_ONLY_CONFIG_KEYS) expect(CONFIG_DEFAULT_KEYS, k).toContain(k);
+    // Evita erratas: cada clave de la lista existe (con valor por defecto, o al menos con dueño declarado: las `shop_*` no tienen valor por defecto).
+    for (const k of OWNER_ONLY_CONFIG_KEYS) expect(CONFIG_DEFAULT_KEYS.includes(k) || k in CONFIG_KEY_OWNERS, k).toBe(true);
+  });
+
+  // H-058: un «Gestor de entradas» podía sustituir `stripe_secret_key` o `sumup_api_key` y desviar todo cobro online a su cuenta; con su propio
+  // `stripe_webhook_secret` firmaba webhooks falsos; el rol «Contenido» apagaba el captcha (`turnstile_*`) y cambiaba los datos fiscales de los justificantes.
+  it('las credenciales de pago, el captcha, los datos fiscales y las claves de wallet y de IA son solo del propietario', () => {
+    const exigidas = [
+      'payment_gateway', 'stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_secret', 'sumup_api_key', 'sumup_merchant_code',
+      'shop_payment_gateway', 'shop_stripe_publishable_key', 'shop_stripe_secret_key', 'shop_stripe_webhook_secret', 'shop_sumup_api_key', 'shop_sumup_merchant_code',
+      'google_wallet_issuer_id', 'google_wallet_service_account', 'apple_wallet_cert_p12_base64', 'apple_wallet_cert_password', 'abacus_ai_api_key',
+      'turnstile_site_key', 'turnstile_secret_key', 'fiscal_legal_name', 'fiscal_nif', 'fiscal_address',
+    ];
+    for (const k of exigidas) expect(OWNER_ONLY_CONFIG_KEYS, k).toContain(k);
+  });
+
+  it('invariante: toda clave con nombre de cobro, captcha, fiscal, certificado o IA está en la lista del propietario (una clave nueva no se cuela)', () => {
+    const sensible = /stripe|sumup|payment_gateway|turnstile|fiscal_|wallet_(service_account|issuer|cert|team|pass_type)|abacus/i;
+    const fuera = Object.keys(CONFIG_KEY_OWNERS).filter((k) => sensible.test(k) && !OWNER_ONLY_CONFIG_KEYS.includes(k));
+    expect(fuera).toEqual([]);
+  });
+
+  it('un gestor de entradas no toca la cuenta de cobro pero sí la comisión; el rol de contenido no toca captcha ni fiscales', () => {
+    expect(isConfigKeyAllowed('stripe_secret_key', todosActivos, ['entradas'])).toBe(false);
+    expect(isConfigKeyAllowed('sumup_merchant_code', todosActivos, ['entradas'])).toBe(false);
+    expect(isConfigKeyAllowed('shop_stripe_secret_key', todosActivos, ['tienda'])).toBe(false);
+    expect(isConfigKeyAllowed('commission_percentage', todosActivos, ['entradas'])).toBe(true);
+    expect(isConfigKeyAllowed('turnstile_secret_key', todosActivos, ['nucleo'])).toBe(false);
+    expect(isConfigKeyAllowed('fiscal_nif', todosActivos, ['nucleo'])).toBe(false);
+    expect(isConfigKeyAllowed('stripe_secret_key', todosActivos, null)).toBe(true);
   });
 
   it('el resto de claves del núcleo siguen siendo de un rol con el núcleo (contenido, redes, legal)', () => {

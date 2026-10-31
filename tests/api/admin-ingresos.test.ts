@@ -11,6 +11,7 @@ vi.mock('@/lib/auth', () => ({ authOptions: {} }));
 const { GET: listIngresos, POST: createIngreso } = await import('@/app/api/admin/ingresos/route');
 const { PATCH: updateIngreso, DELETE: deleteIngreso } = await import('@/app/api/admin/ingresos/[id]/route');
 const { GET: resumenIngresos } = await import('@/app/api/admin/ingresos/resumen/route');
+const { GET: jornadaIngresos } = await import('@/app/api/admin/ingresos/jornada/route');
 const { POST: createGasto } = await import('@/app/api/admin/gastos/route');
 
 function jsonRequest(url: string, method: string, body?: unknown): Request {
@@ -20,6 +21,28 @@ function jsonRequest(url: string, method: string, body?: unknown): Request {
     body: body ? JSON.stringify(body) : undefined,
   });
 }
+
+// H-002: el formulario de caja proponía la jornada calculada al CARGAR la página; con la pestaña abierta horas, una jornada obsoleta. Ahora la pide
+// al servidor al abrirse el formulario.
+describe('GET /api/admin/ingresos/jornada', () => {
+  it('devuelve la jornada de negocio de ahora (YYYY-MM-DD, con el corte configurado)', async () => {
+    const res = await jornadaIngresos();
+    expect(res.status).toBe(200);
+    const { jornadaHoy } = await res.json();
+    expect(jornadaHoy).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const { jornadaHoy: esperada } = await import('@/lib/jornada');
+    expect(jornadaHoy).toBe(await esperada());
+  });
+
+  it('exige sesión de administrador', async () => {
+    sessionRole = null;
+    try {
+      expect((await jornadaIngresos()).status).toBe(401);
+    } finally {
+      sessionRole = 'ADMIN';
+    }
+  });
+});
 
 // AUDIT: la caja física de la caseta (entradas en puerta, barra...) no tenía
 // dónde registrarse — el balance de la temporada solo podía calcularse a

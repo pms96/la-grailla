@@ -6,10 +6,11 @@ const mocks = vi.hoisted(() => ({
   sendMail: vi.fn(async (_p: unknown) => ({ success: true })),
   getOperatorEmail: vi.fn(async (_kind: string): Promise<string> => 'admin@cliente.es'),
   rateLimit: vi.fn(async (_b: string, _k: string, _l: number, _w: number) => ({ ok: true })),
+  resetRateLimit: vi.fn(async (_b: string, _k: string) => {}),
 }));
 vi.mock('@/lib/mailer', () => ({ sendMail: mocks.sendMail }));
 vi.mock('@/lib/config', () => ({ getOperatorEmail: mocks.getOperatorEmail }));
-vi.mock('@/lib/rate-limit', () => ({ rateLimit: mocks.rateLimit }));
+vi.mock('@/lib/rate-limit', () => ({ rateLimit: mocks.rateLimit, resetRateLimit: mocks.resetRateLimit }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 
 import { alertOperator, alertPaidButInactiveOrder, paymentMatchesOrder } from '@/lib/reconciliation/shared';
@@ -123,6 +124,25 @@ describe('dedupeKey: un aviso por clave y día, en los dos canales', () => {
     await alertOperator(params);
     expect(mocks.sendMail).toHaveBeenCalledTimes(1);
     expect(platform).toHaveBeenCalledTimes(1);
+  });
+
+  // H-116: el cupo se toma ANTES de enviar; si ningún canal entrega, se devuelve para que el cron (cada 5 min) pueda volver a avisar.
+  it('si NINGÚN canal entrega (SMTP caído y canal del operador caído), devuelve el cupo de 24 h', async () => {
+    mocks.sendMail.mockImplementation(async () => ({ success: false, error: 'smtp caído' }) as never);
+    platform.mockImplementation(async () => new Response('no', { status: 503 }));
+    await alertOperator(params);
+    expect(mocks.resetRateLimit).toHaveBeenCalledWith('operator-alert', params.dedupeKey);
+  });
+
+  it('si al menos un canal entrega, el cupo se queda gastado (un aviso al día)', async () => {
+    mocks.sendMail.mockImplementation(async () => ({ success: false, error: 'smtp caído' }) as never);
+    await alertOperator(params); // el canal del operador (ntfy simulado) responde 200
+    expect(mocks.resetRateLimit).not.toHaveBeenCalled();
+
+    platform.mockImplementation(async () => new Response('no', { status: 500 }));
+    mocks.sendMail.mockImplementation(async () => ({ success: true }));
+    await alertOperator({ ...params, dedupeKey: 'otra' }); // ahora entrega el correo
+    expect(mocks.resetRateLimit).not.toHaveBeenCalled();
   });
 
   it('sin dedupeKey no se consulta ningún límite', async () => {

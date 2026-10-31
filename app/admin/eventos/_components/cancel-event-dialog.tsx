@@ -156,7 +156,7 @@ export function CancelEventDialog({ event, onClose, onChanged }: { event: { id: 
               </div>
             </div>
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 flex gap-2">
-              <TriangleAlert className="h-4 w-4 text-destructive shrink-0 mt-0.5" aria-hidden />
+              <TriangleAlert className="h-4 w-4 text-destructive-text shrink-0 mt-0.5" aria-hidden />
               <p>Los reembolsos devuelven el dinero a los compradores y no se pueden deshacer. Si el correo no funciona, los compradores no recibirán el aviso: comprueba el SMTP en Configuración antes de empezar.</p>
             </div>
             <div>
@@ -204,7 +204,7 @@ function ProgressView({ progress, running }: { progress: Progress; running: bool
         {job.notify && (
           <li>
             <span className="text-foreground tabular-nums font-medium">{progress.emailsSent}</span> avisos enviados · faltan <span className="text-foreground tabular-nums font-medium">{progress.emailsRemaining}</span>
-            {progress.emailsFailed > 0 && <span className="text-destructive"> · {progress.emailsFailed} sin enviar (revisa el SMTP)</span>}
+            {progress.emailsFailed > 0 && <span className="text-destructive-text"> · {progress.emailsFailed} sin enviar (revisa el SMTP)</span>}
           </li>
         )}
       </ul>

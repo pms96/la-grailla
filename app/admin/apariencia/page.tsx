@@ -389,7 +389,7 @@ export default function AparienciaPage() {
             </div>
             {issues.length > 0 && (
               <div role="alert" className="flex gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
-                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive-text" />
                 <ul className="space-y-1">{issues.map((i) => <li key={i}>{i} Elige un fondo o un color con más contraste.</li>)}</ul>
               </div>
             )}

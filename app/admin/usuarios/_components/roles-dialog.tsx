@@ -100,7 +100,7 @@ export function RolesDialog({ open, onOpenChange, available, presets, custom, on
                 </div>
                 <div className="flex gap-1 shrink-0">
                   <Button variant="ghost" size="icon-sm" title="Editar" onClick={() => setForm({ id: r.id, name: r.name, modules: r.modules })}><Pencil className="h-3.5 w-3.5" /></Button>
-                  <Button variant="ghost" size="icon-sm" title="Borrar" onClick={() => remove(r)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                  <Button variant="ghost" size="icon-sm" title="Borrar" onClick={() => remove(r)}><Trash2 className="h-3.5 w-3.5 text-destructive-text" /></Button>
                 </div>
               </div>
             ))}

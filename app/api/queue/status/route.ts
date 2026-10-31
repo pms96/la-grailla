@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
-import { pollAfterMsFor, sweepAndAdmit } from '@/lib/waiting-room';
+import { liveWaitingWhere, pollAfterMsFor, sweepAndAdmit, touchWaitingEntry } from '@/lib/waiting-room';
 import { handleApiError } from '@/lib/api-error';
 
 const DEFAULT_CONCURRENT_SLOTS = 20;
@@ -20,7 +20,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Faltan parámetros' }, { status: 400 });
     }
 
-    const limit = await rateLimit('queue-status', getClientIp(request), 40, 60_000);
+    // Por IP, con holgura para una oficina o una IP móvil compartida (H-072): 40/min dejaba sin cola a la 4.ª persona (cada una sondea ~12-37 veces/min).
+    // 600/min (10/s) sigue frenando a un script que martillee. No se añade un segundo límite por token: duplicaría la escritura de cada sondeo.
+    const limit = await rateLimit('queue-status', getClientIp(request), 600, 60_000);
     if (!limit.ok) {
       return NextResponse.json(
         { error: 'Demasiados intentos. Espera un momento.' },
@@ -45,6 +47,8 @@ export async function GET(request: Request) {
 
     const concurrentSlots = event.waitingRoomConcurrentSlots ?? DEFAULT_CONCURRENT_SLOTS;
     const windowSeconds = event.waitingRoomPurchaseWindowSeconds ?? DEFAULT_PURCHASE_WINDOW_SECONDS;
+    // Latido (H-071): ANTES del barrido, para que quien sondea cuente como presente en esta misma pasada.
+    await touchWaitingEntry({ token, eventId: event.id });
     await sweepAndAdmit(event.id, concurrentSlots, windowSeconds, { minIntervalMs: STATUS_SWEEP_MIN_INTERVAL_MS });
 
     const entry = await prisma.waitingRoomEntry.findUnique({ where: { token } });
@@ -54,7 +58,7 @@ export async function GET(request: Request) {
 
     if (entry.status === 'WAITING') {
       const position = await prisma.waitingRoomEntry.count({
-        where: { eventId: event.id, status: 'WAITING', joinedAt: { lt: entry.joinedAt } },
+        where: { eventId: event.id, ...liveWaitingWhere(), joinedAt: { lt: entry.joinedAt } },
       });
       return NextResponse.json({
         status: 'WAITING',

@@ -107,19 +107,19 @@ describe('señales de negocio en el disparador', () => {
 
   it('pedidos pendientes: avisa UNA vez al aparecer (incluso en la primera lectura), lo deja en la ficha, y avisa cuando se resuelve', async () => {
     const c = await publishedTenant('Peña Pagos');
-    await pass((n) => probeWith(calmOps(n, { pendingOver20min: 2, pendingOldestMinutes: 24 })));
+    await pass((n) => probeWith(calmOps(n, { pendingOver20min: 2, pendingOldestMinutes: 46 })));
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({ severity: 'warning', tenant: { name: 'Peña Pagos', host: c.host } });
     expect(alerts[0].title).toBe('Peña Pagos: pedidos pendientes de pago');
     expect(alerts[0].detail).toContain('2 en total');
     const row = await stored(c.subscriptionId);
     expect(row).toMatchObject({ ok: false, status: 'degraded' });
-    expect(row?.error).toContain('Operación: pedidos pendientes de pago con más de 20 min');
+    expect(row?.error).toContain('Operación: pedidos pendientes de pago fuera de plazo');
 
-    await pass((n) => probeWith(calmOps(n, { pendingOver20min: 2, pendingOldestMinutes: 29 }))); // sigue igual: no repite
+    await pass((n) => probeWith(calmOps(n, { pendingOver20min: 2, pendingOldestMinutes: 52 }))); // sigue igual: no repite
     expect(alerts).toHaveLength(1);
 
-    await pass((n) => probeWith(calmOps(n, { pendingOver20min: 2, pendingOldestMinutes: 34 }))); // escala a fallo
+    await pass((n) => probeWith(calmOps(n, { pendingOver20min: 2, pendingOldestMinutes: 61 }))); // escala a fallo
     expect(alerts.map((a) => a.severity)).toEqual(['warning', 'critical']);
     expect(alerts[1].title).toContain('sin resolver');
 

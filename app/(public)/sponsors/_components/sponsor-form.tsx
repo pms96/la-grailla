@@ -137,7 +137,7 @@ export default function SponsorForm() {
               placeholder="Empresa S.L."
               aria-invalid={Boolean(errors.companyName)}
             />
-            {errors.companyName && <p className="text-xs text-destructive mt-1">{errors.companyName}</p>}
+            {errors.companyName && <p className="text-xs text-destructive-text mt-1">{errors.companyName}</p>}
           </div>
           <div>
             <Label>Persona de contacto *</Label>
@@ -149,7 +149,7 @@ export default function SponsorForm() {
               placeholder="Juan Pérez"
               aria-invalid={Boolean(errors.contactName)}
             />
-            {errors.contactName && <p className="text-xs text-destructive mt-1">{errors.contactName}</p>}
+            {errors.contactName && <p className="text-xs text-destructive-text mt-1">{errors.contactName}</p>}
           </div>
         </div>
         <div className="grid md:grid-cols-2 gap-4">
@@ -164,7 +164,7 @@ export default function SponsorForm() {
               placeholder="contacto@empresa.com"
               aria-invalid={Boolean(errors.email)}
             />
-            {errors.email && <p className="text-xs text-destructive mt-1">{errors.email}</p>}
+            {errors.email && <p className="text-xs text-destructive-text mt-1">{errors.email}</p>}
           </div>
           <div>
             <Label>Teléfono</Label>
@@ -206,7 +206,7 @@ export default function SponsorForm() {
           </Label>
         </div>
         {consentTouched && !consentAccepted && (
-          <p className="text-xs text-destructive -mt-2">Debes aceptar la política de privacidad para enviar la solicitud</p>
+          <p className="text-xs text-destructive-text -mt-2">Debes aceptar la política de privacidad para enviar la solicitud</p>
         )}
         <Button onClick={handleSubmit} disabled={loading} className="gap-2">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

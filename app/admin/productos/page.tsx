@@ -300,7 +300,7 @@ export default function ProductosPage() {
                       <Pencil className="h-3.5 w-3.5" /> Editar
                     </Button>
                     <Button variant="ghost" size="icon-sm" onClick={() => handleDelete(p.id)}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
+                      <Trash2 className="h-4 w-4 text-destructive-text" />
                     </Button>
                   </div>
                 </CardContent>
@@ -442,7 +442,7 @@ export default function ProductosPage() {
                     <div key={key} className="flex items-center gap-3">
                       <span className="text-sm flex-1 min-w-0 truncate">{label}</span>
                       {stockConflicts[key] !== undefined && (
-                        <span className="text-xs text-destructive whitespace-nowrap">Ahora: {stockConflicts[key]}</span>
+                        <span className="text-xs text-destructive-text whitespace-nowrap">Ahora: {stockConflicts[key]}</span>
                       )}
                       <Input
                         type="number"

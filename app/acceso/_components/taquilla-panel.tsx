@@ -311,7 +311,7 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
                 <details className="mt-2 text-xs text-muted-foreground">
                   <summary className="cursor-pointer select-none">
                     Detalles técnicos de la impresión
-                    {printer.lastDiagnostics.error && <span className="text-destructive"> · con errores</span>}
+                    {printer.lastDiagnostics.error && <span className="text-destructive-text"> · con errores</span>}
                   </summary>
                   <div className="mt-1.5 space-y-0.5 pl-3 border-l border-border">
                     <p>Modo: {WRITE_MODE_LABELS[printer.lastDiagnostics.writeModeRequested]}</p>
@@ -335,7 +335,7 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
                       {printer.lastDiagnostics.rasterChunks} bloques de datos
                     </p>
                     <p>Duración: {(printer.lastDiagnostics.durationMs / 1000).toFixed(1)}s</p>
-                    {printer.lastDiagnostics.error && <p className="text-destructive">Error: {printer.lastDiagnostics.error}</p>}
+                    {printer.lastDiagnostics.error && <p className="text-destructive-text">Error: {printer.lastDiagnostics.error}</p>}
                   </div>
                 </details>
               )}

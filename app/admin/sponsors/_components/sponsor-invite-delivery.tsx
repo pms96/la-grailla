@@ -60,7 +60,7 @@ export function SponsorInviteDelivery({
         <p className="text-xs text-muted-foreground">Sin email guardado — comparte el enlace por WhatsApp o copiándolo. El sponsor puede añadir su email desde el propio portal.</p>
       )}
       {hasEmail && emailStatus === 'FAILED' && (
-        <p className="text-xs text-destructive">⚠️ La invitación por email no se pudo enviar — usa copiar enlace o WhatsApp mientras tanto.</p>
+        <p className="text-xs text-destructive-text">⚠️ La invitación por email no se pudo enviar — usa copiar enlace o WhatsApp mientras tanto.</p>
       )}
       <div className="flex flex-wrap gap-2">
         {hasEmail && onResend && (

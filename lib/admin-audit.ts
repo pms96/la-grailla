@@ -31,28 +31,47 @@ const MAX_JSON = 4000;
 const MAX_DEPTH = 4;
 const REDACTED = '[redactado]';
 
-function clean(value: unknown, depth: number): unknown {
+function clean(value: unknown, depth: number, maxString: number): unknown {
   if (value === null || value === undefined) return null;
   if (typeof value === 'number' || typeof value === 'boolean') return value;
-  if (typeof value === 'string') return value.length > MAX_STRING ? `${value.slice(0, MAX_STRING)}…` : value;
+  if (typeof value === 'string') return value.length > maxString ? `${value.slice(0, maxString)}…` : value;
   if (value instanceof Date) return value.toISOString();
   if (typeof value === 'object' && 'toFixed' in (value as object)) return String(value); // Decimal de Prisma
   if (depth >= MAX_DEPTH) return '[…]';
-  if (Array.isArray(value)) return value.slice(0, 50).map((v) => clean(v, depth + 1));
+  if (Array.isArray(value)) return value.slice(0, 50).map((v) => clean(v, depth + 1, maxString));
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = SECRET_KEY.test(k) ? REDACTED : clean(v, depth + 1);
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = SECRET_KEY.test(k) ? REDACTED : clean(v, depth + 1, maxString);
     return out;
   }
   return String(value);
 }
 
-/** Meta apta para guardar: sin secretos (por nombre de clave), con cadenas y tamaño acotados. Pura. */
+const size = (v: unknown) => JSON.stringify(v).length;
+
+/**
+ * Meta apta para guardar: sin secretos (por nombre de clave), con cadenas y tamaño acotados. Pura.
+ * Si no cabe en MAX_JSON NO se descarta entera (H-017: se perdía hasta el importe anterior de una edición): primero se acortan las cadenas
+ * y, solo si aun así no cabe, se conservan las claves de primer nivel que quepan, por orden, y se anotan las que se dejaron fuera.
+ */
 export function sanitizeAuditMeta(meta: Record<string, unknown> | undefined): Prisma.InputJsonValue | undefined {
   if (!meta) return undefined;
-  const cleaned = clean(meta, 0) as Record<string, unknown>;
-  if (JSON.stringify(cleaned).length > MAX_JSON) return { truncated: true, keys: Object.keys(cleaned).slice(0, 30) };
-  return cleaned as Prisma.InputJsonValue;
+  for (const cap of [MAX_STRING, 120, 40]) {
+    const cleaned = clean(meta, 0, cap) as Record<string, unknown>;
+    if (size(cleaned) <= MAX_JSON) return cleaned as Prisma.InputJsonValue;
+  }
+  const cleaned = clean(meta, 0, 40) as Record<string, unknown>;
+  const kept: Record<string, unknown> = {};
+  const dropped: string[] = [];
+  let used = 600; // reserva para `truncated` y la lista de claves omitidas
+  for (const [k, v] of Object.entries(cleaned)) {
+    const cost = size({ [k]: v }) + 1;
+    if (used + cost <= MAX_JSON) {
+      kept[k] = v;
+      used += cost;
+    } else dropped.push(k);
+  }
+  return { ...kept, truncated: true, keys: dropped.slice(0, 30) } as Prisma.InputJsonValue;
 }
 
 const comparable = (v: unknown): string => (v instanceof Date ? v.toISOString() : v === null || v === undefined ? '' : String(v));

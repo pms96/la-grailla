@@ -236,7 +236,7 @@ export default function PedidosPage() {
                     </p>
                   )}
                   {PAID_STATUSES.includes(order?.status ?? '') && order?.emailDelivery && (
-                    <p className={`flex flex-wrap items-center gap-2 ${order.emailDelivery.status === 'exhausted' ? 'text-destructive' : ''}`}>
+                    <p className={`flex flex-wrap items-center gap-2 ${order.emailDelivery.status === 'exhausted' ? 'text-destructive-text' : ''}`}>
                       <span><Mail className="h-3 w-3 inline mr-1" /> Email: {emailLine(order.emailDelivery)}</span>
                       <Button
                         variant="outline"

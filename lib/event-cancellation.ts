@@ -290,6 +290,29 @@ export async function hasCancellationJob(eventId: string): Promise<boolean> {
   return (await prisma.appConfig.count({ where: { key: cancelKey(eventId) } })) > 0;
 }
 
+const CANCEL_RUN_LOCK_PREFIX = 'event-cancel-run:';
+/** Más que la duración máxima de una pasada (30 s) con margen: una reserva más vieja es de una pasada que murió y se retoma. */
+const CANCEL_RUN_LOCK_TTL_MS = 2 * 60_000;
+
+/** Reserva la pasada de un evento (fila en ProcessedWebhookEvent, sin migración). Falso si hay otra viva. Si no se puede ni consultar, se procesa: mejor solapar que parar. */
+async function acquireRunLock(eventId: string): Promise<boolean> {
+  const id = `${CANCEL_RUN_LOCK_PREFIX}${eventId}`;
+  try {
+    const created = await prisma.processedWebhookEvent.createMany({ data: [{ id }], skipDuplicates: true });
+    if (created.count > 0) return true;
+    // Existe: viva (otra pasada) o abandonada. La toma solo quien la vea caducada, con compare-and-swap sobre la fecha.
+    const stale = await prisma.processedWebhookEvent.updateMany({ where: { id, processedAt: { lt: new Date(Date.now() - CANCEL_RUN_LOCK_TTL_MS) } }, data: { processedAt: new Date() } });
+    return stale.count > 0;
+  } catch (error) {
+    console.error('[event-cancellation] no se pudo reservar la pasada (se procesa igualmente):', error instanceof Error ? error.message : error);
+    return true;
+  }
+}
+
+async function releaseRunLock(eventId: string): Promise<void> {
+  await prisma.processedWebhookEvent.deleteMany({ where: { id: `${CANCEL_RUN_LOCK_PREFIX}${eventId}` } }).catch(() => {});
+}
+
 /** Un lote del trabajo de cancelación: anula los pendientes, reembolsa, avisa; y lo da por terminado si no queda nada. Nunca lanza. */
 export async function processCancellation(eventId: string, opts: { deadline: number; concurrency?: number; callCapMs?: number }): Promise<CancellationProgress | null> {
   const concurrency = opts.concurrency ?? DEFAULT_CONCURRENCY;
@@ -303,6 +326,18 @@ export async function processCancellation(eventId: string, opts: { deadline: num
   }
   if (!job) return null;
   if (job.doneAt) return cancellationProgress(eventId, job);
+  // Una sola pasada por evento (H-041): cada pasada reescribe el trabajo ENTERO al final. Con otra en marcha (el cron y el bucle del diálogo se
+  // solapaban) solo se informa del progreso; el siguiente sondeo ve el resultado de la que corre.
+  if (!(await acquireRunLock(eventId))) return cancellationProgress(eventId, job);
+  try {
+    return await runCancellationPass(eventId, job, { deadline: opts.deadline, concurrency, callCapMs });
+  } finally {
+    await releaseRunLock(eventId);
+  }
+}
+
+async function runCancellationPass(eventId: string, job: CancellationJob, opts: { deadline: number; concurrency: number; callCapMs: number }): Promise<CancellationProgress | null> {
+  const { concurrency, callCapMs } = opts;
   const live: CancellationJob = job;
 
   try {

@@ -11,6 +11,18 @@ vi.mock('next-auth', () => ({
   getServerSession: vi.fn(async () => (role ? { user: { id: ACTOR, email: ACTOR_EMAIL, role, modules } } : null)),
 }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
+// H-147: permite hacer fallar la escritura del rastro DENTRO de la transacción del cambio, para probar que sin rastro no queda cambio.
+let failAudit = false;
+vi.mock('@/lib/admin-audit', async (orig) => {
+  const actual = await orig<typeof import('@/lib/admin-audit')>();
+  return {
+    ...actual,
+    recordAdminAudit: (...args: Parameters<typeof actual.recordAdminAudit>) => {
+      if (failAudit) throw new Error('auditoría caída (test)');
+      return actual.recordAdminAudit(...args);
+    },
+  };
+});
 
 const { GET: listGastos, POST: createGasto } = await import('@/app/api/admin/gastos/route');
 const { PATCH: updateGasto, DELETE: voidGasto } = await import('@/app/api/admin/gastos/[id]/route');
@@ -60,6 +72,16 @@ describe('P1-16 — controles de contabilidad: anulación, temporada cerrada y a
       expect(upd.status).toBe(200);
       const [cambio] = await auditoria({ action: 'gasto.update', targetId: body.id });
       expect((cambio.meta as { cambios: Record<string, unknown> }).cambios).toEqual({ importeSinIva: { from: 100, to: 120 } });
+    });
+
+    // H-001: con `fecha: ""` (un formulario con la fecha vaciada) el alta fallaba con 500 por usar `??` en vez de `||`: `new Date("")` es una fecha inválida.
+    it('una fecha vacía se trata como «sin fecha» (la de hoy), en gastos y en ingresos', async () => {
+      const { res, body } = await nuevoGasto({ concepto: '[TEST] Fecha vacía', fecha: '' });
+      expect(res.status).toBe(200);
+      expect(Number.isNaN(new Date(body.fecha).getTime())).toBe(false);
+      const ing = await createIngreso(json('http://localhost', 'POST', { temporadaId, concepto: '[TEST] Caja fecha vacía', importe: 7, fecha: '' }));
+      expect(ing.status).toBe(200);
+      expect(Number.isNaN(new Date((await ing.json()).fecha).getTime())).toBe(false);
     });
 
     it('un gasto en una temporada que no existe da 404, no un 500 de clave foránea', async () => {
@@ -235,6 +257,105 @@ describe('P1-16 — controles de contabilidad: anulación, temporada cerrada y a
       expect(p1.nextCursor).toBe(p1.items[0].id);
       const p2 = await (await listAuditoria(new Request(`http://localhost/api/admin/auditoria?accion=gasto&limit=1&cursor=${p1.nextCursor}`))).json();
       expect(p2.items[0].id).not.toBe(p1.items[0].id);
+    });
+  });
+
+  // H-147: «el cambio y su rastro en la MISMA transacción» solo estaba afirmado en un comentario. Si el rastro no se puede escribir, el cambio NO queda hecho.
+  describe('el cambio y su rastro van en la misma transacción (H-147)', () => {
+    let tid: string;
+    beforeAll(async () => {
+      tid = (await prisma.temporada.create({ data: { nombre: '[TEST] Temporada atómica', anio: 2095 } })).id;
+    });
+    afterAll(async () => {
+      failAudit = false;
+      await prisma.gasto.deleteMany({ where: { temporadaId: tid } });
+      await prisma.ingreso.deleteMany({ where: { temporadaId: tid } });
+      await prisma.temporada.delete({ where: { id: tid } }).catch(() => {});
+    });
+    const sinRastro = async <T,>(fn: () => Promise<T>): Promise<T> => {
+      failAudit = true;
+      try {
+        return await fn();
+      } finally {
+        failAudit = false;
+      }
+    };
+    const gasto = async () => (await (await createGasto(json('http://localhost', 'POST', { temporadaId: tid, categoria: 'Bebida', concepto: '[TEST] Atómico', importeSinIva: 100, ivaPercent: 21 }))).json()) as { id: string };
+    const ingreso = async () => (await (await createIngreso(json('http://localhost', 'POST', { temporadaId: tid, concepto: '[TEST] Caja atómica', importe: 50, fecha: '2026-09-25' }))).json()) as { id: string };
+
+    it('alta de gasto: si falla el rastro no queda el gasto', async () => {
+      const res = await sinRastro(() => createGasto(json('http://localhost', 'POST', { temporadaId: tid, categoria: 'Bebida', concepto: '[TEST] Sin rastro', importeSinIva: 10, ivaPercent: 21 })));
+      expect(res.status).toBe(500);
+      expect(await prisma.gasto.count({ where: { temporadaId: tid, concepto: '[TEST] Sin rastro' } })).toBe(0);
+    });
+
+    // H-009: la comprobación «ya está anulado» se hacía FUERA de la transacción: dos anulaciones simultáneas pasaban las dos, la segunda pisaba motivo y autor
+    // y el rastro salía duplicado. Ahora se reclama con un UPDATE condicionado (compare-and-swap) dentro de la transacción.
+    it('dos anulaciones simultáneas del mismo gasto: una gana (200), la otra recibe 409 y solo hay UNA fila de rastro', async () => {
+      const g = await gasto();
+      const [a, b] = await Promise.all([
+        voidGasto(json('http://localhost', 'DELETE', { motivo: 'Motivo de la primera' }), ctx(g.id)),
+        voidGasto(json('http://localhost', 'DELETE', { motivo: 'Motivo de la segunda' }), ctx(g.id)),
+      ]);
+      expect([a.status, b.status].sort()).toEqual([200, 409]);
+      expect(await prisma.adminAuditLog.count({ where: { actorId: ACTOR, action: 'gasto.void', targetId: g.id } })).toBe(1);
+      const fila = await prisma.gasto.findUniqueOrThrow({ where: { id: g.id } });
+      expect(fila.voidedAt).not.toBeNull();
+      expect(['Motivo de la primera', 'Motivo de la segunda']).toContain(fila.voidReason);
+    });
+
+    it('dos anulaciones simultáneas del mismo ingreso: una gana (200), la otra recibe 409 y solo hay UNA fila de rastro', async () => {
+      const i = await ingreso();
+      const [a, b] = await Promise.all([
+        voidIngreso(json('http://localhost', 'DELETE', { motivo: 'Motivo de la primera' }), ctx(i.id)),
+        voidIngreso(json('http://localhost', 'DELETE', { motivo: 'Motivo de la segunda' }), ctx(i.id)),
+      ]);
+      expect([a.status, b.status].sort()).toEqual([200, 409]);
+      expect(await prisma.adminAuditLog.count({ where: { actorId: ACTOR, action: 'ingreso.void', targetId: i.id } })).toBe(1);
+    });
+
+    it('alta de ingreso: si falla el rastro no queda el ingreso', async () => {
+      const res = await sinRastro(() => createIngreso(json('http://localhost', 'POST', { temporadaId: tid, concepto: '[TEST] Sin rastro', importe: 5, fecha: '2026-09-25' })));
+      expect(res.status).toBe(500);
+      expect(await prisma.ingreso.count({ where: { temporadaId: tid, concepto: '[TEST] Sin rastro' } })).toBe(0);
+    });
+
+    it('modificar un gasto: si falla el rastro el importe no cambia', async () => {
+      const g = await gasto();
+      const res = await sinRastro(() => updateGasto(json('http://localhost', 'PATCH', { importeSinIva: 999 }), ctx(g.id)));
+      expect(res.status).toBe(500);
+      expect(Number((await prisma.gasto.findUniqueOrThrow({ where: { id: g.id } })).importeSinIva)).toBe(100);
+    });
+
+    it('anular un gasto: si falla el rastro no queda anulado', async () => {
+      const g = await gasto();
+      const res = await sinRastro(() => voidGasto(json('http://localhost', 'DELETE', { motivo: 'Sin rastro posible' }), ctx(g.id)));
+      expect(res.status).toBe(500);
+      const fila = await prisma.gasto.findUniqueOrThrow({ where: { id: g.id } });
+      expect(fila.voidedAt).toBeNull();
+      expect(fila.voidReason).toBeNull();
+    });
+
+    it('modificar un ingreso: si falla el rastro el importe no cambia', async () => {
+      const i = await ingreso();
+      const res = await sinRastro(() => updateIngreso(json('http://localhost', 'PATCH', { importe: 999 }), ctx(i.id)));
+      expect(res.status).toBe(500);
+      expect(Number((await prisma.ingreso.findUniqueOrThrow({ where: { id: i.id } })).importe)).toBe(50);
+    });
+
+    it('anular un ingreso: si falla el rastro no queda anulado', async () => {
+      const i = await ingreso();
+      const res = await sinRastro(() => voidIngreso(json('http://localhost', 'DELETE', { motivo: 'Sin rastro posible' }), ctx(i.id)));
+      expect(res.status).toBe(500);
+      expect((await prisma.ingreso.findUniqueOrThrow({ where: { id: i.id } })).voidedAt).toBeNull();
+    });
+
+    it('cerrar una temporada: si falla el rastro sigue abierta', async () => {
+      const res = await sinRastro(() => patchTemporada(json('http://localhost', 'PATCH', { status: 'CERRADA', motivo: 'Cierre sin rastro posible' }), ctx(tid)));
+      expect(res.status).toBe(500);
+      const t = await prisma.temporada.findUniqueOrThrow({ where: { id: tid } });
+      expect(t.closedAt).toBeNull();
+      expect(t.status).not.toBe('CERRADA');
     });
   });
 });

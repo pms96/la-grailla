@@ -535,7 +535,7 @@ export default function ShopGrid() {
               </div>
             )}
             {optionError && (
-              <p className="text-sm text-destructive" role="alert">
+              <p className="text-sm text-destructive-text" role="alert">
                 {optionError}
               </p>
             )}

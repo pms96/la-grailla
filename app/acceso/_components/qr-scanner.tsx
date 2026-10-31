@@ -78,7 +78,7 @@ export default function QrScannerComponent({ onScan }: QrScannerProps) {
   }, []);
 
   if (error) {
-    return <p className="text-sm text-destructive text-center py-4">{error}</p>;
+    return <p className="text-sm text-destructive-text text-center py-4">{error}</p>;
   }
 
   return (

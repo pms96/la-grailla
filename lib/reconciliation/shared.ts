@@ -2,7 +2,7 @@ import { sendMail } from '@/lib/mailer';
 import { getOperatorEmail } from '@/lib/config';
 import { escapeHtml as esc } from '@/lib/html-escape';
 import { prisma } from '@/lib/prisma';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimit, resetRateLimit } from '@/lib/rate-limit';
 import { currentTenant } from '@/lib/tenant/context';
 import { sendPlatformAlert } from '@/lib/observability/platform-alert';
 import { toCents } from '@/lib/pricing';
@@ -78,17 +78,22 @@ export async function alertOperator(params: {
       console.error(`${params.tag} No se pudo comprobar el límite de avisos (se avisa igualmente):`, error instanceof Error ? error.message : error);
     }
   }
-  const byEmail = async () => {
+  const byEmail = async (): Promise<boolean> => {
     try {
       const to = await getOperatorEmail(params.kind);
-      if (!to) return; // cliente sin admin_email: queda el log y el canal de la plataforma
-      await sendMail({ to, subject: params.subject, html: params.html });
+      if (!to) return false; // cliente sin admin_email: queda el log y el canal de la plataforma
+      const sent = await sendMail({ to, subject: params.subject, html: params.html });
+      return sent.success === true;
     } catch (error) {
       console.error(`${params.tag} No se pudo enviar el aviso al operador:`, error instanceof Error ? error.message : error);
+      return false;
     }
   };
   // En paralelo y cada uno a prueba de fallos (ninguno lanza): el comprador y el webhook nunca esperan por un canal caído más de su tiempo máximo.
-  await Promise.allSettled([byEmail(), sendPlatformAlert({ kind: params.kind, reason: params.reason, orderId: params.orderId })]);
+  const [mail, platform] = await Promise.allSettled([byEmail(), sendPlatformAlert({ kind: params.kind, reason: params.reason, orderId: params.orderId })]);
+  const delivered = (mail.status === 'fulfilled' && mail.value) || (platform.status === 'fulfilled' && platform.value === 'sent');
+  // H-116: el cupo de 24 h se tomó antes de enviar. Si no salió por ningún canal, se devuelve: el cron reintenta cada 5 min y no debe quedar mudo un día entero.
+  if (params.dedupeKey && !delivered) await resetRateLimit('operator-alert', params.dedupeKey);
 }
 
 /** Lo que la pasarela dice haber cobrado (ver `PaymentResult`). Ausente = no se puede contrastar. */

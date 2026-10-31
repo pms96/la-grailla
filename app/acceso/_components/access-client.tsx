@@ -180,7 +180,7 @@ export default function AccessClient() {
       });
       const data = await res.json().catch(() => null);
       // Un 429, 401 o 500 no trae veredicto: se explica qué ha pasado (P1-06) en vez de pintar un ❌ sin texto.
-      const verdict: ScanResult = isDoorVerdict(data) ? data : doorFailure(res.status, (data as { error?: unknown } | null)?.error);
+      const verdict: ScanResult = isDoorVerdict(data) ? data : doorFailure(res.status, (data as { error?: unknown } | null)?.error, (data as { code?: unknown } | null)?.code);
       setScanResult(verdict);
 
       // Update capacity if valid

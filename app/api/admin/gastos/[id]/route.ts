@@ -97,12 +97,15 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
     if (before.voidedAt) return NextResponse.json({ error: 'Este gasto ya está anulado', code: 'anulado' }, { status: 409 });
     const open = await checkTemporadaAbierta(before.temporadaId);
     if (!open.ok) return NextResponse.json({ error: open.error, code: open.code }, { status: open.status });
-    await prisma.$transaction(async (tx) => {
+    const claimed = await prisma.$transaction(async (tx) => {
+      // Se reclama con un UPDATE condicionado a «aún no anulado» (compare-and-swap) DENTRO de la transacción: dos anulaciones simultáneas pasaban la
+      // comprobación de arriba y la segunda pisaba motivo y autor y duplicaba el rastro (H-009).
       // Se suelta el vínculo con el pedido (es único): así ese pedido puede volver a registrarse. El vínculo anterior queda en el rastro.
-      await tx.gasto.update({
-        where: { id: before.id },
+      const claim = await tx.gasto.updateMany({
+        where: { id: before.id, voidedAt: null },
         data: { voidedAt: new Date(), voidedById: session.user?.id ?? null, voidReason: motivo.motivo, pedidoId: null },
       });
+      if (claim.count === 0) return false;
       await recordAdminAudit(tx, actorFromSession(session), request, {
         action: 'gasto.void',
         targetType: 'Gasto',
@@ -118,7 +121,9 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
           pedidoId: before.pedidoId,
         },
       });
+      return true;
     });
+    if (!claimed) return NextResponse.json({ error: 'Este gasto ya está anulado', code: 'anulado' }, { status: 409 });
     return NextResponse.json({ success: true, voided: true });
   } catch (error) {
     return handleApiError(error, 'DELETE /api/admin/gastos/[id]');

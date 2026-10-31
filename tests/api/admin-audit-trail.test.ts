@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import { createTestEvent, createTicketType, cleanupTestEvent } from '../helpers/fixtures';
+import { gateway } from '../helpers/fake-gateway';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { AUDIT_ACTIONS } from '@/lib/admin-audit';
 
 const ACTOR = 'audit-trail-test';
 const ACTOR_EMAIL = 'audit-trail-test@example.com';
@@ -9,10 +13,23 @@ vi.mock('next-auth', () => ({
   getServerSession: vi.fn(async () => ({ user: { id: ACTOR, email: ACTOR_EMAIL, role: 'ADMIN' } })),
 }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
+// Pasarela falsa: «verificar» un pedido pregunta a la pasarela, y ningún test sale a la red.
+vi.mock('@/lib/payment-adapter', async (orig) => {
+  const actual = await orig<typeof import('@/lib/payment-adapter')>();
+  const { gateway: g, fakeProvider } = await import('../helpers/fake-gateway');
+  return {
+    ...actual,
+    getPaymentProviderByName: async (n: string, s?: 'entradas' | 'tienda') => (g.active ? fakeProvider() : actual.getPaymentProviderByName(n, s)),
+    getPaymentProvider: async (s?: 'entradas' | 'tienda') => (g.active ? fakeProvider() : actual.getPaymentProvider(s)),
+  };
+});
 
 const { PUT: putConfig } = await import('@/app/api/admin/config/route');
 const { PATCH: patchOrder } = await import('@/app/api/admin/orders/[id]/route');
 const { PUT: putShopOrder } = await import('@/app/api/admin/shop-orders/[id]/route');
+const { POST: cancelEvent } = await import('@/app/api/admin/events/[id]/cancel/route');
+const { PATCH: patchTemporada } = await import('@/app/api/admin/compras/temporadas/[id]/route');
+const { POST: createIngreso } = await import('@/app/api/admin/ingresos/route');
 const { POST: createUser } = await import('@/app/api/admin/users/route');
 const { PUT: updateUser, DELETE: deleteUser } = await import('@/app/api/admin/users/[id]/route');
 const { POST: createRole } = await import('@/app/api/admin/roles/route');
@@ -80,10 +97,10 @@ describe('registro de auditoría de acciones sensibles', () => {
   });
 
   describe('pedidos', () => {
-    const crearPedido = (status: 'PENDING' | 'COMPLETED', buyerEmail: string) =>
+    const crearPedido = (status: 'PENDING' | 'COMPLETED', buyerEmail: string, extra: Record<string, unknown> = {}) =>
       prisma.order.create({
         data: {
-          eventId: event.id, buyerName: 'Rastro', buyerLastName: 'Test', buyerEmail, totalAmount: 25, status,
+          eventId: event.id, buyerName: 'Rastro', buyerLastName: 'Test', buyerEmail, totalAmount: 25, status, ...extra,
           tickets: { create: { eventId: event.id, ticketTypeId: ticketType.id, qrCode: `QR-AUDIT-${Date.now()}-${Math.random()}`, holderName: 'Rastro Test', status: 'VALID' } },
         },
       });
@@ -124,11 +141,109 @@ describe('registro de auditoría de acciones sensibles', () => {
       }
     });
 
+    // H-146: antes ninguna de estas acciones (dinero y estado de pedidos) tenía una aserción sobre su fila: borrar el rastro de la ruta dejaba la suite en verde.
+    it('marcar un pedido como pagado deja rastro con el objetivo', async () => {
+      const order = await crearPedido('PENDING', 'rastro-complete@example.com');
+      const res = await patchOrder(json('PATCH', { action: 'complete' }), ctx(order.id));
+      expect(res.status).toBe(200);
+      const [fila] = await rastro({ action: 'order.complete', targetId: order.id });
+      expect(fila).toMatchObject({ targetType: 'Order', actorId: ACTOR, actorEmail: ACTOR_EMAIL });
+    });
+
+    it('reembolsar un pedido deja rastro con el importe y el medio de pago, sin datos del comprador', async () => {
+      const order = await crearPedido('COMPLETED', 'rastro-refund@example.com', { paymentMethod: 'CASH', channel: 'TAQUILLA' });
+      const res = await patchOrder(json('PATCH', { action: 'refund' }), ctx(order.id));
+      expect(res.status).toBe(200);
+      const [fila] = await rastro({ action: 'order.refund', targetId: order.id });
+      expect(fila).toMatchObject({ targetType: 'Order' });
+      expect(fila.meta).toMatchObject({ totalAmount: 25, paymentMethod: 'CASH' });
+      expect(JSON.stringify(fila)).not.toMatch(/rastro-refund@example\.com|Rastro Test/);
+    });
+
+    it('verificar un pedido contra la pasarela deja rastro', async () => {
+      gateway.reset();
+      gateway.active = true;
+      try {
+        const paymentId = `cs_audit_verify_${Date.now()}`;
+        gateway.script(paymentId, { success: true, paymentId, provider: 'stripe', status: 'PAID', amount: 25, currency: 'EUR' });
+        const order = await crearPedido('PENDING', 'rastro-verify@example.com', { paymentProvider: 'stripe', paymentId });
+        const res = await patchOrder(json('PATCH', { action: 'verify' }), ctx(order.id));
+        expect(res.status).toBe(200);
+        const [fila] = await rastro({ action: 'order.verify', targetId: order.id });
+        expect(fila).toMatchObject({ targetType: 'Order' });
+      } finally {
+        gateway.reset();
+      }
+    });
+
+    it('reembolsar un pedido de tienda deja rastro con el importe y sin datos del comprador', async () => {
+      const shop = await prisma.shopOrder.create({
+        data: {
+          buyerName: '[TEST] Rastro Reembolso', buyerEmail: 'rastro-tienda-refund@example.com', shippingAddress: 'Calle Test 2', shippingCity: 'Madrid',
+          shippingZip: '28001', totalAmount: 33, status: 'PAID',
+        },
+      });
+      try {
+        const res = await putShopOrder(json('PUT', { status: 'REFUNDED' }), ctx(shop.id));
+        expect(res.status).toBe(200);
+        const [fila] = await rastro({ action: 'order.shop_refund', targetId: shop.id });
+        expect(fila).toMatchObject({ targetType: 'ShopOrder' });
+        expect(fila.meta).toMatchObject({ totalAmount: 33 });
+        expect(JSON.stringify(fila)).not.toMatch(/rastro-tienda-refund@example\.com|Rastro Reembolso/);
+      } finally {
+        await prisma.shopOrder.delete({ where: { id: shop.id } }).catch(() => {});
+      }
+    });
+
     it('una acción que falla no deja rastro', async () => {
       const antes = (await rastro({ action: 'order.complete' })).length;
       const res = await patchOrder(json('PATCH', { action: 'complete' }), ctx('no-existe'));
       expect(res.status).toBe(404);
       expect((await rastro({ action: 'order.complete' })).length).toBe(antes);
+    });
+  });
+
+  describe('eventos, temporadas e ingresos (H-146)', () => {
+    it('cancelar un evento deja rastro con las opciones elegidas', async () => {
+      const res = await cancelEvent(json('POST', { action: 'start', refund: false, notify: false }), ctx(event.id));
+      expect(res.status).toBe(200);
+      const [fila] = await rastro({ action: 'event.cancel', targetId: event.id });
+      expect(fila).toMatchObject({ targetType: 'Event' });
+      expect(fila.meta).toMatchObject({ refund: false, notify: false });
+      await prisma.appConfig.deleteMany({ where: { key: `event_cancellation:${event.id}` } });
+    });
+
+    it('cambiar los datos de una temporada deja rastro con de → a, y un ingreso nuevo también', async () => {
+      const temporada = await prisma.temporada.create({ data: { nombre: '[TEST] Rastro temporada', anio: 2094 } });
+      await prisma.user.upsert({ where: { id: ACTOR }, update: {}, create: { id: ACTOR, email: ACTOR_EMAIL, role: 'ADMIN' } }); // el ingreso guarda quién lo creó (clave foránea)
+      try {
+        const res = await patchTemporada(json('PATCH', { nombre: '[TEST] Rastro temporada 2' }), ctx(temporada.id));
+        expect(res.status).toBe(200);
+        const [cambio] = await rastro({ action: 'temporada.update', targetId: temporada.id });
+        expect(cambio).toMatchObject({ targetType: 'Temporada' });
+        expect(JSON.stringify(cambio.meta)).toContain('[TEST] Rastro temporada 2');
+
+        const alta = await createIngreso(json('POST', { temporadaId: temporada.id, concepto: '[TEST] Caja rastro', importe: 12, fecha: '2026-09-25' }));
+        expect(alta.status).toBe(200);
+        const { id } = await alta.json();
+        const [ingreso] = await rastro({ action: 'ingreso.create', targetId: id });
+        expect(ingreso).toMatchObject({ targetType: 'Ingreso', actorEmail: ACTOR_EMAIL });
+      } finally {
+        await prisma.ingreso.deleteMany({ where: { temporadaId: temporada.id } });
+        await prisma.temporada.delete({ where: { id: temporada.id } }).catch(() => {});
+        await prisma.user.delete({ where: { id: ACTOR } }).catch(() => {});
+      }
+    });
+  });
+
+  // H-146: que cada acción de AUDIT_ACTIONS esté al menos nombrada en un test de integración (tests/api). No prueba que la aserción sea la correcta,
+  // pero una acción nueva sin ningún test de ruta falla aquí en vez de pasar inadvertida.
+  describe('cobertura del registro', () => {
+    it('cada acción de AUDIT_ACTIONS aparece en algún test de tests/api', () => {
+      const dir = join(process.cwd(), 'tests/api');
+      const fuentes = readdirSync(dir).filter((f) => f.endsWith('.test.ts')).map((f) => readFileSync(join(dir, f), 'utf8')).join('\n');
+      const sinTest = AUDIT_ACTIONS.filter((a) => !fuentes.includes(`'${a}'`));
+      expect(sinTest).toEqual([]);
     });
   });
 

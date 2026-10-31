@@ -85,7 +85,7 @@ export function ProductBuy({ product }: { product: ShopProductView }) {
         </button>
         {/* Región viva: anuncia el resultado a lectores de pantalla sin mover el foco. */}
         <p className="min-h-[1.25rem] text-sm" role="status" aria-live="polite">
-          {error ? <span className="text-destructive">{error}</span> : added ? 'Añadido al carrito' : stockNote}
+          {error ? <span className="text-destructive-text">{error}</span> : added ? 'Añadido al carrito' : stockNote}
         </p>
         {added && (
           <button type="button" className="text-sm font-medium underline underline-offset-4" onClick={openCart}>

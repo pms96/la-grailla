@@ -47,6 +47,9 @@ describe('mensajes de la puerta (lib/door-errors)', () => {
     expect(doorFailure(400).message).toMatch(/ERROR DEL SERVIDOR/);
     // El código interno de un fallo de validación no es un texto para el personal.
     expect(doorFailure(400, 'validation_error').message).toMatch(/ERROR DEL SERVIDOR/);
+    // H-084: el servidor manda ahora el texto en español y el código aparte; la puerta filtra por el código.
+    expect(doorFailure(400, 'Los datos enviados no son válidos. Revisa el formulario e inténtalo de nuevo.', 'validation_error').message).toMatch(/ERROR DEL SERVIDOR/);
+    expect(doorFailure(400, 'QR no válido', undefined).message).toBe('QR no válido');
   });
 
   it('distingue un veredicto del escáner de un cuerpo de error', () => {

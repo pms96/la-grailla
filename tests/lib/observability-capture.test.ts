@@ -35,11 +35,12 @@ describe('sin SENTRY_DSN: inerte', () => {
     expect(sentryEnabled({ SENTRY_DSN: ' ' } as unknown as NodeJS.ProcessEnv)).toBe(false);
   });
 
-  it('handleApiError responde exactamente igual que antes (500 genérico) y no carga el SDK', async () => {
+  it('handleApiError responde un 500 genérico con texto para la persona y el código técnico aparte, y no carga el SDK', async () => {
     const before = sdk.loaded;
     const res = handleApiError(new Error('BD caída'), 'POST /api/orders');
     expect(res.status).toBe(500);
-    expect(await res.json()).toEqual({ error: 'internal_server_error' });
+    // H-084: antes `error` era el código crudo («internal_server_error») y ~40 pantallas lo enseñaban tal cual al comprador.
+    expect(await res.json()).toEqual({ error: expect.stringMatching(/error inesperado/i), code: 'internal_server_error' });
     await tick();
     expect(sdk.loaded).toBe(before);
   });
@@ -88,7 +89,7 @@ describe('con SENTRY_DSN', () => {
     it('un 500 inesperado se captura con la ruta; el cuerpo de la respuesta no cambia', async () => {
       const res = handleApiError(new Error('inesperado'), 'POST /api/orders');
       expect(res.status).toBe(500);
-      expect(await res.json()).toEqual({ error: 'internal_server_error' });
+      expect(await res.json()).toEqual({ error: expect.stringMatching(/error inesperado/i), code: 'internal_server_error' });
       await tick();
       expect(sdk.captureOps).toHaveBeenCalledTimes(1);
       expect(sdk.captureOps.mock.calls[0][1]).toEqual({ route: 'POST /api/orders' });

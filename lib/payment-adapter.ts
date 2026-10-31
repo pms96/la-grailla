@@ -39,6 +39,8 @@ export interface PaymentResult {
   /** Importe y moneda que la pasarela dice haber cobrado (para poder contrastarlo con el pedido). */
   amount?: number;
   currency?: string;
+  /** Importe devuelto FUERA de la app cuando la devolución es PARCIAL (el estado sigue siendo `PAID`). Ausente = nada devuelto, o el adaptador no puede saberlo. */
+  refundedAmount?: number;
 }
 
 /** Lo que un proveedor sabe hacer. Quien lo usa pregunta aquí en vez de comparar nombres de proveedor. */
@@ -226,15 +228,29 @@ export function mapStripeSessionStatus(session: { payment_status?: string | null
   return 'UNKNOWN';
 }
 
-/** ¿La sesión está pagada pero su cargo consta como reembolsado, total o parcialmente? Solo se sabe si el cargo viene expandido; si no, se asume que no. */
-export function stripeSessionRefunded(session: unknown): boolean {
+function stripeSessionCharge(session: unknown): { amount?: unknown; amount_refunded?: unknown; refunded?: unknown } | null {
   const s = session as { payment_status?: string | null; payment_intent?: unknown } | null;
-  if (s?.payment_status !== 'paid') return false;
+  if (s?.payment_status !== 'paid') return null;
   const pi = s.payment_intent;
   const charge = pi && typeof pi === 'object' ? (pi as { latest_charge?: unknown }).latest_charge : null;
-  if (!charge || typeof charge !== 'object') return false;
-  const c = charge as { amount_refunded?: unknown; refunded?: unknown };
-  return c.refunded === true || (typeof c.amount_refunded === 'number' && c.amount_refunded > 0);
+  return charge && typeof charge === 'object' ? (charge as { amount?: unknown; amount_refunded?: unknown; refunded?: unknown }) : null;
+}
+
+/**
+ * Cuánto se ha devuelto del cobro de una sesión pagada: nada, una parte o todo. Solo se sabe si el cargo viene expandido; si no, se asume que nada.
+ * `full` es la ÚNICA que equivale a «reembolsado»: con una parte devuelta el pedido sigue vigente (H-031).
+ */
+export function stripeSessionRefundState(session: unknown): 'none' | 'partial' | 'full' {
+  const c = stripeSessionCharge(session);
+  if (!c) return 'none';
+  if (c.refunded === true) return 'full';
+  if (typeof c.amount_refunded === 'number' && c.amount_refunded > 0) return typeof c.amount === 'number' && c.amount_refunded >= c.amount ? 'full' : 'partial';
+  return 'none';
+}
+
+/** ¿La sesión está pagada y su cargo consta como reembolsado POR COMPLETO? Un reembolso parcial NO cuenta (ver `stripeSessionRefundState`). */
+export function stripeSessionRefunded(session: unknown): boolean {
+  return stripeSessionRefundState(session) === 'full';
 }
 
 export class StripeAdapter implements PaymentProvider {
@@ -408,13 +424,17 @@ export class StripeAdapter implements PaymentProvider {
       // `expand` en la MISMA llamada (sin petición extra): Stripe sigue diciendo `payment_status: 'paid'` en una sesión reembolsada, y el reembolso solo
       // se ve en el cargo (`amount_refunded` > 0 en un reembolso total o parcial; `refunded` solo en el total: https://docs.stripe.com/api/charges/object).
       const session = await stripe.checkout.sessions.retrieve(paymentId, { expand: ['payment_intent.latest_charge'] });
-      const status = stripeSessionRefunded(session) ? 'REFUNDED' : mapStripeSessionStatus(session);
+      const refundState = stripeSessionRefundState(session);
+      const status = refundState === 'full' ? 'REFUNDED' : mapStripeSessionStatus(session);
+      const partial = refundState === 'partial' ? (stripeSessionCharge(session)?.amount_refunded as number) / 100 : undefined;
       return {
         success: status === 'PAID',
         paymentId: session.id,
         provider: 'stripe',
         status,
-        ...(status === 'REFUNDED' ? { error: 'El cobro consta como reembolsado (total o parcialmente) en la pasarela' } : {}),
+        // Devolución parcial hecha a mano: el pedido sigue vigente (PAID), pero quien consume el resultado puede avisar de que no cobró el importe entero.
+        ...(partial !== undefined ? { refundedAmount: partial } : {}),
+        ...(status === 'REFUNDED' ? { error: 'El cobro consta como reembolsado por completo en la pasarela' } : {}),
         ...(status === 'UNKNOWN' ? { error: `Stripe devolvió una sesión en un estado que no se reconoce (status=${session.status}, payment_status=${session.payment_status})` } : {}),
         ...(session.amount_total != null ? { amount: session.amount_total / 100 } : {}),
         ...(session.currency ? { currency: session.currency.toUpperCase() } : {}),
@@ -453,7 +473,7 @@ export class StripeAdapter implements PaymentProvider {
             amount: s.amount_total != null ? s.amount_total / 100 : null,
             currency: s.currency ? s.currency.toUpperCase() : null,
             createdAt: new Date(s.created * 1000),
-            refunded: stripeSessionRefunded(s),
+            refunded: stripeSessionRefundState(s) !== 'none', // aquí basta «hubo alguna devolución» (total o parcial): es la conciliación diaria, no el estado del pedido
           });
         }
         if (!res.has_more || res.data.length === 0) return { sessions, truncated: false };

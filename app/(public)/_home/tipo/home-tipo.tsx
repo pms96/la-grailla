@@ -123,7 +123,7 @@ export function HomeTipo(p: HomeTipoProps) {
           </div>
           {p.loadError ? (
             <div role="alert" className="mx-4 border-[3px] border-destructive px-6 py-12 text-center md:mx-8">
-              <WifiOff className="mx-auto mb-4 h-10 w-10 text-destructive" aria-hidden />
+              <WifiOff className="mx-auto mb-4 h-10 w-10 text-destructive-text" aria-hidden />
               <h3 className="tp-heading text-3xl">No hemos podido cargar los eventos</h3>
               <p className="mx-auto mb-6 mt-3 max-w-md text-muted-foreground">Parece un fallo de conexión o del servidor: no es que no haya fechas publicadas.</p>
               <ReloadButton label="Reintentar" className="gap-2 font-bold" />

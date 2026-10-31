@@ -58,7 +58,7 @@ export function SponsorAssetList({ assets, onDelete, deletingId = null }: Sponso
               onClick={() => onDelete(asset.id)}
               disabled={deletingId === asset.id}
               aria-label={`Eliminar ${asset.fileName}`}
-              className="shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+              className="shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-destructive-text hover:bg-destructive/10 transition-colors disabled:opacity-50"
             >
               {deletingId === asset.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
             </button>

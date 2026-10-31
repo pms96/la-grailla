@@ -205,7 +205,7 @@ export default function MensajesPage() {
                       <p className="mb-2 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
                         <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" aria-hidden />{rp.sentBy ?? 'Tú'}</span>
                         <time dateTime={rp.createdAt}>{fmtLong.format(new Date(rp.createdAt))}</time>
-                        {!rp.emailSent && <span className="font-semibold text-destructive">No enviada: {rp.emailError ?? 'error desconocido'}</span>}
+                        {!rp.emailSent && <span className="font-semibold text-destructive-text">No enviada: {rp.emailError ?? 'error desconocido'}</span>}
                       </p>
                       <p className="whitespace-pre-wrap text-sm leading-relaxed">{rp.body}</p>
                     </li>
@@ -226,7 +226,7 @@ export default function MensajesPage() {
                   ) : (
                     <Button variant="ghost" onClick={() => setStatus('ARCHIVED')} className="gap-2"><Archive className="h-4 w-4" /> Archivar</Button>
                   )}
-                  <Button variant="ghost" onClick={() => setConfirmDelete(true)} className="ml-auto gap-2 text-destructive hover:text-destructive"><Trash2 className="h-4 w-4" /> Eliminar</Button>
+                  <Button variant="ghost" onClick={() => setConfirmDelete(true)} className="ml-auto gap-2 text-destructive-text hover:text-destructive-text"><Trash2 className="h-4 w-4" /> Eliminar</Button>
                 </div>
               </div>
             </div>

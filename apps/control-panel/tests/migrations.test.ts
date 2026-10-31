@@ -201,7 +201,8 @@ describe('runner de migraciones — un cliente', () => {
     await publishSubscription(subscription.id, actor, store);
     const seqBefore = (await prisma.subscription.findUnique({ where: { id: subscription.id } }))!.snapshotSeq;
 
-    const res = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir });
+    // Con dominio verificado la guarda de venta preguntaría al cliente (y ya no falla abierta, H-040): aquí se prueba el republicado, no la guarda.
+    const res = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, salesGuard: false });
     expect(res.status).toBe('SUCCEEDED');
     expect(res.warnings).toEqual([]);
     const after = (await prisma.subscription.findUnique({ where: { id: subscription.id } }))!;
@@ -250,7 +251,7 @@ describe('runner de migraciones — arreglos de la revisión', () => {
     await publishSubscription(subscription.id, actor, freshStore());
     const failing: RegistryStore = { put: async () => { throw new Error('registro caído'); }, get: async () => null, del: async () => {} } as unknown as RegistryStore;
     setRegistryStoreForTests(failing);
-    const res = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir });
+    const res = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, salesGuard: false });
     expect(res.status).toBe('SUCCEEDED');
     expect(res.republishFailed).toBe(true);
     expect(res.warnings.join()).toMatch(/no se pudo republicar/);
@@ -429,7 +430,9 @@ describe('runner de migraciones — venta en marcha (P1-22)', () => {
     expect(audit!.meta).toMatchObject({ salesGuardOff: true });
   });
 
-  it('si el cliente no responde, o su health no trae `sales`, NO bloquea (migrar es lo que arregla un cliente en mantenimiento)', async () => {
+  // H-040: la guarda NO puede fallar abierta justo cuando el front está saturado (health que no responde, o `sales` que no se pudo medir por el tope de
+  // 3 s: Neon saturado en un lanzamiento). Solo un front anterior sin bloque `ops` (no puede saberlo) o un cliente en mantenimiento por esquema pasan.
+  it('si el cliente no responde, o su `ops` viene sin `sales` medible, BLOQUEA (fallar abierto migraría en plena sobrecarga)', async () => {
     const dir = makeFixturePrismaDir(GOOD);
     const down = await liveTenantOn(DBS[0]);
     const a = await runMigrationsForSubscription(down.subscription.id, down.actor, {
@@ -439,13 +442,19 @@ describe('runner de migraciones — venta en marcha (P1-22)', () => {
         throw new Error('ECONNREFUSED');
       },
     });
-    expect(a.status).toBe('SUCCEEDED');
+    expect(a).toMatchObject({ status: 'SKIPPED', blockedBySales: true, toVersion: null });
+    expect(a.error).toMatch(/no se pudo comprobar/i);
+    const unmeasured = await liveTenantOn(DBS[2]);
+    const c = await runMigrationsForSubscription(unmeasured.subscription.id, unmeasured.actor, { prismaDir: dir, republish: false, healthFetch: healthWith(null) });
+    expect(c).toMatchObject({ status: 'SKIPPED', blockedBySales: true });
+    expect(c.error).toMatch(/no se pudo comprobar/i);
+  });
+
+  it('un front anterior sin bloque `ops` no puede decir si hay venta: no bloquea', async () => {
+    const dir = makeFixturePrismaDir(GOOD);
     const old = await liveTenantOn(DBS[1]);
     const b = await runMigrationsForSubscription(old.subscription.id, old.actor, { prismaDir: dir, republish: false, healthFetch: healthWith(undefined) });
     expect(b.status).toBe('SUCCEEDED');
-    const unmeasured = await liveTenantOn(DBS[2]);
-    const c = await runMigrationsForSubscription(unmeasured.subscription.id, unmeasured.actor, { prismaDir: dir, republish: false, healthFetch: healthWith(null) });
-    expect(c.status).toBe('SUCCEEDED');
   });
 
   it('un ensayo (--dry-run) no se bloquea ni pregunta; un cliente sin dominio verificado tampoco', async () => {

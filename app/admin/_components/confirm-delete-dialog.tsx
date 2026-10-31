@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Textarea } from '@/components/ui/textarea';
+import { runConfirm } from '@/lib/confirm-flow';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,7 +21,8 @@ type Props = {
   // Debe nombrar el registro exacto que se va a borrar (concepto/importe,
   // nombre del evento...) — nunca un genérico "¿Eliminar este elemento?".
   description: React.ReactNode;
-  onConfirm: (reason?: string) => void;
+  // Puede devolver `false` (o lanzar) si la acción falló: el diálogo se queda abierto con lo escrito. Cualquier otra cosa lo cierra.
+  onConfirm: (reason?: string) => unknown;
   confirmLabel?: string;
   // Con esta etiqueta el diálogo pide un motivo antes de confirmar (anular un gasto, reabrir una temporada…): queda en el registro de auditoría.
   reasonLabel?: string;
@@ -36,6 +38,7 @@ export function ConfirmDeleteDialog({
   open, onOpenChange, title, description, onConfirm, confirmLabel = 'Eliminar', reasonLabel, reasonRequired = true, reasonMin = 5,
 }: Props) {
   const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
   // Cada vez que se abre, el motivo empieza vacío: no arrastra el de la última anulación.
   useEffect(() => { if (open) setReason(''); }, [open]);
   const trimmed = reason.trim();
@@ -56,11 +59,19 @@ export function ConfirmDeleteDialog({
         <AlertDialogFooter>
           <AlertDialogCancel>Cancelar</AlertDialogCancel>
           <AlertDialogAction
-            onClick={() => onConfirm(reasonLabel ? trimmed : undefined)}
-            disabled={reasonMissing}
+            onClick={async (e) => {
+              // Radix cierra el diálogo al hacer clic: se impide, y se cierra a mano solo si la acción salió bien. Si falla, el diálogo sigue abierto con el motivo escrito (H-011).
+              e.preventDefault();
+              if (busy) return;
+              setBusy(true);
+              const close = await runConfirm(() => onConfirm(reasonLabel ? trimmed : undefined));
+              setBusy(false);
+              if (close) onOpenChange(false);
+            }}
+            disabled={reasonMissing || busy}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
-            {confirmLabel}
+            {busy ? 'Un momento…' : confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

@@ -274,7 +274,7 @@ export function ImportarArticulosDialog({ open, onClose, proveedores, articulos,
                           </Select>
                         </div>
                         <Button type="button" variant="ghost" size="icon-sm" className="mt-5" onClick={() => removeFila(idx)}>
-                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                          <Trash2 className="h-3.5 w-3.5 text-destructive-text" />
                         </Button>
                       </div>
 

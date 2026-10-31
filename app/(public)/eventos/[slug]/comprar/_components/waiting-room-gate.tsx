@@ -22,10 +22,12 @@ type QueueState =
   | { status: 'WAITING'; token: string; position: number; message: string | null }
   | { status: 'ADMITTED'; token: string; expiresAt: string }
   | { status: 'EXPIRED' }
-  | { status: 'STUCK'; reason: 'slow' | 'network' };
+  | { status: 'STUCK'; reason: 'slow' | 'network' | 'limit'; message?: string };
 
 type QueueApiResult = {
   status: string;
+  /** Texto de error del servidor (en español), p. ej. el del tope de turnos por conexión. */
+  error?: string;
   token?: string | null;
   position?: number;
   expiresAt?: string;
@@ -191,6 +193,12 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
       // siempre. Reintentar es lo correcto: el turno, si ya existía, sigue
       // vivo en el servidor aunque esta llamada concreta haya fallado.
       if (!res.ok) {
+        // Demasiados turnos abiertos desde esta conexión (oficina, wifi compartido): reintentar en silencio no sirve y pintar «sin conexión» es falso (H-072).
+        if (res.status === 429 && data?.code === 'queue_ip_limit') {
+          if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+          setState({ status: 'STUCK', reason: 'limit', message: typeof data.error === 'string' ? data.error : undefined });
+          return;
+        }
         scheduleRetry(() => joinRef.current(), retryAfterMs(res, 5000), gen);
         return;
       }
@@ -338,12 +346,14 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
             <Hourglass className="h-10 w-10 text-muted-foreground mx-auto" aria-hidden />
           )}
           <h1 className="font-display text-xl font-bold tracking-tight">
-            {state.reason === 'network' ? 'Sin conexión con la cola' : 'La cola está tardando'}
+            {state.reason === 'network' ? 'Sin conexión con la cola' : state.reason === 'limit' ? 'Demasiados turnos desde esta conexión' : 'La cola está tardando'}
           </h1>
           <p className="text-sm text-muted-foreground max-w-sm mx-auto">
             {state.reason === 'network'
               ? 'No hemos podido contactar con el servidor. Revisa la red e inténtalo de nuevo — tu sitio se conserva en este dispositivo si ya tenías turno.'
-              : 'Sigue sin responder. Puedes reintentar sin perder el progreso si ya tenías un turno guardado.'}
+              : state.reason === 'limit'
+                ? state.message ?? 'Ya hay demasiados turnos abiertos para este evento desde esta conexión. Espera a que alguno termine e inténtalo de nuevo.'
+                : 'Sigue sin responder. Puedes reintentar sin perder el progreso si ya tenías un turno guardado.'}
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <Button onClick={retryFromStuck} className="gap-2">
@@ -493,7 +503,7 @@ function AdmittedCountdown({ expiresAt, onExpire }: { expiresAt: string; onExpir
     <p
       className={cn(
         'text-xs font-mono transition-colors duration-300',
-        low ? 'text-destructive' : 'text-muted-foreground'
+        low ? 'text-destructive-text' : 'text-muted-foreground'
       )}
       role="timer"
       aria-live={low ? 'assertive' : 'off'}

@@ -138,7 +138,7 @@ export default function SponsorsAdminPage() {
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     <StatusBadge<ConsolidatedSponsorStatus> status={s.consolidated} labels={CONSOLIDATED_STATUS_LABELS} variants={CONSOLIDATED_STATUS_VARIANT} />
                     {s.sponsor?.invitationEmailStatus === 'FAILED' && (
-                      <span className="text-xs text-destructive">⚠️ Invitación no enviada</span>
+                      <span className="text-xs text-destructive-text">⚠️ Invitación no enviada</span>
                     )}
                     {s.sponsor && (
                       s.sponsor.isPaid ? (

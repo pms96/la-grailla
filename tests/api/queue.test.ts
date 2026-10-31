@@ -4,7 +4,7 @@ import type { TenantContext } from '@/lib/tenant/context-types';
 import { prisma } from '@/lib/prisma';
 import { POST as joinQueue } from '@/app/api/queue/join/route';
 import { GET as queueStatus } from '@/app/api/queue/status/route';
-import { cleanupStaleEntries, cleanupAllStaleEntries, pollAfterMsFor, resetSweepThrottle } from '@/lib/waiting-room';
+import { cleanupStaleEntries, cleanupAllStaleEntries, pollAfterMsFor, resetSweepThrottle, sweepAndAdmit } from '@/lib/waiting-room';
 import { createTestEvent, cleanupTestEvent } from '../helpers/fixtures';
 
 function joinRequest(body: unknown, ip: string) {
@@ -133,18 +133,95 @@ describe('sala de espera (queue/join, queue/status)', () => {
     const sameIp = '203.0.113.50';
 
     const responses = [];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 12; i++) {
       responses.push(await joinQueue(joinRequest({ eventId: event.id }, sameIp)));
     }
     const rejected = responses.filter((r) => r.status === 429);
     const allowed = responses.filter((r) => r.status === 200);
-    expect(allowed.length).toBe(3);
+    // H-072: el tope era 3 y una oficina, un wifi de local o una IP móvil compartida dejaba a la 4.ª persona fuera. Ahora 10.
+    expect(allowed.length).toBe(10);
     expect(rejected.length).toBe(2);
+    // El rechazo lleva un código propio y un texto para el comprador: el cliente ya no lo confunde con «sin conexión».
+    const body = await rejected[0].json();
+    expect(body.code).toBe('queue_ip_limit');
+    expect(body.error).toMatch(/turnos abiertos/);
 
     const liveEntries = await prisma.waitingRoomEntry.count({
       where: { eventId: event.id, ip: sameIp, status: { in: ['WAITING', 'ADMITTED'] } },
     });
-    expect(liveEntries).toBe(3);
+    expect(liveEntries).toBe(10);
+  });
+
+  it('H-072: los sondeos de varias personas tras la misma IP no agotan el límite (antes, a partir del sondeo 41 de la IP, 429)', async () => {
+    const event = await createWaitingRoomEvent({ concurrentSlots: 1 });
+    createdEventIds.push(event.id);
+    resetSweepThrottle();
+    const joined = await (await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.70'))).json();
+    const codes = new Set<number>();
+    for (let i = 0; i < 45; i++) codes.add((await queueStatus(statusRequest(event.id, joined.token, '203.0.113.70'))).status);
+    expect([...codes]).toEqual([200]);
+  });
+
+  // H-071: los turnos ABANDONADOS (pestaña cerrada) se admitían igualmente y retenían hueco hasta caducar. Con 5 000 en cola y un 40 % de pestañas
+  // cerradas eran horas de huecos muertos. Ahora solo se admite a quien ha sondeado hace poco (`lastSeenAt`), y una espera sin latido 15 min caduca.
+  describe('latido del sondeo (H-071)', () => {
+    const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000);
+    const waiting = (eventId: string, tag: string, joinedMin: number, lastSeenMin: number | null) =>
+      prisma.waitingRoomEntry.create({
+        data: { eventId, token: `hb-${tag}-${Date.now()}-${Math.random()}`, ip: `198.51.100.${Math.floor(Math.random() * 200)}`, status: 'WAITING', joinedAt: minutesAgo(joinedMin), lastSeenAt: lastSeenMin === null ? null : minutesAgo(lastSeenMin) },
+      });
+    const statusOf = async (id: string) => (await prisma.waitingRoomEntry.findUniqueOrThrow({ where: { id } })).status;
+
+    it('un turno abandonado no se admite; el siguiente que sigue ahí, sí', async () => {
+      const event = await createWaitingRoomEvent({ concurrentSlots: 1 });
+      createdEventIds.push(event.id);
+      const abandoned = await waiting(event.id, 'a', 10, 5); // el primero de la cola, sin sondear desde hace 5 min
+      const alive = await waiting(event.id, 'b', 9, 0); // detrás, pero vivo
+      await sweepAndAdmit(event.id, 1, 300);
+      expect(await statusOf(alive.id)).toBe('ADMITTED');
+      expect(await statusOf(abandoned.id)).toBe('WAITING'); // no ha pasado el tiempo de caducidad: sigue esperando si vuelve
+    });
+
+    it('sin latido durante 15 minutos la espera caduca (y si vuelve, entra de nuevo por detrás)', async () => {
+      const event = await createWaitingRoomEvent({ concurrentSlots: 1 });
+      createdEventIds.push(event.id);
+      const gone = await waiting(event.id, 'g', 40, 20);
+      await sweepAndAdmit(event.id, 1, 300);
+      expect(await statusOf(gone.id)).toBe('EXPIRED');
+    });
+
+    it('una fila sin `lastSeenAt` (la creó un front anterior) cuenta como vista al entrar: no se deja a nadie fuera por el despliegue', async () => {
+      const event = await createWaitingRoomEvent({ concurrentSlots: 1 });
+      createdEventIds.push(event.id);
+      const fresh = await prisma.waitingRoomEntry.create({ data: { eventId: event.id, token: `hb-null-${Date.now()}`, status: 'WAITING', joinedAt: new Date(Date.now() - 10_000) } });
+      await sweepAndAdmit(event.id, 1, 300);
+      expect(await statusOf(fresh.id)).toBe('ADMITTED');
+    });
+
+    it('la posición solo cuenta a los que siguen ahí', async () => {
+      const event = await createWaitingRoomEvent({ concurrentSlots: 1 });
+      createdEventIds.push(event.id);
+      resetSweepThrottle();
+      const first = await (await joinQueue(joinRequest({ eventId: event.id }, '198.51.100.201'))).json();
+      expect(first.status).toBe('ADMITTED'); // ocupa el único hueco
+      await waiting(event.id, 'x', 8, 6); // abandonado por delante
+      await waiting(event.id, 'y', 7, 6); // abandonado por delante
+      const me = await (await joinQueue(joinRequest({ eventId: event.id }, '198.51.100.202'))).json();
+      expect(me.status).toBe('WAITING');
+      expect(me.position).toBe(1);
+    });
+
+    it('cada sondeo refresca el latido de quien espera', async () => {
+      const event = await createWaitingRoomEvent({ concurrentSlots: 1 });
+      createdEventIds.push(event.id);
+      resetSweepThrottle();
+      const first = await (await joinQueue(joinRequest({ eventId: event.id }, '198.51.100.203'))).json();
+      expect(first.status).toBe('ADMITTED');
+      const mine = await waiting(event.id, 'm', 3, 3);
+      await queueStatus(statusRequest(event.id, mine.token, '198.51.100.204'));
+      const after = await prisma.waitingRoomEntry.findUniqueOrThrow({ where: { id: mine.id } });
+      expect(Date.now() - after.lastSeenAt!.getTime()).toBeLessThan(5_000);
+    });
   });
 
   it('una IP distinta no se ve afectada por el límite de otra', async () => {

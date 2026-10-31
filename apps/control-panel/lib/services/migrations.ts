@@ -132,12 +132,14 @@ function toResult(run: MigrationRun, warnings: string[] = [], republishFailed = 
 
 /**
  * ¿Tiene este cliente una venta en marcha ahora? Devuelve el motivo del rechazo, o null si se puede migrar. Mira el `/api/health` con el
- * secreto de ese cliente. Sin dominio verificado, sin respuesta o sin bloque `sales` (front anterior, o no se pudo medir) NO bloquea.
+ * secreto de ese cliente. FALLA CERRADA (H-040): un health que no responde, o un `ops` sin `sales` medible (la consulta pasó de 3 s: justo lo que
+ * pasa con la BD saturada en un lanzamiento), NO se interpretan como «sin venta». Solo pasan: sin dominio verificado, un cliente que el front tiene
+ * en mantenimiento por esquema (`serving === false`) y un front anterior que no manda bloque `ops` (no puede saberlo).
  */
 async function salesWindowBlock(
   sub: { tenantId: string; schemaVersion: string | null; domains: { host: string; status: string; isPrimary: boolean }[] },
   opts: Pick<RunOptions, 'healthFetch'>
-): Promise<{ message: string; sales: OpsSales } | null> {
+): Promise<{ message: string; sales: OpsSales | null } | null> {
   const verified = sub.domains.filter((d) => d.status === 'VERIFIED');
   const host = (verified.find((d) => d.isPrimary) ?? verified[0])?.host;
   if (!host) return null;
@@ -145,8 +147,15 @@ async function salesWindowBlock(
   // Un cliente que el front tiene en mantenimiento por esquema atrasado (serving === false) no tiene compradores, y migrar es justo lo que lo
   // arregla: nunca se bloquea.
   if (probe.reachable && probe.detail.serving === false) return null;
-  const sales = probe.reachable ? probe.ops?.sales : null;
-  if (!sales || !isSalesWindowBusy(sales)) return null;
+  const unverifiable = (why: string) => ({
+    sales: null,
+    message: `No se pudo comprobar si hay una venta en marcha (${why}): no se migra por seguridad. Repite en unos minutos; solo el script (migrate:tenants --force-sales-window) permite forzarlo si es imprescindible.`,
+  });
+  if (!probe.reachable) return unverifiable('el cliente no responde en /api/health');
+  if (probe.opsStatus === 'absent') return null; // front anterior, sin bloque `ops`: no puede decir si hay venta
+  const sales = probe.ops?.sales;
+  if (!sales) return unverifiable('su salud no trae la medida de ventas');
+  if (!isSalesWindowBusy(sales)) return null;
   return {
     sales,
     message: `Venta en marcha (${sales.orders15min} pedidos en los últimos 15 min, ${sales.waitingRoom} en la sala de espera): no se migra ahora. Repite fuera de la venta; solo el script (migrate:tenants --force-sales-window) permite forzarlo si es imprescindible.`,
@@ -274,7 +283,7 @@ export async function runMigrationsForSubscription(subscriptionId: string, actor
             targetType: 'subscription',
             targetId: subscriptionId,
             tenantId: sub.tenantId,
-            meta: { runId: skipped.id, orders15min: block.sales.orders15min, waitingRoom: block.sales.waitingRoom },
+            meta: { runId: skipped.id, orders15min: block.sales?.orders15min ?? null, waitingRoom: block.sales?.waitingRoom ?? null, unverifiable: block.sales === null },
           })
         );
         return toResult(skipped, warnings, false, true);

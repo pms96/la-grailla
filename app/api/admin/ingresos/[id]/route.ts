@@ -72,18 +72,22 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
     if (before.voidedAt) return NextResponse.json({ error: 'Este ingreso ya está anulado', code: 'anulado' }, { status: 409 });
     const open = await checkTemporadaAbierta(before.temporadaId);
     if (!open.ok) return NextResponse.json({ error: open.error, code: open.code }, { status: open.status });
-    await prisma.$transaction(async (tx) => {
-      await tx.ingreso.update({
-        where: { id: before.id },
+    const claimed = await prisma.$transaction(async (tx) => {
+      // UPDATE condicionado a «aún no anulado» (compare-and-swap) dentro de la transacción: dos anulaciones simultáneas no pueden pisarse ni duplicar el rastro (H-009).
+      const claim = await tx.ingreso.updateMany({
+        where: { id: before.id, voidedAt: null },
         data: { voidedAt: new Date(), voidedById: session.user?.id ?? null, voidReason: motivo.motivo },
       });
+      if (claim.count === 0) return false;
       await recordAdminAudit(tx, actorFromSession(session), request, {
         action: 'ingreso.void',
         targetType: 'Ingreso',
         targetId: before.id,
         meta: { motivo: motivo.motivo, temporadaId: before.temporadaId, concepto: before.concepto, importe: before.importe, fecha: before.fecha },
       });
+      return true;
     });
+    if (!claimed) return NextResponse.json({ error: 'Este ingreso ya está anulado', code: 'anulado' }, { status: 409 });
     return NextResponse.json({ success: true, voided: true });
   } catch (error) {
     return handleApiError(error, 'DELETE /api/admin/ingresos/[id]');

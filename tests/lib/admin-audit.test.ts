@@ -29,12 +29,30 @@ describe('sanitizeAuditMeta (P1-16 / OB-12): el registro nunca guarda secretos',
     expect(out.importe).toBe('120.5');
   });
 
-  it('recorta cadenas largas y, si todo pasa de tamaño, guarda solo los nombres de campo', () => {
+  it('recorta cadenas largas', () => {
     const long = sanitizeAuditMeta({ nota: 'x'.repeat(1000) }) as Record<string, string>;
     expect(long.nota.length).toBeLessThan(400);
-    const big = sanitizeAuditMeta(Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`campo${i}`, 'y'.repeat(300)]))) as { truncated: boolean; keys: string[] };
-    expect(big.truncated).toBe(true);
-    expect(big.keys.length).toBeGreaterThan(0);
+  });
+
+  // H-017: antes, pasar de 4000 caracteres tras serializar descartaba la meta ENTERA (también el importe anterior de una edición).
+  it('si no cabe, acorta las cadenas antes de tirar nada: los importes y campos pequeños se conservan', () => {
+    const notes = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`campo${i}`, `línea\n${'y'.repeat(300)}`]));
+    const out = sanitizeAuditMeta({ importeAnterior: 120.5, importeNuevo: 99, ...notes }) as Record<string, unknown>;
+    expect(out.importeAnterior).toBe(120.5);
+    expect(out.importeNuevo).toBe(99);
+    expect(JSON.stringify(out).length).toBeLessThanOrEqual(4000);
+    expect(out.truncated).toBeUndefined();
+  });
+
+  it('si ni acortando cabe, conserva las primeras claves y anota cuáles se dejaron fuera', () => {
+    const many = Object.fromEntries(Array.from({ length: 400 }, (_, i) => [`campo${i}`, 'y'.repeat(300)]));
+    const out = sanitizeAuditMeta({ importeAnterior: 120.5, ...many }) as { importeAnterior: number; campo0: string; truncated: boolean; keys: string[] };
+    expect(out.importeAnterior).toBe(120.5);
+    expect(out.campo0).toBeDefined();
+    expect(out.truncated).toBe(true);
+    expect(out.keys.length).toBeGreaterThan(0);
+    expect(out.keys).not.toContain('importeAnterior');
+    expect(JSON.stringify(out).length).toBeLessThanOrEqual(4000);
   });
 
   it('sin meta devuelve undefined', () => {

@@ -70,8 +70,8 @@ describe('pedidos pendientes de pago', () => {
     expect(keys(evaluateOps(calm({ pendingOver20min: 1, pendingOldestMinutes: PENDING_CRITICAL_MIN }), NOW, null))).toEqual(['pending']);
   });
 
-  it('oldest > 30 aunque el contador de >20 min venga a 0 (producer inconsistente) también se avisa', () => {
-    expect(keys(evaluateOps(calm({ pendingOver20min: 0, pendingOldestMinutes: 45 }), NOW, null))).toEqual(['pending_critical']);
+  it('oldest > 60 aunque el contador de fuera de plazo venga a 0 (producer inconsistente) también se avisa', () => {
+    expect(keys(evaluateOps(calm({ pendingOver20min: 0, pendingOldestMinutes: 75 }), NOW, null))).toEqual(['pending_critical']);
   });
 
   it('un contador >20 min sin edad conocida se avisa igualmente', () => {
@@ -151,14 +151,14 @@ describe('reconcile', () => {
 
 describe('avisar solo en el CAMBIO', () => {
   it('una señal que ya estaba no se repite; una nueva sí; la escalada de aviso a fallo sí', () => {
-    const a = evaluateOps(calm({ pendingOver20min: 1, pendingOldestMinutes: 22 }), NOW, null);
+    const a = evaluateOps(calm({ pendingOver20min: 1, pendingOldestMinutes: 46 }), NOW, null);
     expect(a.raise.map((f) => f.key)).toEqual(['pending']);
     const lines = (e: ReturnType<typeof evaluateOps>) => e.findings.map((f) => f.line).join(' · ');
 
-    const same = evaluateOps(calmAt(5 * MIN, { pendingOver20min: 1, pendingOldestMinutes: 27 }), NOW + 5 * MIN, lines(a));
+    const same = evaluateOps(calmAt(5 * MIN, { pendingOver20min: 1, pendingOldestMinutes: 51 }), NOW + 5 * MIN, lines(a));
     expect(same.raise).toEqual([]); // el número cambia, la señal es la misma
 
-    const plusErr = evaluateOps(calmAt(10 * MIN, { pendingOver20min: 1, pendingOldestMinutes: 32, emailsFailed: 1 }), NOW + 10 * MIN, lines(same));
+    const plusErr = evaluateOps(calmAt(10 * MIN, { pendingOver20min: 1, pendingOldestMinutes: 61, emailsFailed: 1 }), NOW + 10 * MIN, lines(same));
     expect(plusErr.raise.map((f) => f.key).sort()).toEqual(['emails_failed', 'pending_critical']); // escalada + nueva
   });
 
@@ -229,8 +229,8 @@ describe('contadores que el front no pudo medir (null)', () => {
     expect(e.recovered).toBe(false);
   });
 
-  it('conserva también el fallo crítico de pendientes (más de 30 min)', () => {
-    const before = previousOf({ pendingOver20min: 3, pendingOldestMinutes: 45 });
+  it('conserva también el fallo crítico de pendientes (más de 60 min)', () => {
+    const before = previousOf({ pendingOver20min: 3, pendingOldestMinutes: 75 });
     const e = evaluateOps(calm({ pendingOver20min: null }), NOW + 5 * MIN, before);
     expect(keys(e)).toEqual(['pending_critical']);
     expect(e.recovered).toBe(false);

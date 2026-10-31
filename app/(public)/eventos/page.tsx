@@ -260,7 +260,7 @@ function EventMeta({ event }: { event: EventWithTicketTypes }) {
       {event?.onlineSalesClosed ? (
         <p className="text-xs text-warm-yellow font-medium">{getOnlineSalesClosedLabel(event)}</p>
       ) : demand === 'sold_out' ? (
-        <p className="text-xs text-destructive font-medium">Sin plazas online</p>
+        <p className="text-xs text-destructive-text font-medium">Sin plazas online</p>
       ) : demand === 'high' ? (
         <p className="text-xs text-warm-yellow font-medium">Alta demanda</p>
       ) : (

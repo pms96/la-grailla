@@ -204,7 +204,7 @@ export default function AdminShell({ children, modules, licenseGrace }: AdminShe
                 <DropdownMenuItem className="gap-2" onSelect={() => setChangePasswordOpen(true)}>
                   <KeyRound className="h-4 w-4" /> Cambiar contraseña
                 </DropdownMenuItem>
-                <DropdownMenuItem className="gap-2 text-destructive" onSelect={() => signOut?.({ callbackUrl: '/auth/login' })}>
+                <DropdownMenuItem className="gap-2 text-destructive-text" onSelect={() => signOut?.({ callbackUrl: '/auth/login' })}>
                   <LogOut className="h-4 w-4" /> Cerrar sesión
                 </DropdownMenuItem>
               </DropdownMenuContent>

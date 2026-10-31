@@ -147,7 +147,7 @@ export default function AuditoriaPage() {
                 {fmt.format(new Date(r.createdAt))}
               </time>
               <div className="min-w-0">
-                <p className={cn('text-sm font-medium', /void|delete|cancel|refund/.test(r.action) && 'text-destructive')}>{ACTION_LABELS[r.action] ?? r.action}</p>
+                <p className={cn('text-sm font-medium', /void|delete|cancel|refund/.test(r.action) && 'text-destructive-text')}>{ACTION_LABELS[r.action] ?? r.action}</p>
                 <p className="break-words text-sm text-muted-foreground">{summarize(r.meta) || '—'}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {r.actorEmail ?? 'Sistema'}
