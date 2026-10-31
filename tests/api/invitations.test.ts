@@ -105,4 +105,34 @@ describe('POST /api/invitations', () => {
       await cleanupTestEvent(tiny.id);
     }
   });
+
+  // H-080: se invitaba (y se enviaba el email con QR) a un evento cancelado o terminado. Un borrador SÍ admite invitaciones (lista VIP antes de anunciarlo).
+  it.each(['CANCELLED', 'FINISHED'] as const)('no invita en un evento %s: 409 y ningún pedido', async (status) => {
+    const closed = await createTestEvent({ status, maxCapacity: 10 });
+    try {
+      const res = await createInvitation(inviteRequest({ eventId: closed.id, guestName: 'Nadie', quantity: 1, sendEmail: false }));
+      expect(res.status).toBe(409);
+      expect((await res.json()).code).toBe('event_not_open');
+      expect(await prisma.order.count({ where: { eventId: closed.id } })).toBe(0);
+    } finally {
+      await cleanupTestEvent(closed.id);
+    }
+  });
+
+  it('un borrador admite invitaciones', async () => {
+    const draft = await createTestEvent({ status: 'DRAFT', maxCapacity: 10 });
+    try {
+      const res = await createInvitation(inviteRequest({ eventId: draft.id, guestName: 'VIP', quantity: 1, sendEmail: false }));
+      expect(res.status).toBe(200);
+    } finally {
+      await prisma.invitation.deleteMany({ where: { eventId: draft.id } });
+      await cleanupTestEvent(draft.id);
+    }
+  });
+
+  it('una cantidad no numérica se trata como 1 (no da NaN ni 500)', async () => {
+    const res = await createInvitation(inviteRequest({ eventId: event.id, guestName: 'Cantidad rara', quantity: 'abc', sendEmail: false }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).invitation.quantity).toBe(1);
+  });
 });

@@ -67,6 +67,20 @@ describe('sala de espera (queue/join, queue/status)', () => {
     expect(json.expiresAt).toBeTruthy();
   });
 
+  it('un 0 ya guardado en los ajustes (datos de antes de H-076) no para la cola: se usan los valores por defecto', async () => {
+    const event = await createWaitingRoomEvent({ concurrentSlots: 0, purchaseWindowSeconds: 0 });
+    createdEventIds.push(event.id);
+
+    const res = await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.29'));
+    const json = await res.json();
+    expect(json.status).toBe('ADMITTED');
+    // Con ventana 0 el turno nacía ya caducado; con la ventana por defecto (300 s) le quedan minutos.
+    expect(new Date(json.expiresAt).getTime() - Date.now()).toBeGreaterThan(200_000);
+
+    const status = await queueStatus(statusRequest(event.id, json.token, '203.0.113.29'));
+    expect((await status.json()).status).toBe('ADMITTED');
+  });
+
   it('sin hueco libre, deja en espera con la posición correcta', async () => {
     const event = await createWaitingRoomEvent({ concurrentSlots: 1 });
     createdEventIds.push(event.id);

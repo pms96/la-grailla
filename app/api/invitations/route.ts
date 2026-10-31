@@ -72,6 +72,13 @@ export async function POST(request: Request) {
 
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return NextResponse.json({ error: 'Evento no encontrado' }, { status: 404 });
+    // H-080: un evento cancelado o terminado no admite invitaciones (se emitía el QR y se enviaba el email). Un borrador sí: lista VIP antes de anunciarlo.
+    if (event.status === 'CANCELLED' || event.status === 'FINISHED') {
+      return NextResponse.json(
+        { error: event.status === 'CANCELLED' ? 'El evento está cancelado: no se pueden crear invitaciones.' : 'El evento ya ha terminado: no se pueden crear invitaciones.', code: 'event_not_open' },
+        { status: 409 }
+      );
+    }
 
     const created = await prisma.$transaction(async (tx) => {
       // Mismo criterio que app/api/orders/route.ts y taquilla/sale: serializa

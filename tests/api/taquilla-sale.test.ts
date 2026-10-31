@@ -112,4 +112,34 @@ describe('POST /api/taquilla/sale', () => {
       await cleanupTestEvent(closedEvent.id);
     }
   });
+
+  // H-080: la taquilla vendía (y emitía QR) sobre eventos cancelados, terminados o sin publicar, y una cantidad no numérica daba NaN y acababa en 500.
+  it.each(['CANCELLED', 'FINISHED', 'DRAFT'] as const)('no vende en un evento %s: 409 y ningún pedido', async (status) => {
+    const closed = await createTestEvent({ status });
+    const type = await createTicketType(closed.id, { maxQuantity: 10 });
+    try {
+      const res = await taquillaSale(saleRequest({ eventId: closed.id, buyerName: 'Nadie', items: [{ ticketTypeId: type.id, quantity: 1 }], paymentMethod: 'cash' }));
+      expect(res.status).toBe(409);
+      expect((await res.json()).code).toBe('event_not_open');
+      expect(await prisma.order.count({ where: { eventId: closed.id } })).toBe(0);
+    } finally {
+      await cleanupTestEvent(closed.id);
+    }
+  });
+
+  it('una cantidad no numérica, cero o negativa se rechaza con 400 en vez de dar NaN', async () => {
+    for (const quantity of ['abc', 0, -3, '1.5x', 100_000]) {
+      const res = await taquillaSale(saleRequest({ eventId: event.id, buyerName: 'Cantidad', items: [{ ticketTypeId: ticketType.id, quantity }], paymentMethod: 'cash' }));
+      expect(res.status, String(quantity)).toBe(400);
+    }
+    expect(await prisma.order.count({ where: { eventId: event.id, buyerName: 'Cantidad' } })).toBe(0);
+  });
+
+  it('un tipo de entrada desactivado no se vende', async () => {
+    const off = await createTicketType(event.id, { maxQuantity: 10 });
+    await prisma.ticketType.update({ where: { id: off.id }, data: { isActive: false } });
+    const res = await taquillaSale(saleRequest({ eventId: event.id, buyerName: 'Inactivo', items: [{ ticketTypeId: off.id, quantity: 1 }], paymentMethod: 'cash' }));
+    expect(res.status).toBe(400);
+    expect(await prisma.order.count({ where: { eventId: event.id, buyerName: 'Inactivo' } })).toBe(0);
+  });
 });

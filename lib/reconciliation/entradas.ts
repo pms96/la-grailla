@@ -96,7 +96,7 @@ export async function reviveOrder(orderId: string): Promise<ReviveResult> {
       }
 
       // Un evento cancelado no reanima entradas: el pago tardío se reembolsa (P1-04), igual que si no cupieran.
-      let fits = toRevive.length > 0 && !hasEventEnded(order.event.date) && order.event.status !== 'CANCELLED';
+      let fits = toRevive.length > 0 && !hasEventEnded(order.event.date, order.event.endTime) && order.event.status !== 'CANCELLED';
       if (fits) {
         const types = await tx.ticketType.findMany({ where: { id: { in: Array.from(quantityByType.keys()) } } });
         for (const [ticketTypeId, quantity] of quantityByType) {

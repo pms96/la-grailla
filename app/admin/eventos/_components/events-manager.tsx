@@ -522,7 +522,7 @@ export default function EventsManager() {
                   <Badge variant={event?.status === 'PUBLISHED' ? 'default' : event?.status === 'DRAFT' ? 'secondary' : 'outline'} className="text-xs">
                     {event?.status === 'PUBLISHED' ? 'Publicado' : event?.status === 'DRAFT' ? 'Borrador' : event?.status === 'FINISHED' ? 'Finalizado' : 'Cancelado'}
                   </Badge>
-                  {event?.status === 'PUBLISHED' && hasEventEnded(event?.date) && (
+                  {event?.status === 'PUBLISHED' && hasEventEnded(event?.date, event?.endTime) && (
                     <Badge variant="outline" className="text-xs text-muted-foreground">
                       Ya ha pasado — no se vende
                     </Badge>

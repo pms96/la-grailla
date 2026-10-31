@@ -9,6 +9,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { seasonLinkEnabled } from '@/lib/modules/season-link';
+import { parseEventNumberSettings } from '@/lib/waiting-room-settings';
 import { releaseUnusedBlobs } from '@/lib/blob-cleanup';
 import { parseEventDateInput } from '@/lib/event-time';
 import { countDateChangeRecipients, hasCancellationJob, processDateChange, startDateChangeNotice } from '@/lib/event-cancellation';
@@ -67,6 +68,8 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
     // Sin zona (el `datetime-local` del formulario) es hora de Madrid; con `Z` u offset se respeta. Vacío = no se toca.
     const date = body?.date ? parseEventDateInput(body.date) : undefined;
     if (date === null) return NextResponse.json({ error: 'Fecha y hora no válidas' }, { status: 400 });
+    const numbers = parseEventNumberSettings(body);
+    if (!numbers.ok) return NextResponse.json({ error: numbers.error, code: 'invalid_number_setting' }, { status: 400 });
     // P1-04: cancelar un evento con pedidos y cambiar la fecha de uno con compradores tienen su propio flujo (reembolso, avisos por email). Antes este PUT
     // solo cambiaba la fila: compradores sin enterarse, entradas válidas y ninguna devolución.
     const before = body?.status !== undefined || date ? await prisma.event.findUnique({ where: { id: params?.id }, select: { status: true, date: true } }) : null;
@@ -121,22 +124,10 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
         onlineSalesClosedLabel: body?.onlineSalesClosedLabel,
         onlineSalesClosedMessage: body?.onlineSalesClosedMessage,
         maxCapacity: body?.maxCapacity,
-        maxTicketsPerEmail: body?.maxTicketsPerEmail === undefined
-          ? undefined
-          : body?.maxTicketsPerEmail === '' || body?.maxTicketsPerEmail == null
-            ? null
-            : Number(body.maxTicketsPerEmail),
+        maxTicketsPerEmail: numbers.maxTicketsPerEmail,
         waitingRoomEnabled: body?.waitingRoomEnabled,
-        waitingRoomConcurrentSlots: body?.waitingRoomConcurrentSlots === undefined
-          ? undefined
-          : body?.waitingRoomConcurrentSlots === '' || body?.waitingRoomConcurrentSlots == null
-            ? null
-            : Number(body.waitingRoomConcurrentSlots),
-        waitingRoomPurchaseWindowSeconds: body?.waitingRoomPurchaseWindowSeconds === undefined
-          ? undefined
-          : body?.waitingRoomPurchaseWindowSeconds === '' || body?.waitingRoomPurchaseWindowSeconds == null
-            ? null
-            : Number(body.waitingRoomPurchaseWindowSeconds),
+        waitingRoomConcurrentSlots: numbers.waitingRoomConcurrentSlots,
+        waitingRoomPurchaseWindowSeconds: numbers.waitingRoomPurchaseWindowSeconds,
         waitingRoomMessage: body?.waitingRoomMessage,
         status: body?.status,
         latitude: body?.latitude === '' || body?.latitude == null ? null : Number(body.latitude),

@@ -6,9 +6,12 @@ import bcrypt from 'bcryptjs';
 const scannerEmail = `scanner-test-${Date.now()}@test.local`;
 let scannerUserId: string;
 
+// Para simular «otra puerta»: si no es null, la sesión es de ese usuario en vez del escáner de siempre.
+let actingAs: string | null = null;
+
 vi.mock('next-auth', () => ({
   getServerSession: vi.fn(async () => ({
-    user: { id: scannerUserId, role: 'TAQUILLA', email: scannerEmail },
+    user: { id: actingAs ?? scannerUserId, role: 'TAQUILLA', email: scannerEmail },
   })),
 }));
 
@@ -106,5 +109,73 @@ describe('POST /api/scan', () => {
     const res = await scanTicket(scanRequest({ qrCode: 'QR-NO-EXISTE', eventId: event.id }));
     const json = await res.json();
     expect(json.result).toBe('INVALID');
+  });
+
+  // H-074: con la wifi del recinto degradada la respuesta se perdía (timeout de 8 s), el personal volvía a escanear y un asistente legítimo veía un
+  // rojo «YA ENTRÓ». Si la MISMA puerta lo admitió hace menos de 30 s, es un reintento: ámbar y con ese texto. Cualquier otra cosa sigue siendo rojo.
+  describe('reintento de una lectura cuya respuesta se perdió', () => {
+    let otherScannerId: string;
+    const created: string[] = [];
+
+    async function freshTicket(label: string) {
+      const code = `QR-RETRY-${label}-${Date.now()}`;
+      const order = await prisma.order.create({
+        data: {
+          eventId: event.id, buyerName: 'Retry', buyerLastName: label, buyerEmail: 'retry@example.com', totalAmount: 10, status: 'COMPLETED',
+          tickets: { create: { eventId: event.id, ticketTypeId: ticketType.id, qrCode: code, holderName: `Retry ${label}`, status: 'VALID' } },
+        },
+        include: { tickets: true },
+      });
+      created.push(order.tickets[0].id);
+      return { code, ticketId: order.tickets[0].id };
+    }
+
+    beforeAll(async () => {
+      const other = await prisma.user.create({
+        data: { email: `scanner-other-${Date.now()}@test.local`, name: 'Otra puerta', hashedPassword: await bcrypt.hash('x', 4), role: 'TAQUILLA' },
+      });
+      otherScannerId = other.id;
+    });
+
+    afterAll(async () => {
+      actingAs = null;
+      await prisma.scanLog.deleteMany({ where: { ticketId: { in: created } } });
+      await prisma.user.delete({ where: { id: otherScannerId } }).catch(() => {});
+    });
+
+    it('la misma puerta, a los pocos segundos: ámbar, «acaba de entrar» y retry: true', async () => {
+      const { code } = await freshTicket('mismo');
+      expect((await (await scanTicket(scanRequest({ qrCode: code, eventId: event.id }))).json()).result).toBe('VALID');
+      const json = await (await scanTicket(scanRequest({ qrCode: code, eventId: event.id }))).json();
+      expect(json.result).toBe('DUPLICATE');
+      expect(json.color).toBe('yellow');
+      expect(json.retry).toBe(true);
+      expect(json.message).toMatch(/acaba de entrar/i);
+    });
+
+    it('otra puerta distinta sigue viendo el rojo: puede ser una entrada pasada a otra persona', async () => {
+      const { code } = await freshTicket('otra');
+      await scanTicket(scanRequest({ qrCode: code, eventId: event.id }));
+      actingAs = otherScannerId;
+      try {
+        const json = await (await scanTicket(scanRequest({ qrCode: code, eventId: event.id }))).json();
+        expect(json.result).toBe('DUPLICATE');
+        expect(json.color).toBe('red');
+        expect(json.retry).toBeUndefined();
+      } finally {
+        actingAs = null;
+      }
+    });
+
+    it('la misma puerta pero pasada la ventana (31 s): rojo', async () => {
+      const { code, ticketId: id } = await freshTicket('tarde');
+      await scanTicket(scanRequest({ qrCode: code, eventId: event.id }));
+      const old = new Date(Date.now() - 31_000);
+      await prisma.ticket.update({ where: { id }, data: { entryTime: old } });
+      await prisma.scanLog.updateMany({ where: { ticketId: id }, data: { createdAt: old } });
+      const json = await (await scanTicket(scanRequest({ qrCode: code, eventId: event.id }))).json();
+      expect(json.color).toBe('red');
+      expect(json.retry).toBeUndefined();
+    });
   });
 });

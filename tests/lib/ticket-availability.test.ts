@@ -64,9 +64,26 @@ describe('getEventAvailability — a partir de lo VENDIDO por tipo activo', () =
     expect(getEventAvailability([tt(15, 100, 10)], 0).level).toBe('normal');
     expect(getEventAvailability([tt(15, 100, 10)]).level).toBe('normal');
   });
+
+  // H-078: las invitaciones no suben `soldCount` (no tienen tipo) pero SÍ ocupan aforo: el checkout cuenta las entradas emitidas y rechaza con
+  // «Aforo completo». La ficha pública anunciaba plazas que no existían.
+  it('con entradas emitidas (invitaciones incluidas), el aforo se mide contra ellas y no contra lo vendido por tipo', () => {
+    // 100 vendidas por tipo + 100 invitaciones = 200 emitidas de un aforo de 200: agotado.
+    expect(getEventAvailability([tt(15, 300, 100)], 200, 200)).toEqual({ level: 'sold_out', soldOut: true, fromPrice: null });
+    // Sin pasar las emitidas (comportamiento anterior) se anunciaban 100 plazas que no existen.
+    expect(getEventAvailability([tt(15, 300, 100)], 200).soldOut).toBe(false);
+  });
+
+  it('las emitidas también acotan la alta demanda', () => {
+    expect(getEventAvailability([tt(15, 1000, 100)], 500, 470).level).toBe('high');
+  });
+
+  it('sin aforo, las emitidas no cambian nada', () => {
+    expect(getEventAvailability([tt(15, 100, 10)], null, 9999).level).toBe('normal');
+  });
 });
 
-const event = (over: Partial<EventInput> = {}): EventInput => ({
+const event =(over: Partial<EventInput> = {}): EventInput => ({
   id: 'e1',
   slug: 'noche',
   name: 'Noche',

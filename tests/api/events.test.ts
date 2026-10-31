@@ -229,3 +229,44 @@ describe('POST/PUT /api/admin/events — la hora del formulario es hora de Madri
     expect(await dateOf()).toBe('2026-07-18T21:00:00.000Z');
   });
 });
+
+// H-076: los ajustes de la sala de espera y el tope por correo no admiten 0, texto ni decimales (antes: cola parada o 500 de Prisma).
+describe('POST/PUT /api/admin/events — ajustes numéricos de la sala de espera', () => {
+  const json = (method: string, body: unknown) => new Request('http://localhost', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const created: string[] = [];
+  afterAll(async () => { for (const id of created) await cleanupTestEvent(id); });
+
+  it('PUT rechaza 0, texto y decimales con 400 y no guarda nada', async () => {
+    const event = await createTestEvent();
+    created.push(event.id);
+    const put = (body: unknown) => putEvent(json('PUT', body), { params: Promise.resolve({ id: event.id }) });
+    const slotsOf = async () => (await prisma.event.findUniqueOrThrow({ where: { id: event.id } })).waitingRoomConcurrentSlots;
+
+    for (const bad of [0, 'abc', 2.5, -4, 100_000]) {
+      const res = await put({ waitingRoomEnabled: true, waitingRoomConcurrentSlots: bad });
+      expect(res.status, String(bad)).toBe(400);
+      expect((await res.json()).code).toBe('invalid_number_setting');
+    }
+    expect((await put({ waitingRoomPurchaseWindowSeconds: 0 })).status).toBe(400);
+    expect((await put({ maxTicketsPerEmail: 'muchas' })).status).toBe(400);
+    expect(await slotsOf()).toBeNull();
+
+    expect((await put({ waitingRoomConcurrentSlots: '12', waitingRoomPurchaseWindowSeconds: 180 })).status).toBe(200);
+    expect(await slotsOf()).toBe(12);
+    // Vaciar el campo vuelve al valor por defecto (null), no a 0.
+    expect((await put({ waitingRoomConcurrentSlots: '' })).status).toBe(200);
+    expect(await slotsOf()).toBeNull();
+  });
+
+  it('POST también valida, y vacío se guarda como «sin valor»', async () => {
+    const bad = await createEvent(json('POST', { name: '[TEST] Ajustes cola mal', date: '2026-07-15T23:30', waitingRoomConcurrentSlots: 0 }));
+    expect(bad.status).toBe(400);
+
+    const ok = await createEvent(json('POST', { name: '[TEST] Ajustes cola bien', date: '2026-07-15T23:30', waitingRoomConcurrentSlots: '', waitingRoomPurchaseWindowSeconds: '' }));
+    const body = await ok.json();
+    if (body?.id) created.push(body.id);
+    expect(ok.status).toBe(200);
+    expect(body.waitingRoomConcurrentSlots).toBeNull();
+    expect(body.waitingRoomPurchaseWindowSeconds).toBeNull();
+  });
+});

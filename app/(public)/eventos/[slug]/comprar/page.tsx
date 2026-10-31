@@ -47,7 +47,7 @@ export default async function ComprarPage(props: { params: Promise<{ slug: strin
     );
   }
 
-  if (hasEventEnded(event.date)) {
+  if (hasEventEnded(event.date, event.endTime)) {
     return (
       <Container size="md">
         <div className="py-20 text-center space-y-4">

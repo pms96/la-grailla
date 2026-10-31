@@ -1,8 +1,8 @@
-import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
+import { prisma, type EventWithAvailability } from '@/lib/prisma';
 import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { notFound } from 'next/navigation';
 import { hasEventEnded } from '@/lib/active-event';
-import { getEventAvailability } from '@/lib/ticket-availability';
+import { getEventAvailability, ISSUED_TICKETS_COUNT } from '@/lib/ticket-availability';
 import { getEventAgeWarningMessage } from '@/lib/age-warning';
 import { getOnlineSalesClosedLabel, getOnlineSalesClosedMessage } from '@/lib/online-sales-closed';
 import Link from 'next/link';
@@ -47,13 +47,14 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
 
 export default async function EventoDetailPage(props: { params: Promise<{ slug: string }> }) {
   const params = await props.params;
-  let event: EventWithTicketTypes | null = null;
+  let event: EventWithAvailability | null = null;
   let loadError = false;
   try {
     event = await prisma.event.findUnique({
       where: { slug: params?.slug },
       include: {
         ticketTypes: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } },
+        ...ISSUED_TICKETS_COUNT,
       },
     });
   } catch (error) {
@@ -92,11 +93,11 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
   const artists = (event?.artists ?? '').split(',').map((a) => a?.trim?.()).filter(Boolean);
   const activeTypes = event?.ticketTypes ?? [];
   // Estado de venta y «Desde» a partir de lo vendido por tipo activo, igual que el listado y las portadas (no de los escaneos en puerta).
-  const { level: demand, soldOut, fromPrice: minPrice } = getEventAvailability(activeTypes, event?.maxCapacity);
+  const { level: demand, soldOut, fromPrice: minPrice } = getEventAvailability(activeTypes, event?.maxCapacity, event?._count?.tickets);
   const taquillaOnly = Boolean(event?.onlineSalesClosed);
   const taquillaOnlyLabel = getOnlineSalesClosedLabel(event ?? { onlineSalesClosed: false });
   const taquillaOnlyMessage = getOnlineSalesClosedMessage(event ?? { onlineSalesClosed: false });
-  const eventEnded = hasEventEnded(event?.date);
+  const eventEnded = hasEventEnded(event?.date, event?.endTime);
   // Cancelado por el organizador (P1-04): sin botón de compra y con un aviso claro; la venta ya está cerrada en el servidor.
   const eventCancelled = event?.status === 'CANCELLED';
   const ageWarningMessage = getEventAgeWarningMessage(event ?? { ageWarningEnabled: false });

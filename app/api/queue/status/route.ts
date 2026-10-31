@@ -5,9 +5,8 @@ import { prisma } from '@/lib/prisma';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { liveWaitingWhere, pollAfterMsFor, sweepAndAdmit, touchWaitingEntry } from '@/lib/waiting-room';
 import { handleApiError } from '@/lib/api-error';
+import { waitingRoomSettings } from '@/lib/waiting-room-settings';
 
-const DEFAULT_CONCURRENT_SLOTS = 20;
-const DEFAULT_PURCHASE_WINDOW_SECONDS = 300;
 // Los sondeos de estado no barren más de una vez por segundo y evento en cada instancia (P1-12): ver `sweepAndAdmit`.
 const STATUS_SWEEP_MIN_INTERVAL_MS = 1000;
 
@@ -45,8 +44,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ status: 'ADMITTED', token: null });
     }
 
-    const concurrentSlots = event.waitingRoomConcurrentSlots ?? DEFAULT_CONCURRENT_SLOTS;
-    const windowSeconds = event.waitingRoomPurchaseWindowSeconds ?? DEFAULT_PURCHASE_WINDOW_SECONDS;
+    const { concurrentSlots, windowSeconds } = waitingRoomSettings(event);
     // Latido (H-071): ANTES del barrido, para que quien sondea cuente como presente en esta misma pasada.
     await touchWaitingEntry({ token, eventId: event.id });
     await sweepAndAdmit(event.id, concurrentSlots, windowSeconds, { minIntervalMs: STATUS_SWEEP_MIN_INTERVAL_MS });

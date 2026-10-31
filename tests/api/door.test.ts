@@ -157,11 +157,19 @@ describe('puerta: escaneo, búsqueda y admisión manual', () => {
       expect((await res.json()).result).toBe('INVALID');
     });
 
-    it('la red de seguridad por IP sigue existiendo (1200/min)', async () => {
+    // H-075: la red por IP solo cuenta a quien NO se identifica; una puerta con sesión no se ve afectada por el tráfico anónimo de su misma IP.
+    it('la red de seguridad por IP sigue existiendo (1200/min) para quien no tiene sesión', async () => {
       await seedBucket(`scan:${IP}`, 1200);
+      mock.user = null;
       const res = await scan(scanReq({ qrCode: 'NO-EXISTE', eventId: event.id }));
       expect(res.status).toBe(429);
       expect(res.headers.get('Retry-After')).toBeTruthy();
+    });
+
+    it('con la IP agotada, una puerta con sesión sigue escaneando', async () => {
+      await seedBucket(`scan:${IP}`, 1200);
+      const res = await scan(scanReq({ qrCode: 'NO-EXISTE', eventId: event.id }));
+      expect(res.status).toBe(200);
     });
 
     it('el límite fino es por USUARIO: una puerta saturada no frena a otra en la misma IP', async () => {

@@ -8,6 +8,7 @@ import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { seasonLinkEnabled, withoutSeasonLink } from '@/lib/modules/season-link';
 import { parseEventDateInput } from '@/lib/event-time';
+import { parseEventNumberSettings } from '@/lib/waiting-room-settings';
 import { ENTRY_RESULTS, isEntryResult } from '@/lib/scan-results';
 
 const createEventSchema = z.object({
@@ -123,6 +124,8 @@ export async function POST(request: Request) {
     // Sin zona (el `datetime-local` del formulario) es hora de Madrid; con `Z` u offset se respeta. Ausente = ahora, como antes.
     const date = body?.date === undefined ? new Date() : parseEventDateInput(body.date);
     if (!date) return NextResponse.json({ error: 'Fecha y hora no válidas' }, { status: 400 });
+    const numbers = parseEventNumberSettings(body);
+    if (!numbers.ok) return NextResponse.json({ error: numbers.error, code: 'invalid_number_setting' }, { status: 400 });
     const slug = (body?.name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     const event = await prisma.event.create({
       data: {
@@ -147,10 +150,10 @@ export async function POST(request: Request) {
         onlineSalesClosedLabel: body?.onlineSalesClosedLabel ?? null,
         onlineSalesClosedMessage: body?.onlineSalesClosedMessage ?? null,
         maxCapacity: body?.maxCapacity ?? 500,
-        maxTicketsPerEmail: body?.maxTicketsPerEmail === '' || body?.maxTicketsPerEmail == null ? null : Number(body.maxTicketsPerEmail),
+        maxTicketsPerEmail: numbers.maxTicketsPerEmail ?? null,
         waitingRoomEnabled: body?.waitingRoomEnabled ?? false,
-        waitingRoomConcurrentSlots: body?.waitingRoomConcurrentSlots === '' || body?.waitingRoomConcurrentSlots == null ? null : Number(body.waitingRoomConcurrentSlots),
-        waitingRoomPurchaseWindowSeconds: body?.waitingRoomPurchaseWindowSeconds === '' || body?.waitingRoomPurchaseWindowSeconds == null ? null : Number(body.waitingRoomPurchaseWindowSeconds),
+        waitingRoomConcurrentSlots: numbers.waitingRoomConcurrentSlots ?? null,
+        waitingRoomPurchaseWindowSeconds: numbers.waitingRoomPurchaseWindowSeconds ?? null,
         waitingRoomMessage: body?.waitingRoomMessage ?? null,
         status: body?.status ?? 'DRAFT',
         latitude: body?.latitude === '' || body?.latitude == null ? null : Number(body.latitude),

@@ -1,9 +1,9 @@
 import { getActiveModules } from '@/lib/modules/runtime';
 import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import Link from 'next/link';
-import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
+import { prisma, type EventWithAvailability } from '@/lib/prisma';
 import { getConfigs } from '@/lib/config';
-import { EVENT_GRACE_PERIOD_MS } from '@/lib/active-event';
+import { EVENT_MAX_DURATION_MS, hasEventEnded } from '@/lib/active-event';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -28,7 +28,7 @@ import { ContentSections } from './_home/sections/content-sections';
 import { canonicalAlternates } from '@/lib/seo/canonical';
 import { EVENT_TIMEZONE } from '@/lib/event-time';
 import { getContentSections } from '@/lib/content/load';
-import { getEventAvailability } from '@/lib/ticket-availability';
+import { getEventAvailability, ISSUED_TICKETS_COUNT } from '@/lib/ticket-availability';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
@@ -45,19 +45,20 @@ export default async function HomePage() {
   const modules = getActiveModules();
   const brand = await getBrand();
   const hasEntradas = modules.includes('entradas');
-  let events: EventWithTicketTypes[] = [];
+  let events: EventWithAvailability[] = [];
   let loadError = false;
   try {
     if (!hasEntradas) throw new SkipEvents();
-    events = await prisma.event.findMany({
-      // No anunciar como "próxima noche" un evento cuya fecha ya pasó (más el
-      // margen de gracia nocturno) — sin este filtro, un PUBLISHED que nadie
-      // marcó a mano como FINISHED se seguía vendiendo indefinidamente.
-      where: { status: 'PUBLISHED', date: { gte: new Date(Date.now() - EVENT_GRACE_PERIOD_MS) } },
-      include: { ticketTypes: { where: { isActive: true }, orderBy: { price: 'asc' } } },
+    // No anunciar como "próxima noche" un evento que ya terminó (inicio + margen nocturno, o su hora de fin si dura más) — sin este filtro, un
+    // PUBLISHED que nadie marcó a mano como FINISHED se seguía vendiendo indefinidamente. La consulta acota por el máximo posible y `hasEventEnded`
+    // decide (H-079); por eso se piden más de 6 y se recortan después.
+    const upcoming = await prisma.event.findMany({
+      where: { status: 'PUBLISHED', date: { gte: new Date(Date.now() - EVENT_MAX_DURATION_MS) } },
+      include: { ticketTypes: { where: { isActive: true }, orderBy: { price: 'asc' } }, ...ISSUED_TICKETS_COUNT },
       orderBy: { date: 'asc' },
-      take: 6,
+      take: 12,
     });
+    events = upcoming.filter((e) => !hasEventEnded(e.date, e.endTime)).slice(0, 6);
   } catch (error) {
     if (!(error instanceof SkipEvents)) {
       console.error('[HomePage] Error al cargar eventos:', error);
@@ -92,7 +93,7 @@ export default async function HomePage() {
         timeZone: EVENT_TIMEZONE,
       })
     : '';
-  const featuredPrice = featured ? getEventAvailability(featured.ticketTypes, featured.maxCapacity).fromPrice : null;
+  const featuredPrice = featured ? getEventAvailability(featured.ticketTypes, featured.maxCapacity, featured._count.tickets).fromPrice : null;
 
   const primaryCta: HeroProps['primaryCta'] = hasEntradas
     ? { href: '/eventos', label: 'Ver eventos', icon: 'ticket' }
@@ -218,7 +219,7 @@ export default async function HomePage() {
                 const dateStr = event?.date
                   ? new Date(event.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: EVENT_TIMEZONE })
                   : '';
-                const minPrice = getEventAvailability(event?.ticketTypes, event?.maxCapacity).fromPrice;
+                const minPrice = getEventAvailability(event?.ticketTypes, event?.maxCapacity, event?._count?.tickets).fromPrice;
                 return (
                   <StaggerItem key={event?.id ?? `ev-${index}`}>
                     <Link href={`/eventos/${event?.slug ?? ''}`}>

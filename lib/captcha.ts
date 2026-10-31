@@ -72,7 +72,24 @@ export async function getCaptchaSiteKey(): Promise<string> {
   }
 }
 
-type SiteverifyResponse = { success?: boolean; 'error-codes'?: unknown; action?: unknown };
+type SiteverifyResponse = { success?: boolean; 'error-codes'?: unknown; action?: unknown; hostname?: unknown };
+
+/** Host de la petición (cabecera `host`, nunca `x-forwarded-host`), en minúsculas y sin puerto; '' si no se puede saber. */
+function requestHostname(request: Request): string {
+  let raw = request.headers.get('host') ?? '';
+  if (!raw) {
+    try {
+      raw = new URL(request.url).host;
+    } catch {
+      return '';
+    }
+  }
+  return raw.trim().toLowerCase().replace(/:\d+$/, '');
+}
+
+function isLocalHost(host: string): boolean {
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost');
+}
 
 /**
  * Comprueba el token del captcha de la petición. Con el captcha desactivado devuelve `ok` sin hacer nada. Nunca lanza.
@@ -116,8 +133,13 @@ export async function verifyCaptcha(request: Request, token: unknown, action: Ca
   }
 
   if (data.success === true) {
-    // El token se pidió en el widget de OTRA acción (p. ej. el de la cola usado para pedir entradas): no vale.
-    if (typeof data.action === 'string' && data.action !== action) return { ok: false, code: 'captcha_failed' };
+    // H-082: el token tiene que venir del widget de ESTA acción. Los widgets de la web siempre fijan `action`, así que Cloudflare siempre la devuelve:
+    // un token sin ella (p. ej. de un widget ajeno que use la clave pública) o con otra (el de la cola usado para pedir entradas) no vale.
+    if (data.action !== action) return { ok: false, code: 'captcha_failed' };
+    // ...y haberse resuelto en la web de ESTE cliente (la clave pública es visible y se puede pintar en otra página). Si Cloudflare no da hostname, o es
+    // local (sus claves de prueba devuelven uno de ejemplo), no hay con qué comparar.
+    const host = requestHostname(request);
+    if (typeof data.hostname === 'string' && host && !isLocalHost(host) && data.hostname.toLowerCase() !== host) return { ok: false, code: 'captcha_failed' };
     return { ok: true, skipped: null };
   }
 

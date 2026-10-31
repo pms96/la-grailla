@@ -86,6 +86,26 @@ describe('GET /api/taquilla/print/[orderId]', () => {
     sessionRole = 'TAQUILLA';
   });
 
+  // H-081: se imprimía el QR de un pedido reembolsado o de un evento cancelado (el escáner lo rechaza): ahora se explica con un 410, igual que el PDF del comprador.
+  it('no imprime un pedido reembolsado ni anulado: 410', async () => {
+    sessionRole = 'TAQUILLA';
+    for (const status of ['REFUNDED', 'CANCELLED', 'PENDING'] as const) {
+      await prisma.order.update({ where: { id: orderId }, data: { status } });
+      const res = await printTickets(new Request('http://localhost'), { params: Promise.resolve({ orderId }) });
+      expect(res.status, status).toBe(410);
+      expect((await res.json()).error).toBeTruthy();
+    }
+    await prisma.order.update({ where: { id: orderId }, data: { status: 'COMPLETED' } });
+  });
+
+  it('no imprime las entradas de un evento cancelado: 410', async () => {
+    sessionRole = 'TAQUILLA';
+    await prisma.event.update({ where: { id: event.id }, data: { status: 'CANCELLED' } });
+    const res = await printTickets(new Request('http://localhost'), { params: Promise.resolve({ orderId }) });
+    expect(res.status).toBe(410);
+    await prisma.event.update({ where: { id: event.id }, data: { status: 'PUBLISHED' } });
+  });
+
   it('devuelve 404 para un pedido inexistente', async () => {
     sessionRole = 'TAQUILLA';
     const res = await printTickets(new Request('http://localhost'), { params: Promise.resolve({ orderId: 'no-existe' }) });

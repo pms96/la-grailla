@@ -34,6 +34,13 @@ const taquillaSaleSchema = z.object({
 });
 
 const DIRECT_ENTRY_NAME = 'Venta en taquilla';
+// Tope por línea de la venta: un grupo grande cabe de sobra, y un valor absurdo ya no llega a las comprobaciones de aforo.
+const MAX_ITEM_QUANTITY = 500;
+const EVENT_NOT_OPEN_MESSAGE: Record<string, string> = {
+  CANCELLED: 'El evento está cancelado: no se pueden vender entradas.',
+  FINISHED: 'El evento ya ha terminado: no se pueden vender entradas.',
+  DRAFT: 'El evento todavía no está publicado: publícalo para poder vender entradas.',
+};
 
 export async function POST(request: Request) {
   try {
@@ -77,10 +84,18 @@ export async function POST(request: Request) {
 
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return NextResponse.json({ error: 'Evento no encontrado' }, { status: 404 });
+    // H-080: solo se vende en un evento publicado. Antes se emitían QR (y se cobraba) sobre eventos cancelados, terminados o sin publicar.
+    if (event.status !== 'PUBLISHED') {
+      return NextResponse.json({ error: EVENT_NOT_OPEN_MESSAGE[event.status] ?? 'Este evento no está a la venta.', code: 'event_not_open' }, { status: 409 });
+    }
 
     const requestedQuantities = new Map<string, number>();
     for (const item of items) {
-      const quantity = Math.max(1, parseInt(String(item?.quantity ?? 1), 10));
+      // H-080: `Math.max(1, parseInt('abc'))` daba NaN, que pasaba las comprobaciones de aforo y acababa en 500. Cantidad = entero de 1 a MAX_ITEM_QUANTITY.
+      const quantity = Number(item?.quantity ?? 1);
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_ITEM_QUANTITY) {
+        return NextResponse.json({ error: `Cantidad no válida: indica un número entero de 1 a ${MAX_ITEM_QUANTITY}.` }, { status: 400 });
+      }
       requestedQuantities.set(item.ticketTypeId, (requestedQuantities.get(item.ticketTypeId) ?? 0) + quantity);
     }
 
@@ -94,7 +109,7 @@ export async function POST(request: Request) {
 
       // Solo tipos de ESTE evento: antes se aceptaba el de otro evento, se vendía contra el aforo equivocado y subía el contador ajeno.
       const freshTicketTypes = await tx.ticketType.findMany({
-        where: { id: { in: Array.from(requestedQuantities.keys()) }, eventId },
+        where: { id: { in: Array.from(requestedQuantities.keys()) }, eventId, isActive: true },
       });
 
       let totalAmount = 0;

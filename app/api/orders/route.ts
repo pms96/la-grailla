@@ -133,7 +133,7 @@ export async function POST(request: Request) {
     if (event.onlineSalesClosed) {
       return NextResponse.json({ error: 'Las entradas online para este evento están cerradas' }, { status: 400 });
     }
-    if (hasEventEnded(event.date)) {
+    if (hasEventEnded(event.date, event.endTime)) {
       return NextResponse.json({ error: 'Este evento ya ha finalizado' }, { status: 400 });
     }
 

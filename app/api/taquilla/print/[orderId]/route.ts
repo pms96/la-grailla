@@ -7,6 +7,7 @@ import { adminLacksModule } from '@/lib/modules/access';
 import { authOptions } from '@/lib/auth';
 import { buildTicketsPdfForRoll } from '@/lib/ticket-pdf';
 import { handleApiError } from '@/lib/api-error';
+import { ticketUnusable } from '@/lib/ticket-validity';
 
 export async function GET(request: Request, props: { params: Promise<{ orderId: string }> }) {
   const params = await props.params;
@@ -25,6 +26,12 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
     });
     if (!order) {
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
+    }
+
+    // H-081: mismo criterio que el escáner y el PDF del comprador: un pedido reembolsado, anulado o sin pagar, o un evento cancelado, no imprime QR.
+    const unusable = ticketUnusable(order, order.event);
+    if (unusable) {
+      return NextResponse.json({ error: unusable.scanMessage, code: unusable.reason }, { status: 410 });
     }
 
     const pdfBytes = await buildTicketsPdfForRoll(order);

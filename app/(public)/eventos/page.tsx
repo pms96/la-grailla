@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
-import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
-import { EVENT_GRACE_PERIOD_MS } from '@/lib/active-event';
-import { getEventAvailability } from '@/lib/ticket-availability';
+import { prisma, type EventWithAvailability } from '@/lib/prisma';
+import { EVENT_MAX_DURATION_MS, hasEventEnded } from '@/lib/active-event';
+import { getEventAvailability, ISSUED_TICKETS_COUNT } from '@/lib/ticket-availability';
 import { getOnlineSalesClosedLabel } from '@/lib/online-sales-closed';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -37,15 +37,17 @@ export async function generateMetadata() {
 }
 
 export default async function EventosPage() {
-  let events: EventWithTicketTypes[] = [];
+  let events: EventWithAvailability[] = [];
   let loadError = false;
   try {
-    events = await prisma.event.findMany({
-      where: { status: 'PUBLISHED', date: { gte: new Date(Date.now() - EVENT_GRACE_PERIOD_MS) } },
+    // La consulta acota por el máximo posible y `hasEventEnded` decide (inicio + margen, o la hora de fin si dura más: H-079).
+    const upcoming = await prisma.event.findMany({
+      where: { status: 'PUBLISHED', date: { gte: new Date(Date.now() - EVENT_MAX_DURATION_MS) } },
       // Todos los tipos activos (no solo el más barato): el estado de venta y «Desde» salen de lo vendido de cada uno.
-      include: { ticketTypes: { where: { isActive: true }, orderBy: { price: 'asc' } } },
+      include: { ticketTypes: { where: { isActive: true }, orderBy: { price: 'asc' } }, ...ISSUED_TICKETS_COUNT },
       orderBy: { date: 'asc' },
     });
+    events = upcoming.filter((e) => !hasEventEnded(e.date, e.endTime));
   } catch (error) {
     console.error('[EventosPage] Error al cargar eventos:', error);
     loadError = true;
@@ -236,7 +238,7 @@ function LoadErrorPanel() {
   );
 }
 
-function EventMeta({ event }: { event: EventWithTicketTypes }) {
+function EventMeta({ event }: { event: EventWithAvailability }) {
   const dateStr = event?.date
     ? new Date(event.date).toLocaleDateString('es-ES', {
         weekday: 'short',
@@ -246,7 +248,7 @@ function EventMeta({ event }: { event: EventWithTicketTypes }) {
         timeZone: EVENT_TIMEZONE,
       })
     : '';
-  const { level: demand, fromPrice: minPrice } = getEventAvailability(event?.ticketTypes, event?.maxCapacity);
+  const { level: demand, fromPrice: minPrice } = getEventAvailability(event?.ticketTypes, event?.maxCapacity, event?._count?.tickets);
 
   return (
     <div className="space-y-2 text-sm text-muted-foreground">
@@ -275,8 +277,8 @@ function EventMeta({ event }: { event: EventWithTicketTypes }) {
   );
 }
 
-function EventCard({ event }: { event: EventWithTicketTypes }) {
-  const { level: demand } = getEventAvailability(event?.ticketTypes, event?.maxCapacity);
+function EventCard({ event }: { event: EventWithAvailability }) {
+  const { level: demand } = getEventAvailability(event?.ticketTypes, event?.maxCapacity, event?._count?.tickets);
 
   return (
     <Link href={`/eventos/${event?.slug ?? ''}`}>

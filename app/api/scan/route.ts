@@ -11,6 +11,7 @@ import { checkCapacityAlerts } from '@/lib/capacity-alerts';
 import { handleApiError } from '@/lib/api-error';
 import { formatMadridTime } from '@/lib/event-time';
 import { ticketUnusable } from '@/lib/ticket-validity';
+import { ENTRY_RESULTS } from '@/lib/scan-results';
 
 // Se identifica la entrada por su QR (lectura con la cámara) o por su id (admisión MANUAL tras buscar al asistente por nombre/email, P1-06): una
 // admisión manual pasa por las MISMAS comprobaciones que un escaneo (anulada, pedido, evento, duplicada) y solo cambia cómo se registra.
@@ -28,18 +29,40 @@ const scanTicketSchema = z
 const SCAN_IP_LIMIT_PER_MIN = 1200;
 const SCAN_USER_LIMIT_PER_MIN = 240;
 
+// H-074: con la wifi del recinto degradada la respuesta de un escaneo bueno se perdía (timeout de 8 s) y, al repetir la lectura, un asistente legítimo veía
+// un rojo «YA ENTRÓ». Si la MISMA puerta lo admitió hace menos de este tiempo, es un reintento. Una puerta distinta, o pasada la ventana, sigue siendo rojo:
+// podría ser una entrada pasada a otra persona.
+const RETRY_WINDOW_MS = 30_000;
+
+async function isRetryOfSameScanner(ticketId: string, scannerId: string | undefined, entryTime: Date | null | undefined): Promise<boolean> {
+  if (!scannerId || !entryTime || Date.now() - entryTime.getTime() > RETRY_WINDOW_MS) return false;
+  const log = await prisma.scanLog.findFirst({
+    where: { ticketId, scannerId, result: { in: [...ENTRY_RESULTS] }, createdAt: { gte: new Date(Date.now() - RETRY_WINDOW_MS) } },
+    select: { id: true },
+  });
+  return Boolean(log);
+}
+
+function duplicateVerdict(entryTime: Date | null | undefined, retry: boolean) {
+  const hora = formatMadridTime(entryTime);
+  return retry
+    ? { result: 'DUPLICATE', message: `ACABA DE ENTRAR — reintento de la misma lectura (${hora})`, entryTime, color: 'yellow', retry: true }
+    : { result: 'DUPLICATE', message: `YA ENTRÓ — Hora de entrada: ${hora}`, entryTime, color: 'red' };
+}
+
 export async function POST(request: Request) {
   try {
-    const limit = await rateLimit('scan', getClientIp(request), SCAN_IP_LIMIT_PER_MIN, 60_000);
-    if (!limit.ok) {
-      return NextResponse.json(
-        { error: 'Demasiadas peticiones. Espera unos segundos.' },
-        { status: 429, headers: { 'Retry-After': String(limit.retryAfter) } }
-      );
-    }
-
+    // H-075: primero la sesión (se lee del JWT, sin tocar la BD). El cubo por IP solo cuenta a quien NO se identifica: si contara también a las puertas,
+    // cualquiera en la wifi del recinto podría agotarlo sin sesión y dar 429 a todas durante un minuto.
     const session = await getServerSession(authOptions);
     if (!session?.user || !['ADMIN', 'TAQUILLA'].includes(session.user?.role ?? '')) {
+      const limit = await rateLimit('scan', getClientIp(request), SCAN_IP_LIMIT_PER_MIN, 60_000);
+      if (!limit.ok) {
+        return NextResponse.json(
+          { error: 'Demasiadas peticiones. Espera unos segundos.' },
+          { status: 429, headers: { 'Retry-After': String(limit.retryAfter) } }
+        );
+      }
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
     if (adminLacksModule(session.user, 'entradas')) {
@@ -155,12 +178,7 @@ export async function POST(request: Request) {
           result: 'DUPLICATE',
         },
       });
-      return NextResponse.json({
-        result: 'DUPLICATE',
-        message: `YA ENTR\u00d3 \u2014 Hora de entrada: ${formatMadridTime(ticket.entryTime)}`,
-        entryTime: ticket.entryTime,
-        color: 'red',
-      });
+      return NextResponse.json(duplicateVerdict(ticket.entryTime, await isRetryOfSameScanner(ticket.id, session.user?.id, ticket.entryTime)));
     }
 
     // Valid ticket — mark as used. El `ticket` de arriba se leyó fuera de esta
@@ -205,12 +223,7 @@ export async function POST(request: Request) {
 
     if (outcome === 'DUPLICATE') {
       const freshTicket = await prisma.ticket.findUnique({ where: { id: ticket.id } });
-      return NextResponse.json({
-        result: 'DUPLICATE',
-        message: `YA ENTRÓ — Hora de entrada: ${formatMadridTime(freshTicket?.entryTime)}`,
-        entryTime: freshTicket?.entryTime,
-        color: 'red',
-      });
+      return NextResponse.json(duplicateVerdict(freshTicket?.entryTime, await isRetryOfSameScanner(ticket.id, session.user?.id, freshTicket?.entryTime)));
     }
 
     void checkCapacityAlerts(ticket.eventId);

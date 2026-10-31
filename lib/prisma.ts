@@ -118,6 +118,10 @@ export type EventWithTicketTypes = NonNullable<
   Awaited<ReturnType<typeof prisma.event.findFirst<{ include: { ticketTypes: true } }>>>
 >;
 
+// El evento con sus tipos activos Y las entradas emitidas (`_count.tickets`, ver `ISSUED_TICKETS_COUNT`): lo que necesitan las páginas públicas para
+// calcular la disponibilidad contra el aforo real, invitaciones incluidas (H-078).
+export type EventWithAvailability = EventWithTicketTypes & { _count: { tickets: number } };
+
 // Mismo motivo, para Sponsor.paidAmount (Decimal → number) — lib/sponsor-portal.ts
 // pasa el resultado de prisma.sponsor.{findUnique,create,update}(...) entre
 // funciones y necesita tiparlo contra la forma real, no contra `Sponsor` de

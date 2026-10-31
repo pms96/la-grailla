@@ -38,6 +38,8 @@ export type EventInput = {
   onlineSalesClosedLabel?: string | null;
   /** Los tipos de entrada ACTIVOS con lo vendido de cada uno: de ahí salen «Desde» y el estado de venta (no del aforo en puerta). */
   ticketTypes?: readonly AvailabilityTicketType[] | null;
+  /** Entradas emitidas del evento (invitaciones incluidas): el aforo se mide contra ellas, no contra lo vendido por tipo (H-078). */
+  _count?: { tickets: number } | null;
 };
 
 const strip = (s: string) => s.replace(/\./g, '');
@@ -45,7 +47,7 @@ const strip = (s: string) => s.replace(/\./g, '');
 export function toTemplateEvent(e: EventInput): TemplateEvent {
   const d = new Date(e.date);
   const fmt = (o: Intl.DateTimeFormatOptions) => d.toLocaleDateString('es-ES', { timeZone: TZ, ...o });
-  const availability = getEventAvailability(e.ticketTypes, e.maxCapacity);
+  const availability = getEventAvailability(e.ticketTypes, e.maxCapacity, e._count?.tickets);
   const closed = getOnlineSalesClosedLabel({ onlineSalesClosed: e.onlineSalesClosed ?? false, onlineSalesClosedLabel: e.onlineSalesClosedLabel ?? null });
   return {
     id: e.id,

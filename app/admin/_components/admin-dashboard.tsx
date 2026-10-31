@@ -13,7 +13,7 @@ import { CapacityBar } from '@/components/admin/capacity-bar';
 import { isEventTonight } from '@/lib/active-event';
 import { useBrand } from '@/components/brand-provider';
 
-type DashboardEvent = Pick<Event, 'id' | 'name' | 'maxCapacity' | 'currentCount' | 'date' | 'status'> & {
+type DashboardEvent = Pick<Event, 'id' | 'name' | 'maxCapacity' | 'currentCount' | 'date' | 'endTime' | 'status'> & {
   soldCount: number;
 };
 
@@ -129,7 +129,7 @@ export default function AdminDashboard({ accounting = false }: { accounting?: bo
   ];
 
   const tonightEvent = (stats?.events ?? []).find(
-    (ev) => ev?.status === 'PUBLISHED' && isEventTonight(ev?.date)
+    (ev) => ev?.status === 'PUBLISHED' && isEventTonight(ev?.date, ev?.endTime)
   );
   const activeEvents = (stats?.events ?? []).filter((ev) => ev?.status === 'PUBLISHED').slice(0, 4);
 

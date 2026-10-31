@@ -33,7 +33,7 @@ const freshIp = () => `10.${runId >> 8}.${runId & 255}.${(ipCounter += 1)}`;
 const req = (url: string, body: unknown, ip = freshIp()) =>
   new Request(`http://localhost${url}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify(body) });
 
-type Verdict = { success: boolean; 'error-codes'?: string[]; action?: string };
+type Verdict = { success: boolean; 'error-codes'?: string[]; action?: string; hostname?: string };
 /** Simula `siteverify`: `verdict` por defecto es éxito; devuelve las llamadas recibidas. */
 function fakeSiteverify(verdict: Verdict | (() => Response | Promise<Response>) = { success: true }) {
   const calls: { secret: string; response: string; remoteip: string }[] = [];
@@ -127,7 +127,7 @@ describe('captcha: verificación en el servidor', () => {
 
   it('sin IP conocida no se manda `remoteip` (Cloudflare lo trataría como petición mal formada)', async () => {
     await enable();
-    const { calls } = fakeSiteverify({ success: true });
+    const { calls } = fakeSiteverify({ success: true, action: 'order' });
     await verifyCaptcha(new Request('http://localhost/api/orders', { method: 'POST', body: '{}' }), 'tok', 'order');
     expect(calls).toEqual([{ secret: SECRET, response: 'tok' }]);
   });
@@ -167,6 +167,44 @@ describe('captcha: verificación en el servidor', () => {
     expect(await verify('tok', 'order')).toEqual({ ok: false, code: 'captcha_failed' });
     fakeSiteverify({ success: true, action: 'queue' });
     expect(await verify('tok', 'queue')).toEqual({ ok: true, skipped: null });
+  });
+
+  // H-082: un widget ajeno con la clave pública y SIN `action` pasaba como válido para cualquier acción. Los widgets de la web siempre fijan `action`,
+  // así que Cloudflare siempre la devuelve; un token sin ella no salió de nuestros widgets.
+  it('un token sin `action` no vale para ninguna acción', async () => {
+    await enable();
+    fakeSiteverify({ success: true });
+    expect(await verify('tok', 'order')).toEqual({ ok: false, code: 'captcha_failed' });
+    fakeSiteverify({ success: true });
+    expect(await verify('tok', 'queue')).toEqual({ ok: false, code: 'captcha_failed' });
+  });
+
+  describe('hostname: el widget tiene que haberse pintado en la web de este cliente', () => {
+    const at = (host: string) => new Request(`https://${host}/api/orders`, { method: 'POST', body: '{}' });
+
+    it('un token sacado en OTRA web se rechaza', async () => {
+      await enable();
+      fakeSiteverify({ success: true, action: 'order', hostname: 'web-ajena.example' });
+      expect(await verifyCaptcha(at('entradas.cliente.es'), 'tok', 'order')).toEqual({ ok: false, code: 'captcha_failed' });
+    });
+
+    it('el de la propia web pasa (sin distinguir mayúsculas ni puerto)', async () => {
+      await enable();
+      fakeSiteverify({ success: true, action: 'order', hostname: 'Entradas.Cliente.es' });
+      expect(await verifyCaptcha(at('entradas.cliente.es:443'), 'tok', 'order')).toEqual({ ok: true, skipped: null });
+    });
+
+    it('si Cloudflare no devuelve hostname, no se exige (no hay con qué comparar)', async () => {
+      await enable();
+      fakeSiteverify({ success: true, action: 'order' });
+      expect(await verifyCaptcha(at('entradas.cliente.es'), 'tok', 'order')).toEqual({ ok: true, skipped: null });
+    });
+
+    it('en local (localhost) no se comprueba: las claves de prueba de Cloudflare devuelven un hostname de ejemplo', async () => {
+      await enable();
+      fakeSiteverify({ success: true, action: 'order', hostname: 'example.com' });
+      expect(await verifyCaptcha(at('localhost:3000'), 'tok', 'order')).toEqual({ ok: true, skipped: null });
+    });
   });
 
   it('un token absurdamente largo se rechaza sin llamar a Cloudflare', async () => {
@@ -254,7 +292,7 @@ describe('captcha: endpoints', () => {
 
   describe('pedido de entradas', () => {
     it('sin token: 400 captcha_required y no se crea ningún pedido', async () => {
-      const { spy } = fakeSiteverify();
+      const { spy } = fakeSiteverify({ success: true, action: 'order' });
       const res = await createOrder(req('/api/orders', orderBody()));
       expect(res.status).toBe(400);
       expect(await res.json()).toMatchObject({ code: 'captcha_required' });
@@ -295,7 +333,7 @@ describe('captcha: endpoints', () => {
       const entry = await prisma.waitingRoomEntry.create({
         data: { eventId: event.id, token: `adm-${Math.random()}`, status: 'ADMITTED', admittedAt: new Date(), expiresAt: new Date(Date.now() + 5 * 60_000), ip: '203.0.113.200' },
       });
-      const { spy } = fakeSiteverify();
+      const { spy } = fakeSiteverify({ success: true, action: 'order' });
       const res = await createOrder(req('/api/orders', orderBody({ queueToken: entry.token })));
       expect(res.status).toBe(200);
       expect(spy).not.toHaveBeenCalled();
@@ -315,16 +353,16 @@ describe('captcha: endpoints', () => {
 
     it('con sala de espera y sin turno válido sigue siendo 403 (el captcha no sustituye a la cola)', async () => {
       await prisma.event.update({ where: { id: event.id }, data: { waitingRoomEnabled: true } });
-      fakeSiteverify();
+      fakeSiteverify({ success: true, action: 'order' });
       const res = await createOrder(req('/api/orders', orderBody({ captchaToken: 'bueno' })));
       expect(res.status).toBe(403);
     });
 
     it('un reintento idempotente de un pedido que ya existe no pide otro captcha', async () => {
-      fakeSiteverify({ success: true });
+      fakeSiteverify({ success: true, action: 'order' });
       const body = orderBody({ captchaToken: 'bueno', idempotencyKey: `idem-${Math.random()}` });
       expect((await createOrder(req('/api/orders', body))).status).toBe(200);
-      const { spy } = fakeSiteverify();
+      const { spy } = fakeSiteverify({ success: true, action: 'order' });
       expect((await createOrder(req('/api/orders', { ...body, captchaToken: undefined }))).status).toBe(200);
       expect(spy).not.toHaveBeenCalled();
       expect(await orders()).toBe(1);
@@ -344,7 +382,7 @@ describe('captcha: endpoints', () => {
 
     it('sin token: 400 captcha_required y no se reserva stock', async () => {
       const id = await product();
-      fakeSiteverify();
+      fakeSiteverify({ success: true, action: 'shop-order' });
       const res = await createShopOrder(req('/api/shop/orders', shopBody(id)));
       expect(res.status).toBe(400);
       expect(await res.json()).toMatchObject({ code: 'captcha_required' });
@@ -367,7 +405,7 @@ describe('captcha: endpoints', () => {
 
     it('entrar en la cola sin token da 400 captcha_required y no crea turno', async () => {
       await queueEvent();
-      fakeSiteverify();
+      fakeSiteverify({ success: true, action: 'queue' });
       const res = await joinQueue(req('/api/queue/join', { eventId: event.id }));
       expect(res.status).toBe(400);
       expect(await res.json()).toMatchObject({ code: 'captcha_required' });
@@ -382,7 +420,7 @@ describe('captcha: endpoints', () => {
       const { token } = await first.json();
       expect(token).toBeTruthy();
 
-      const { spy } = fakeSiteverify();
+      const { spy } = fakeSiteverify({ success: true, action: 'queue' });
       const again = await joinQueue(req('/api/queue/join', { eventId: event.id, token }));
       expect(again.status).toBe(200);
       expect(spy).not.toHaveBeenCalled();
@@ -393,7 +431,7 @@ describe('captcha: endpoints', () => {
       await queueEvent();
       const ip = '203.0.113.210';
       for (let i = 0; i < 10; i++) await prisma.waitingRoomEntry.create({ data: { eventId: event.id, token: `live-${i}-${Math.random()}`, status: 'WAITING', ip } }); // el tope por IP es 10 (H-072)
-      const { spy } = fakeSiteverify();
+      const { spy } = fakeSiteverify({ success: true, action: 'queue' });
       const res = await joinQueue(req('/api/queue/join', { eventId: event.id, captchaToken: 'bueno' }, ip));
       expect(res.status).toBe(429);
       expect(spy).not.toHaveBeenCalled();
@@ -404,14 +442,14 @@ describe('captcha: endpoints', () => {
     it('un turno CADUCADO que vuelve a entrar sí tiene que pasar el captcha otra vez', async () => {
       await queueEvent();
       const old = await prisma.waitingRoomEntry.create({ data: { eventId: event.id, token: `exp-${Math.random()}`, status: 'EXPIRED', ip: '203.0.113.201' } });
-      fakeSiteverify();
+      fakeSiteverify({ success: true, action: 'queue' });
       const res = await joinQueue(req('/api/queue/join', { eventId: event.id, token: old.token }));
       expect(res.status).toBe(400);
       expect(await res.json()).toMatchObject({ code: 'captcha_required' });
     });
 
     it('con la cola desactivada no se pide captcha (no hay turno que proteger)', async () => {
-      const { spy } = fakeSiteverify();
+      const { spy } = fakeSiteverify({ success: true, action: 'queue' });
       const res = await joinQueue(req('/api/queue/join', { eventId: event.id }));
       expect((await res.json()).status).toBe('ADMITTED');
       expect(spy).not.toHaveBeenCalled();

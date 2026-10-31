@@ -7,12 +7,8 @@ import { prisma } from '@/lib/prisma';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { liveWaitingWhere, pollAfterMsFor, sweepAndAdmit, touchWaitingEntry } from '@/lib/waiting-room';
 import { handleApiError } from '@/lib/api-error';
+import { waitingRoomSettings } from '@/lib/waiting-room-settings';
 import { captchaRejection, verifyCaptcha } from '@/lib/captcha';
-
-// Valores por defecto si el admin activa la sala de espera sin rellenar los
-// campos numéricos (evita que se quede sin admitir a nadie por slots=0).
-const DEFAULT_CONCURRENT_SLOTS = 20;
-const DEFAULT_PURCHASE_WINDOW_SECONDS = 300;
 
 // El rate limit de arriba (20/60s) frena ráfagas, pero no a un script que
 // reparte sus peticiones despacio en el tiempo: sin este límite, la misma
@@ -59,8 +55,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ status: 'ADMITTED', token: null });
     }
 
-    const concurrentSlots = event.waitingRoomConcurrentSlots ?? DEFAULT_CONCURRENT_SLOTS;
-    const windowSeconds = event.waitingRoomPurchaseWindowSeconds ?? DEFAULT_PURCHASE_WINDOW_SECONDS;
+    const { concurrentSlots, windowSeconds } = waitingRoomSettings(event);
 
     let entry = body.token
       ? await prisma.waitingRoomEntry.findUnique({ where: { token: body.token } })
