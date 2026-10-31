@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { jornadaHoy } from '@/lib/jornada';
 
 const createIngresoSchema = z.object({
   temporadaId: z.string().min(1),
@@ -47,7 +48,8 @@ export async function POST(request: Request) {
         temporadaId: body.temporadaId,
         concepto: body.concepto,
         importe: body.importe,
-        fecha: body.fecha ? new Date(body.fecha) : new Date(),
+        // Sin fecha: la JORNADA actual como medianoche UTC (el formato de las demás filas), no el instante actual (cuyo prefijo UTC podía ser el día anterior).
+        fecha: new Date(body.fecha ?? (await jornadaHoy())),
         notas: body.notas || null,
         createdById: session.user?.id,
       },

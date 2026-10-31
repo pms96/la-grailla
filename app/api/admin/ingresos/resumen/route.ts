@@ -6,6 +6,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { importeGastoConIva } from '@/lib/gasto-calc';
+import { jornadaHoy } from '@/lib/jornada';
 
 // Balance = caja manual (Ingreso) de la temporada − Gasto de la misma
 // temporada. A propósito NO incluye ventas de entradas online (Order) ni
@@ -61,6 +62,8 @@ export async function GET(request: Request) {
       balance,
       nIngresos: ingresos.length,
       porDia,
+      // Jornada de negocio de ahora (Madrid, con el corte configurado): la fecha que debe proponer el formulario de caja.
+      jornadaHoy: await jornadaHoy(),
     });
   } catch (error) {
     return handleApiError(error, 'GET /api/admin/ingresos/resumen');

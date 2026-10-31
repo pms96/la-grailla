@@ -23,6 +23,8 @@ type Resumen = {
   balance: number;
   nIngresos: number;
   porDia: { fecha: string; total: number; lineas: { concepto: string; total: number }[] }[];
+  /** Jornada de negocio de ahora (la calcula el servidor con el corte configurado). */
+  jornadaHoy?: string;
 };
 
 export default function IngresosPage() {
@@ -197,6 +199,7 @@ export default function IngresosPage() {
         editing={editing}
         temporadaId={temporadaId}
         onSaved={fetchDatos}
+        fechaPorDefecto={resumen?.jornadaHoy}
       />
 
       <ConfirmDeleteDialog

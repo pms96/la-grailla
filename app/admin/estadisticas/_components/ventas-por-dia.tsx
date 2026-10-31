@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { SkeletonPulse } from '@/components/ui/animate';
-import { addDays, madridDayKey } from '@/lib/ventas-por-dia';
+import { addDays, businessDayKey } from '@/lib/ventas-por-dia';
 
 type Bucket = { importe: number; entradas: number; pedidos: number };
 type Dia = {
@@ -18,7 +18,7 @@ type Dia = {
   cajaEntradas: number | null;
   diferenciaCaja: number | null;
 };
-type Respuesta = { dias: Dia[]; totales: Dia; cajaComparable: boolean };
+type Respuesta = { dias: Dia[]; totales: Dia; cajaComparable: boolean; corteHora?: number };
 
 const COLUMNAS = [
   { key: 'online', label: 'Online' },
@@ -73,15 +73,17 @@ export default function VentasPorDia({ eventId }: { eventId: string }) {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const corteHora = data?.corteHora ?? 0;
   const atajos = useMemo(() => {
-    const hoy = madridDayKey(new Date());
+    // «Hoy» es la jornada de negocio actual (con el corte configurado): a las 02:00 con corte a las 06:00, sigue siendo la de ayer.
+    const hoy = businessDayKey(new Date(), corteHora);
     return [
       { label: 'Hoy', desde: hoy, hasta: hoy },
       { label: 'Ayer', desde: addDays(hoy, -1), hasta: addDays(hoy, -1) },
       { label: 'Últimos 7 días', desde: addDays(hoy, -6), hasta: hoy },
       { label: 'Todo', desde: '', hasta: '' },
     ];
-  }, []);
+  }, [corteHora]);
 
   const dias = data?.dias ?? [];
   const totales = data?.totales;
@@ -94,6 +96,11 @@ export default function VentasPorDia({ eventId }: { eventId: string }) {
           <div>
             <h2 className="font-display font-bold text-lg">Ventas por día y canal</h2>
             <p className="text-sm text-muted-foreground">Qué se ha vendido cada día: online, taquilla con tarjeta y taquilla en efectivo.</p>
+            {corteHora > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Cada día es una jornada de {String(corteHora).padStart(2, '0')}:00 a {String(corteHora).padStart(2, '0')}:00 (hora de Madrid): una noche de madrugada cuenta entera en el día en que empezó. Se cambia en Configuración.
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-xs text-muted-foreground">

@@ -44,6 +44,28 @@ export function madridDayKey(date: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: MADRID_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
 }
 
+/** Hora de corte máxima de la jornada de negocio (de 0 a 12 h, hora de Madrid). */
+export const JORNADA_CORTE_MAX = 12;
+
+/**
+ * Hora de corte válida: un entero de 0 a 12; cualquier otra cosa (vacío, texto, fuera de rango) es 0 = día natural. Se usa con lo que llega de la
+ * configuración, que es texto libre: un valor roto nunca debe mover los números de la caja de nadie.
+ */
+export function parseJornadaCorte(raw: unknown): number {
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' && /^\s*\d{1,2}\s*$/.test(raw) ? Number(raw) : NaN;
+  return Number.isInteger(n) && n >= 0 && n <= JORNADA_CORTE_MAX ? n : 0;
+}
+
+/**
+ * Jornada de negocio (`YYYY-MM-DD`, hora de Madrid) a la que pertenece un instante, con una hora de corte. Con corte 0 es el día natural; con corte 6, la
+ * jornada del sábado va desde el sábado a las 06:00 hasta el domingo a las 06:00, así que una noche de 22:00 a 04:00 queda ENTERA en el sábado y se
+ * compara con la caja que se anota ese día (antes, la mitad caía en cada día y `diferenciaCaja` salía descuadrada dos días seguidos).
+ * El corte se resta en milisegundos reales: el día del cambio horario no tiene 24 h y la jornada de ese día mide 23 o 25, igual que su día natural.
+ */
+export function businessDayKey(date: Date, cutoffHour = 0): string {
+  return madridDayKey(cutoffHour === 0 ? date : new Date(date.getTime() - cutoffHour * 3_600_000));
+}
+
 function madridOffsetMinutes(date: Date): number {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: MADRID_TZ,
@@ -72,6 +94,14 @@ export function madridDayStart(day: string): Date {
   return new Date(ms);
 }
 
+/**
+ * Instante en el que EMPIEZA una jornada de negocio. Es la inversa exacta de `businessDayKey`: `businessDayKey(t, c) === d` si y solo si
+ * `businessDayStart(d, c) <= t < businessDayStart(addDays(d, 1), c)`. Por eso el filtro de fechas y la agrupación nunca discrepan.
+ */
+export function businessDayStart(day: string, cutoffHour = 0): Date {
+  return new Date(madridDayStart(day).getTime() + cutoffHour * 3_600_000);
+}
+
 export function addDays(day: string, days: number): string {
   const [y, m, d] = day.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
@@ -92,8 +122,10 @@ function emptyDia(fecha: string): VentasDia {
 
 export function buildVentasPorDia(
   orders: OrderForVentas[],
-  ingresos: IngresoForVentas[] | null
+  ingresos: IngresoForVentas[] | null,
+  options: { cutoffHour?: number } = {}
 ): { dias: VentasDia[]; totales: VentasDia } {
+  const cutoffHour = parseJornadaCorte(options.cutoffHour ?? 0);
   const porDia = new Map<string, VentasDia>();
   const getDia = (fecha: string) => {
     let dia = porDia.get(fecha);
@@ -105,7 +137,7 @@ export function buildVentasPorDia(
   };
 
   for (const o of orders) {
-    const dia = getDia(madridDayKey(o.createdAt));
+    const dia = getDia(businessDayKey(o.createdAt, cutoffHour));
     const bucket = dia[classifyOrder(o)];
     bucket.importe += o.totalAmount;
     bucket.entradas += o.tickets;
@@ -113,7 +145,8 @@ export function buildVentasPorDia(
   }
 
   // Ingreso.fecha se guarda como medianoche UTC del día elegido en el
-  // formulario, así que su día es el prefijo ISO, no el de Madrid.
+  // formulario, así que su día es el prefijo ISO, no el de Madrid: es la
+  // jornada que el usuario eligió, la misma clave con la que se agrupan las ventas.
   for (const i of ingresos ?? []) {
     if (i.concepto !== 'Entradas') continue;
     const dia = getDia(i.fecha.toISOString().slice(0, 10));

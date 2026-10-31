@@ -55,6 +55,12 @@ describe('Validación del valor de cada clave', () => {
     expect(invalidConfigValue('commission_percentage', 'abc')).not.toBeNull();
   });
 
+  it('la hora de corte de la jornada es un entero de 0 a 12 (P1-15)', () => {
+    for (const ok of ['0', '6', '12']) expect(invalidConfigValue('jornada_corte_hora', ok), ok).toBeNull();
+    for (const bad of ['-1', '13', '6.5', 'seis']) expect(invalidConfigValue('jornada_corte_hora', bad), bad).not.toBeNull();
+    expect(invalidConfigValue('jornada_corte_hora', '')).toBeNull(); // vacío = valor por defecto (0), como en el resto de claves
+  });
+
   it('los límites y el puerto son enteros dentro de su rango', () => {
     expect(invalidConfigValue('orders_rate_limit_per_ip', '10')).toBeNull();
     expect(invalidConfigValue('orders_rate_limit_per_ip', '0')).not.toBeNull();

@@ -56,6 +56,8 @@ const CONFIG_DEFAULTS: Record<string, string> = {
   orders_rate_limit_window_seconds: '60',
   orders_max_pending_per_ip: '10',
   shop_orders_max_pending_per_ip: '10',
+  // Hora de corte de la jornada de negocio (0-12, hora de Madrid) para agrupar ventas y caja (P1-15). 0 = día natural, el comportamiento de siempre.
+  jornada_corte_hora: '0',
   home_hero_badge_fallback: 'GOOD VIBES DE FERIA',
   home_hero_subtitle_1: 'Caseta de feria, noches de DJ y las mejores vibras de Torremolinos.',
   home_hero_subtitle_2: '¿Te vienes? Compra tus entradas online y asegura tu plaza. 🎉',

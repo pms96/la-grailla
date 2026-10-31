@@ -35,7 +35,7 @@ export const CONFIG_KEY_OWNERS: Readonly<Record<string, Owners>> = Object.fromEn
   // Entradas: su cuenta de cobro, la comisión, los límites de compra y la impresora de taquilla.
   ...owned(ENTRADAS, [
     'payment_gateway', 'stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_secret', 'sumup_api_key', 'sumup_merchant_code',
-    'commission_percentage', 'orders_rate_limit_per_ip', 'orders_rate_limit_window_seconds', 'orders_max_pending_per_ip', 'home_events_more_subtitle', 'notify_email_entradas', 'vat_rate_entradas', 'legal_terms_entradas',
+    'commission_percentage', 'orders_rate_limit_per_ip', 'orders_rate_limit_window_seconds', 'orders_max_pending_per_ip', 'jornada_corte_hora', 'home_events_more_subtitle', 'notify_email_entradas', 'vat_rate_entradas', 'legal_terms_entradas',
     'phomemo_printer_enabled', 'phomemo_write_mode', 'phomemo_raster_chunk_size', 'phomemo_chunk_delay_ms', 'phomemo_command_delay_ms',
     'phomemo_after_raster_delay_ms', 'phomemo_after_feed_delay_ms', 'phomemo_density', 'phomemo_feed', 'phomemo_confirm_every_chunks',
   ]),
@@ -105,6 +105,7 @@ const RULES: Record<string, Rule> = {
   orders_rate_limit_window_seconds: { kind: 'int', min: 1, max: 86_400 },
   orders_max_pending_per_ip: { kind: 'int', min: 1, max: 1000 },
   shop_orders_max_pending_per_ip: { kind: 'int', min: 1, max: 1000 },
+  jornada_corte_hora: { kind: 'int', min: 0, max: 12 },
   smtp_port: { kind: 'int', min: 1, max: 65_535 },
   phomemo_density: { kind: 'int', min: 1, max: 8 },
   phomemo_feed: { kind: 'int', min: 0, max: 255 },

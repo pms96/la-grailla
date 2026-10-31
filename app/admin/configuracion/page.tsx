@@ -138,6 +138,17 @@ export default function ConfiguracionPage() {
               </CardContent></Card>
 
               <Card><CardContent className="p-6 space-y-4">
+                <div>
+                  <h3 className="font-semibold">Jornada de caja</h3>
+                  <p className="text-sm text-muted-foreground">Cuándo termina «el día» para el cuadre de caja y las ventas por día.</p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <ConfigField label="Hora de corte de la jornada (0 a 12, hora de Madrid)" type="number" value={values?.jornada_corte_hora ?? '0'} onChange={(v) => updateValue('jornada_corte_hora', v)} description="0 = día natural (de 00:00 a 00:00). Pon 6 si vendes de madrugada: la jornada del sábado va del sábado a las 06:00 al domingo a las 06:00, así que una noche de 22:00 a 04:00 queda entera en el sábado y se compara con la caja que anotas ese día." />
+                </div>
+                <p className="text-xs text-muted-foreground">Cambiarlo reagrupa también las ventas ya hechas (son los mismos pedidos, repartidos en jornadas distintas); no modifica ningún importe.</p>
+              </CardContent></Card>
+
+              <Card><CardContent className="p-6 space-y-4">
                 <h3 className="font-semibold">Avisos de entradas</h3>
                 <ConfigField label="Avisar a (opcional)" value={values?.notify_email_entradas ?? ''} onChange={(v) => updateValue('notify_email_entradas', v)} placeholder="Por defecto, el email de administración" description="Aforo casi completo, pagos que no cuadran y certificados de Wallet a punto de caducar." />
               </CardContent></Card>

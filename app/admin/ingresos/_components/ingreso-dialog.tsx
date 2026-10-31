@@ -1,5 +1,6 @@
 'use client';
 
+import { madridDayKey } from '@/lib/ventas-por-dia';
 import { useEffect, useState } from 'react';
 import type { Ingreso } from '@prisma/client';
 import type { WithNumberFields } from '@/lib/prisma';
@@ -20,10 +21,10 @@ type FormState = {
   notas: string;
 };
 
-const emptyForm = (): FormState => ({
+const emptyForm = (fecha: string): FormState => ({
   concepto: CONCEPTOS_INGRESO[0],
   importe: '',
-  fecha: new Date().toISOString().slice(0, 10),
+  fecha,
   notas: '',
 });
 
@@ -33,10 +34,12 @@ type Props = {
   editing: WithNumberFields<Ingreso, 'importe'> | null;
   temporadaId: string | null;
   onSaved: () => void;
+  /** Jornada de negocio de ahora (la calcula el servidor con el corte configurado); sin ella, el día de Madrid. */
+  fechaPorDefecto?: string;
 };
 
-export function IngresoDialog({ open, onOpenChange, editing, temporadaId, onSaved }: Props) {
-  const [form, setForm] = useState<FormState>(emptyForm());
+export function IngresoDialog({ open, onOpenChange, editing, temporadaId, onSaved, fechaPorDefecto }: Props) {
+  const [form, setForm] = useState<FormState>(emptyForm(fechaPorDefecto ?? madridDayKey(new Date())));
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -49,9 +52,9 @@ export function IngresoDialog({ open, onOpenChange, editing, temporadaId, onSave
         notas: editing.notas ?? '',
       });
     } else {
-      setForm(emptyForm());
+      setForm(emptyForm(fechaPorDefecto ?? madridDayKey(new Date())));
     }
-  }, [open, editing]);
+  }, [open, editing, fechaPorDefecto]);
 
   const handleSave = async () => {
     if (!form.importe || !temporadaId) { toast.error('El ingreso necesita un importe'); return; }

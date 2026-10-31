@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
-import { createTestEvent, cleanupTestEvent } from '../helpers/fixtures';
+import { createTestEvent, cleanupTestEvent, getAndSetConfig, restoreConfig } from '../helpers/fixtures';
 
 let sessionRole: 'ADMIN' | 'TAQUILLA' | null = 'ADMIN';
 vi.mock('next-auth', () => ({
@@ -85,5 +85,85 @@ describe('GET /api/admin/stats/ventas-por-dia', () => {
   it('devuelve 400 con fechas mal formadas o invertidas', async () => {
     expect((await get('from=25-09-2026')).status).toBe(400);
     expect((await get('from=2026-09-26&to=2026-09-25')).status).toBe(400);
+  });
+});
+
+/* P1-15: el cuadre agrupaba las ventas por día natural y la caja se anota por noche. Con hora de corte, las ventas de la madrugada cuentan en la jornada que
+ * empezó la víspera, y el filtro desde/hasta usa la MISMA definición (si no, una venta podía aparecer en un día y quedar fuera del rango de ese día). */
+describe('GET /api/admin/stats/ventas-por-dia con hora de corte de la jornada (P1-15)', () => {
+  let eventId: string;
+  let temporadaId: string;
+
+  beforeAll(async () => {
+    eventId = (await createTestEvent()).id;
+    temporadaId = (await prisma.temporada.create({ data: { nombre: '[TEST] Temporada jornada', anio: 2095 } })).id;
+    const mk = async (createdAt: string, totalAmount: number, tag: string) => {
+      const order = await prisma.order.create({
+        data: { buyerName: 'T', buyerLastName: 'T', buyerEmail: 'j@example.com', status: 'COMPLETED', eventId, createdAt: new Date(createdAt), totalAmount, channel: 'TAQUILLA', paymentMethod: 'CASH' },
+      });
+      await prisma.ticket.create({ data: { orderId: order.id, eventId, qrCode: `qr-jornada-${tag}-${order.id}`, holderName: 'T' } });
+    };
+    // Sábado 31/10/2026 (Madrid en horario de invierno, UTC+1): 22:30, 00:30 de la madrugada y 06:30 (ya es la jornada siguiente con corte a las 06:00).
+    await mk('2026-10-31T21:30:00Z', 400, 'a');
+    await mk('2026-10-31T23:30:00Z', 200, 'b');
+    await mk('2026-11-01T05:30:00Z', 50, 'c');
+    await prisma.ingreso.create({ data: { temporadaId, concepto: 'Entradas', importe: 600, fecha: new Date('2026-10-31') } });
+  });
+  afterAll(async () => {
+    await prisma.ingreso.deleteMany({ where: { temporadaId } });
+    await prisma.temporada.delete({ where: { id: temporadaId } });
+    await cleanupTestEvent(eventId);
+  });
+
+  const withCorte = async (corte: string, fn: () => Promise<void>) => {
+    const prev = await getAndSetConfig('jornada_corte_hora', corte);
+    try {
+      await fn();
+    } finally {
+      await restoreConfig('jornada_corte_hora', prev);
+    }
+  };
+  const day = async (qs: string) => (await (await get(`eventId=${eventId}&${qs}`)).json()) as { dias: { fecha: string; taquillaEfectivo: { importe: number } }[]; totales: { taquillaEfectivo: { importe: number } }; corteHora: number };
+
+  it('sin corte (por defecto): el día natural de siempre; el sábado solo trae lo anterior a la medianoche', async () => {
+    await withCorte('0', async () => {
+      const sabado = await day('from=2026-10-31&to=2026-10-31');
+      expect(sabado.corteHora).toBe(0);
+      expect(sabado.dias.map((d) => [d.fecha, d.taquillaEfectivo.importe])).toEqual([['2026-10-31', 400]]);
+    });
+  });
+
+  it('con corte a las 06:00: la noche entera (22:30 y 00:30) es la jornada del sábado; las 06:30 ya son la del domingo', async () => {
+    await withCorte('6', async () => {
+      const sabado = await day('from=2026-10-31&to=2026-10-31');
+      expect(sabado.corteHora).toBe(6);
+      expect(sabado.dias.map((d) => [d.fecha, d.taquillaEfectivo.importe])).toEqual([['2026-10-31', 600]]);
+      const domingo = await day('from=2026-11-01&to=2026-11-01');
+      expect(domingo.dias.map((d) => [d.fecha, d.taquillaEfectivo.importe])).toEqual([['2026-11-01', 50]]);
+      // Sin filtro, cada pedido en su jornada y ninguno repetido ni perdido: los mismos 650 € que sin corte.
+      const todo = await day('');
+      expect(todo.dias.map((d) => [d.fecha, d.taquillaEfectivo.importe])).toEqual([['2026-10-31', 600], ['2026-11-01', 50]]);
+      expect(todo.totales.taquillaEfectivo.importe).toBe(650);
+    });
+  });
+
+  it('la caja de la noche CUADRA con el corte (sin filtro de evento): 600 € vendidos en efectivo contra 600 € anotados el sábado', async () => {
+    await withCorte('6', async () => {
+      // La BD de pruebas se comparte: si hubiera pedidos de taquilla en efectivo de OTROS eventos en esa misma jornada, entran en el cálculo esperado.
+      const { businessDayStart } = await import('@/lib/ventas-por-dia');
+      const others = await prisma.order.aggregate({
+        where: {
+          status: 'COMPLETED', channel: 'TAQUILLA', paymentMethod: 'CASH', eventId: { not: eventId },
+          createdAt: { gte: businessDayStart('2026-10-31', 6), lt: businessDayStart('2026-11-01', 6) },
+        },
+        _sum: { totalAmount: true },
+      });
+      const otros = Number(others._sum.totalAmount ?? 0);
+      const res = await (await get('from=2026-10-31&to=2026-10-31')).json();
+      const sabado = res.dias.find((d: { fecha: string }) => d.fecha === '2026-10-31');
+      expect(sabado.taquillaEfectivo.importe).toBe(Math.round((600 + otros) * 100) / 100);
+      expect(sabado.cajaEntradas).toBe(600);
+      expect(sabado.diferenciaCaja).toBe(Math.round((600 - (600 + otros)) * 100) / 100); // 0 cuando solo están los pedidos de esta prueba
+    });
   });
 });

@@ -1,5 +1,6 @@
 'use client';
 
+import { madridDayKey } from '@/lib/ventas-por-dia';
 import { useEffect, useState } from 'react';
 import type { Gasto, Proveedor } from '@prisma/client';
 import type { WithNumberFields } from '@/lib/prisma';
@@ -31,7 +32,7 @@ const emptyForm = (): FormState => ({
   proveedorId: '',
   importeSinIva: '',
   ivaPercent: '21',
-  fecha: new Date().toISOString().slice(0, 10),
+  fecha: madridDayKey(new Date()), // día de Madrid: entre las 00:00 y las 02:00 el día UTC es el de ayer
   numDocumento: '',
   tipoDocumento: 'Factura',
   notas: '',

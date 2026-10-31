@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { vi } from 'vitest';
-import { createTestEvent, createTicketType, cleanupTestEvent } from '../helpers/fixtures';
+import { createTestEvent, createTicketType, cleanupTestEvent, getAndSetConfig, restoreConfig } from '../helpers/fixtures';
 
 vi.mock('next-auth', () => ({
   getServerSession: vi.fn(async () => ({ user: { id: 'admin-stats-test', role: 'ADMIN' } })),
@@ -71,5 +71,40 @@ describe('GET /api/admin/stats — coherencia de fechas entre entradas e ingreso
     expect(data.totalOrders).toBe(1);
     expect(data.totalTickets).toBe(1);
     expect(data.totalRevenue).toBe(10);
+  });
+});
+
+/* P1-15: la gráfica «ventas por día» del dashboard agrupaba por día UTC: una venta de las 00:30 de Madrid caía en el día anterior. Ahora usa la jornada de
+ * negocio en hora de Madrid (con el corte configurado, 0 = día natural). */
+describe('GET /api/admin/stats — ventas por día en hora de Madrid (P1-15)', () => {
+  let event: Awaited<ReturnType<typeof createTestEvent>>;
+
+  beforeAll(async () => {
+    event = await createTestEvent();
+    for (const [iso, amount] of [['2026-10-31T21:30:00Z', 10], ['2026-10-31T23:30:00Z', 20]] as const) {
+      // 22:30 del sábado 31/10 y 00:30 del domingo 1/11 en Madrid (UTC+1): el día UTC de las dos es el 31.
+      await prisma.order.create({ data: { eventId: event.id, buyerName: 'D', buyerLastName: 'D', buyerEmail: 'd@example.com', totalAmount: amount, status: 'COMPLETED', createdAt: new Date(iso) } });
+    }
+  });
+  afterAll(async () => {
+    await cleanupTestEvent(event.id);
+  });
+
+  const salesByDay = async (corte: string) => {
+    const prev = await getAndSetConfig('jornada_corte_hora', corte);
+    try {
+      const data = await (await getStats(statsRequest(`?eventId=${event.id}`))).json();
+      return (data.salesByDay as { date: string; revenue: number; count: number }[]).map((d) => [d.date, d.revenue, d.count]);
+    } finally {
+      await restoreConfig('jornada_corte_hora', prev);
+    }
+  };
+
+  it('sin corte: cada venta en su día de Madrid (no las dos en el día UTC)', async () => {
+    expect(await salesByDay('0')).toEqual([['2026-10-31', 10, 1], ['2026-11-01', 20, 1]]);
+  });
+
+  it('con corte a las 06:00: la noche entera en la jornada del sábado', async () => {
+    expect(await salesByDay('6')).toEqual([['2026-10-31', 30, 2]]);
   });
 });

@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { madridDayKey } from '@/lib/ventas-por-dia';
 
 const createGastoSchema = z.object({
   temporadaId: z.string().min(1),
@@ -63,7 +64,8 @@ export async function POST(request: Request) {
         pedidoId: body.pedidoId || null,
         importeSinIva: body.importeSinIva,
         ivaPercent: body.ivaPercent,
-        fecha: body.fecha ? new Date(body.fecha) : new Date(),
+        // Sin fecha: el día natural de Madrid como medianoche UTC (el formato de las demás filas), no el instante actual.
+        fecha: new Date(body.fecha ?? madridDayKey(new Date())),
         numDocumento: body.numDocumento || null,
         tipoDocumento: body.tipoDocumento,
         notas: body.notas || null,

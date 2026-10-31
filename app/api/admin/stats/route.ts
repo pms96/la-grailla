@@ -5,6 +5,8 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { jornadaCorteHora } from '@/lib/jornada';
+import { businessDayKey } from '@/lib/ventas-por-dia';
 
 const WAITING_ROOM_STATUSES = ['WAITING', 'ADMITTED', 'COMPLETED', 'EXPIRED'] as const;
 
@@ -95,9 +97,11 @@ export async function GET(request: Request) {
     const totalRevenue = Number(revenueAgg?._sum?.totalAmount ?? 0);
     const netRevenue = totalRevenue - Number(revenueAgg?._sum?.commission ?? 0);
 
+    // Jornada de negocio en hora de Madrid (antes, día UTC: una venta de las 00:30 caía en el día anterior).
+    const corteHora = await jornadaCorteHora();
     const dayBuckets = new Map<string, { date: string; revenue: number; count: number }>();
     (ordersForChart ?? []).forEach((o) => {
-      const day = o.createdAt.toISOString().slice(0, 10);
+      const day = businessDayKey(o.createdAt, corteHora);
       const bucket = dayBuckets.get(day) ?? { date: day, revenue: 0, count: 0 };
       bucket.revenue += o.totalAmount;
       bucket.count += 1;

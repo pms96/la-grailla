@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { madridDayKey } from '@/lib/ventas-por-dia';
 import { buildOrdersWhere } from '@/lib/order-filters';
 
 // Si una celda empieza por =, +, -, @, tab o retorno de carro, Excel/Sheets
@@ -47,7 +48,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const type = url.searchParams.get('type') ?? 'orders';
     const eventId = url.searchParams.get('eventId') ?? '';
-    const day = new Date().toISOString().slice(0, 10);
+    const day = madridDayKey(new Date()); // día de Madrid, no UTC: pasada la medianoche el fichero llevaba la fecha de ayer
 
     if (type === 'orders') {
       // Mismos filtros que /api/admin/orders (lista en pantalla) para que

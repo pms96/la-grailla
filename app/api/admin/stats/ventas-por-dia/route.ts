@@ -6,7 +6,8 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
-import { addDays, buildVentasPorDia, madridDayStart } from '@/lib/ventas-por-dia';
+import { addDays, buildVentasPorDia, businessDayStart } from '@/lib/ventas-por-dia';
+import { jornadaCorteHora } from '@/lib/jornada';
 import { isModuleEnabled } from '@/lib/modules/runtime';
 
 const dayParam = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -32,10 +33,12 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'La fecha "desde" no puede ser posterior a "hasta"' }, { status: 400 });
     }
 
-    // Los días se interpretan en hora de Madrid: "hasta" incluye el día completo.
+    // Los días son JORNADAS de negocio en hora de Madrid (con la hora de corte configurada; 0 = día natural): "hasta" incluye la jornada completa. El
+    // rango usa la misma definición que la agrupación (`businessDayStart` es la inversa de `businessDayKey`): filtro y días nunca discrepan.
+    const corteHora = await jornadaCorteHora();
     const createdAt = {
-      ...(from ? { gte: madridDayStart(from) } : {}),
-      ...(to ? { lt: madridDayStart(addDays(to, 1)) } : {}),
+      ...(from ? { gte: businessDayStart(from, corteHora) } : {}),
+      ...(to ? { lt: businessDayStart(addDays(to, 1), corteHora) } : {}),
     };
 
     const [orders, ingresos] = await Promise.all([
@@ -82,10 +85,11 @@ export async function GET(request: Request) {
         paymentMethod: o.paymentMethod,
         tickets: o._count.tickets,
       })),
-      ingresos
+      ingresos,
+      { cutoffHour: corteHora }
     );
 
-    return NextResponse.json({ dias, totales, cajaComparable: !eventId });
+    return NextResponse.json({ dias, totales, cajaComparable: !eventId, corteHora });
   } catch (error) {
     return handleApiError(error, 'GET /api/admin/stats/ventas-por-dia');
   }
