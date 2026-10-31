@@ -31,6 +31,8 @@ type QueueApiResult = {
   expiresAt?: string;
   waitingRoomMessage?: string | null;
   code?: string;
+  // Cuánto esperar antes del siguiente sondeo, decidido por el servidor (P1-12). Ausente en un servidor anterior.
+  pollAfterMs?: number;
 };
 
 // Intervalo de polling adaptativo: cuanta más gente por delante, menos falta
@@ -42,6 +44,15 @@ function pollIntervalFor(position: number): number {
   if (position > 50) return 8000;
   if (position > 10) return 5000;
   return 2000;
+}
+
+// Lo que pide el servidor manda, pero acotado: un valor absurdo (o 0) no puede dejar al comprador sin enterarse de su turno ni martillear la API.
+const MIN_POLL_MS = 1500;
+const MAX_POLL_MS = 30000;
+function nextPollMs(data: QueueApiResult, position: number): number {
+  const asked = data.pollAfterMs;
+  if (typeof asked === 'number' && Number.isFinite(asked)) return Math.min(MAX_POLL_MS, Math.max(MIN_POLL_MS, asked));
+  return pollIntervalFor(position);
 }
 
 function storageKey(eventId: string): string {
@@ -128,7 +139,7 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
           position: data.position ?? 1,
           message: data.waitingRoomMessage ?? null,
         });
-        timeoutRef.current = setTimeout(() => pollRef.current(), pollIntervalFor(data.position ?? 1));
+        timeoutRef.current = setTimeout(() => pollRef.current(), nextPollMs(data, data.position ?? 1));
       } else if (data?.status === 'EXPIRED') {
         setState({ status: 'EXPIRED' });
       } else if (data?.status === 'NOT_FOUND' || data?.status === 'COMPLETED') {

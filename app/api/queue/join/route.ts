@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
-import { sweepAndAdmit } from '@/lib/waiting-room';
+import { pollAfterMsFor, sweepAndAdmit } from '@/lib/waiting-room';
 import { handleApiError } from '@/lib/api-error';
 import { captchaRejection, verifyCaptcha } from '@/lib/captcha';
 
@@ -101,6 +101,7 @@ export async function POST(request: Request) {
         token: fresh.token,
         position: position + 1,
         waitingRoomMessage: event.waitingRoomMessage,
+        pollAfterMs: pollAfterMsFor(position + 1),
       });
     }
 

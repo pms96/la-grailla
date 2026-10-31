@@ -46,9 +46,49 @@ function opportunisticCleanup(eventId: string) {
 // se evita para el stock, aplicado aquí a los huecos de la sala de espera.
 // La sección crítica es un par de queries muy baratas, así que el lock se
 // libera en milisegundos y no reintroduce el cuello de botella original.
-export async function sweepAndAdmit(eventId: string, concurrentSlots: number, windowSeconds: number): Promise<void> {
+//
+// Con miles de personas sondeando, hacer ESTA transacción (cerrojo + 3 consultas) en cada sondeo era el grueso del coste (P1-12). Los sondeos de
+// estado pasan `minIntervalMs`: si esta instancia ya barrió este evento hace menos de eso, se salta. Es seguro porque barrer es idempotente y
+// quien lo salta solo retrasa la admisión como mucho `minIntervalMs` (otra instancia, o su siguiente sondeo, barre). `join` NO lo pasa: entrar
+// en la cola con huecos libres debe admitir al momento.
+const lastSweepAt = new Map<string, number>();
+const MAX_THROTTLE_ENTRIES = 2000;
+
+/** Solo para tests: olvida cuándo se barrió cada evento. */
+export function resetSweepThrottle(): void {
+  lastSweepAt.clear();
+}
+
+/**
+ * Cuánto debe esperar un cliente antes del siguiente sondeo, según su posición, con ±20 % de dispersión para que no lleguen todos a la vez.
+ * Lo decide el servidor (el cliente solo obedece, acotado) para poder retocarlo sin esperar a que todos recarguen la página.
+ */
+export function pollAfterMsFor(position: number, rand: () => number = Math.random): number {
+  const base = position <= 10 ? 2_000 : position <= 50 ? 5_000 : position <= 200 ? 8_000 : position <= 1_000 ? 12_000 : 20_000;
+  return Math.round(base * (0.8 + rand() * 0.4));
+}
+
+export async function sweepAndAdmit(eventId: string, concurrentSlots: number, windowSeconds: number, opts: { minIntervalMs?: number } = {}): Promise<void> {
+  if (opts.minIntervalMs) {
+    const now = Date.now();
+    const last = lastSweepAt.get(eventId);
+    if (last !== undefined && now - last < opts.minIntervalMs) return;
+    if (lastSweepAt.size >= MAX_THROTTLE_ENTRIES) lastSweepAt.clear();
+    // Se marca antes de barrer: las llamadas simultáneas de esta instancia no repiten el trabajo.
+    lastSweepAt.set(eventId, now);
+  }
   opportunisticCleanup(eventId);
 
+  try {
+    await runSweep(eventId, concurrentSlots, windowSeconds);
+  } catch (err) {
+    // Si el barrido falló no cuenta como hecho: el siguiente sondeo debe poder reintentarlo.
+    lastSweepAt.delete(eventId);
+    throw err;
+  }
+}
+
+async function runSweep(eventId: string, concurrentSlots: number, windowSeconds: number): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${eventId} || ':queue'))`;
 

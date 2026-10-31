@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import { POST as joinQueue } from '@/app/api/queue/join/route';
 import { GET as queueStatus } from '@/app/api/queue/status/route';
-import { cleanupStaleEntries, cleanupAllStaleEntries } from '@/lib/waiting-room';
+import { cleanupStaleEntries, cleanupAllStaleEntries, pollAfterMsFor, resetSweepThrottle } from '@/lib/waiting-room';
 import { createTestEvent, cleanupTestEvent } from '../helpers/fixtures';
 
 function joinRequest(body: unknown, ip: string) {
@@ -240,5 +240,79 @@ describe('sala de espera (queue/join, queue/status)', () => {
     expect(secondJson.token).toBe(firstJson.token);
     const entries = await prisma.waitingRoomEntry.count({ where: { eventId: event.id } });
     expect(entries).toBe(1);
+  });
+});
+
+describe('sala de espera: carga por sondeo (P1-12)', () => {
+  const createdEventIds: string[] = [];
+  afterEach(async () => {
+    resetSweepThrottle();
+    while (createdEventIds.length) {
+      const id = createdEventIds.pop();
+      if (id) await cleanupTestEvent(id);
+    }
+  });
+
+  it('pollAfterMsFor: cuanto más lejos está el turno, menos a menudo se sondea, con ±20 % de dispersión', () => {
+    const at = (position: number, r: number) => pollAfterMsFor(position, () => r);
+    // Sin dispersión (r = 0,5 → ×1,0): las franjas.
+    expect([1, 10, 11, 50, 51, 200, 201, 1000, 1001, 5000].map((p) => at(p, 0.5))).toEqual([2000, 2000, 5000, 5000, 8000, 8000, 12000, 12000, 20000, 20000]);
+    // Extremos de la dispersión.
+    expect(at(1, 0)).toBe(1600);
+    expect(at(1, 1)).toBe(2400);
+    expect(at(5000, 0)).toBe(16000);
+    expect(at(5000, 1)).toBe(24000);
+    // Con aleatoriedad real nunca sale de los márgenes, y no es siempre el mismo valor.
+    const many = Array.from({ length: 200 }, () => pollAfterMsFor(300));
+    expect(Math.min(...many)).toBeGreaterThanOrEqual(9600);
+    expect(Math.max(...many)).toBeLessThanOrEqual(14400);
+    expect(new Set(many).size).toBeGreaterThan(20);
+  });
+
+  it('las respuestas de espera (join y status) dicen cuándo volver a sondear', async () => {
+    const event = await createWaitingRoomEvent({ concurrentSlots: 1 });
+    createdEventIds.push(event.id);
+    await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.60')); // ocupa el único hueco
+    const waiting = await (await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.61'))).json();
+    expect(waiting.status).toBe('WAITING');
+    expect(waiting.pollAfterMs).toBeGreaterThanOrEqual(1600);
+    expect(waiting.pollAfterMs).toBeLessThanOrEqual(2400);
+    const polled = await (await queueStatus(statusRequest(event.id, waiting.token, '203.0.113.61'))).json();
+    expect(polled.status).toBe('WAITING');
+    expect(polled.pollAfterMs).toBeGreaterThanOrEqual(1600);
+    expect(polled.pollAfterMs).toBeLessThanOrEqual(2400);
+  });
+
+  it('un sondeo de estado no repite el barrido en menos de un segundo, y aun así admite en cuanto toca', async () => {
+    const event = await createWaitingRoomEvent({ concurrentSlots: 1 });
+    createdEventIds.push(event.id);
+    const expireAdmitted = () => prisma.waitingRoomEntry.updateMany({ where: { eventId: event.id, status: 'ADMITTED' }, data: { expiresAt: new Date(Date.now() - 1000) } });
+
+    const a = await (await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.62'))).json();
+    const b = await (await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.63'))).json();
+    expect([a.status, b.status]).toEqual(['ADMITTED', 'WAITING']);
+
+    // Libera el hueco: el primer sondeo de B barre (no había barrido reciente) y le admite.
+    await expireAdmitted();
+    expect((await (await queueStatus(statusRequest(event.id, b.token, '203.0.113.63'))).json()).status).toBe('ADMITTED');
+
+    // C entra detrás; el turno de B vuelve a caducar. Dentro del segundo, el sondeo de C NO barre (sigue esperando)...
+    const c = await (await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.64'))).json();
+    expect(c.status).toBe('WAITING');
+    await expireAdmitted();
+    expect((await (await queueStatus(statusRequest(event.id, c.token, '203.0.113.64'))).json()).status).toBe('WAITING');
+
+    // ...y cuando ya no hay barrido reciente (aquí, olvidándolo), el siguiente sondeo sí le admite.
+    resetSweepThrottle();
+    expect((await (await queueStatus(statusRequest(event.id, c.token, '203.0.113.64'))).json()).status).toBe('ADMITTED');
+  });
+
+  it('join NO está limitado: con huecos libres admite al momento aunque se acabe de barrer', async () => {
+    const event = await createWaitingRoomEvent({ concurrentSlots: 2 });
+    createdEventIds.push(event.id);
+    const first = await (await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.65'))).json();
+    await queueStatus(statusRequest(event.id, first.token, '203.0.113.65')); // deja marcado un barrido reciente
+    const second = await (await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.66'))).json();
+    expect(second.status).toBe('ADMITTED');
   });
 });
