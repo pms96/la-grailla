@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { currentTenant } from '@/lib/tenant/context';
 
 // No hay cron ni proceso de fondo que limpie WaitingRoomEntry — igual que la
 // propia admisión, la limpieza va montada en el tráfico normal de
@@ -54,9 +55,15 @@ function opportunisticCleanup(eventId: string) {
 const lastSweepAt = new Map<string, number>();
 const MAX_THROTTLE_ENTRIES = 2000;
 
-/** Solo para tests: olvida cuándo se barrió cada evento. */
-export function resetSweepThrottle(): void {
+// El mapa es del proceso, y en modo plataforma un mismo proceso sirve a varios clientes: la clave lleva el cliente, para que el barrido de uno
+// (aunque dos BDs repitieran un eventId, p. ej. una restaurada desde otra) nunca deje sin barrer a otro.
+const throttleKey = (eventId: string) => `${currentTenant()?.tenantId ?? 'single'}:${eventId}`;
+let sweepClock: () => number = () => Date.now();
+
+/** Solo para tests: olvida cuándo se barrió cada evento y, si se pasa, sustituye el reloj del límite (sin argumento, vuelve al real). */
+export function resetSweepThrottle(clock?: () => number): void {
   lastSweepAt.clear();
+  sweepClock = clock ?? (() => Date.now());
 }
 
 /**
@@ -69,13 +76,14 @@ export function pollAfterMsFor(position: number, rand: () => number = Math.rando
 }
 
 export async function sweepAndAdmit(eventId: string, concurrentSlots: number, windowSeconds: number, opts: { minIntervalMs?: number } = {}): Promise<void> {
+  const key = throttleKey(eventId);
   if (opts.minIntervalMs) {
-    const now = Date.now();
-    const last = lastSweepAt.get(eventId);
+    const now = sweepClock();
+    const last = lastSweepAt.get(key);
     if (last !== undefined && now - last < opts.minIntervalMs) return;
     if (lastSweepAt.size >= MAX_THROTTLE_ENTRIES) lastSweepAt.clear();
     // Se marca antes de barrer: las llamadas simultáneas de esta instancia no repiten el trabajo.
-    lastSweepAt.set(eventId, now);
+    lastSweepAt.set(key, now);
   }
   opportunisticCleanup(eventId);
 
@@ -83,7 +91,7 @@ export async function sweepAndAdmit(eventId: string, concurrentSlots: number, wi
     await runSweep(eventId, concurrentSlots, windowSeconds);
   } catch (err) {
     // Si el barrido falló no cuenta como hecho: el siguiente sondeo debe poder reintentarlo.
-    lastSweepAt.delete(eventId);
+    lastSweepAt.delete(key);
     throw err;
   }
 }

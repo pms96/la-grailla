@@ -1,4 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import { runWithTenant } from '@/lib/tenant/context';
+import type { TenantContext } from '@/lib/tenant/context-types';
 import { prisma } from '@/lib/prisma';
 import { POST as joinQueue } from '@/app/api/queue/join/route';
 import { GET as queueStatus } from '@/app/api/queue/status/route';
@@ -246,7 +248,7 @@ describe('sala de espera (queue/join, queue/status)', () => {
 describe('sala de espera: carga por sondeo (P1-12)', () => {
   const createdEventIds: string[] = [];
   afterEach(async () => {
-    resetSweepThrottle();
+    resetSweepThrottle(); // vuelve al reloj real
     while (createdEventIds.length) {
       const id = createdEventIds.pop();
       if (id) await cleanupTestEvent(id);
@@ -283,10 +285,19 @@ describe('sala de espera: carga por sondeo (P1-12)', () => {
     expect(polled.pollAfterMs).toBeLessThanOrEqual(2400);
   });
 
+  // Un reloj que solo avanza cuando el test lo dice: el límite de barrido no depende de cuánto tarde la BD.
+  const fakeClock = () => {
+    const c = { t: 1_000_000 };
+    return { now: () => c.t, advance: (ms: number) => (c.t += ms) };
+  };
+
   it('un sondeo de estado no repite el barrido en menos de un segundo, y aun así admite en cuanto toca', async () => {
+    const clock = fakeClock();
+    resetSweepThrottle(clock.now);
     const event = await createWaitingRoomEvent({ concurrentSlots: 1 });
     createdEventIds.push(event.id);
     const expireAdmitted = () => prisma.waitingRoomEntry.updateMany({ where: { eventId: event.id, status: 'ADMITTED' }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    const poll = async (token: string, ip: string) => (await (await queueStatus(statusRequest(event.id, token, ip))).json()).status;
 
     const a = await (await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.62'))).json();
     const b = await (await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.63'))).json();
@@ -294,17 +305,34 @@ describe('sala de espera: carga por sondeo (P1-12)', () => {
 
     // Libera el hueco: el primer sondeo de B barre (no había barrido reciente) y le admite.
     await expireAdmitted();
-    expect((await (await queueStatus(statusRequest(event.id, b.token, '203.0.113.63'))).json()).status).toBe('ADMITTED');
+    expect(await poll(b.token, '203.0.113.63')).toBe('ADMITTED');
 
-    // C entra detrás; el turno de B vuelve a caducar. Dentro del segundo, el sondeo de C NO barre (sigue esperando)...
+    // C entra detrás; el turno de B vuelve a caducar. Con el barrido reciente (999 ms), el sondeo de C NO barre y sigue esperando...
     const c = await (await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.64'))).json();
     expect(c.status).toBe('WAITING');
     await expireAdmitted();
-    expect((await (await queueStatus(statusRequest(event.id, c.token, '203.0.113.64'))).json()).status).toBe('WAITING');
+    clock.advance(999);
+    expect(await poll(c.token, '203.0.113.64')).toBe('WAITING');
+    // ...y al cumplirse el segundo, el siguiente sondeo sí barre y le admite.
+    clock.advance(1);
+    expect(await poll(c.token, '203.0.113.64')).toBe('ADMITTED');
+  });
 
-    // ...y cuando ya no hay barrido reciente (aquí, olvidándolo), el siguiente sondeo sí le admite.
-    resetSweepThrottle();
-    expect((await (await queueStatus(statusRequest(event.id, c.token, '203.0.113.64'))).json()).status).toBe('ADMITTED');
+  it('la marca del límite es POR CLIENTE: el barrido de uno no deja sin barrer a otro aunque repitan el id de evento', async () => {
+    const clock = fakeClock();
+    resetSweepThrottle(clock.now);
+    const event = await createWaitingRoomEvent({ concurrentSlots: 1 });
+    createdEventIds.push(event.id);
+    const ctx = (tenantId: string) => ({ tenantId, product: 'p', host: 'x.test', primaryDomain: 'x.test', epoch: 0, status: 'ACTIVE', modules: [], db: { pooledEnc: '', directEnc: '' } }) as TenantContext;
+    const a = await (await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.67'))).json();
+    const b = await (await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.68'))).json();
+    expect([a.status, b.status]).toEqual(['ADMITTED', 'WAITING']);
+    await prisma.waitingRoomEntry.updateMany({ where: { eventId: event.id, status: 'ADMITTED' }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    // El cliente A acaba de barrir este id de evento (sondeo de a): marca puesta, sin avanzar el reloj.
+    await runWithTenant(ctx('cliente-a'), async () => queueStatus(statusRequest(event.id, a.token, '203.0.113.67')));
+    // El cliente B sondea el MISMO id dentro del segundo: con una marca compartida se saltaría el barrido y B seguiría esperando.
+    const res = await runWithTenant(ctx('cliente-b'), async () => queueStatus(statusRequest(event.id, b.token, '203.0.113.68')));
+    expect((await res.json()).status).toBe('ADMITTED');
   });
 
   it('join NO está limitado: con huecos libres admite al momento aunque se acabe de barrer', async () => {

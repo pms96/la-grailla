@@ -65,11 +65,13 @@ export function isSalesWindowBusy(sales: OpsSales): boolean {
 
 /** Obligaciones abiertas AHORA (P1-20): lo que impide apagar un módulo sin dejar a compradores colgados. Solo contadores, sin datos personales. */
 export const OpsObligationsSchema = z.object({
-  /** Pedidos de entradas PENDING de las últimas 24 h (un comprador a medio pago; los más viejos los resuelve la conciliación). */
+  /** Pedidos de entradas PENDING: los de las últimas 24 h (un comprador a medio pago) y, sin límite de edad, los que ya tienen un pago real en la pasarela (un cobro sin pedido confirmado: apagar el módulo deja de conciliarlo). */
   ticketOrdersPending: count,
   /** Eventos publicados que aún no han pasado (o empezaron hace menos de 12 h) con entradas válidas vendidas. */
   futureEventsWithTickets: count,
-  /** Pedidos de tienda PENDING de las últimas 24 h. */
+  /** Eventos CANCELADOS con entradas todavía válidas: reembolsos sin terminar (la cancelación reembolsa por lotes desde el admin de Entradas, que se corta al apagar el módulo). Sin límite de fecha. Ausente en un front anterior = 0. */
+  cancelledEventsWithTickets: count.default(0),
+  /** Pedidos de tienda PENDING: los de las últimas 24 h y, sin límite de edad, los que ya tienen un pago real en la pasarela. */
   shopOrdersPending: count,
   /** Pedidos de tienda pagados que todavía no se han enviado (PAID o PROCESSING). */
   shopOrdersToShip: count,
@@ -85,6 +87,7 @@ export function moduleObligations(moduleKey: string, o: OpsObligations): string[
   if (moduleKey === 'entradas') {
     if (o.ticketOrdersPending > 0) out.push(`${o.ticketOrdersPending} pedido(s) de entradas pendientes de pago`);
     if (o.futureEventsWithTickets > 0) out.push(`${o.futureEventsWithTickets} evento(s) por venir con entradas vendidas`);
+    if (o.cancelledEventsWithTickets > 0) out.push(`${o.cancelledEventsWithTickets} evento(s) cancelado(s) con entradas sin reembolsar`);
   }
   if (moduleKey === 'tienda') {
     if (o.shopOrdersPending > 0) out.push(`${o.shopOrdersPending} pedido(s) de tienda pendientes de pago`);

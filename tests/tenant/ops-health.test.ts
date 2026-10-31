@@ -74,25 +74,32 @@ afterAll(async () => {
 
 describe('bloque `ops` de /api/health', () => {
   it('BD sin pedidos: ceros, sin pendiente más antiguo y sin pasada del cron', async () => {
-    expect(await ops()).toEqual({ generatedAt: expect.any(String), pendingOldestMinutes: null, pendingOver20min: 0, emailsUnsent: 0, emailsFailed: 0, reconcile: null, gateway: null, sales: { orders15min: 0, waitingRoom: 0 }, obligations: { ticketOrdersPending: 0, futureEventsWithTickets: 0, shopOrdersPending: 0, shopOrdersToShip: 0 } });
+    expect(await ops()).toEqual({ generatedAt: expect.any(String), pendingOldestMinutes: null, pendingOver20min: 0, emailsUnsent: 0, emailsFailed: 0, reconcile: null, gateway: null, sales: { orders15min: 0, waitingRoom: 0 }, obligations: { ticketOrdersPending: 0, futureEventsWithTickets: 0, cancelledEventsWithTickets: 0, shopOrdersPending: 0, shopOrdersToShip: 0 } });
   });
 
-  it('`sales` (P1-22): cuenta los pedidos de los últimos 15 min (cualquier estado) y la gente en sala de espera, no los de antes ni los ya terminados', async () => {
+  it('`sales` (P1-22): pedidos de entradas Y de tienda de los últimos 15 min, y solo turnos de la sala de espera VIVOS (no filas viejas ni terminadas)', async () => {
     await order({ createdAgoMs: 2 * MIN });
     await order({ status: 'PENDING', provider: 'stripe', paymentId: 'cs_s1', createdAgoMs: 14 * MIN });
     await order({ createdAgoMs: 16 * MIN }); // fuera de la ventana
-    const queue = (status: 'WAITING' | 'ADMITTED' | 'COMPLETED' | 'EXPIRED') => db().waitingRoomEntry.create({ data: { eventId, token: `tok-${n++}`, status } });
-    await queue('WAITING');
-    await queue('ADMITTED');
+    await shop({ createdAgoMs: 3 * MIN }); // un lanzamiento de la tienda también es una venta
+    await shop({ createdAgoMs: 20 * MIN }); // fuera de la ventana
+    const queue = (status: 'WAITING' | 'ADMITTED' | 'COMPLETED' | 'EXPIRED', extra: { expiresAt?: Date; joinedAt?: Date } = {}) =>
+      db().waitingRoomEntry.create({ data: { eventId, token: `tok-${n++}`, status, ...extra } });
+    await queue('WAITING'); // acaba de entrar: vivo
+    await queue('ADMITTED', { expiresAt: new Date(Date.now() + 5 * MIN) }); // turno vigente: vivo
+    await queue('ADMITTED', { expiresAt: new Date(Date.now() - MIN) }); // caducó y nadie lo ha barrido: NO cuenta
+    await queue('WAITING', { joinedAt: ago(4 * 60 * MIN) }); // pestaña cerrada hace horas: NO cuenta
     await queue('COMPLETED'); // ya compró: no ocupa
     await queue('EXPIRED'); // caducado: no ocupa
-    expect((await ops())!.sales).toEqual({ orders15min: 2, waitingRoom: 2 });
+    expect((await ops())!.sales).toEqual({ orders15min: 3, waitingRoom: 2 });
   });
 
   it('`obligations` (P1-20): cuenta lo que impide apagar un módulo, y no cuenta lo viejo, lo ya enviado ni los eventos pasados o sin entradas', async () => {
     // Entradas: pedidos PENDING de las últimas 24 h (uno viejo = pago abandonado, no cuenta) y eventos por venir con entradas válidas.
     await order({ status: 'PENDING', createdAgoMs: 3 * 60 * MIN });
-    await order({ status: 'PENDING', createdAgoMs: 30 * 60 * MIN }); // más de 24 h
+    await order({ status: 'PENDING', createdAgoMs: 30 * 60 * MIN }); // más de 24 h y sin pago real: un carrito abandonado, no cuenta
+    await order({ status: 'PENDING', provider: 'stripe', paymentId: 'cs_viejo', createdAgoMs: 30 * 60 * MIN }); // más de 24 h PERO con pago real: un cobro sin pedido confirmado, cuenta
+    await order({ status: 'PENDING', provider: 'mock', paymentId: 'mock_1', createdAgoMs: 30 * 60 * MIN }); // pasarela simulada: no cuenta
     await order({ status: 'COMPLETED' }); // ya pagado: no es obligación de «pendiente»
     const ticket = async (event: string, status: 'VALID' | 'CANCELLED') => {
       const o = await order({});
@@ -100,7 +107,7 @@ describe('bloque `ops` de /api/health', () => {
     };
     await ticket(eventId, 'VALID'); // evento publicado, futuro, con una entrada válida → cuenta 1
     await ticket(eventId, 'VALID'); // otra entrada del mismo evento: sigue siendo 1 evento
-    const other = (slug: string, date: Date, status: 'PUBLISHED' | 'FINISHED') => db().event.create({ data: { name: slug, slug, venue: 'Sala', city: 'Madrid', date, maxCapacity: 10, status } });
+    const other = (slug: string, date: Date, status: 'PUBLISHED' | 'FINISHED' | 'CANCELLED') => db().event.create({ data: { name: slug, slug, venue: 'Sala', city: 'Madrid', date, maxCapacity: 10, status } });
     const past = await other('evento-pasado', new Date(Date.now() - 3 * 86_400_000), 'PUBLISHED');
     await ticket(past.id, 'VALID'); // ya pasó
     const ongoing = await other('evento-esta-noche', new Date(Date.now() - 2 * 60 * MIN), 'PUBLISHED');
@@ -108,14 +115,19 @@ describe('bloque `ops` de /api/health', () => {
     const cancelledOnly = await other('evento-sin-validas', new Date(Date.now() + 86_400_000), 'PUBLISHED');
     await ticket(cancelledOnly.id, 'CANCELLED'); // sin entradas válidas
     const finished = await other('evento-terminado', new Date(Date.now() + 86_400_000), 'FINISHED');
-    await ticket(finished.id, 'VALID'); // no publicado
+    await ticket(finished.id, 'VALID'); // terminado: no es una obligación
+    const cancelled = await other('evento-cancelado', new Date(Date.now() - 10 * 86_400_000), 'CANCELLED');
+    await ticket(cancelled.id, 'VALID'); // cancelado con una entrada aún válida = reembolso sin terminar, sea cual sea la fecha
+    const cancelledDone = await other('evento-cancelado-ok', new Date(Date.now() + 86_400_000), 'CANCELLED');
+    await ticket(cancelledDone.id, 'CANCELLED'); // cancelado y ya reembolsado: no cuenta
     // Tienda: PENDING de las últimas 24 h; PAID y PROCESSING sin enviar (SHIPPED no).
     await shop({ status: 'PENDING', createdAgoMs: 5 * MIN });
-    await shop({ status: 'PENDING', createdAgoMs: 30 * 60 * MIN });
+    await shop({ status: 'PENDING', createdAgoMs: 30 * 60 * MIN }); // viejo y sin pago real: no cuenta
+    await shop({ status: 'PENDING', provider: 'sumup', paymentId: 'co_viejo', createdAgoMs: 30 * 60 * MIN }); // viejo con pago real: cuenta
     await shop({ status: 'PAID' });
     await db().shopOrder.updateMany({ where: { id: (await shop({ status: 'PAID' })).id }, data: { status: 'PROCESSING' } });
     await db().shopOrder.updateMany({ where: { id: (await shop({ status: 'PAID' })).id }, data: { status: 'SHIPPED' } });
-    expect((await ops())!.obligations).toEqual({ ticketOrdersPending: 1, futureEventsWithTickets: 2, shopOrdersPending: 1, shopOrdersToShip: 2 });
+    expect((await ops())!.obligations).toEqual({ ticketOrdersPending: 2, futureEventsWithTickets: 2, cancelledEventsWithTickets: 1, shopOrdersPending: 2, shopOrdersToShip: 2 });
   });
 
   it('valores correctos con datos sembrados (pendientes con pago real, emails sin enviar y fallidos de entradas y tienda, resumen del cron)', async () => {
@@ -256,7 +268,7 @@ describe('bloque `ops` de /api/health', () => {
       await order({ attempts: EMAIL_MAX_ATTEMPTS });
       const body = await (await health('valid')).json();
       expect(Object.keys(body).sort()).toEqual(['db', 'onboarding', 'ops', 'platform', 'schema', 'serving', 'status', 'tenantId', 'tenantMarker', 'version']);
-      expect(body.ops).toEqual({ generatedAt: expect.any(String), pendingOldestMinutes: null, pendingOver20min: 0, emailsUnsent: 0, emailsFailed: 1, reconcile: null, gateway: null, sales: { orders15min: 0, waitingRoom: 0 }, obligations: { ticketOrdersPending: 0, futureEventsWithTickets: 0, shopOrdersPending: 0, shopOrdersToShip: 0 } });
+      expect(body.ops).toEqual({ generatedAt: expect.any(String), pendingOldestMinutes: null, pendingOver20min: 0, emailsUnsent: 0, emailsFailed: 1, reconcile: null, gateway: null, sales: { orders15min: 0, waitingRoom: 0 }, obligations: { ticketOrdersPending: 0, futureEventsWithTickets: 0, cancelledEventsWithTickets: 0, shopOrdersPending: 0, shopOrdersToShip: 0 } });
       expect(body.status).toBe('ok');
     });
 

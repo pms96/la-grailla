@@ -61,18 +61,21 @@ export interface OpsBlock {
 export interface OpenObligations {
   ticketOrdersPending: number;
   futureEventsWithTickets: number;
+  cancelledEventsWithTickets: number;
   shopOrdersPending: number;
   shopOrdersToShip: number;
 }
 
 export interface SalesActivity {
-  /** Pedidos de entradas creados en los últimos 15 minutos (cualquier estado). */
+  /** Pedidos de entradas Y de tienda creados en los últimos 15 minutos (cualquier estado): un lanzamiento de la tienda también es una venta. */
   orders15min: number;
-  /** Personas en la sala de espera (WAITING o ADMITTED). */
+  /** Personas en la sala de espera con turno vivo: ADMITTED con turno sin caducar, o WAITING que entraron hace menos de `WAITING_LIVE_MS`. Las filas viejas no cuentan (solo se cierran con tráfico de la cola, y una venta terminada no lo tiene). */
   waitingRoom: number;
 }
 
 const SALES_WINDOW_MS = 15 * 60_000;
+/** Un WAITING más viejo que esto es casi seguro una pestaña cerrada: quien espera de verdad sondea cada pocos segundos y la cola avanza. */
+const WAITING_LIVE_MS = 3 * 3_600_000;
 /** Un pedido PENDING más viejo que esto es un pago abandonado (lo resuelve la conciliación), no un comprador esperando. */
 const OBLIGATION_PENDING_MS = 24 * 3_600_000;
 /** Un evento que empezó hace menos de esto sigue contando como «por venir»: la noche aún no ha terminado. */
@@ -162,21 +165,30 @@ export async function collectOps(now = Date.now(), timeoutMs = OPS_TIMEOUT_MS): 
         out.gateway = parseGatewaySummary(row?.value);
       }),
       measure(async () => {
-        const [orders15min, waitingRoom] = await Promise.all([
-          prisma.order.count({ where: { createdAt: { gte: new Date(now - SALES_WINDOW_MS) } } }),
-          prisma.waitingRoomEntry.count({ where: { status: { in: ['WAITING', 'ADMITTED'] } } }),
+        const since = { createdAt: { gte: new Date(now - SALES_WINDOW_MS) } };
+        const [tickets, shop, waitingRoom] = await Promise.all([
+          prisma.order.count({ where: since }),
+          prisma.shopOrder.count({ where: since }),
+          prisma.waitingRoomEntry.count({
+            where: { OR: [{ status: 'ADMITTED', expiresAt: { gt: new Date(now) } }, { status: 'WAITING', joinedAt: { gte: new Date(now - WAITING_LIVE_MS) } }] },
+          }),
         ]);
-        out.sales = { orders15min, waitingRoom };
+        out.sales = { orders15min: tickets + shop, waitingRoom };
       }),
       measure(async () => {
         const recent = { gte: new Date(now - OBLIGATION_PENDING_MS) };
-        const [ticketOrdersPending, futureEventsWithTickets, shopOrdersPending, shopOrdersToShip] = await Promise.all([
-          prisma.order.count({ where: { status: 'PENDING', createdAt: recent } }),
-          prisma.event.count({ where: { status: 'PUBLISHED', date: { gte: new Date(now - EVENT_ONGOING_MS) }, tickets: { some: { status: 'VALID' } } } }),
-          prisma.shopOrder.count({ where: { status: 'PENDING', createdAt: recent } }),
+        // PENDING reciente (un comprador a medio pago) O con un pago real en la pasarela sea cual sea su edad: un cobro sin pedido confirmado
+        // es justo lo que apagar el módulo deja de conciliar. Un PENDING viejo sin pago real es un carrito abandonado y no cuenta.
+        const pending = { status: 'PENDING' as const, OR: [{ createdAt: recent }, { paymentId: { not: null }, paymentProvider: { notIn: ['mock'] } }] };
+        const validTickets = { tickets: { some: { status: 'VALID' as const } } };
+        const [ticketOrdersPending, futureEventsWithTickets, cancelledEventsWithTickets, shopOrdersPending, shopOrdersToShip] = await Promise.all([
+          prisma.order.count({ where: pending }),
+          prisma.event.count({ where: { status: 'PUBLISHED', date: { gte: new Date(now - EVENT_ONGOING_MS) }, ...validTickets } }),
+          prisma.event.count({ where: { status: 'CANCELLED', ...validTickets } }),
+          prisma.shopOrder.count({ where: pending }),
           prisma.shopOrder.count({ where: { status: { in: ['PAID', 'PROCESSING'] } } }),
         ]);
-        out.obligations = { ticketOrdersPending, futureEventsWithTickets, shopOrdersPending, shopOrdersToShip };
+        out.obligations = { ticketOrdersPending, futureEventsWithTickets, cancelledEventsWithTickets, shopOrdersPending, shopOrdersToShip };
       }),
     ]);
     let timer: ReturnType<typeof setTimeout> | undefined;

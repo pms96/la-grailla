@@ -35,6 +35,7 @@ const polls = new Counter('queue_polls');
 const askedMs = new Trend('queue_poll_after_ms');
 const admitted = new Counter('queue_admitted');
 const stillWaiting = new Counter('queue_still_waiting_at_end');
+const lost = new Counter('queue_lost'); // su turno desapareció (NOT_FOUND, EXPIRED, COMPLETED): personas que dejan de esperar sin ser admitidas
 
 export const options = {
   scenarios: {
@@ -70,9 +71,12 @@ export default function () {
     polls.add(1);
     const ok = check(res, { 'status 200': (r) => r.status === 200 });
     statusErrors.add(!ok);
-    if (!ok) return;
+    // Un error (429, 5xx, red) NO saca a la persona de la cola: sigue sondeando, como haría el navegador. Si abandonara, la carga ofrecida caería
+    // justo cuando el servidor falla y la prueba parecería sana. `queue_status_errors` cuenta TODOS los errores, no solo el primero.
+    if (!ok) continue;
     body = res.json();
   }
   if (body.status === 'ADMITTED') admitted.add(1);
   else if (body.status === 'WAITING') stillWaiting.add(1);
+  else lost.add(1);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { discoverEventSlug, formatReport, parseTargets, smokeAll, smokeTarget } from '@/scripts/smoke-check';
+import { discoverEventSlug, formatReport, oneLine, parseTargets, smokeAll, smokeTarget } from '@/scripts/smoke-check';
 
 /* P1-22 · OB-14: el smoke post-despliegue. Un `fetch` simulado por ruta; sin red. */
 
@@ -95,6 +95,34 @@ describe('smokeTarget', () => {
     expect(report.ok).toBe(true);
     expect(byName(report).eventos.detail).toMatch(/sin módulo/);
     expect(calls).toEqual(['/', '/api/health', '/eventos']);
+  });
+
+  it('/eventos que da 404 estando ENLAZADO desde la home es un fallo: la ruta ha desaparecido, no es un cliente sin el módulo', async () => {
+    const { report } = await run({ ...HEALTHY, '/': { status: 200, body: html('<nav><a href="/eventos">Eventos</a></nav>') }, '/eventos': { status: 404 } });
+    expect(report.ok).toBe(false);
+    const eventos = byName(report).eventos;
+    expect(eventos.ok).toBe(false);
+    expect(eventos.detail).toMatch(/la home enlaza \/eventos/);
+  });
+
+  it('/eventos que responde 200 con el aviso de que no pudo cargar es un fallo (la página captura el error de BD), en cualquier plantilla', async () => {
+    for (const text of ['No hemos podido cargar la programación', 'No hemos podido cargar la agenda', 'No hemos podido cargar la cartelera', 'No hemos podido cargar los eventos']) {
+      const { report, calls } = await run({ ...HEALTHY, '/eventos': { status: 200, body: html(`<div role="alert">${text}</div>`) } });
+      expect(report.ok, text).toBe(false);
+      expect(byName(report).eventos.detail).toMatch(/no pudo cargar los eventos/);
+      expect(calls.some((p) => p.includes('comprar'))).toBe(false); // sin evento que comprobar
+    }
+  });
+
+  it('el estado de health que llega del cliente no puede abrir una orden de log nueva (saltos de línea y control fuera)', async () => {
+    const evil = 'error\n::set-output name=x::y';
+    const { report } = await run({ ...HEALTHY, '/api/health': { status: 200, body: JSON.stringify({ status: evil }) } });
+    expect(byName(report).health.ok).toBe(false);
+    const lines = formatReport([report]);
+    expect(lines.filter((l) => l.startsWith('::'))).toHaveLength(1); // solo nuestra anotación, al inicio de su línea
+    expect(lines.join('\n')).not.toMatch(/\n::set-output/);
+    expect(oneLine('a\r\nb\u0000c')).toBe('a b c');
+    expect(oneLine('x'.repeat(500), 10)).toHaveLength(10);
   });
 
   it('sin eventos publicados NO es un fallo: se dice y se omiten ficha y compra', async () => {

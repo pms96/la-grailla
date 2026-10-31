@@ -110,9 +110,9 @@ ops: { generatedAt, pendingOldestMinutes | null, pendingOver20min, emailsUnsent,
        sales?: { orders15min, waitingRoom } | null }
 ```
 
-`sales` (P1-22) es la actividad de venta ahora: pedidos de entradas creados en los últimos 15 min y personas en la sala de espera (esperando o admitidas). Solo contadores. No genera avisos: lo lee el runner de migraciones (`isSalesWindowBusy` en el contrato: sala de espera con gente, o 5 o más pedidos en 15 min) para negarse a migrar a un cliente en plena venta (`m7-operacion.md` §2 y §7).
+`sales` (P1-22) es la actividad de venta ahora: pedidos de entradas **y de tienda** creados en los últimos 15 min, y personas en la sala de espera **con turno vivo** (ADMITTED sin caducar, o WAITING que entraron hace menos de 3 h: las filas viejas solo se cierran con tráfico de la cola y no cuentan). Solo contadores. No genera avisos: lo lee el runner de migraciones (`isSalesWindowBusy` en el contrato: sala de espera con gente, o 5 o más pedidos en 15 min) para negarse a migrar a un cliente en plena venta (`m7-operacion.md` §2 y §7).
 
-**Obligaciones abiertas (P1-20):** `ops.obligations?: { ticketOrdersPending, futureEventsWithTickets, shopOrdersPending, shopOrdersToShip } | null` (cuatro contadores, sin datos personales). No generan alertas: las lee el panel en el momento de apagar un módulo (ver `m7-operacion.md` §8). `absent` = front anterior; `null` = no se pudo medir.
+**Obligaciones abiertas (P1-20):** `ops.obligations?: { ticketOrdersPending, futureEventsWithTickets, cancelledEventsWithTickets, shopOrdersPending, shopOrdersToShip } | null` (cinco contadores, sin datos personales; `cancelledEventsWithTickets` ausente = 0 en un front anterior). No generan alertas: las lee el panel en el momento de apagar un módulo (ver `m7-operacion.md` §8). `absent` = front anterior; `null` = no se pudo medir.
 
 Es opcional: un front anterior sin `ops` sigue siendo válido (el panel no aplica ninguna regla) y los campos que el contrato no conoce se ignoran. Un `ops` que **no** cumple el contrato no deja al cliente como «no responde»: se señala como un problema aparte («el bloque ops no cumple el contrato»), sin copiar lo recibido.
 

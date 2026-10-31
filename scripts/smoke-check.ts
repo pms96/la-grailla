@@ -7,7 +7,9 @@
  *   1. `/` responde 200 con HTML;
  *   2. `/api/health` responde 200 y `{"status":"ok"}` (BD viva y el front sirviendo a ese cliente: en mantenimiento da 503);
  *   3. `/eventos` responde 200 y, si hay un evento publicado, su ficha y su página de compra también (la que se cae primero en un lanzamiento).
- *      Un cliente sin el módulo de entradas (`/eventos` da 404) no es un fallo; un cliente sin eventos publicados tampoco.
+ *      Un cliente sin el módulo de entradas (`/eventos` da 404 y su home no lo enlaza) no es un fallo; un cliente sin eventos publicados tampoco.
+ *      SÍ es un fallo que `/eventos` dé 404 estando enlazado desde la home (la ruta ha desaparecido) o que responda 200 con el aviso de que no
+ *      pudo cargar los eventos (la página captura el error de BD y devuelve 200: sin esta comprobación, un fallo de BD pasaría en verde).
  * Sale con código 1 si algo falla (el workflow marca el despliegue en rojo) y con 2 si no hay ninguna URL que comprobar. */
 import path from 'node:path';
 
@@ -18,6 +20,10 @@ type FetchLike = (url: string, init: { signal: AbortSignal; redirect: 'follow' }
 const REQUEST_TIMEOUT_MS = 20_000;
 const RETRY_DELAY_MS = 3_000;
 const SLOW_MS = 8_000;
+// La página de eventos captura el error de la consulta y responde 200 con un aviso; el texto varía según la plantilla.
+const EVENTS_LOAD_ERROR = /No hemos podido cargar (la programaci[oó]n|la agenda|la cartelera|los eventos)/i;
+// El menú público solo enlaza /eventos si el módulo de entradas está activo (se filtra con las mismas reglas que el servidor).
+const LINKS_TO_EVENTS = /href="\/eventos["/?#]/i;
 
 /** URLs del entorno o de los argumentos → orígenes `https://host` sin duplicados. Lanza si alguna no es una URL http(s) válida. */
 export function parseTargets(raw: string): string[] {
@@ -33,6 +39,11 @@ export function parseTargets(raw: string): string[] {
     if (!out.includes(url.origin)) out.push(url.origin);
   }
   return out;
+}
+
+/** Quita lo que no debe llegar a una línea de log: saltos y caracteres de control (con ellos, un cuerpo remoto podría abrir una orden `::` nueva). */
+export function oneLine(text: string, max = 300): string {
+  return text.replace(/[\u0000-\u001f\u007f]+/g, ' ').slice(0, max);
 }
 
 /** Slug del primer evento enlazado en el HTML del listado, o null. */
@@ -79,19 +90,26 @@ export async function smokeTarget(origin: string, deps: Deps = {}): Promise<Smok
   const health = await get(`${origin}/api/health`, d);
   let healthStatus: string | null = null;
   try {
-    healthStatus = (JSON.parse(health.body) as { status?: string }).status ?? null;
+    const raw = (JSON.parse(health.body) as { status?: unknown }).status;
+    healthStatus = typeof raw === 'string' ? oneLine(raw, 40) : null; // viene del cliente: va a un mensaje, así que se sanea
   } catch {
     /* no era JSON */
   }
   add('health', `${origin}/api/health`, health, health.status === 200 && healthStatus === 'ok', `HTTP ${health.status}, estado «${healthStatus ?? 'sin estado'}» (se esperaba 200 y «ok»)`);
 
   const events = await get(`${origin}/eventos`, d);
-  if (events.status === 404) {
+  if (events.status === 404 && !LINKS_TO_EVENTS.test(home.body)) {
     add('eventos', `${origin}/eventos`, events, true, '', 'sin módulo de entradas (omitido)');
   } else {
-    const slug = events.status === 200 ? discoverEventSlug(events.body) : null;
-    const note = events.status === 200 && !slug ? 'sin eventos publicados (ficha y compra omitidas)' : null;
-    add('eventos', `${origin}/eventos`, events, events.status === 200, `HTTP ${events.status}, se esperaba 200`, note);
+    const loadFailed = events.status === 200 && EVENTS_LOAD_ERROR.test(events.body);
+    const slug = events.status === 200 && !loadFailed ? discoverEventSlug(events.body) : null;
+    const note = events.status === 200 && !loadFailed && !slug ? 'sin eventos publicados (ficha y compra omitidas)' : null;
+    const why = loadFailed
+      ? 'la página responde 200 pero avisa de que no pudo cargar los eventos (¿BD caída?)'
+      : events.status === 404
+        ? 'HTTP 404, pero la home enlaza /eventos: la ruta ha desaparecido'
+        : `HTTP ${events.status}, se esperaba 200`;
+    add('eventos', `${origin}/eventos`, events, events.status === 200 && !loadFailed, why, note);
     if (slug) {
       for (const [name, suffix] of [['evento', ''], ['comprar', '/comprar']] as const) {
         const url = `${origin}/eventos/${slug}${suffix}`;
@@ -114,7 +132,7 @@ export function formatReport(reports: SmokeReport[]): string[] {
     lines.push(`${r.ok ? '✓' : '✗'} ${r.target}`);
     for (const c of r.checks) {
       lines.push(`    ${c.ok ? '✓' : '✗'} ${c.name.padEnd(8)} ${String(c.status ?? '—').padEnd(4)} ${String(c.ms).padStart(5)} ms${c.detail ? `  ${c.detail}` : ''}`);
-      if (!c.ok) lines.push(`::error title=Smoke ${r.target}::${c.name} ${c.url} → ${c.detail ?? 'falla'}`);
+      if (!c.ok) lines.push(`::error title=Smoke ${oneLine(r.target)}::${c.name} ${oneLine(c.url)} → ${oneLine(c.detail ?? 'falla')}`);
     }
   }
   return lines;

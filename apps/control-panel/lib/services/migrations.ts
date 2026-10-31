@@ -142,11 +142,14 @@ async function salesWindowBlock(
   const host = (verified.find((d) => d.isPrimary) ?? verified[0])?.host;
   if (!host) return null;
   const probe = await probeTenantHealth({ tenantId: sub.tenantId, host, declaredSchema: sub.schemaVersion }, { fetchImpl: opts.healthFetch, timeoutMs: 8_000 });
+  // Un cliente que el front tiene en mantenimiento por esquema atrasado (serving === false) no tiene compradores, y migrar es justo lo que lo
+  // arregla: nunca se bloquea.
+  if (probe.reachable && probe.detail.serving === false) return null;
   const sales = probe.reachable ? probe.ops?.sales : null;
   if (!sales || !isSalesWindowBusy(sales)) return null;
   return {
     sales,
-    message: `Venta en marcha (${sales.orders15min} pedidos en los últimos 15 min, ${sales.waitingRoom} en la sala de espera): no se migra ahora. Repite fuera de la venta; el script admite --force-sales-window si es imprescindible.`,
+    message: `Venta en marcha (${sales.orders15min} pedidos en los últimos 15 min, ${sales.waitingRoom} en la sala de espera): no se migra ahora. Repite fuera de la venta; solo el script (migrate:tenants --force-sales-window) permite forzarlo si es imprescindible.`,
   };
 }
 
@@ -185,27 +188,6 @@ export async function runMigrationsForSubscription(subscriptionId: string, actor
   if (!sub) throw new ServiceError('not_found', 'Suscripción no encontrada');
   if (sub.tenant.status === 'PENDING_DELETION' || sub.tenant.status === 'DELETED') {
     throw new ServiceError('invalid_state', 'Este cliente está en borrado: no se migra');
-  }
-  // P1-22: una migración real en plena venta (bloqueos, reinicios) es lo que convierte «una venta» en «una caída». Se queda SKIPPED con el
-  // motivo, sin contar como fallo del lote: los demás clientes siguen. Un ensayo (`dryRun`) no toca nada y no se comprueba.
-  if (!dryRun && opts.salesGuard !== false) {
-    const block = await salesWindowBlock(sub, opts);
-    if (block) {
-      const skipped = await prisma.migrationRun.create({
-        data: { subscriptionId, tenantId: sub.tenantId, status: 'SKIPPED', dryRun: false, triggeredBy: actor.email, finishedAt: new Date(), error: block.message },
-      });
-      await prisma.$transaction((tx) =>
-        appendAudit(tx, {
-          actor,
-          action: 'migration.skipped_sales_window',
-          targetType: 'subscription',
-          targetId: subscriptionId,
-          tenantId: sub.tenantId,
-          meta: { runId: skipped.id, orders15min: block.sales.orders15min, waitingRoom: block.sales.waitingRoom },
-        })
-      );
-      return toResult(skipped, [], false, true);
-    }
   }
   const run = await reserveRun(subscriptionId, sub.tenantId, dryRun, actor);
   const warnings: string[] = [];
@@ -276,6 +258,27 @@ export async function runMigrationsForSubscription(subscriptionId: string, actor
         .filter((name) => name > BASELINE_MIGRATION)
         .flatMap((name) => lintMigrationSql(sqlOf(name).replace(ALLOW_MARKER_LINE, '')).map((f) => `${name}: [${f.rule}] ${f.message}`));
       if (problems.length) return await fail(`El linter rechaza migraciones pendientes (no se aplica nada):\n${problems.join('\n')}`, { fromVersion, pending });
+    }
+
+    // P1-22: una migración real en plena venta (bloqueos, reinicios) es lo que convierte «una venta» en «una caída». Se comprueba SOLO si hay
+    // algo que aplicar (un cliente al día, o que solo sincroniza su versión en el registro, no toca nada) y queda SKIPPED con el motivo, sin
+    // contar como fallo del lote: los demás clientes siguen. Un ensayo (`dryRun`) no toca nada y no se comprueba.
+    if (!dryRun && pending.length > 0 && opts.salesGuard !== false) {
+      const block = await salesWindowBlock(sub, opts);
+      if (block) {
+        const skipped = await finish(run.id, { status: 'SKIPPED', fromVersion, toVersion: null, pending, attempts: 0, error: block.message });
+        await prisma.$transaction((tx) =>
+          appendAudit(tx, {
+            actor,
+            action: 'migration.skipped_sales_window',
+            targetType: 'subscription',
+            targetId: subscriptionId,
+            tenantId: sub.tenantId,
+            meta: { runId: skipped.id, orders15min: block.sales.orders15min, waitingRoom: block.sales.waitingRoom },
+          })
+        );
+        return toResult(skipped, warnings, false, true);
+      }
     }
 
     if (dryRun || pending.length === 0) {
@@ -359,10 +362,11 @@ export async function runMigrationsForAll(actor: ActingOperator, opts: BatchOpti
 
   const results: MigrationRunResult[] = [];
   let stop = false;
-  const runOne = async (s: { id: string; tenantId: string }) => {
+  let stopReason = 'No lanzado: falló otro cliente antes';
+  const runOne = async (s: { id: string; tenantId: string }, isCanary = false) => {
     if (stop) {
       const skipped = await prisma.migrationRun.create({
-        data: { subscriptionId: s.id, tenantId: s.tenantId, status: 'SKIPPED', dryRun: !!opts.dryRun, triggeredBy: actor.email, finishedAt: new Date(), error: 'No lanzado: falló otro cliente antes' },
+        data: { subscriptionId: s.id, tenantId: s.tenantId, status: 'SKIPPED', dryRun: !!opts.dryRun, triggeredBy: actor.email, finishedAt: new Date(), error: stopReason },
       });
       results.push(toResult(skipped));
       return;
@@ -379,10 +383,15 @@ export async function runMigrationsForAll(actor: ActingOperator, opts: BatchOpti
     }
     results.push(res);
     if (res.status === 'FAILED' && stopOnFailure) stop = true;
+    // Un canario que no se migró por venta en marcha no ha validado nada: seguir con el resto sería saltarse la garantía del canario.
+    if (isCanary && res.blockedBySales && stopOnFailure) {
+      stop = true;
+      stopReason = 'No lanzado: el canario no se pudo migrar por venta en marcha, así que la migración no está validada';
+    }
   };
 
   // Canarios: en serie y antes que nadie.
-  for (const id of canary) await runOne(ordered.find((s) => s.id === id)!);
+  for (const id of canary) await runOne(ordered.find((s) => s.id === id)!, true);
   const rest = ordered.filter((s) => !canary.includes(s.id));
   let next = 0;
   await Promise.all(

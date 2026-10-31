@@ -46,6 +46,22 @@ describe('scripts/ignore-build.js: ¿se congela este despliegue?', () => {
     expect(d.reason).toMatch(/no es una fecha válida/);
   });
 
+  it('SALES_FREEZE acepta las formas habituales de «sí» (sin importar mayúsculas ni espacios), no congela con «no», y ante algo raro congela', () => {
+    for (const v of ['1', 'true', 'TRUE', ' yes ', 'si', 'On', 'quizá']) expect(freezeDecision(prod({ SALES_FREEZE: v }), NOW).skip, v).toBe(true);
+    for (const v of ['', '0', 'false', 'No', 'OFF', '  ']) expect(freezeDecision(prod({ SALES_FREEZE: v }), NOW).skip, JSON.stringify(v)).toBe(false);
+  });
+
+  it('SALES_FREEZE_UNTIL sin zona horaria CONGELA y lo dice: sin ella, Vercel la leería en UTC y descongelaría horas antes de lo previsto', () => {
+    for (const v of ['2026-11-14', '2026-11-14T23:00:00', '2026-11-14 23:00']) {
+      const d = freezeDecision(prod({ SALES_FREEZE_UNTIL: v }), NOW);
+      expect(d.skip, v).toBe(true);
+      expect(d.reason, v).toMatch(/no lleva zona horaria/);
+    }
+    // Con zona (Z o desplazamiento) se respeta la hora exacta: las 23:00 de Madrid son las 22:00Z.
+    expect(freezeDecision(prod({ SALES_FREEZE_UNTIL: '2026-11-14T23:00:00+01:00' }), NOW).skip).toBe(true);
+    expect(freezeDecision(prod({ SALES_FREEZE_UNTIL: '2026-11-14T20:30:00+0100' }), NOW).skip).toBe(false); // 19:30Z: ya pasó
+  });
+
   it('SALES_FREEZE=1 manda aunque SALES_FREEZE_UNTIL ya haya pasado', () => {
     expect(freezeDecision(prod({ SALES_FREEZE: '1', SALES_FREEZE_UNTIL: '2020-01-01T00:00:00Z' }), NOW).skip).toBe(true);
   });

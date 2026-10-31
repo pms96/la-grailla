@@ -464,6 +464,49 @@ describe('runner de migraciones — venta en marcha (P1-22)', () => {
     expect(asked).toBe(0);
   });
 
+  it('un cliente YA AL DÍA no se bloquea por venta (no hay nada que migrar) y ni siquiera se le pregunta', async () => {
+    const dir = makeFixturePrismaDir(GOOD);
+    const { actor, subscription } = await liveTenantOn(DBS[0]);
+    const first = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, republish: false, healthFetch: healthWith(QUIET) });
+    expect(first.status).toBe('SUCCEEDED');
+    let asked = 0;
+    const again = await runMigrationsForSubscription(subscription.id, actor, {
+      prismaDir: dir,
+      republish: false,
+      healthFetch: async () => {
+        asked += 1;
+        return new Response(JSON.stringify(healthBody(BUSY)), { status: 200 });
+      },
+    });
+    expect(again).toMatchObject({ status: 'SUCCEEDED', blockedBySales: false, pending: [] });
+    expect(asked).toBe(0);
+  });
+
+  it('un cliente que el front tiene en MANTENIMIENTO por esquema atrasado (serving: false) se migra aunque sus señales de venta salgan altas', async () => {
+    const dir = makeFixturePrismaDir(GOOD);
+    const { actor, subscription } = await liveTenantOn(DBS[0]);
+    const inMaintenance = async () => new Response(JSON.stringify({ ...healthBody(BUSY), serving: false }), { status: 200 });
+    const res = await runMigrationsForSubscription(subscription.id, actor, { prismaDir: dir, republish: false, healthFetch: inMaintenance });
+    expect(res).toMatchObject({ status: 'SUCCEEDED', blockedBySales: false });
+    expect(await demoTable(DBS[0])).toHaveLength(1);
+  });
+
+  it('si el CANARIO queda sin migrar por venta, no se toca a nadie más: la migración no está validada', async () => {
+    const dir = makeFixturePrismaDir(GOOD);
+    const canary = await liveTenantOn(DBS[0]);
+    const other = await liveTenantOn(DBS[1]);
+    const canaryHost = (await prisma.domain.findFirstOrThrow({ where: { subscriptionId: canary.subscription.id } })).host;
+    const healthFetch = async (url: string) => new Response(JSON.stringify(healthBody(url.includes(canaryHost) ? BUSY : QUIET)), { status: 200 });
+    const out = await runMigrationsForAll(canary.actor, { prismaDir: dir, republish: false, concurrency: 1, canary: [canary.subscription.id], healthFetch });
+    const by = (id: string) => out.results.find((r) => r.subscriptionId === id)!;
+    expect(by(canary.subscription.id)).toMatchObject({ status: 'SKIPPED', blockedBySales: true });
+    expect(by(other.subscription.id)).toMatchObject({ status: 'SKIPPED', blockedBySales: false });
+    expect(by(other.subscription.id).error).toMatch(/canario/);
+    expect(out.stoppedEarly).toBe(true);
+    expect(await demoTable(DBS[0])).toHaveLength(0);
+    expect(await demoTable(DBS[1])).toHaveLength(0);
+  });
+
   it('en lote: el cliente en venta queda sin migrar, NO cuenta como fallo ni para el lote, y los demás se migran', async () => {
     const dir = makeFixturePrismaDir(GOOD);
     const busy = await liveTenantOn(DBS[0]);

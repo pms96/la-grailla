@@ -218,6 +218,51 @@ describe('setModules — guardas de apagado (P1-20)', () => {
     expect(entry!.meta).toMatchObject({ override: { unverified: expect.stringMatching(/no responde/), blockers: [] } });
   });
 
+  it('un evento CANCELADO con entradas sin reembolsar bloquea apagar Entradas (el lote de reembolsos vive en su admin)', async () => {
+    const { actor, subscription } = await live();
+    const err = await setModules(subscription.id, ['tienda', 'contabilidad'], actor, { healthFetch: healthWith({ ...NONE, cancelledEventsWithTickets: 2 }) }).catch((e) => e);
+    expect(err).toMatchObject({ code: 'module_obligations' });
+    expect(err.message).toMatch(/2 evento\(s\) cancelado\(s\) con entradas sin reembolsar/);
+    expect(await keys(subscription.id)).toContain('entradas');
+  });
+
+  it('el motivo: un texto de solo espacios no cuenta, tiene tope de 300 caracteres y no puede parecer un secreto (error claro, antes de tocar nada)', async () => {
+    const { actor, subscription } = await live();
+    const open = healthWith({ ...NONE, futureEventsWithTickets: 1 });
+    await expect(setModules(subscription.id, ['tienda', 'contabilidad'], actor, { override: { reason: '            ' }, healthFetch: open })).rejects.toMatchObject({ code: 'module_obligations' });
+    await expect(setModules(subscription.id, ['tienda', 'contabilidad'], actor, { override: { reason: 'x'.repeat(301) }, healthFetch: open })).rejects.toMatchObject({ code: 'override_reason_too_long' });
+    for (const secret of ['postgresql://u:p@h/db', 'enc:v2:abc', 'POSTGRES://u:p@h/db']) {
+      await expect(setModules(subscription.id, ['tienda', 'contabilidad'], actor, { override: { reason: secret }, healthFetch: open })).rejects.toMatchObject({ code: 'override_reason_invalid' });
+    }
+    expect(await keys(subscription.id)).toContain('entradas');
+    await setModules(subscription.id, ['tienda', 'contabilidad'], actor, { override: { reason: 'x'.repeat(300) }, healthFetch: open }); // el tope es inclusivo
+    expect(await keys(subscription.id)).not.toContain('entradas');
+  });
+
+  it('si los módulos cambian mientras se comprueba (p. ej. se canjea una clave que añade Entradas), no se quita lo que no se comprobó', async () => {
+    const { actor, subscription } = await live(['tienda']);
+    const racing = async () => {
+      await prisma.subscriptionModule.create({ data: { subscriptionId: subscription.id, moduleKey: 'entradas' } }); // entra mientras se comprueba la tienda
+      return new Response(
+        JSON.stringify({
+          status: 'ok', version: 'dev', platform: true, tenantId: 'x', db: { ok: true, latencyMs: 3 },
+          schema: { applied: null, expected: 'm', minRequired: 'm', upToDate: true }, onboarding: { complete: true, missing: [] },
+          ops: { generatedAt: new Date().toISOString(), pendingOldestMinutes: null, pendingOver20min: 0, emailsUnsent: 0, emailsFailed: 0, reconcile: null, obligations: NONE },
+        }),
+        { status: 200 }
+      );
+    };
+    await expect(setModules(subscription.id, [], actor, { healthFetch: racing })).rejects.toMatchObject({ code: 'conflict' });
+    expect(await keys(subscription.id)).toEqual(['entradas', 'nucleo', 'tienda']); // nada se ha quitado
+  });
+
+  it('solo quien puede escribir clientes puede apagar módulos (y por tanto anular): un VIEWER no', async () => {
+    const { subscription } = await live();
+    const { actor: viewer } = await makeOperator('VIEWER');
+    await expect(setModules(subscription.id, ['contabilidad'], viewer, { override: { reason: 'Quiero apagarlo igualmente' }, healthFetch: healthWith(NONE) })).rejects.toBeInstanceOf(ForbiddenError);
+    expect(await keys(subscription.id)).toContain('entradas');
+  });
+
   it('no pregunta al cliente cuando no hace falta: sin dominio verificado, al añadir módulos o al quitar uno sin guarda', async () => {
     const counter = { n: 0 };
     const { actor } = await makeOperator('SUPERADMIN');

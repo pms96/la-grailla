@@ -145,6 +145,9 @@ export async function createTenant(input: CreateTenantInput, actor: ActingOperat
 }
 
 export const MIN_OVERRIDE_REASON = 10;
+export const MAX_OVERRIDE_REASON = 300;
+// La auditoría rechaza valores que parezcan un secreto (URL de BD, valor cifrado): se avisa aquí, con un mensaje claro, en vez de dejar que falle dentro de la transacción.
+const SECRET_LOOKING = /^(enc:v\d|postgres(ql)?:\/\/)/i;
 
 /**
  * Sustituye la lista de módulos (el núcleo no se puede quitar).
@@ -160,13 +163,15 @@ export async function setModules(
   opts: { override?: { reason: string }; healthFetch?: FetchLike } = {}
 ) {
   assertCan(actor.role, 'tenants:write');
+  const reason = opts.override?.reason.trim() ?? '';
+  if (reason.length > MAX_OVERRIDE_REASON) throw new ServiceError('override_reason_too_long', `El motivo de la anulación admite como mucho ${MAX_OVERRIDE_REASON} caracteres`);
+  if (SECRET_LOOKING.test(reason)) throw new ServiceError('override_reason_invalid', 'El motivo no puede empezar por una URL de base de datos ni por un valor cifrado: escribe la razón con tus palabras');
   const pre = await prisma.subscription.findUnique({ where: { id: subscriptionId }, include: { modules: true, domains: true } });
   if (!pre) throw new ServiceError('not_found', 'Suscripción no encontrada');
   const preWanted = await resolveModules(prisma, pre.productKey, requested);
   const preRemoved = pre.modules.map((m) => m.moduleKey).filter((m) => !preWanted.includes(m));
   const check = await checkModuleRemoval(pre, preRemoved, { healthFetch: opts.healthFetch });
   const open = check.blockers.length > 0 || check.unverified !== null;
-  const reason = opts.override?.reason.trim() ?? '';
   if (open && !reason) {
     const why = check.blockers.length ? `hay obligaciones abiertas (${check.blockers.join('; ')})` : check.unverified;
     throw new ServiceError(
