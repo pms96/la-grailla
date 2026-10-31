@@ -218,6 +218,7 @@ describe('GET /api/cron/reconcile-payments', () => {
     });
 
     it('60 pedidos pendientes y 50 por pasada: la segunda pasada atiende a los 10 que la primera dejó fuera', async () => {
+      vi.stubEnv('RECONCILE_GATEWAY_BATCH', '50'); // el lote por defecto es mayor (P1-13): aquí se fija en 50 para ejercitar la cola justa
       const stamp = Date.now();
       // Más antiguos que el resto de pedidos de este fichero: son los que primero cogería un orden solo por antigüedad.
       const createdAt = new Date(Date.now() - 30 * 60_000);
@@ -247,6 +248,37 @@ describe('GET /api/cron/reconcile-payments', () => {
         expect(mine.every((id) => (second.get(id) ?? 0) <= 2)).toBe(true);
         // Nada se ha liberado ni completado: sigue todo PENDING.
         expect(await prisma.order.count({ where: { id: { in: mine }, status: 'PENDING' } })).toBe(60);
+      } finally {
+        vi.unstubAllEnvs();
+        await prisma.order.deleteMany({ where: { id: { in: mine } } });
+      }
+    });
+
+    it('P1-13: por defecto una pasada examina MÁS de 50 pedidos con pago en la pasarela (hasta 100), y la siguiente atiende a los que quedaron fuera', async () => {
+      const stamp = Date.now();
+      const createdAt = new Date(Date.now() - 40 * 60_000); // más antiguos que el resto de pedidos de este fichero
+      const ids = Array.from({ length: 130 }, (_, i) => `big-${stamp}-${String(i).padStart(3, '0')}`);
+      await prisma.order.createMany({
+        data: ids.map((paymentId, i) => ({
+          id: `ord-${paymentId}`, eventId: event.id, buyerName: 'Lote', buyerLastName: 'Grande', buyerEmail: `big-${i}@example.com`,
+          totalAmount: 10, paymentProvider: 'sumup', paymentId, status: 'PENDING' as const,
+          createdAt: new Date(createdAt.getTime() + i * 1000),
+        })),
+      });
+      const mine = ids.map((id) => `ord-${id}`);
+      const attempts = async () => new Map((await prisma.order.findMany({ where: { id: { in: mine } } })).map((o) => [o.id, o.reconcileAttempts]));
+      try {
+        vi.stubGlobal('fetch', pendingEverywhere());
+        await reconcilePayments(cronRequest(TEST_SECRET));
+        const first = await attempts();
+        const examinedFirst = mine.filter((id) => first.get(id) === 1);
+        expect(examinedFirst.length).toBeGreaterThan(50);
+        expect(examinedFirst.length).toBeLessThanOrEqual(100);
+        const leftOut = mine.filter((id) => first.get(id) === 0);
+        expect(leftOut.length).toBeGreaterThanOrEqual(30);
+        await reconcilePayments(cronRequest(TEST_SECRET));
+        const second = await attempts();
+        for (const id of leftOut.slice(0, 30)) expect(second.get(id), id).toBe(1); // los que quedaron fuera pasan por delante de los ya examinados
       } finally {
         await prisma.order.deleteMany({ where: { id: { in: mine } } });
       }

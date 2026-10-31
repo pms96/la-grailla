@@ -537,6 +537,11 @@ export function mapSumUpStatus(status: unknown): PaymentStatus {
   }
 }
 
+/** Tope de la llamada que crea el checkout de SumUp (la compra espera esa respuesta; las consultas de la conciliación tienen 15 s). */
+const SUMUP_CREATE_TIMEOUT_MS = 12_000;
+/** Tope de la prueba de conexión del admin (una pasarela que no contesta no debe colgar la pantalla de configuración). */
+const SUMUP_TEST_TIMEOUT_MS = 10_000;
+
 export class SumUpAdapter implements PaymentProvider {
   name = 'sumup';
   // Sin webhook (se confirma al volver del checkout o por el cron) y sin clave de idempotencia en el reembolso.
@@ -557,6 +562,7 @@ export class SumUpAdapter implements PaymentProvider {
     try {
       const response = await fetch(`https://api.sumup.com/v0.1/merchants/${this.merchantCode}`, {
         headers: { Authorization: `Bearer ${this.apiKey}` },
+        signal: AbortSignal.timeout(SUMUP_TEST_TIMEOUT_MS),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => null);
@@ -578,8 +584,12 @@ export class SumUpAdapter implements PaymentProvider {
     customerEmail: string;
     metadata?: Record<string, string>;
   }): Promise<PaymentSession> {
+    // Con tope de tiempo (P1-13): sin él, una SumUp que no contesta dejaba colgada la compra hasta que la función serverless moría. Al vencer, el
+    // pedido se cancela y se libera el aforo (catch de POST /api/orders); si SumUp llegó a crear el checkout, caduca solo (`valid_until`) y su
+    // referencia es el id del pedido, así que la conciliación lo reconoce.
     const response = await fetch('https://api.sumup.com/v0.1/checkouts', {
       method: 'POST',
+      signal: AbortSignal.timeout(SUMUP_CREATE_TIMEOUT_MS),
       headers: {
         'Authorization': `Bearer ${this.apiKey}`,
         'Content-Type': 'application/json',

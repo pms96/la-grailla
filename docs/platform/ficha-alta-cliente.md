@@ -29,7 +29,7 @@ El dinero va **a la cuenta del propio cliente**. Pasarela: [ ] SumUp · [ ] Stri
 
 | Pasarela | Qué necesita el cliente | Cómo funciona |
 |---|---|---|
-| SumUp | Clave de API y código de comerciante | Sin webhook: el pedido se confirma cuando el comprador vuelve a la web, y una tarea cada 5 minutos recoge los que no vuelven. |
+| SumUp | Clave de API y código de comerciante | Sin webhook: el pedido se confirma cuando el comprador vuelve a la web, y una tarea cada 5 minutos recoge los que no vuelven. **Para un evento con mucha demanda se recomienda Stripe** (confirma por webhook en segundos). Con SumUp, hay que hacer antes la prueba real de [sumup-prueba-real.md](sumup-prueba-real.md). |
 | Stripe | Clave secreta y secreto del webhook; dar de alta en su Stripe el endpoint `https://<dominio>/api/webhooks/stripe` | Webhook de confirmación. **El camino de Stripe con varios clientes no se ha probado con dinero real**: la compra de prueba del apartado 8 es obligatoria. |
 
 Las claves las pega el propio administrador del cliente en el admin de su web (Configuración). **No** se meten en el panel del proveedor.

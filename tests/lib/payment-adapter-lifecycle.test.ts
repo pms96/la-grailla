@@ -241,3 +241,124 @@ describe('reembolsos hechos a mano (M2): verifyPayment los detecta', () => {
     expect((await sumup({ status: 'PENDING', transactions: [{ status: 'REFUNDED' }] }).verifyPayment('co_1')).status).toBe('PENDING');
   });
 });
+
+/* P1-13: SumUp no tiene webhook y su reembolso (reescrito para reembolsar la TRANSACCIÓN, no el checkout) no estaba probado. Aquí, con `fetch` simulado,
+ * se fija el contrato que sí podemos comprobar sin red: tope de tiempo en TODAS las llamadas y el comportamiento del reembolso ante cada respuesta. Que
+ * SumUp responda así de verdad está por comprobar con una cuenta real (docs/platform/sumup-prueba-real.md). */
+describe('SumUp (P1-13): tope de tiempo en todas las llamadas', () => {
+  const seen = () => {
+    const calls: { url: string; signal: AbortSignal | null | undefined; method: string }[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, signal: init?.signal, method: init?.method ?? 'GET' });
+        if (url.includes('/refunds')) return new Response('{}', { status: 200 });
+        if (url.endsWith('/v0.1/checkouts') && init?.method === 'POST') return new Response(JSON.stringify({ id: 'co_1', hosted_checkout_url: 'https://pay.sumup.test/co_1' }), { status: 201 });
+        return new Response(JSON.stringify({ status: 'PAID', transactions: [{ id: 'tx_1', status: 'SUCCESSFUL', amount: 25.5 }] }), { status: 200 });
+      })
+    );
+    return calls;
+  };
+  const adapter = () => new SumUpAdapter('key', 'MERCHANT1');
+
+  it('prueba de conexión, crear checkout, verificar y reembolsar (consulta + reembolso) llevan una señal de cancelación viva', async () => {
+    const calls = seen();
+    await adapter().testConnection();
+    await adapter().createCheckoutSession(params);
+    await adapter().verifyPayment('co_1');
+    await adapter().refund('co_1');
+    expect(calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
+      'GET /v0.1/merchants/MERCHANT1',
+      'POST /v0.1/checkouts',
+      'GET /v0.1/checkouts/co_1',
+      'GET /v0.1/checkouts/co_1',
+      'POST /v1.0/merchants/MERCHANT1/payments/tx_1/refunds',
+    ]);
+    for (const c of calls) {
+      expect(c.signal, c.url).toBeInstanceOf(AbortSignal);
+      expect(c.signal!.aborted, c.url).toBe(false);
+    }
+  });
+
+  it('si SumUp no contesta al crear el checkout, la llamada FALLA (la ruta de compra cancela el pedido y libera el aforo) en vez de colgarse', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError'); }));
+    await expect(adapter().createCheckoutSession(params)).rejects.toThrow(/timeout/i);
+  });
+
+  it('la prueba de conexión que vence devuelve {ok: false} con el motivo, sin lanzar', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError'); }));
+    expect(await adapter().testConnection()).toMatchObject({ ok: false, error: expect.stringMatching(/timeout/i) });
+  });
+});
+
+describe('SumUp (P1-13): reembolso de la transacción del checkout', () => {
+  type Step = { status: number; body: unknown };
+  /** Respuestas en orden: 1.ª la consulta del checkout, 2.ª el reembolso. Guarda lo enviado. */
+  const scripted = (...steps: Step[]) => {
+    const sent: { url: string; method: string; body: unknown }[] = [];
+    let i = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        sent.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : undefined });
+        const step = steps[Math.min(i, steps.length - 1)];
+        i += 1;
+        return new Response(JSON.stringify(step.body), { status: step.status });
+      })
+    );
+    return sent;
+  };
+  const adapter = () => new SumUpAdapter('key', 'M/1'); // con una barra: se codifica en la URL
+  const charged = (amount = 25.5) => ({ status: 200, body: { status: 'PAID', transactions: [{ id: 'tx 1', status: 'SUCCESSFUL', amount }] } });
+
+  it('reembolso total: consulta el checkout, reembolsa SU transacción (ids codificados) y el cuerpo va vacío', async () => {
+    const sent = scripted(charged(), { status: 200, body: {} });
+    expect(await adapter().refund('co/1')).toEqual({ success: true, refundId: 'tx 1' });
+    expect(sent[0]).toMatchObject({ method: 'GET', url: 'https://api.sumup.com/v0.1/checkouts/co%2F1' });
+    expect(sent[1]).toMatchObject({ method: 'POST', url: 'https://api.sumup.com/v1.0/merchants/M%2F1/payments/tx%201/refunds', body: {} });
+  });
+
+  it('importe menor que lo cobrado = reembolso parcial (con importe); igual o mayor = total (sin importe)', async () => {
+    const partial = scripted(charged(), { status: 200, body: {} });
+    await adapter().refund('co_1', 10);
+    expect(partial[1].body).toEqual({ amount: 10 });
+    const equal = scripted(charged(), { status: 200, body: {} });
+    await adapter().refund('co_1', 25.5);
+    expect(equal[1].body).toEqual({});
+    const above = scripted(charged(), { status: 200, body: {} });
+    await adapter().refund('co_1', 99);
+    expect(above[1].body).toEqual({});
+    const zero = scripted(charged(), { status: 200, body: {} });
+    await adapter().refund('co_1', 0);
+    expect(zero[1].body).toEqual({});
+  });
+
+  it('un reintento sobre una transacción YA reembolsada es éxito y no vuelve a reembolsar (SumUp no tiene clave de idempotencia)', async () => {
+    const sent = scripted({ status: 200, body: { status: 'PAID', transactions: [{ id: 'tx_9', status: 'REFUNDED', amount: 25.5 }] } });
+    expect(await adapter().refund('co_1')).toEqual({ success: true, refundId: 'tx_9' });
+    expect(sent).toHaveLength(1); // solo la consulta
+  });
+
+  it('un checkout sin transacción cobrada no reembolsa nada y lo dice', async () => {
+    const sent = scripted({ status: 200, body: { status: 'PENDING', transactions: [] } });
+    const r = await adapter().refund('co_1');
+    expect(r).toMatchObject({ success: false, error: expect.stringMatching(/no hay nada que reembolsar/) });
+    expect(sent).toHaveLength(1);
+    scripted({ status: 200, body: { status: 'PENDING' } }); // sin lista
+    expect((await adapter().refund('co_1')).success).toBe(false);
+  });
+
+  it('errores de SumUp: al consultar y al reembolsar, con su mensaje (y uno genérico con el código si no trae)', async () => {
+    scripted({ status: 404, body: { message: 'Checkout not found' } });
+    expect(await adapter().refund('co_1')).toEqual({ success: false, error: 'Checkout not found' });
+    scripted(charged(), { status: 409, body: { detail: 'Transaction already refunded' } });
+    expect(await adapter().refund('co_1')).toEqual({ success: false, error: 'Transaction already refunded' });
+    scripted(charged(), { status: 500, body: null });
+    expect(await adapter().refund('co_1')).toEqual({ success: false, error: 'SumUp devolvió 500 al reembolsar' });
+  });
+
+  it('si la red falla o vence el tiempo, devuelve {success: false} con el motivo, sin lanzar', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError'); }));
+    expect(await adapter().refund('co_1')).toMatchObject({ success: false, error: expect.stringMatching(/timeout/i) });
+  });
+});

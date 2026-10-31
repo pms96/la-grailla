@@ -31,7 +31,16 @@ import { OPS_RECONCILE_KEY, type ReconcileSummary } from '@/lib/ops-health';
 // de expiración como Stripe. La decisión (completar / liberar / esperar / no tocar) es de `settleUnpaidOrder`, que solo libera con la
 // pasarela confirmando que el pago ya no puede llegar: un fallo al consultarla (UNKNOWN) o un cobro en curso (PROCESSING) NUNCA liberan.
 const MIN_AGE_MS = 2 * 60_000; // deja margen a que el comprador siga en pleno checkout y a que se guarde el paymentId
+// Pedidos que se examinan por lista y pasada. Los que tienen un pago en la pasarela son los que importan en una venta: SumUp no tiene webhook, así que
+// un comprador que cierra la pestaña tras pagar solo recibe sus entradas cuando este cron lo examina (P1-13: con 50, 400 pagos esperaban 8 pasadas, 40 min).
+// El presupuesto de tiempo (`timeBudgetMs`) sigue siendo el tope real: lo que no cabe queda para la siguiente pasada sin sellar. Los pedidos sin pasarela
+// (red de seguridad por antigüedad) no tienen prisa y se quedan en 50. `RECONCILE_GATEWAY_BATCH` permite ajustarlo (y probarlo) sin tocar código.
 const BATCH_SIZE = 50;
+const DEFAULT_GATEWAY_BATCH_SIZE = 100;
+const gatewayBatchSize = () => {
+  const n = Math.floor(Number(process.env.RECONCILE_GATEWAY_BATCH));
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 500) : DEFAULT_GATEWAY_BATCH_SIZE;
+};
 // Pedidos que se atienden A LA VEZ (llamadas a la pasarela en paralelo, con tope: no se martillea la API) y presupuesto de tiempo de la pasada: pasado,
 // el bucle para y el resto queda para la siguiente pasada SIN sellar (conserva su sitio en la cola justa). Por debajo de `maxDuration` con margen para
 // que termine el grupo en curso y se responda. `RECONCILE_TIME_BUDGET_MS` solo existe para poder probarlo.
@@ -104,9 +113,9 @@ export async function GET(request: Request) {
 
     const [pendingTicketOrders, abandonedTicketOrders, pendingShopOrders, abandonedShopOrders] =
       await Promise.all([
-        prisma.order.findMany({ where: withGateway, take: BATCH_SIZE, orderBy: FAIR_QUEUE_ORDER }),
+        prisma.order.findMany({ where: withGateway, take: gatewayBatchSize(), orderBy: FAIR_QUEUE_ORDER }),
         prisma.order.findMany({ where: withoutGateway, take: BATCH_SIZE, orderBy: FAIR_QUEUE_ORDER }),
-        prisma.shopOrder.findMany({ where: withGateway, take: BATCH_SIZE, orderBy: FAIR_QUEUE_ORDER }),
+        prisma.shopOrder.findMany({ where: withGateway, take: gatewayBatchSize(), orderBy: FAIR_QUEUE_ORDER }),
         prisma.shopOrder.findMany({ where: withoutGateway, take: BATCH_SIZE, orderBy: FAIR_QUEUE_ORDER }),
       ]);
 
