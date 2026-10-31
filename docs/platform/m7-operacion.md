@@ -28,7 +28,7 @@ Lo que NO se ha podido probar aquí (necesita Vercel/Neon/GitHub reales) está a
 | `TENANT_URL_TEMPLATE` | panel (solo desarrollo) | p. ej. `http://{host}:57811`; por defecto `https://{host}` |
 | `CRON_BUDGET_MS` | panel (opcional) | Presupuesto de una invocación del disparador (90 000 por defecto, con `maxDuration = 120`). **No lo bajes de 30 000**: una llamada a un cliente puede tardar hasta 20 s y no se lanza ninguna que no quepa |
 | `SKIP_MIGRATE_ON_BUILD=1` | proyecto de Vercel del front (opcional) | El `build` no migra |
-| `RECONCILE_GATEWAY_BATCH` | front (opcional) | Pedidos con pago en la pasarela que examina `reconcile-payments` por lista y pasada (entradas y tienda). 100 por defecto, máximo 500. Subirlo solo ayuda si la pasada cabe en su presupuesto de 45 s; lo que no cabe queda para la siguiente (P1-13, [sumup-prueba-real.md](sumup-prueba-real.md)) |
+| `RECONCILE_GATEWAY_BATCH` | front (opcional) | Pedidos con pago en la pasarela que examina `reconcile-payments` por lista y pasada (entradas y tienda). 100 por defecto, máximo 500. Subirlo solo ayuda si la pasada cabe en su presupuesto de unos 35 s (más un tope duro de 10 s por grupo, para que una pasarela colgada no pierda la pasada); lo que no cabe queda para la siguiente (P1-13, [sumup-prueba-real.md](sumup-prueba-real.md)) |
 
 ## 1 · Dar de alta un cliente
 

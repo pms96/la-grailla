@@ -63,6 +63,7 @@ describe('GET /api/cron/reconcile-payments', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs(); // aunque un test falle antes de su `finally`, el lote o el presupuesto fijados no contaminan al siguiente
   });
 
   it('rechaza sin el secreto correcto', async () => {
@@ -254,31 +255,95 @@ describe('GET /api/cron/reconcile-payments', () => {
       }
     });
 
-    it('P1-13: por defecto una pasada examina MÁS de 50 pedidos con pago en la pasarela (hasta 100), y la siguiente atiende a los que quedaron fuera', async () => {
-      const stamp = Date.now();
-      const createdAt = new Date(Date.now() - 40 * 60_000); // más antiguos que el resto de pedidos de este fichero
-      const ids = Array.from({ length: 130 }, (_, i) => `big-${stamp}-${String(i).padStart(3, '0')}`);
-      await prisma.order.createMany({
-        data: ids.map((paymentId, i) => ({
-          id: `ord-${paymentId}`, eventId: event.id, buyerName: 'Lote', buyerLastName: 'Grande', buyerEmail: `big-${i}@example.com`,
-          totalAmount: 10, paymentProvider: 'sumup', paymentId, status: 'PENDING' as const,
-          createdAt: new Date(createdAt.getTime() + i * 1000),
-        })),
-      });
-      const mine = ids.map((id) => `ord-${id}`);
+    /** La BD de pruebas se comparte: los pedidos con pasarela que NO son de este test se marcan como ya examinados para que no ocupen huecos de la pasada. */
+    const sealOthers = async (mine: string[], at = new Date()) => {
+      const where = { status: 'PENDING' as const, paymentId: { not: null }, id: { notIn: mine } };
+      await prisma.order.updateMany({ where, data: { reconcileCheckedAt: at } });
+      await prisma.shopOrder.updateMany({ where, data: { reconcileCheckedAt: at } });
+    };
+    const ticketRows = (prefix: string, n: number, createdAt: Date) =>
+      Array.from({ length: n }, (_, i) => ({
+        id: `ord-${prefix}-${String(i).padStart(3, '0')}`, eventId: event.id, buyerName: 'Lote', buyerLastName: 'Grande', buyerEmail: `${prefix}-${i}@example.com`,
+        totalAmount: 10, paymentProvider: 'sumup', paymentId: `${prefix}-${String(i).padStart(3, '0')}`, status: 'PENDING' as const, createdAt: new Date(createdAt.getTime() + i * 1000),
+      }));
+    const shopRows = (prefix: string, n: number, createdAt: Date) =>
+      Array.from({ length: n }, (_, i) => ({
+        id: `shp-${prefix}-${String(i).padStart(3, '0')}`, buyerName: 'Lote', buyerEmail: `${prefix}-${i}@example.com`, shippingAddress: 'x', shippingCity: 'x', shippingZip: '1',
+        totalAmount: 10, paymentProvider: 'sumup', paymentId: `${prefix}-${String(i).padStart(3, '0')}`, status: 'PENDING' as const, createdAt: new Date(createdAt.getTime() + i * 1000),
+      }));
+
+    it('P1-13: por defecto una pasada examina 100 pedidos con pago en la pasarela por lista (no 50), y la siguiente atiende a los que quedaron fuera', async () => {
+      vi.stubEnv('RECONCILE_GATEWAY_BATCH', ''); // el .env del desarrollador no debe cambiar el valor por defecto que se prueba
+      const prefix = `big-${Date.now()}`;
+      await prisma.order.createMany({ data: ticketRows(prefix, 130, new Date(Date.now() - 40 * 60_000)) });
+      const mine = Array.from({ length: 130 }, (_, i) => `ord-${prefix}-${String(i).padStart(3, '0')}`);
       const attempts = async () => new Map((await prisma.order.findMany({ where: { id: { in: mine } } })).map((o) => [o.id, o.reconcileAttempts]));
       try {
+        await sealOthers(mine);
         vi.stubGlobal('fetch', pendingEverywhere());
         await reconcilePayments(cronRequest(TEST_SECRET));
         const first = await attempts();
         const examinedFirst = mine.filter((id) => first.get(id) === 1);
-        expect(examinedFirst.length).toBeGreaterThan(50);
-        expect(examinedFirst.length).toBeLessThanOrEqual(100);
+        expect(examinedFirst).toHaveLength(100); // el valor por defecto, exacto
         const leftOut = mine.filter((id) => first.get(id) === 0);
-        expect(leftOut.length).toBeGreaterThanOrEqual(30);
+        expect(leftOut).toHaveLength(30);
+        await sealOthers(mine);
         await reconcilePayments(cronRequest(TEST_SECRET));
         const second = await attempts();
-        for (const id of leftOut.slice(0, 30)) expect(second.get(id), id).toBe(1); // los que quedaron fuera pasan por delante de los ya examinados
+        for (const id of leftOut) expect(second.get(id), id).toBe(1); // los que quedaron fuera pasan por delante de los ya examinados
+      } finally {
+        await prisma.order.deleteMany({ where: { id: { in: mine } } });
+      }
+    });
+
+    it('entradas y tienda se INTERCALAN en la cola: una pasada corta de tiempo no deja a la tienda sin examinar', async () => {
+      const prefix = `il-${Date.now()}`;
+      const old = new Date(Date.now() - 60 * 60_000);
+      await prisma.order.createMany({ data: ticketRows(`${prefix}-t`, 12, old) });
+      await prisma.shopOrder.createMany({ data: shopRows(`${prefix}-s`, 12, old) });
+      const mineT = Array.from({ length: 12 }, (_, i) => `ord-${prefix}-t-${String(i).padStart(3, '0')}`);
+      const mineS = Array.from({ length: 12 }, (_, i) => `shp-${prefix}-s-${String(i).padStart(3, '0')}`);
+      const started: string[] = [];
+      try {
+        await sealOthers([...mineT, ...mineS]);
+        vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
+          const id = url.toString().split('/').pop() ?? '';
+          if (id.startsWith(prefix)) started.push(id);
+          return new Response(JSON.stringify({ status: 'PENDING' }), { status: 200 });
+        }));
+        await reconcilePayments(cronRequest(TEST_SECRET));
+        // Un pedido viejo cuesta varias llamadas a la pasarela (verificar, cerrar, verificar): se cuentan pedidos distintos, en el orden en que aparecen.
+        const distinct = [...new Set(started)];
+        expect(distinct).toHaveLength(24); // sin recorte de tiempo se examinan todos
+        // El primer grupo (5, concurrentes) ya mezcla las dos listas: con las entradas siempre delante serían 5 de entradas y 0 de tienda.
+        const firstGroup = distinct.slice(0, 5);
+        expect(firstGroup.filter((id) => id.includes('-t-')).length).toBeGreaterThanOrEqual(2);
+        expect(firstGroup.filter((id) => id.includes('-s-')).length).toBeGreaterThanOrEqual(2);
+      } finally {
+        await prisma.order.deleteMany({ where: { id: { in: mineT } } });
+        await prisma.shopOrder.deleteMany({ where: { id: { in: mineS } } });
+      }
+    });
+
+    it('una pasarela COLGADA no alarga la pasada más allá del tope: se abandona la espera del grupo, lo no atendido sigue PENDING y se avisa con groupTimedOut', async () => {
+      vi.stubEnv('RECONCILE_TIME_BUDGET_MS', '50');
+      vi.stubEnv('RECONCILE_GROUP_GRACE_MS', '200');
+      const prefix = `hung-${Date.now()}`;
+      await prisma.order.createMany({ data: ticketRows(prefix, 12, new Date(Date.now() - 30 * 60_000)) });
+      const mine = Array.from({ length: 12 }, (_, i) => `ord-${prefix}-${String(i).padStart(3, '0')}`);
+      try {
+        await sealOthers(mine);
+        vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {}))); // no contesta nunca
+        const started = Date.now();
+        const res = await reconcilePayments(cronRequest(TEST_SECRET));
+        const json = await res.json();
+        expect(Date.now() - started).toBeLessThan(5_000); // sin el tope, esta llamada no terminaría
+        expect(json.groupTimedOut).toBe(true);
+        expect(json.deferred).toBeGreaterThanOrEqual(7);
+        const rows = await prisma.order.findMany({ where: { id: { in: mine } } });
+        expect(rows.every((o) => o.status === 'PENDING')).toBe(true); // nada se libera ni se completa sin saber lo que dice la pasarela
+        expect(rows.filter((o) => o.reconcileAttempts === 1)).toHaveLength(5); // el grupo que se quedó esperando ya estaba sellado
+        expect(rows.filter((o) => o.reconcileAttempts === 0)).toHaveLength(7); // el resto conserva su sitio en la cola
       } finally {
         await prisma.order.deleteMany({ where: { id: { in: mine } } });
       }

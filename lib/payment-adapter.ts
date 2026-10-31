@@ -723,8 +723,13 @@ export class SumUpAdapter implements PaymentProvider {
         return refunded ? { success: true, refundId: refunded.id } : { success: false, error: 'SumUp no tiene ninguna transacción cobrada en este pago: no hay nada que reembolsar' };
       }
 
+      // Sin importe = reembolso total. Un importe que NO es un número positivo, o que supera lo cobrado, es un error de quien llama: no se convierte
+      // en silencio en una devolución completa (devolver más dinero del pedido).
+      if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0 || (typeof charged.amount === 'number' && amount > charged.amount + 0.005))) {
+        return { success: false, error: `Importe de reembolso no válido (${String(amount)}): debe ser positivo y no superar lo cobrado` };
+      }
       // Un importe menor que lo cobrado es un reembolso parcial; el total (o sin importe) se pide sin él.
-      const partial = typeof amount === 'number' && typeof charged.amount === 'number' && amount > 0 && amount < charged.amount - 0.005;
+      const partial = typeof amount === 'number' && typeof charged.amount === 'number' && amount < charged.amount - 0.005;
       const response = await fetch(`https://api.sumup.com/v1.0/merchants/${encodeURIComponent(this.merchantCode)}/payments/${encodeURIComponent(charged.id as string)}/refunds`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },

@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 // Tiempo máximo de la función. Cada pedido puede costar hasta tres llamadas a la pasarela (verificar, cerrar, verificar) de hasta 15 s cada una,
-// y una pasada examina hasta 200: con el tiempo por defecto de la plataforma se cortaba a mitad. Ver también TIME_BUDGET_MS.
+// y una pasada examina hasta 300 (entradas y tienda: 2 listas con pasarela de 100 y 2 sin pasarela de 50): con el tiempo por defecto de la plataforma se
+// cortaba a mitad. Ver también TIME_BUDGET_MS y GROUP_GRACE_MS.
 export const maxDuration = 60;
 
 import { NextResponse } from 'next/server';
@@ -15,6 +16,7 @@ import { emailSweepBudgetMs, sweepUnsentOrderEmails } from '@/lib/order-email';
 import { runEventNoticeSweep, type EventNoticeSweepResult } from '@/lib/event-cancellation';
 import { sweepShopNewOrderNotices } from '@/lib/shop/shop-notices';
 import { repairRefundedOrders } from '@/lib/reconciliation/gateway-refund';
+import { interleave } from '@/lib/reconciliation/interleave';
 import { getFallbackBaseUrl } from '@/lib/url';
 import { OPS_RECONCILE_KEY, type ReconcileSummary } from '@/lib/ops-health';
 
@@ -42,10 +44,20 @@ const gatewayBatchSize = () => {
   return Number.isFinite(n) && n > 0 ? Math.min(n, 500) : DEFAULT_GATEWAY_BATCH_SIZE;
 };
 // Pedidos que se atienden A LA VEZ (llamadas a la pasarela en paralelo, con tope: no se martillea la API) y presupuesto de tiempo de la pasada: pasado,
-// el bucle para y el resto queda para la siguiente pasada SIN sellar (conserva su sitio en la cola justa). Por debajo de `maxDuration` con margen para
-// que termine el grupo en curso y se responda. `RECONCILE_TIME_BUDGET_MS` solo existe para poder probarlo.
+// el bucle para y el resto queda para la siguiente pasada SIN sellar (conserva su sitio en la cola justa). El plazo solo se mira ANTES de lanzar cada grupo,
+// y un grupo con la pasarela colgada puede tardar varias llamadas de 15 s: por eso cada grupo tiene además un tope duro (`GROUP_GRACE_MS` más allá del plazo).
+// Sin él, un grupo lanzado en el último momento acababa pasado el plazo del panel (55 s) o `maxDuration` (60 s) y la pasada se perdía entera, sin resumen,
+// aunque hubiera avanzado. Con 35 s + 10 s la pasada termina en ~45 s en el peor caso y queda margen para el resumen y los barridos. Un grupo abandonado
+// ya estaba sellado y sus pedidos siguen PENDING: la siguiente pasada los retoma (decidir es idempotente). `RECONCILE_TIME_BUDGET_MS` y `RECONCILE_GROUP_GRACE_MS`
+// solo existen para poder probarlo.
 const CONCURRENCY = 5;
-const DEFAULT_TIME_BUDGET_MS = 45_000;
+const DEFAULT_TIME_BUDGET_MS = 35_000;
+const DEFAULT_GROUP_GRACE_MS = 10_000;
+const groupGraceMs = () => {
+  const raw = process.env.RECONCILE_GROUP_GRACE_MS;
+  const n = raw === undefined || raw === '' ? NaN : Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_GROUP_GRACE_MS;
+};
 const timeBudgetMs = () => {
   const n = Number(process.env.RECONCILE_TIME_BUDGET_MS);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_TIME_BUDGET_MS;
@@ -132,11 +144,15 @@ export async function GET(request: Request) {
       if (errorSamples.length < 5) errorSamples.push(`${kind}:${orderId}:${reason.slice(0, 160)}`);
     };
 
-    const queue: { kind: SettleKind; table: 'order' | 'shopOrder'; order: SettleOrder }[] = [
-      ...pendingTicketOrders.map((order) => ({ kind: 'entradas' as const, table: 'order' as const, order })),
-      ...abandonedTicketOrders.map((order) => ({ kind: 'entradas' as const, table: 'order' as const, order })),
-      ...pendingShopOrders.map((order) => ({ kind: 'tienda' as const, table: 'shopOrder' as const, order })),
-      ...abandonedShopOrders.map((order) => ({ kind: 'tienda' as const, table: 'shopOrder' as const, order })),
+    type QueueItem = { kind: SettleKind; table: 'order' | 'shopOrder'; order: SettleOrder };
+    const asTicket = (order: SettleOrder): QueueItem => ({ kind: 'entradas', table: 'order', order });
+    const asShop = (order: SettleOrder): QueueItem => ({ kind: 'tienda', table: 'shopOrder', order });
+    // Primero los que tienen un pago en la pasarela (cobros ya hechos esperando confirmación), después la red de seguridad por antigüedad; y dentro de cada
+    // bloque, entradas y tienda INTERCALADAS: la cola justa solo ordena dentro de cada lista, y si las entradas iban siempre delante, una pasada que gastara
+    // su presupuesto con ellas dejaba a los pedidos de tienda sin examinar pasada tras pasada.
+    const queue: QueueItem[] = [
+      ...interleave(pendingTicketOrders.map(asTicket), pendingShopOrders.map(asShop)),
+      ...interleave(abandonedTicketOrders.map(asTicket), abandonedShopOrders.map(asShop)),
     ];
 
     const settleOne = async ({ kind, order }: (typeof queue)[number]) => {
@@ -178,6 +194,7 @@ export async function GET(request: Request) {
     // Grupos de CONCURRENCY pedidos. Cada grupo se sella JUSTO ANTES de llamar a las pasarelas (si la función se corta por tiempo a mitad de grupo,
     // la siguiente pasada ya no empieza por esos), y lo que no llega a atenderse por falta de tiempo NO se sella: sigue con su sitio en la cola justa.
     let examined = 0;
+    let groupTimedOut = false;
     for (let i = 0; i < queue.length; i += CONCURRENCY) {
       if (Date.now() >= deadline) break;
       const group = queue.slice(i, i + CONCURRENCY);
@@ -186,8 +203,18 @@ export async function GET(request: Request) {
         stampExamined('order', group.filter((g) => g.table === 'order').map((g) => g.order.id), stampedAt),
         stampExamined('shopOrder', group.filter((g) => g.table === 'shopOrder').map((g) => g.order.id), stampedAt),
       ]);
-      await Promise.all(group.map(settleOne));
+      // Tope duro del grupo (ver GROUP_GRACE_MS): si la pasarela no contesta, se abandona la espera, no los pedidos (siguen PENDING y ya están sellados).
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const finished = await Promise.race([
+        Promise.all(group.map(settleOne)).then(() => true),
+        new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(false), Math.max(0, deadline + groupGraceMs() - Date.now())))),
+      ]);
+      if (timer) clearTimeout(timer);
       examined += group.length;
+      if (!finished) {
+        groupTimedOut = true;
+        break;
+      }
     }
     const deferred = queue.length - examined;
 
@@ -247,6 +274,8 @@ export async function GET(request: Request) {
         // Pedidos atendidos en esta pasada; `deferred` = los que no cupieron en el presupuesto de tiempo y quedan para la siguiente.
         checked: examined,
         deferred,
+        // true si un grupo no terminó a tiempo (pasarela lenta o colgada) y la pasada se cortó: lo no atendido sigue PENDING para la siguiente.
+        groupTimedOut,
         completed,
         released,
         stillPending,

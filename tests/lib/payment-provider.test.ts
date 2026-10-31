@@ -154,7 +154,16 @@ describe('estado de cobro normalizado', () => {
 
     it('si SumUp rechaza el reembolso, falla con su mensaje (el pedido volverá a su estado y el admin verá el motivo)', async () => {
       sumup({ checkout: [200, checkout([successful])], refund: [422, { message: 'INVALID_AMOUNT' }] });
-      expect(await adapter().refund('co_1', 99)).toEqual({ success: false, error: 'INVALID_AMOUNT' });
+      expect(await adapter().refund('co_1', 10)).toEqual({ success: false, error: 'INVALID_AMOUNT' });
+    });
+
+    it('un importe mayor que lo cobrado (o cero) ni siquiera se envía a SumUp: lo rechaza el adaptador y no sale ninguna orden de reembolso (P1-13)', async () => {
+      const calls = sumup({ checkout: [200, checkout([successful])], refund: [200, {}] });
+      for (const bad of [99, 0]) {
+        const r = await adapter().refund('co_1', bad);
+        expect(r).toMatchObject({ success: false, error: expect.stringMatching(/Importe de reembolso no válido/) });
+      }
+      expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0);
     });
 
     it('un fallo de red no lanza: se devuelve como fallo, igual que en Stripe', async () => {

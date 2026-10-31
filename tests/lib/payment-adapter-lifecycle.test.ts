@@ -318,19 +318,25 @@ describe('SumUp (P1-13): reembolso de la transacción del checkout', () => {
     expect(sent[1]).toMatchObject({ method: 'POST', url: 'https://api.sumup.com/v1.0/merchants/M%2F1/payments/tx%201/refunds', body: {} });
   });
 
-  it('importe menor que lo cobrado = reembolso parcial (con importe); igual o mayor = total (sin importe)', async () => {
+  it('importe menor que lo cobrado = reembolso parcial (con importe); igual (o sin importe) = total (sin importe)', async () => {
     const partial = scripted(charged(), { status: 200, body: {} });
-    await adapter().refund('co_1', 10);
+    expect(await adapter().refund('co_1', 10)).toMatchObject({ success: true });
     expect(partial[1].body).toEqual({ amount: 10 });
     const equal = scripted(charged(), { status: 200, body: {} });
     await adapter().refund('co_1', 25.5);
     expect(equal[1].body).toEqual({});
-    const above = scripted(charged(), { status: 200, body: {} });
-    await adapter().refund('co_1', 99);
-    expect(above[1].body).toEqual({});
-    const zero = scripted(charged(), { status: 200, body: {} });
-    await adapter().refund('co_1', 0);
-    expect(zero[1].body).toEqual({});
+    const none = scripted(charged(), { status: 200, body: {} });
+    await adapter().refund('co_1');
+    expect(none[1].body).toEqual({});
+  });
+
+  it('un importe que no es positivo o que supera lo cobrado se RECHAZA: no se convierte en silencio en una devolución completa', async () => {
+    for (const bad of [0, -5, 99, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const sent = scripted(charged(), { status: 200, body: {} });
+      const r = await adapter().refund('co_1', bad);
+      expect(r, String(bad)).toMatchObject({ success: false, error: expect.stringMatching(/Importe de reembolso no válido/) });
+      expect(sent.filter((x) => x.method === 'POST'), String(bad)).toHaveLength(0); // no sale ninguna orden de reembolso
+    }
   });
 
   it('un reintento sobre una transacción YA reembolsada es éxito y no vuelve a reembolsar (SumUp no tiene clave de idempotencia)', async () => {
