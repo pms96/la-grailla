@@ -64,6 +64,7 @@ export async function GET(request: Request) {
         : prisma.ingreso.findMany({
             where: {
               concepto: 'Entradas',
+              voidedAt: null,
               ...(from || to
                 ? {
                     fecha: {

@@ -13,6 +13,15 @@ import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
 import { getEmailState } from '@/lib/email-delivery';
 import { adminEmailView } from '@/lib/order-email';
+import { actorFromSession, recordAdminAuditSafe, type AuditAction } from '@/lib/admin-audit';
+
+const ORDER_AUDIT_ACTION: Record<'cancel' | 'refund' | 'verify' | 'complete' | 'update-email', AuditAction> = {
+  cancel: 'order.cancel',
+  refund: 'order.refund',
+  verify: 'order.verify',
+  complete: 'order.complete',
+  'update-email': 'order.update_email',
+};
 
 const updateOrderSchema = z.object({
   action: z.enum(['cancel', 'refund', 'verify', 'complete', 'update-email']),
@@ -56,6 +65,8 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
   }
   try {
     const body = updateOrderSchema.parse(await request.json());
+    // Lo que queda en el registro de auditoría si la acción sale bien (sin datos personales: ni emails ni nombres).
+    let auditMeta: Record<string, unknown> = {};
 
     // El middleware deja pasar este PATCH aunque la licencia esté vencida o falte el módulo, para no frenar un reembolso. Cancelar y
     // reembolsar es dinero ya cobrado; completar un pedido, emitir entradas o cambiar el email del comprador no lo es.
@@ -70,6 +81,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       if (!result.success) {
         return NextResponse.json({ error: result.error }, { status: 422 });
       }
+      if (before) auditMeta = { totalAmount: Number(before.totalAmount), paymentMethod: before.paymentMethod, paymentProvider: before.paymentProvider };
       // EN-08.6: el comprador no se enteraba del reembolso. Solo si de verdad se le devolvió dinero por la pasarela (no en efectivo, datáfono ni simulado).
       if (before && before.paymentMethod === 'CARD' && before.paymentProvider && before.paymentProvider !== 'mock' && before.paymentId) {
         await sendRefundEmail('entradas', before, Number(before.totalAmount));
@@ -131,6 +143,13 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       await prisma.order.update({ where: { id: params?.id }, data: { buyerEmail: body.email } });
     }
 
+    // Solo se llega aquí si la acción salió bien (los fallos devuelven antes). Sin lanzar: el dinero o el estado ya se movió.
+    await recordAdminAuditSafe(actorFromSession(session), request, {
+      action: ORDER_AUDIT_ACTION[body.action],
+      targetType: 'Order',
+      targetId: params?.id,
+      meta: body.action === 'update-email' ? { campo: 'buyerEmail' } : auditMeta,
+    });
     const order = await prisma.order.findUnique({
       where: { id: params?.id },
       include: orderInclude,

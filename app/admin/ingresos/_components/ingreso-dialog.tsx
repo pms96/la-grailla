@@ -73,7 +73,7 @@ export function IngresoDialog({ open, onOpenChange, editing, temporadaId, onSave
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) { toast.error('No se pudo guardar el ingreso'); return; }
+      if (!res.ok) { toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo guardar el ingreso'); return; }
       toast.success(editing ? 'Ingreso actualizado' : 'Ingreso registrado');
       onOpenChange(false);
       onSaved();

@@ -8,10 +8,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
-import { Plus, Loader2, Archive, ArchiveRestore } from 'lucide-react';
+import { Plus, Loader2, Archive, ArchiveRestore, Lock, LockOpen } from 'lucide-react';
 import { toast } from 'sonner';
+import { useSession } from 'next-auth/react';
 import { useBrand } from '@/components/brand-provider';
 import { nombreTemporadaPorDefecto } from '@/lib/compras/constantes';
+import { ConfirmDeleteDialog } from '@/app/admin/_components/confirm-delete-dialog';
 
 type Props = {
   temporadas: Temporada[];
@@ -53,8 +55,26 @@ export function TemporadaSelector({
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [archivando, setArchivando] = useState(false);
+  const [cierreOpen, setCierreOpen] = useState(false);
+  // Cerrar y reabrir una temporada es del propietario (la API lo exige; aquí solo se evita ofrecer un botón que daría 403).
+  const { data: session } = useSession();
+  const esPropietario = !session?.user?.modules;
 
   const seleccionada = temporadas.find((t) => t.id === temporadaId) ?? null;
+
+  // Cerrada: no admite altas, cambios ni anulaciones de gastos e ingresos. Reabrir exige motivo y queda en el registro de auditoría.
+  const cambiarCierre = async (motivo?: string) => {
+    if (!seleccionada) return;
+    const cerrar = seleccionada.status !== 'CERRADA';
+    const res = await fetch(`/api/admin/compras/temporadas/${seleccionada.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: cerrar ? 'CERRADA' : 'ABIERTA', ...(motivo ? { motivo } : {}) }),
+    });
+    if (!res.ok) { toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo cambiar el estado de la temporada'); return; }
+    toast.success(cerrar ? `Temporada "${seleccionada.nombre}" cerrada` : `Temporada "${seleccionada.nombre}" reabierta`);
+    onTemporadasChanged?.();
+  };
 
   const archivar = async (temporada: Temporada, archivado: boolean) => {
     const res = await fetch(`/api/admin/compras/temporadas/${temporada.id}`, {
@@ -156,6 +176,17 @@ export function TemporadaSelector({
             {seleccionada.archivado ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
           </Button>
         )}
+        {showArchiveControls && seleccionada && esPropietario && (
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() => setCierreOpen(true)}
+            title={seleccionada.status === 'CERRADA' ? 'Reabrir temporada' : 'Cerrar temporada'}
+            aria-label={seleccionada.status === 'CERRADA' ? 'Reabrir temporada' : 'Cerrar temporada'}
+          >
+            {seleccionada.status === 'CERRADA' ? <LockOpen className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+          </Button>
+        )}
       </div>
 
       {showArchiveControls && (
@@ -167,6 +198,23 @@ export function TemporadaSelector({
           />
           Ver archivadas
         </label>
+      )}
+
+      {seleccionada && (
+        <ConfirmDeleteDialog
+          open={cierreOpen}
+          onOpenChange={setCierreOpen}
+          title={seleccionada.status === 'CERRADA' ? 'Reabrir temporada' : 'Cerrar temporada'}
+          description={
+            seleccionada.status === 'CERRADA'
+              ? `«${seleccionada.nombre}» volverá a admitir gastos e ingresos. Queda registrado quién la reabre y por qué.`
+              : `Al cerrar «${seleccionada.nombre}» no se podrán crear, cambiar ni anular gastos o ingresos. Úsalo cuando ya hayas presentado esas cuentas. La venta online no se ve afectada.`
+          }
+          confirmLabel={seleccionada.status === 'CERRADA' ? 'Reabrir' : 'Cerrar temporada'}
+          reasonLabel={seleccionada.status === 'CERRADA' ? 'Motivo de la reapertura' : 'Nota (opcional)'}
+          reasonRequired={seleccionada.status === 'CERRADA'}
+          onConfirm={cambiarCierre}
+        />
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

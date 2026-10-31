@@ -8,6 +8,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
 import { cancellationProgress, previewCancellation, processCancellation, startCancellation } from '@/lib/event-cancellation';
+import { actorFromSession, recordAdminAuditSafe } from '@/lib/admin-audit';
 
 /* Cancelar un evento con compradores (P1-04). GET = vista previa (cuántos pedidos, cuánto dinero) y estado del trabajo si ya está en marcha.
  * POST `start` = cancela (cierra venta y escáner al instante) y procesa un primer lote; POST `continue` = sigue con el siguiente lote. El resto lo
@@ -47,6 +48,12 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
 
     if (body.action === 'start') {
       const job = await startCancellation(event.id, { refund: body.refund, notify: body.notify, startedBy: session.user?.id ?? null });
+      await recordAdminAuditSafe(actorFromSession(session), request, {
+        action: 'event.cancel',
+        targetType: 'Event',
+        targetId: event.id,
+        meta: { refund: job.refund, notify: job.notify },
+      });
       const progress = await processCancellation(event.id, { deadline: Date.now() + BATCH_MS });
       return NextResponse.json({ progress, options: { refund: job.refund, notify: job.notify } });
     }

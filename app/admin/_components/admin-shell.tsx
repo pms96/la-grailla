@@ -18,7 +18,7 @@ import type { ProviderContact } from '@/lib/license-support';
 import {
   LayoutDashboard, Calendar, Ticket, Users, ShoppingBag, Package,
   BarChart3, Handshake, Settings, LogOut, Menu, X, QrCode, KeyRound, Receipt, Moon,
-  UserPlus, ScanLine, Gauge, ShoppingCart, Wallet, Coins, Palette, MessageSquare, LayoutList,
+  UserPlus, ScanLine, Gauge, ShoppingCart, Wallet, Coins, Palette, MessageSquare, LayoutList, ScrollText,
 } from 'lucide-react';
 
 type NavItem = {
@@ -82,6 +82,7 @@ const navGroups: NavGroup[] = [
       { href: '/admin/sponsors', label: 'Sponsors', icon: Handshake },
       { href: '/admin/mensajes', label: 'Mensajes', icon: MessageSquare },
       { href: '/admin/usuarios', label: 'Usuarios', icon: Users },
+      { href: '/admin/auditoria', label: 'Auditoría', icon: ScrollText },
       { href: '/admin/apariencia', label: 'Apariencia', icon: Palette },
       { href: '/admin/secciones', label: 'Secciones', icon: LayoutList },
       { href: '/admin/configuracion', label: 'Configuración', icon: Settings },

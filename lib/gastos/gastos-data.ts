@@ -25,7 +25,7 @@ export async function getGastosParaExport(temporadaId: string): Promise<GastosEx
   if (!temporada) return null;
 
   const gastos = await prisma.gasto.findMany({
-    where: { temporadaId },
+    where: { temporadaId, voidedAt: null },
     orderBy: { fecha: 'asc' },
     include: { proveedor: true },
   });

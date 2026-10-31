@@ -7,6 +7,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { madridDayKey } from '@/lib/ventas-por-dia';
+import { checkTemporadaAbierta } from '@/lib/contabilidad/control';
+import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
 
 const createGastoSchema = z.object({
   temporadaId: z.string().min(1),
@@ -32,9 +34,12 @@ export async function GET(request: Request) {
     const temporadaId = searchParams.get('temporadaId');
     const categoria = searchParams.get('categoria');
     const proveedorId = searchParams.get('proveedorId');
+    // Los gastos anulados no cuentan en ninguna cifra; solo se listan si se piden (`?anulados=1`) para revisarlos.
+    const incluirAnulados = searchParams.get('anulados') === '1';
 
     const gastos = await prisma.gasto.findMany({
       where: {
+        ...(incluirAnulados ? {} : { voidedAt: null }),
         ...(temporadaId && { temporadaId }),
         ...(categoria && { categoria }),
         ...(proveedorId && { proveedorId }),
@@ -55,23 +60,42 @@ export async function POST(request: Request) {
   }
   try {
     const body = createGastoSchema.parse(await request.json());
-    const gasto = await prisma.gasto.create({
-      data: {
-        temporadaId: body.temporadaId,
-        categoria: body.categoria,
-        concepto: body.concepto,
-        proveedorId: body.proveedorId || null,
-        pedidoId: body.pedidoId || null,
-        importeSinIva: body.importeSinIva,
-        ivaPercent: body.ivaPercent,
-        // Sin fecha: el día natural de Madrid como medianoche UTC (el formato de las demás filas), no el instante actual.
-        fecha: new Date(body.fecha ?? madridDayKey(new Date())),
-        numDocumento: body.numDocumento || null,
-        tipoDocumento: body.tipoDocumento,
-        notas: body.notas || null,
-        createdById: session.user?.id,
-      },
-      include: { proveedor: true, pedido: true },
+    const open = await checkTemporadaAbierta(body.temporadaId);
+    if (!open.ok) return NextResponse.json({ error: open.error, code: open.code }, { status: open.status });
+    // El gasto y su rastro de auditoría se escriben juntos: no puede haber un gasto nuevo sin registro de quién lo creó.
+    const gasto = await prisma.$transaction(async (tx) => {
+      const created = await tx.gasto.create({
+        data: {
+          temporadaId: body.temporadaId,
+          categoria: body.categoria,
+          concepto: body.concepto,
+          proveedorId: body.proveedorId || null,
+          pedidoId: body.pedidoId || null,
+          importeSinIva: body.importeSinIva,
+          ivaPercent: body.ivaPercent,
+          // Sin fecha: el día natural de Madrid como medianoche UTC (el formato de las demás filas), no el instante actual.
+          fecha: new Date(body.fecha ?? madridDayKey(new Date())),
+          numDocumento: body.numDocumento || null,
+          tipoDocumento: body.tipoDocumento,
+          notas: body.notas || null,
+          createdById: session.user?.id,
+        },
+        include: { proveedor: true, pedido: true },
+      });
+      await recordAdminAudit(tx, actorFromSession(session), request, {
+        action: 'gasto.create',
+        targetType: 'Gasto',
+        targetId: created.id,
+        meta: {
+          temporadaId: created.temporadaId,
+          categoria: created.categoria,
+          concepto: created.concepto,
+          importeSinIva: created.importeSinIva,
+          ivaPercent: created.ivaPercent,
+          numDocumento: created.numDocumento,
+        },
+      });
+      return created;
     });
     return NextResponse.json(gasto);
   } catch (error) {

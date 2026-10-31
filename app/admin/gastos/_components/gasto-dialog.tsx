@@ -92,7 +92,7 @@ export function GastoDialog({ open, onOpenChange, editing, temporadaId, proveedo
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) { toast.error('No se pudo guardar el gasto'); return; }
+      if (!res.ok) { toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo guardar el gasto'); return; }
       toast.success(editing ? 'Gasto actualizado' : 'Gasto registrado');
       onOpenChange(false);
       onSaved();

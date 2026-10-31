@@ -9,6 +9,7 @@ import bcrypt from 'bcryptjs';
 import { handleApiError } from '@/lib/api-error';
 import { isModuleEnabled } from '@/lib/modules/runtime';
 import { accessRoleProblem, isOwnerAdmin } from '@/lib/access-roles';
+import { actorFromSession, recordAdminAuditSafe } from '@/lib/admin-audit';
 
 const createUserSchema = z.object({
   email: z.string().min(1, 'email_is_required').email('invalid_email'),
@@ -62,6 +63,12 @@ export async function POST(request: Request) {
     const hashed = await bcrypt.hash(password, 12);
     const user = await prisma.user.create({
       data: { email, name: name ?? '', hashedPassword: hashed, role: role ?? 'USER', accessRole: accessRole ?? null },
+    });
+    await recordAdminAuditSafe(actorFromSession(session), request, {
+      action: 'user.create',
+      targetType: 'User',
+      targetId: user.id,
+      meta: { email: user.email, role: user.role, accessRole: user.accessRole },
     });
     return NextResponse.json({ id: user.id, email: user.email, name: user.name, role: user.role, accessRole: user.accessRole });
   } catch (error) {

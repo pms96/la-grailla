@@ -13,6 +13,7 @@ import { seasonLinkEnabled } from '@/lib/modules/season-link';
 import { canChangeShopOrderStatus } from '@/lib/shop-order-status';
 import { sendShopShippedEmail } from '@/lib/shop/shop-notices';
 import { sendRefundEmail } from '@/lib/reconciliation/gateway-refund';
+import { actorFromSession, recordAdminAuditSafe } from '@/lib/admin-audit';
 
 const updateShopOrderSchema = z.object({
   status: z.enum(['PENDING', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED']).optional(),
@@ -43,6 +44,13 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
         return NextResponse.json({ error: result.error }, { status: 422 });
       }
       const order = await prisma.shopOrder.findUnique({ where: { id: params?.id } });
+      // Cancelar o reembolsar es dinero: queda quién lo hizo (OB-12). Sin datos personales del comprador.
+      await recordAdminAuditSafe(actorFromSession(session), request, {
+        action: body.status === 'REFUNDED' ? 'order.shop_refund' : 'order.shop_cancel',
+        targetType: 'ShopOrder',
+        targetId: params?.id,
+        meta: { totalAmount: order ? Number(order.totalAmount) : null, paymentProvider: order?.paymentProvider ?? null },
+      });
       // EN-08.6 / TI-08: aviso al comprador del reembolso, solo si se le devolvió dinero por la pasarela.
       if (order && before && before.paymentProvider && before.paymentProvider !== 'mock' && before.paymentId) {
         await sendRefundEmail('tienda', order, Number(order.totalAmount));

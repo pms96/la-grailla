@@ -8,6 +8,7 @@ import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
 import { isOwnerAdmin } from '@/lib/access-roles';
 import { PRESET_ROLES, validateCustomRole } from '@/lib/modules/access';
+import { actorFromSession, recordAdminAuditSafe } from '@/lib/admin-audit';
 
 const roleSchema = z.object({ name: z.string(), modules: z.array(z.string()) });
 
@@ -44,6 +45,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Ya existe un rol con ese nombre' }, { status: 409 });
     }
     const role = await prisma.accessRole.create({ data: { name, modules: body.modules } });
+    await recordAdminAuditSafe(actorFromSession(await getServerSession(authOptions)), request, {
+      action: 'role.create',
+      targetType: 'AccessRole',
+      targetId: role.id,
+      meta: { name: role.name, modules: role.modules },
+    });
     return NextResponse.json({ id: role.id, name: role.name, modules: role.modules }, { status: 201 });
   } catch (error) {
     return handleApiError(error, 'POST /api/admin/roles');

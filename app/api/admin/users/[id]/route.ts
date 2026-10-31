@@ -9,6 +9,7 @@ import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { isModuleEnabled } from '@/lib/modules/runtime';
 import { accessRoleProblem, countOwners, isOwnerAdmin } from '@/lib/access-roles';
+import { actorFromSession, recordAdminAuditSafe } from '@/lib/admin-audit';
 
 const updateUserSchema = z.object({
   role: z.enum(['ADMIN', 'TAQUILLA', 'USER']).optional(),
@@ -87,6 +88,20 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
       },
       select: { id: true, name: true, email: true, role: true, accessRole: true },
     });
+    // Nunca la contraseña: solo que se cambió. Rol de cuenta y rol por módulos, de → a.
+    await recordAdminAuditSafe(actorFromSession(session), request, {
+      action: 'user.update',
+      targetType: 'User',
+      targetId: user.id,
+      meta: {
+        email: user.email,
+        // Sin la palabra «password» en la clave: el saneado del registro tapa cualquier clave con ese nombre y perdería el dato.
+        contrasenaCambiada: Boolean(body?.password),
+        role: { from: target?.role ?? null, to: user.role },
+        accessRole: { from: target?.accessRole ?? null, to: user.accessRole },
+        sessionsRevoked: revokeSessions,
+      },
+    });
     return NextResponse.json(user);
   } catch (error) {
     return handleApiError(error, 'PUT /api/admin/users/[id]');
@@ -106,7 +121,7 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
     if (params?.id === session.user?.id) {
       return NextResponse.json({ error: 'No puedes eliminar tu propia cuenta' }, { status: 400 });
     }
-    const target = await prisma.user.findUnique({ where: { id: params?.id }, select: { role: true, accessRole: true } });
+    const target = await prisma.user.findUnique({ where: { id: params?.id }, select: { role: true, accessRole: true, email: true } });
     if (target?.role === 'ADMIN') {
       const adminCount = await prisma.user.count({ where: { role: 'ADMIN' } });
       if (adminCount <= 1) {
@@ -118,6 +133,12 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
     }
     // Al borrarlo, su sesión deja de valer al instante: cada lectura de sesión contrasta con la BD (lib/auth.ts).
     await prisma.user.delete({ where: { id: params?.id } });
+    await recordAdminAuditSafe(actorFromSession(session), request, {
+      action: 'user.delete',
+      targetType: 'User',
+      targetId: params?.id,
+      meta: { email: target?.email ?? null, role: target?.role ?? null, accessRole: target?.accessRole ?? null },
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     return handleApiError(error, 'DELETE /api/admin/users/[id]');

@@ -30,8 +30,8 @@ export async function GET(request: Request) {
     }
 
     const [ingresos, gastos] = await Promise.all([
-      prisma.ingreso.findMany({ where: { temporadaId }, orderBy: { fecha: 'asc' } }),
-      prisma.gasto.findMany({ where: { temporadaId } }),
+      prisma.ingreso.findMany({ where: { temporadaId, voidedAt: null }, orderBy: { fecha: 'asc' } }),
+      prisma.gasto.findMany({ where: { temporadaId, voidedAt: null } }),
     ]);
 
     const ingresoTotal = Math.round(ingresos.reduce((acc, i) => acc + i.importe, 0) * 100) / 100;

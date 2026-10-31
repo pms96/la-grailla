@@ -82,15 +82,22 @@ describe('CRUD /api/admin/ingresos', () => {
     expect(data.importe).toBe(75);
   });
 
-  it('elimina un ingreso', async () => {
+  // P1-16: un ingreso no se borra, se anula con motivo; sigue en la BD pero fuera de las listas y de las cifras.
+  it('anula un ingreso en lugar de borrarlo', async () => {
     const created = await createIngreso(jsonRequest('http://localhost', 'POST', { temporadaId, concepto: 'Comida', importe: 40, fecha: '2026-09-27' }));
     const { id } = await created.json();
 
-    const res = await deleteIngreso(jsonRequest('http://localhost', 'DELETE'), { params: Promise.resolve({ id }) });
+    const sinMotivo = await deleteIngreso(jsonRequest('http://localhost', 'DELETE'), { params: Promise.resolve({ id }) });
+    expect(sinMotivo.status).toBe(400);
+
+    const res = await deleteIngreso(jsonRequest('http://localhost', 'DELETE', { motivo: 'Importe duplicado' }), { params: Promise.resolve({ id }) });
     expect(res.status).toBe(200);
 
     const found = await prisma.ingreso.findUnique({ where: { id } });
-    expect(found).toBeNull();
+    expect(found?.voidedAt).toBeInstanceOf(Date);
+    expect(found?.voidReason).toBe('Importe duplicado');
+    const lista = await (await listIngresos(jsonRequest(`http://localhost/api/admin/ingresos?temporadaId=${temporadaId}`, 'GET'))).json();
+    expect(lista.map((i: { id: string }) => i.id)).not.toContain(id);
   });
 });
 

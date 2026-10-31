@@ -79,10 +79,15 @@ export default function IngresosPage() {
   const openCreate = () => { setEditing(null); setDialogOpen(true); };
   const openEdit = (i: WithNumberFields<Ingreso, 'importe'>) => { setEditing(i); setDialogOpen(true); };
 
-  const confirmDelete = async () => {
+  // Un ingreso no se borra: se anula, con motivo. Deja de contar en las cifras y el registro de auditoría guarda quién y por qué.
+  const confirmDelete = async (motivo?: string) => {
     if (!deleteTarget) return;
-    const res = await fetch(`/api/admin/ingresos/${deleteTarget.id}`, { method: 'DELETE' });
-    if (res.ok) { toast.success('Ingreso eliminado'); fetchDatos(); } else { toast.error('No se pudo eliminar'); }
+    const res = await fetch(`/api/admin/ingresos/${deleteTarget.id}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo }),
+    });
+    if (res.ok) { toast.success('Ingreso anulado'); fetchDatos(); } else { toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo anular el ingreso'); }
     setDeleteTarget(null);
   };
 
@@ -143,7 +148,7 @@ export default function IngresosPage() {
           </div>
 
           <div className="flex justify-end">
-            <Button onClick={openCreate} size="sm" className="gap-2"><Plus className="h-4 w-4" /> Nuevo ingreso</Button>
+            <Button onClick={openCreate} size="sm" className="gap-2" disabled={temporada?.status === 'CERRADA'} title={temporada?.status === 'CERRADA' ? 'Temporada cerrada: el propietario puede reabrirla' : undefined}><Plus className="h-4 w-4" /> Nuevo ingreso</Button>
           </div>
 
           {dias.length === 0 ? (
@@ -205,12 +210,14 @@ export default function IngresosPage() {
       <ConfirmDeleteDialog
         open={!!deleteTarget}
         onOpenChange={(v) => !v && setDeleteTarget(null)}
-        title="Eliminar ingreso"
+        title="Anular ingreso"
         description={
           deleteTarget
-            ? `Se eliminará el ingreso de "${deleteTarget.concepto}" por ${deleteTarget.importe.toFixed(2)}€ del ${new Date(deleteTarget.fecha).toLocaleDateString('es-ES')}. Esta acción no se puede deshacer.`
+            ? `Se anulará el ingreso de "${deleteTarget.concepto}" por ${deleteTarget.importe.toFixed(2)}€ del ${new Date(deleteTarget.fecha).toLocaleDateString('es-ES')}. Dejará de contar en la caja; queda registrado quién lo anuló y por qué.`
             : ''
         }
+        confirmLabel="Anular ingreso"
+        reasonLabel="Motivo de la anulación"
         onConfirm={confirmDelete}
       />
     </div>

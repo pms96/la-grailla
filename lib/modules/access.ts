@@ -35,7 +35,7 @@ export function modulesKey(modules: readonly string[] | null): string {
 const prefixMatch = (path: string, prefix: string) => path === prefix || path.startsWith(`${prefix}/`);
 
 /** Solo el propietario: quien gestiona usuarios y roles podría darse más permisos. */
-const OWNER_ONLY = ['/admin/usuarios', '/api/admin/users', '/admin/roles', '/api/admin/roles'];
+const OWNER_ONLY = ['/admin/usuarios', '/api/admin/users', '/admin/roles', '/api/admin/roles', '/admin/auditoria', '/api/admin/auditoria'];
 /** Abiertas a todo administrador: el inicio, la configuración (que filtra por módulo clave a clave), la contraseña propia y las subidas. */
 const OPEN_TO_ADMINS = ['/admin/configuracion', '/api/admin/config', '/api/admin/change-password', '/api/admin/upload'];
 

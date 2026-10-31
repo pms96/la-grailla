@@ -768,6 +768,9 @@ model Temporada {
   status      TemporadaStatus @default(ABIERTA)
   notas       String?         @db.Text
   archivado   Boolean         @default(false)
+  // P1-16: cuándo y quién la cerró (`status = CERRADA`). Reabrirla lo vuelve a null; el histórico queda en AdminAuditLog.
+  closedAt    DateTime?
+  closedById  String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
@@ -932,6 +935,10 @@ model Gasto {
   tipoDocumento String   @default("Factura")
   notas         String?  @db.Text
   createdById   String?
+  // P1-16: un gasto no se borra, se ANULA (con motivo y autor). Las lecturas contables ignoran los anulados.
+  voidedAt      DateTime?
+  voidedById    String?
+  voidReason    String?  @db.Text
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -956,6 +963,10 @@ model Ingreso {
   importe     Decimal  @db.Decimal(10, 2)
   notas       String?  @db.Text
   createdById String?
+  // P1-16: igual que Gasto, se anula en lugar de borrarse.
+  voidedAt    DateTime?
+  voidedById  String?
+  voidReason  String?  @db.Text
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -963,6 +974,24 @@ model Ingreso {
   createdBy User?     @relation(fields: [createdById], references: [id])
 
   @@index([temporadaId, fecha])
+}
+
+// P1-16 / OB-12: registro de acciones del personal con efecto en dinero, cuentas o accesos. Solo se añade (nunca se edita ni se borra desde la
+// aplicación). `actorEmail` se copia para que el rastro sobreviva a que se borre al usuario. `meta` NUNCA lleva secretos: ver lib/admin-audit.ts.
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  actorId    String?
+  actorEmail String?
+  action     String
+  targetType String
+  targetId   String?
+  meta       Json?
+  ip         String?
+
+  @@index([targetType, targetId])
+  @@index([action, createdAt])
+  @@index([createdAt])
 }
 
 // P0-11: copia inmutable de los textos legales que vio el comprador al aceptar (clave = hash de su contenido). Un pedido guarda ese hash en

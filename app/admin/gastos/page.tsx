@@ -93,10 +93,15 @@ export default function GastosPage() {
   const openCreate = () => { setEditing(null); setDialogOpen(true); };
   const openEdit = (g: WithNumberFields<Gasto, 'importeSinIva' | 'ivaPercent'>) => { setEditing(g); setDialogOpen(true); };
 
-  const confirmDelete = async () => {
+  // Un gasto no se borra: se anula, con motivo. Deja de contar en las cifras y el registro de auditoría guarda quién y por qué.
+  const confirmDelete = async (motivo?: string) => {
     if (!deleteTarget) return;
-    const res = await fetch(`/api/admin/gastos/${deleteTarget.id}`, { method: 'DELETE' });
-    if (res.ok) { toast.success('Gasto eliminado'); fetchDatos(); } else { toast.error('No se pudo eliminar'); }
+    const res = await fetch(`/api/admin/gastos/${deleteTarget.id}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo }),
+    });
+    if (res.ok) { toast.success('Gasto anulado'); fetchDatos(); } else { toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo anular el gasto'); }
     setDeleteTarget(null);
   };
 
@@ -191,7 +196,7 @@ export default function GastosPage() {
                 {exportando === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
                 Exportar PDF
               </Button>
-              <Button onClick={openCreate} size="sm" className="gap-2"><Plus className="h-4 w-4" /> Nuevo gasto</Button>
+              <Button onClick={openCreate} size="sm" className="gap-2" disabled={temporada?.status === 'CERRADA'} title={temporada?.status === 'CERRADA' ? 'Temporada cerrada: el propietario puede reabrirla' : undefined}><Plus className="h-4 w-4" /> Nuevo gasto</Button>
             </div>
           </div>
 
@@ -244,12 +249,14 @@ export default function GastosPage() {
       <ConfirmDeleteDialog
         open={!!deleteTarget}
         onOpenChange={(v) => !v && setDeleteTarget(null)}
-        title="Eliminar gasto"
+        title="Anular gasto"
         description={
           deleteTarget
-            ? `Se eliminará "${deleteTarget.concepto}" por ${(deleteTarget.importeSinIva * (1 + deleteTarget.ivaPercent / 100)).toFixed(2)}€ del ${new Date(deleteTarget.fecha).toLocaleDateString('es-ES')}. Esta acción no se puede deshacer.`
+            ? `Se anulará "${deleteTarget.concepto}" por ${(deleteTarget.importeSinIva * (1 + deleteTarget.ivaPercent / 100)).toFixed(2)}€ del ${new Date(deleteTarget.fecha).toLocaleDateString('es-ES')}. Dejará de contar en las cifras; queda registrado quién lo anuló y por qué.`
             : ''
         }
+        confirmLabel="Anular gasto"
+        reasonLabel="Motivo de la anulación"
         onConfirm={confirmDelete}
       />
     </div>

@@ -14,6 +14,8 @@ const temporada: Temporada = {
   status: 'ABIERTA',
   notas: null,
   archivado: false,
+  closedAt: null,
+  closedById: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };

@@ -36,8 +36,8 @@ export async function GET(request: Request) {
     const hasSponsors = isModuleEnabled('sponsors');
 
     const [gastos, gastosAnterior, eventosEnlazados, patrociniosAgg] = await Promise.all([
-      prisma.gasto.findMany({ where: { temporadaId } }),
-      temporadaAnterior ? prisma.gasto.findMany({ where: { temporadaId: temporadaAnterior.id } }) : Promise.resolve([]),
+      prisma.gasto.findMany({ where: { temporadaId, voidedAt: null } }),
+      temporadaAnterior ? prisma.gasto.findMany({ where: { temporadaId: temporadaAnterior.id, voidedAt: null } }) : Promise.resolve([]),
       hasEntradas ? prisma.event.findMany({ where: { temporadaId }, select: { id: true } }) : Promise.resolve([] as { id: string }[]),
       // Ingreso por patrocinio de la temporada: sponsors marcados como pagados
       // cuya SponsorRequest está asignada a esta temporada (ver
