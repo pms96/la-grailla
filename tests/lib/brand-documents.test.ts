@@ -21,7 +21,7 @@ describe('brandLogoHtml', () => {
   it('sin logo: el nombre escapado, en el color de marca', () => {
     const html = brandLogoHtml(brand('<b>Sala</b> & "Co"'), undefined, 32);
     expect(html).not.toContain('<b>');
-    expect(html).toContain('&lt;b&gt;Sala&lt;/b&gt; &amp; "Co"');
+    expect(html).toContain('&lt;b&gt;Sala&lt;/b&gt; &amp; &quot;Co&quot;'); // H-105: escapeHtml escapa también las comillas
   });
   it('con logo: las comillas del nombre y de la URL no pueden salir del atributo', () => {
     const html = brandLogoHtml(brand('Sala" onerror="alert(1)', { logoOnLight: 'https://s.public.blob.vercel-storage.com/t/brand/logo.png' }), undefined, 32);

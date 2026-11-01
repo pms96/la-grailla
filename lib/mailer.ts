@@ -1,15 +1,9 @@
 import { ConfigReadError, getConfigsOrFail } from '@/lib/config';
 import { getBrand } from '@/lib/brand/brand';
 
-// Cualquier dato de un tercero (nombre de comprador, mensaje de un
-// formulario) que acabe interpolado en el HTML de un email debe pasar por
-// aquí — sin escapar, ese texto podría llevar HTML/enlaces manipulados.
-export function escapeHtml(value: unknown): string {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
+// Cualquier dato de un tercero (nombre de comprador, mensaje de un formulario) que acabe interpolado en el HTML de un email debe pasar por escapeHtml.
+// Una sola implementación (lib/html-escape.ts): había una copia aquí y otra en la ruta de sponsors, y ninguna escapaba las comillas (H-105).
+export { escapeHtml } from '@/lib/html-escape';
 
 export type MailAttachment = { filename: string; content: Buffer; contentType?: string };
 

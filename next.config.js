@@ -102,15 +102,18 @@ const nextConfig = {
     // next dev usa eval() para el Fast Refresh/HMR de webpack — no aplica a
     // production build, así que 'unsafe-eval' solo se permite en desarrollo.
     const isDev = process.env.NODE_ENV !== 'production';
+    // Almacén de Blob: con BLOB_PUBLIC_HOST (la plataforma) SOLO el de este despliegue; el comodín queda para el despliegue antiguo, que no la tiene. Con el comodín,
+    // un XSS podría sacar datos a cualquier almacén de Blob (también de otra cuenta) por img/media/connect. H-112 (lib/blob-url.ts aplica la misma regla a las URLs).
+    const blobSrc = blobHost ? `https://${blobHost}` : 'https://*.public.blob.vercel-storage.com';
     const csp = [
       `default-src 'self'`,
       `script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com${isDev ? " 'unsafe-eval'" : ''}`,
       `worker-src 'self' blob:`,
       `style-src 'self' 'unsafe-inline'`,
-      `img-src 'self' data: blob: https://*.public.blob.vercel-storage.com`,
+      `img-src 'self' data: blob: ${blobSrc}`,
       // El vídeo final y los vídeos de referencia del sponsor se sirven
       // desde Vercel Blob, igual que las imágenes de arriba.
-      `media-src 'self' https://*.public.blob.vercel-storage.com`,
+      `media-src 'self' ${blobSrc}`,
       `font-src 'self' data:`,
       // La subida de archivos del sponsor/admin va DIRECTA del navegador a
       // Vercel Blob (@vercel/blob/client) para no chocar con el límite de
@@ -118,7 +121,7 @@ const nextConfig = {
       // de https://vercel.com/api/blob (no directamente al dominio de
       // *.public.blob.vercel-storage.com, que solo sirve lecturas) — sin
       // ambos orígenes aquí, el PUT del navegador lo bloquea la CSP.
-      `connect-src 'self' https://vercel.com https://*.public.blob.vercel-storage.com https://challenges.cloudflare.com`,
+      `connect-src 'self' https://vercel.com ${blobSrc} https://challenges.cloudflare.com`,
       `frame-src https://www.google.com https://maps.google.com https://challenges.cloudflare.com`,
       `object-src 'none'`,
       `base-uri 'self'`,

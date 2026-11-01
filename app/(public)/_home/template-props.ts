@@ -8,7 +8,8 @@ export type HomeTemplateProps = {
   brandName: string;
   hero: Pick<HeroProps, 'badge' | 'title' | 'subtitle' | 'primaryCta'>;
   events: readonly TemplateEvent[];
-  loadError: boolean;
+  /** Sin uso desde H-104: un fallo de carga lanza (500) y lo pinta app/(public)/error.tsx; las plantillas conservan su aviso por si una página lo vuelve a pasar. */
+  loadError?: boolean;
   hasEntradas: boolean;
   hasTienda: boolean;
   hasSponsors: boolean;
@@ -36,6 +37,7 @@ export type HomeTemplateProps = {
 export type EventosTemplateProps = {
   brandName: string;
   events: readonly TemplateEvent[];
-  loadError: boolean;
+  /** Sin uso desde H-104 (ver HomeTemplateProps). */
+  loadError?: boolean;
   italicAccent?: boolean;
 };

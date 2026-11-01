@@ -4,10 +4,11 @@ import { Handshake, Building2, Users, Megaphone } from 'lucide-react';
 import { FadeIn, SlideIn } from '@/components/ui/animate';
 import SponsorForm from './_components/sponsor-form';
 import { getBrand } from '@/lib/brand/brand';
-import { getConfigs } from '@/lib/config';
+import { getConfigsOrFail } from '@/lib/config';
 import { isLegacyTenant } from '@/lib/tenant/context';
 import { PageBanner, hasBanner, type BannerTemplate } from '../_templates/page-banner';
 import { canonicalAlternates } from '@/lib/seo/canonical';
+import { getCaptchaSiteKey } from '@/lib/captcha';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
@@ -19,12 +20,14 @@ export async function generateMetadata() {
 
 export default async function SponsorsPage() {
   const brand = await getBrand();
+  // Clave pública del captcha del cliente ('' = sin captcha): el formulario manda un correo a la dirección que se escriba.
+  const captchaSiteKey = await getCaptchaSiteKey();
   // Plantillas nuevas (marquesina, galería, tipo): cabecera propia con los textos del cliente (los mismos que usa su portada) en lugar del
   // titular fijo de Feria.
   const banner = hasBanner(brand.template);
   const legacy = isLegacyTenant();
   // Cabecera fija de Feria: los textos de La Grailla son suyos. Otro cliente con Feria usa los que haya escrito (Configuración → Contenido) o unos neutros.
-  const copy = banner || !legacy ? await getConfigs(['home_sponsors_cta_title', 'home_sponsors_cta_subtitle']) : null;
+  const copy = banner || !legacy ? await getConfigsOrFail(['home_sponsors_cta_title', 'home_sponsors_cta_subtitle']) : null;
   return (
     <>
     {banner && copy && (
@@ -108,7 +111,7 @@ export default async function SponsorsPage() {
                   <p className="text-sm text-muted-foreground mb-6">
                     Te respondemos por email. Sin compromiso.
                   </p>
-                  <SponsorForm />
+                  <SponsorForm captchaSiteKey={captchaSiteKey} />
                 </CardContent>
               </Card>
             </FadeIn>

@@ -6,8 +6,9 @@ services:
       POSTGRES_USER: lagrailla
       POSTGRES_PASSWORD: lagrailla
       POSTGRES_DB: lagrailla
+    # Solo en este equipo (H-108): las credenciales son conocidas (lagrailla/lagrailla); sin `127.0.0.1` Docker publicaba el puerto en todas las interfaces.
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     volumes:
       - lagrailla_postgres_data:/var/lib/postgresql/data
     healthcheck:

@@ -1,10 +1,10 @@
 import { ShoppingBag } from 'lucide-react';
-import { errorForLog } from '@/lib/api-error';
+import { loadOrFail } from '@/lib/public-load';
 import { Container } from '@/components/layouts/container';
 import { FadeIn } from '@/components/ui/animate';
 import ShopGrid from './_components/shop-grid';
 import { getBrand } from '@/lib/brand/brand';
-import { getConfigs } from '@/lib/config';
+import { getConfigsOrFail } from '@/lib/config';
 import { PageBanner, hasBanner } from '../_templates/page-banner';
 import { DropShop } from '../_home/drop/drop-shop';
 import { getShopProducts } from '@/lib/shop/products';
@@ -25,15 +25,9 @@ export default async function TiendaPage(props: { searchParams?: Promise<{ categ
   const brand = await getBrand();
   // «drop»: la tienda se renderiza en servidor (listado con filtros por URL y una ficha por producto). El resto de plantillas conservan la de siempre.
   if (brand.template === 'drop') {
-    const copy = await getConfigs(['home_shop_title', 'home_shop_subtitle']);
-    let products: ShopProductView[] = [];
-    let loadError = false;
-    try {
-      products = await getShopProducts();
-    } catch (error) {
-      console.error('[TiendaPage] Error al cargar los productos:', errorForLog(error));
-      loadError = true;
-    }
+    const copy = await getConfigsOrFail(['home_shop_title', 'home_shop_subtitle']);
+    // H-104: si la BD falla, LANZA (500, que el CDN no guarda) en vez de pintar un aviso con 200 que el CDN serviría a todos 60-90 s.
+    const products: ShopProductView[] = await loadOrFail('TiendaPage', () => getShopProducts());
     const raw = searchParams?.categoria;
     return (
       <DropShop
@@ -42,13 +36,12 @@ export default async function TiendaPage(props: { searchParams?: Promise<{ categ
         lead={copy.home_shop_subtitle || 'Elige talla y color antes de pagar.'}
         products={products}
         category={typeof raw === 'string' ? raw.slice(0, 80) : null}
-        loadError={loadError}
       />
     );
   }
   // Plantillas nuevas (marquesina, galería, tipo): cabecera propia con los textos que el cliente ha escrito en Configuración → Contenido.
   if (hasBanner(brand.template)) {
-    const copy = await getConfigs(['home_shop_title', 'home_shop_subtitle']);
+    const copy = await getConfigsOrFail(['home_shop_title', 'home_shop_subtitle']);
     return (
       <>
         <PageBanner

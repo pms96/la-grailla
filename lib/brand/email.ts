@@ -1,8 +1,8 @@
 import { escapeHtml } from '@/lib/html-escape';
 import { absoluteBrandUrl, type Brand } from './brand';
 
-// escapeHtml no toca las comillas: dentro de un atributo (src="…", alt="…") hay que escaparlas también.
-const attr = (v: string) => escapeHtml(v).replace(/"/g, '&quot;');
+// escapeHtml ya escapa las comillas: vale también dentro de un atributo (src="…", alt="…").
+const attr = escapeHtml;
 
 /** Cabecera de marca para emails y páginas imprimibles: el logo (versión para fondo claro) o, sin logo, el nombre en el color de marca. */
 export function brandLogoHtml(brand: Brand, baseUrl: string | undefined, height: number, extraStyle = ''): string {

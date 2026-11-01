@@ -7,10 +7,18 @@ node_modules/
 /out/
 /build
 
-# env
+# env: cualquier `.env.<algo>` (p. ej. el `.env.production` de `vercel env pull`) queda fuera; solo la plantilla se versiona (H-109)
 .env
-.env*.local
-.env.test
+.env.*
+!.env.example
+
+# certificados y claves privadas (el certificado de Apple Wallet es un .p12)
+*.p12
+*.pfx
+*.key
+*.keystore
+*.jks
+*.mobileprovision
 
 # testing
 /coverage

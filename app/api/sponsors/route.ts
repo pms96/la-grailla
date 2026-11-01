@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { getFallbackBaseUrl } from '@/lib/url';
+import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
@@ -11,24 +12,44 @@ import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { normalizePhone } from '@/lib/phone';
 import { getBrand } from '@/lib/brand/brand';
 import { brandLogoHtml } from '@/lib/brand/email';
+import { escapeHtml as esc } from '@/lib/html-escape';
+import { normalizePublicUrl } from '@/lib/safe-url';
+import { captchaRejection, verifyCaptcha } from '@/lib/captcha';
 
-// Los campos del formulario van directos al HTML de dos emails reales (a
-// administrador y al remitente) — sin escapar, cualquiera podía
-// meter HTML/enlaces en "Mensaje" y que llegara con apariencia manipulada.
-function esc(value: unknown): string {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
+// Los campos del formulario van directos al HTML de dos emails reales (a administrador y al remitente): todos pasan por `esc` (que escapa también las
+// comillas, porque `website` y `email` van dentro de un `href`).
+
+// Esta confirmación se manda a CUALQUIER email que se escriba en el formulario: el nombre de contacto sale en su primera línea, así que no puede llevar un enlace
+// ni una dirección (sería un mensaje de phishing con la marca del cliente a una víctima ajena). H-105.
+const CONTACT_NAME_WITH_LINK = /:\/\/|www\.|@|\.(com|es|net|org|io|co|me|ly|gl|app|xyz|top|info|biz|cc|tk|ru|cn)\b/i;
 
 const createSponsorRequestSchema = z.object({
   companyName: z.string().min(1).max(200),
-  contactName: z.string().min(1).max(200),
+  contactName: z
+    .string()
+    .min(1)
+    .max(100)
+    .refine((v) => !CONTACT_NAME_WITH_LINK.test(v), { message: 'El nombre de contacto no puede incluir enlaces ni direcciones' }),
   email: z.string().email().max(255),
   phone: z.string().max(30).optional().nullable(),
-  website: z.string().max(300).optional().nullable(),
+  // Solo una dirección web http(s) (con o sin «https://»): va dentro de un `href` del correo al operador.
+  website: z
+    .string()
+    .max(300)
+    .optional()
+    .nullable()
+    .transform((v, ctx) => {
+      if (v == null || v.trim() === '') return null;
+      const url = normalizePublicUrl(v);
+      if (!url) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Escribe una dirección web válida (por ejemplo https://tuempresa.com)' });
+        return z.NEVER;
+      }
+      return url;
+    }),
   message: z.string().max(5000).optional().nullable(),
+  // Token del captcha (Turnstile) si el cliente lo tiene activado; ver lib/captcha.ts.
+  captchaToken: z.string().max(2100).optional(),
   // Checkbox obligatorio del formulario público — el alta manual desde admin
   // no lo exige (consentimiento obtenido por otra vía).
   consentAccepted: z.literal(true, {
@@ -46,9 +67,23 @@ export async function POST(request: Request) {
       );
     }
 
-    const { companyName, contactName, email, phone, website, message } = createSponsorRequestSchema.parse(
+    const { companyName, contactName, email, phone, website, message, captchaToken } = createSponsorRequestSchema.parse(
       await request.json()
     );
+
+    // Captcha del cliente (si lo tiene activado) ANTES de escribir nada y de mandar ningún correo.
+    const captcha = await verifyCaptcha(request, captchaToken, 'sponsor');
+    if (!captcha.ok) return captchaRejection(captcha);
+
+    // Tope por DESTINATARIO: el de la IP (arriba) lo esquiva quien cambie de IP, y este formulario manda un correo a la dirección que se escriba. Va con el hash
+    // del email (el buzón no queda en claro en la tabla de topes).
+    const emailLimit = await rateLimit('sponsors-email', createHash('sha256').update(email.trim().toLowerCase()).digest('hex'), 3, 24 * 60 * 60_000);
+    if (!emailLimit.ok) {
+      return NextResponse.json(
+        { error: 'Ya hemos recibido varias solicitudes con este email. Espera un día o escríbenos directamente.' },
+        { status: 429, headers: { 'Retry-After': String(emailLimit.retryAfter) } }
+      );
+    }
 
     const sponsorReq = await prisma.sponsorRequest.create({
       data: {

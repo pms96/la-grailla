@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { errorForLog } from '@/lib/api-error';
+import { loadOrFail } from '@/lib/public-load';
 import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { prisma, type EventWithAvailability } from '@/lib/prisma';
 import { EVENT_MAX_DURATION_MS, hasEventEnded } from '@/lib/active-event';
@@ -8,10 +8,9 @@ import { getOnlineSalesClosedLabel } from '@/lib/online-sales-closed';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, MapPin, Music, Ticket, WifiOff } from 'lucide-react';
+import { Calendar, MapPin, Music, Ticket } from 'lucide-react';
 import { FadeIn, Stagger, StaggerItem } from '@/components/ui/animate';
 import { Container } from '@/components/layouts/container';
-import { ReloadButton } from '@/components/reload-button';
 import { getBrand } from '@/lib/brand/brand';
 import { isLegacyTenant } from '@/lib/tenant/context';
 import { PageBanner } from '../_templates/page-banner';
@@ -38,44 +37,40 @@ export async function generateMetadata() {
 }
 
 export default async function EventosPage() {
-  let events: EventWithAvailability[] = [];
-  let loadError = false;
-  try {
-    // La consulta acota por el máximo posible y `hasEventEnded` decide (inicio + margen, o la hora de fin si dura más: H-079).
-    const upcoming = await prisma.event.findMany({
+  // H-104: si la BD falla, la página LANZA (500, que el CDN no guarda) en vez de pintar un aviso con 200 que el CDN serviría a todos 60-90 s. Lo pinta app/(public)/error.tsx.
+  // La consulta acota por el máximo posible y `hasEventEnded` decide (inicio + margen, o la hora de fin si dura más: H-079).
+  const upcoming = await loadOrFail('EventosPage', () =>
+    prisma.event.findMany({
       where: { status: 'PUBLISHED', date: { gte: new Date(Date.now() - EVENT_MAX_DURATION_MS) } },
       // Todos los tipos activos (no solo el más barato): el estado de venta y «Desde» salen de lo vendido de cada uno.
       include: { ticketTypes: { where: { isActive: true }, orderBy: { price: 'asc' } }, ...ISSUED_TICKETS_COUNT },
       orderBy: { date: 'asc' },
-    });
-    events = upcoming.filter((e) => !hasEventEnded(e.date, e.endTime));
-  } catch (error) {
-    console.error('[EventosPage] Error al cargar eventos:', errorForLog(error));
-    loadError = true;
-  }
+    })
+  );
+  const events: EventWithAvailability[] = upcoming.filter((e) => !hasEventEnded(e.date, e.endTime));
 
   const brand = await getBrand();
   if (brand.template === 'marquesina') {
-    return <EventosMarquesina brandName={brand.name} events={events.map(toTemplateEvent)} loadError={loadError} />;
+    return <EventosMarquesina brandName={brand.name} events={events.map(toTemplateEvent)} />;
   }
   if (brand.template === 'drop') {
-    return <EventosDrop brandName={brand.name} events={events.map(toTemplateEvent)} loadError={loadError} />;
+    return <EventosDrop brandName={brand.name} events={events.map(toTemplateEvent)} />;
   }
   if (brand.template === 'cine') {
-    return <EventosCine brandName={brand.name} events={events.map(toTemplateEvent)} loadError={loadError} />;
+    return <EventosCine brandName={brand.name} events={events.map(toTemplateEvent)} />;
   }
   if (brand.template === 'estudio') {
-    return <EventosEstudio brandName={brand.name} events={events.map(toTemplateEvent)} loadError={loadError} />;
+    return <EventosEstudio brandName={brand.name} events={events.map(toTemplateEvent)} />;
   }
   if (brand.template === 'tipo') {
-    return <EventosTipo brandName={brand.name} events={events.map(toTemplateEvent)} loadError={loadError} />;
+    return <EventosTipo brandName={brand.name} events={events.map(toTemplateEvent)} />;
   }
   if (brand.template === 'galeria') {
     return (
       <EventosGaleria
         brandName={brand.name}
         events={events.map(toTemplateEvent)}
-        loadError={loadError}
+       
         italicAccent={brand.theme?.fonts.display === 'instrument-serif'}
       />
     );
@@ -93,9 +88,7 @@ export default async function EventosPage() {
           lead="Elige fecha, compra online y llega con el QR listo."
         />
         <div className="mx-auto max-w-[1200px] px-4 py-10 pb-16 md:py-14">
-          {loadError ? (
-            <LoadErrorPanel />
-          ) : events.length === 0 ? (
+          {events.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 px-6 py-16 text-center">
               <Calendar className="h-12 w-12 text-primary/40 mx-auto mb-4" aria-hidden />
               <h2 className="font-display text-xl font-semibold tracking-tight mb-2">Todavía no hay fechas publicadas</h2>
@@ -147,9 +140,7 @@ export default async function EventosPage() {
 
       <Container size="lg">
         <div className="py-10 pb-16">
-          {loadError ? (
-            <LoadErrorPanel />
-          ) : (events?.length ?? 0) === 0 ? (
+          {(events?.length ?? 0) === 0 ? (
             <FadeIn>
               <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 px-6 py-20 text-center">
                 <Music className="h-14 w-14 text-primary/40 mx-auto mb-4" aria-hidden />
@@ -216,26 +207,6 @@ export default async function EventosPage() {
         </div>
       </Container>
     </div>
-  );
-}
-
-function LoadErrorPanel() {
-  return (
-    <FadeIn>
-      <div
-        className="rounded-2xl border border-destructive/30 bg-destructive/5 px-6 py-20 text-center"
-        role="alert"
-      >
-        <WifiOff className="h-14 w-14 text-destructive/60 mx-auto mb-4" aria-hidden />
-        <h2 className="font-display text-xl font-bold tracking-tight mb-2">
-          No hemos podido cargar la programación
-        </h2>
-        <p className="text-muted-foreground max-w-md mx-auto mb-6">
-          Fallo de conexión o del servidor — no significa que no haya fechas. Prueba de nuevo.
-        </p>
-        <ReloadButton label="Reintentar" className="gap-2 font-display font-semibold" />
-      </div>
-    </FadeIn>
   );
 }
 

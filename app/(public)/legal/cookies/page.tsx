@@ -1,7 +1,7 @@
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
 
-import { getConfig } from '@/lib/config';
+import { getConfigsOrFail } from '@/lib/config';
 import { getBrand } from '@/lib/brand/brand';
 import { LegalShell } from '../../_templates/legal-shell';
 import { canonicalAlternates } from '@/lib/seo/canonical';
@@ -11,7 +11,8 @@ export function generateMetadata() {
 }
 
 export default async function CookiesPolicyPage() {
-  const [text, brand] = await Promise.all([getConfig('cookies_policy'), getBrand()]);
+  // H-104: si la BD falla, LANZA (500, que el CDN no guarda): con `getConfig` se pintaba el texto genérico con 200 y el CDN lo servía a todos 60-90 s.
+  const [{ cookies_policy: text }, brand] = await Promise.all([getConfigsOrFail(['cookies_policy']), getBrand()]);
   const mailto = brand.contactEmail;
 
   return (

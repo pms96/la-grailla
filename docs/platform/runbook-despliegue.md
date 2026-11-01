@@ -189,3 +189,36 @@ No hay migraciones. Casi todo es del panel (se despliega solo) más un cambio en
 - El smoke no comprueba que sirva el despliegue NUEVO (el `/api/health` público no trae versión) ni cubre la puerta, la cola ni el POST de checkout.
 - Sin verificar en navegador: la fila nueva de Salud (latido de registros) y el pill ámbar de migraciones.
 
+
+## 12. Seguridad general y dependencias: lo que cambia y los límites (lote 10)
+
+No hay migraciones. Cambia el front (`next.config.js`, páginas públicas, formulario de sponsors) y el repositorio (`.gitignore`, `docker-compose.yml`, workflows, dependencias).
+
+**Lo que cambia**
+
+- **Fallo de BD en las páginas públicas (H-104):** `/`, `/eventos`, la ficha de un evento, `/tienda`, `/sponsors` y las páginas legales dan un **500** (lo pinta `app/(public)/error.tsx`, con el mismo menú y pie) en vez de un aviso con 200. El CDN de Vercel solo guarda 200, 301, 302, 307, 308, 404 y 410, así que el fallo ya no se sirve a todos los visitantes 60-90 s después de que la BD vuelva. «Reintentar» recarga con `?_r=…` para saltarse la copia del CDN. Efecto lateral bueno: **una ficha de evento que no existe responde 404 de verdad** (antes 200 con `noindex`, y se guardaba en el CDN). Para que esto siga siendo así, `/eventos` y `/eventos/[slug]` NO deben tener `loading.tsx` (un test lo vigila para cualquier ruta con caché de CDN). Los errores llegan a Sentry por `instrumentation.ts`; en el log queda el motivo redactado, sin la consulta ni los datos del comprador.
+- **Sponsors (H-105):** el formulario público acepta como web solo una dirección http(s) (con o sin «https://»), el nombre de contacto no puede llevar enlaces ni direcciones (esa confirmación sale a CUALQUIER email que se escriba), cada email recibe como mucho 3 solicitudes al día y, si el cliente tiene el captcha activado (Turnstile, Configuración → General), el formulario también lo pasa (acción `sponsor`). `escapeHtml` escapa ya las comillas, para todos los correos y PDFs.
+- **CSP (H-112):** con `BLOB_PUBLIC_HOST` definida, `img-src`, `media-src` y `connect-src` solo admiten ese almacén de Blob; sin ella (el proyecto antiguo) se mantiene el comodín `*.public.blob.vercel-storage.com`. **Antes de definirla en un proyecto, comprueba que TODAS las imágenes y vídeos suben y se leen de ese almacén** (los de otro almacén dejarían de verse; la app ya los rechaza al guardar desde H-067).
+- **Repositorio (H-108, H-109, H-110, H-114):** Postgres de desarrollo solo escucha en `127.0.0.1` (si lo usas desde otra máquina, cambia el puerto a mano); `.gitignore` deja fuera cualquier `.env.<algo>` salvo `.env.example` y los certificados (`*.p12`, `*.pfx`, `*.key`…); 26 dependencias sin uso fuera (`react-is` se queda: es par de recharts); `actions/checkout` y `actions/setup-node` fijadas por SHA y `.github/dependabot.yml` propone cada mes las versiones nuevas (revisar y aceptar esos PR).
+
+**Rotar `NEXTAUTH_SECRET` en un incidente (H-113)** — es una medida fuerte, que corta cosas; úsala solo si el secreto ha podido salir. En modo plataforma el equivalente es `LEGACY_NEXTAUTH_SECRET` (cliente legacy) o `PLATFORM_SESSION_MASTER` / la época de cada cliente (resto).
+
+Qué deja de valer al cambiarlo, todo a la vez:
+1. **Todas las sesiones** (admin, taquilla, sponsors con sesión): hay que volver a entrar. No lo hagas durante un evento.
+2. **Todos los enlaces con `?t=` ya enviados**: confirmación y PDF de pedidos de entradas y de tienda, entradas, enlace del portal de sponsors. Los compradores los tendrán rotos hasta que se les reenvíen.
+3. **Las credenciales cifradas de `AppConfig`** (pasarelas Stripe/SumUp de entradas y tienda, certificado y contraseña de Apple Wallet, cuenta de servicio de Google Wallet, clave de Abacus, clave secreta del captcha): la clave de cifrado sale de ese secreto. Sin volver a escribirlas, esas funciones dan 503 con aviso (no se vacían en silencio).
+
+Pasos:
+1. **Antes:** apunta (en tu gestor de contraseñas, no en el repositorio) las credenciales del punto 3, o ten a mano de dónde sacarlas (paneles de Stripe/SumUp, Apple, Google). Elige una hora sin ventas. Si hay una jornada en curso, espera.
+2. Genera el nuevo valor (`openssl rand -base64 32`), cámbialo en Vercel (Production, y Preview si la usa) y **redespliega** (las variables solo se aplican con un despliegue nuevo).
+3. **Justo después:** entra en `/admin/configuracion` y vuelve a introducir las credenciales del punto 3; en Configuración → Pagos usa «Probar conexión» con cada pasarela.
+4. **Reenvía los enlaces** que importen: «Reenviar email» en los pedidos recientes (entradas y tienda) y «Reenviar invitación» a los sponsors con portal activo. Los PDF y confirmaciones antiguos de los compradores dejan de abrirse; avísalos si procede.
+5. Comprueba que `/api/health` responde 200 y que un pedido de prueba cobra y manda su correo.
+- Rotar solo los enlaces de UN sponsor o de UN pedido NO requiere tocar el secreto: «Regenerar enlace» del portal del sponsor y la versión de token por pedido los invalidan por separado.
+
+**Límites aceptados**
+
+- Marca degradada en el CDN (H-160): con la BD caída, `getBrand()` cae a la marca neutra y las páginas que no leen nada más se guardan con ella 60-90 s. Para el cliente legacy cae a la semilla de La Grailla (la marca correcta); hoy no hay otros clientes en producción. Revisar al dar de alta el primero.
+- `/eventos` y la ficha ya no enseñan el esqueleto de carga al navegar entre páginas (hay que quitar `loading.tsx` para que el estado HTTP sea el real); con la copia en el CDN la espera es mínima.
+- Las ramas de aviso de error por plantilla (`loadError`) quedan sin uso (H-159, limpieza menor).
+- Subir el panel de control de Next 14 a 15.5 (H-107) sigue pendiente, en un lote aparte.

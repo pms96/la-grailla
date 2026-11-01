@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
+import { CaptchaWidget, type CaptchaWidgetHandle } from '@/components/captcha-widget';
+import { normalizePublicUrl } from '@/lib/safe-url';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,16 +30,25 @@ function validateField(key: keyof FormState, value: string): string | undefined 
     case 'companyName':
       return value.trim() ? undefined : 'Indica el nombre de la empresa';
     case 'contactName':
-      return value.trim() ? undefined : 'Indica una persona de contacto';
+      if (!value.trim()) return 'Indica una persona de contacto';
+      // Mismo criterio que el servidor: este nombre sale en la confirmación que se manda al email indicado.
+      return /:\/\/|www\.|@/i.test(value) ? 'El nombre no puede incluir enlaces ni direcciones' : undefined;
     case 'email':
       return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()) ? undefined : 'Introduce un email válido';
+    case 'website':
+      return !value.trim() || normalizePublicUrl(value) ? undefined : 'Escribe una dirección web válida, por ejemplo https://tuempresa.com';
     default:
       return undefined;
   }
 }
 
-export default function SponsorForm() {
+export default function SponsorForm({ captchaSiteKey = '' }: { /** Clave pública del captcha (Turnstile) del cliente; vacía = sin captcha. */ captchaSiteKey?: string }) {
   const { name: brandName } = useBrand();
+  // Captcha: cada token vale para un único envío, así que se pide otro tras cada respuesta.
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const captchaRef = useRef<CaptchaWidgetHandle>(null);
+  // Si el script de Cloudflare no carga (bloqueador de anuncios, red), se envía sin token y decide el servidor.
+  const [captchaUnavailable, setCaptchaUnavailable] = useState(false);
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState<FormState>({
@@ -87,12 +98,17 @@ export default function SponsorForm() {
       return;
     }
 
+    if (captchaSiteKey && !captchaToken && !captchaUnavailable) {
+      toast.error('Estamos haciendo una comprobación de seguridad. Inténtalo de nuevo en unos segundos.');
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await fetch('/api/sponsors', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, consentAccepted: true }),
+        body: JSON.stringify({ ...form, consentAccepted: true, captchaToken: captchaToken ?? undefined }),
       });
       const data = await res.json();
       if (data?.success) {
@@ -105,6 +121,7 @@ export default function SponsorForm() {
       toast.error('Error de conexión');
     } finally {
       setLoading(false);
+      if (captchaSiteKey) captchaRef.current?.reset();
     }
   };
 
@@ -176,10 +193,16 @@ export default function SponsorForm() {
           <Input
             value={form.website}
             onChange={handleChange('website')}
+            onBlur={handleBlur('website')}
             className="mt-1"
             placeholder="https://tuempresa.com o instagram.com/tuempresa"
+            aria-invalid={Boolean(errors.website)}
           />
-          <p className="text-xs text-muted-foreground mt-1">Nos ayuda a conocer tu marca para adaptar mejor el material que preparemos.</p>
+          {errors.website ? (
+            <p className="text-xs text-destructive-text mt-1">{errors.website}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground mt-1">Nos ayuda a conocer tu marca para adaptar mejor el material que preparemos.</p>
+          )}
         </div>
         <div>
           <Label>Mensaje</Label>
@@ -207,6 +230,18 @@ export default function SponsorForm() {
         </div>
         {consentTouched && !consentAccepted && (
           <p className="text-xs text-destructive-text -mt-2">Debes aceptar la política de privacidad para enviar la solicitud</p>
+        )}
+        {captchaSiteKey && (
+          <CaptchaWidget
+            ref={captchaRef}
+            siteKey={captchaSiteKey}
+            action="sponsor"
+            onToken={(t) => {
+              setCaptchaToken(t);
+              if (t) setCaptchaUnavailable(false);
+            }}
+            onUnavailable={() => setCaptchaUnavailable(true)}
+          />
         )}
         <Button onClick={handleSubmit} disabled={loading} className="gap-2">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

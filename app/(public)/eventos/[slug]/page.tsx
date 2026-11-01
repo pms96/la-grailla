@@ -1,5 +1,5 @@
 import { prisma, type EventWithAvailability } from '@/lib/prisma';
-import { errorForLog } from '@/lib/api-error';
+import { loadOrFail } from '@/lib/public-load';
 import { EVENT_CANCELLED_NOTICE } from '@/lib/event-cancelled-copy';
 import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { notFound } from 'next/navigation';
@@ -18,7 +18,6 @@ import { MobileBuyBar } from './_components/mobile-buy-bar';
 import { eventSaleState } from '@/lib/event-sale-state';
 import { MapFacade } from './_components/map-facade';
 import { AgeWarningGate } from './_components/age-warning-gate';
-import { ReloadButton } from '@/components/reload-button';
 import { absoluteBrandUrl, getBrand } from '@/lib/brand/brand';
 import { PageBanner, hasBanner } from '../../_templates/page-banner';
 import { canonicalAlternates, siteBaseUrl } from '@/lib/seo/canonical';
@@ -52,39 +51,17 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
 
 export default async function EventoDetailPage(props: { params: Promise<{ slug: string }> }) {
   const params = await props.params;
-  let event: EventWithAvailability | null = null;
-  let loadError = false;
-  try {
-    event = await prisma.event.findUnique({
+  // H-104: si la BD falla, la ficha LANZA (500, que el CDN no guarda) en vez de pintar un aviso con 200 que el CDN serviría a todos 60-90 s. Sin `loading.tsx` en la ruta,
+  // además, una ficha que no existe responde 404 de verdad (con él salía 200 y el CDN la guardaba).
+  const event: EventWithAvailability | null = await loadOrFail('EventoDetailPage', () =>
+    prisma.event.findUnique({
       where: { slug: params?.slug },
       include: {
         ticketTypes: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } },
         ...ISSUED_TICKETS_COUNT,
       },
-    });
-  } catch (error) {
-    console.error('[EventoDetailPage] Error al cargar el evento:', errorForLog(error));
-    loadError = true;
-  }
-
-  if (loadError) {
-    return (
-      <Container size="md">
-        <div className="py-20 text-center space-y-4" role="alert">
-          <p className="font-display text-xl font-bold tracking-tight">No hemos podido cargar el evento</p>
-          <p className="text-sm text-muted-foreground max-w-md mx-auto">
-            Fallo de conexión o del servidor. Prueba de nuevo en unos segundos.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <ReloadButton label="Reintentar" className="gap-2" />
-            <Button asChild variant="outline">
-              <Link href="/eventos">Ver programación</Link>
-            </Button>
-          </div>
-        </div>
-      </Container>
-    );
-  }
+    })
+  );
 
   if (!event) notFound();
   // H-059: un borrador no se sirve por su slug; solo lo previsualiza quien gestiona los eventos (ADMIN con Entradas). La sesión solo se lee para los borradores.

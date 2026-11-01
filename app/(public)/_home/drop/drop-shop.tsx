@@ -26,7 +26,8 @@ export function DropShop({
   products: readonly ShopProductView[];
   /** Categoría pedida en la URL (puede no existir: entonces se enseña todo). */
   category?: string | null;
-  loadError: boolean;
+  /** Sin uso desde H-104: un fallo de carga lanza (500) y lo pinta app/(public)/error.tsx. */
+  loadError?: boolean;
 }) {
   const categories = categoriesOf(products);
   const shown = filterByCategory(products, category);

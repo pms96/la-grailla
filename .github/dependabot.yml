@@ -1,0 +1,7 @@
+version: 2
+updates:
+  # Las acciones de los workflows están fijadas por SHA (H-114): sin esto no se enteran de las versiones nuevas ni de los parches de seguridad.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

@@ -49,8 +49,8 @@ export type CaptchaWidgetHandle = {
 
 type Props = {
   siteKey: string;
-  /** Acción que el servidor comprueba (`order`, `shop-order`, `queue`): un token no vale para otra. */
-  action: 'order' | 'shop-order' | 'queue';
+  /** Acción que el servidor comprueba (`order`, `shop-order`, `queue`, `sponsor`): un token no vale para otra. */
+  action: 'order' | 'shop-order' | 'queue' | 'sponsor';
   /** Token listo, o null cuando caduca o falla. */
   onToken: (token: string | null) => void;
   /** El widget no puede funcionar (script bloqueado o caído, error del propio widget): quien lo usa decide cómo seguir (enviar sin token y que mande el servidor). */

@@ -15,7 +15,7 @@ import { captureOpsError } from '@/lib/observability/capture';
  *  - Falla CERRADO ante un token ausente, caducado, repetido o inválido: eso es justo lo que se quiere frenar.
  *  - Cada token vale para UNA acción (`order`, `shop-order`, `queue`): uno sacado en la sala de espera no sirve para pedir entradas. */
 
-export type CaptchaAction = 'order' | 'shop-order' | 'queue';
+export type CaptchaAction = 'order' | 'shop-order' | 'queue' | 'sponsor';
 
 export const CAPTCHA_SITE_KEY = 'turnstile_site_key';
 export const CAPTCHA_SECRET_KEY = 'turnstile_secret_key';

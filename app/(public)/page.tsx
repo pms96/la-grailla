@@ -1,16 +1,15 @@
 import { getActiveModules } from '@/lib/modules/runtime';
-import { errorForLog } from '@/lib/api-error';
+import { loadOrFail } from '@/lib/public-load';
 import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import Link from 'next/link';
 import { prisma, type EventWithAvailability } from '@/lib/prisma';
-import { getConfigs } from '@/lib/config';
+import { getConfigsOrFail } from '@/lib/config';
 import { EVENT_MAX_DURATION_MS, hasEventEnded } from '@/lib/active-event';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, MapPin, ArrowRight, Music, ShoppingBag, Handshake, WifiOff } from 'lucide-react';
+import { Calendar, MapPin, ArrowRight, Music, ShoppingBag, Handshake } from 'lucide-react';
 import { FadeIn, SlideIn, Stagger, StaggerItem } from '@/components/ui/animate';
-import { ReloadButton } from '@/components/reload-button';
 import { getBrand } from '@/lib/brand/brand';
 import { isLegacyTenant } from '@/lib/tenant/context';
 import { ContactForm } from '@/components/contact-form';
@@ -35,7 +34,6 @@ import { getEventAvailability, ISSUED_TICKETS_COUNT } from '@/lib/ticket-availab
 export const dynamic = 'force-dynamic';
 
 /** Sin el módulo Entradas no hay eventos que cargar (ni error). */
-class SkipEvents extends Error {}
 
 export function generateMetadata() {
   return canonicalAlternates('/');
@@ -46,28 +44,24 @@ export default async function HomePage() {
   const modules = getActiveModules();
   const brand = await getBrand();
   const hasEntradas = modules.includes('entradas');
+  // H-104: si la BD falla, la página LANZA (500, que el CDN no guarda) en vez de pintar un aviso con 200 que el CDN serviría a todos 60-90 s.
   let events: EventWithAvailability[] = [];
-  let loadError = false;
-  try {
-    if (!hasEntradas) throw new SkipEvents();
+  if (hasEntradas) {
     // No anunciar como "próxima noche" un evento que ya terminó (inicio + margen nocturno, o su hora de fin si dura más) — sin este filtro, un
     // PUBLISHED que nadie marcó a mano como FINISHED se seguía vendiendo indefinidamente. La consulta acota por el máximo posible y `hasEventEnded`
     // decide (H-079); por eso se piden más de 6 y se recortan después.
-    const upcoming = await prisma.event.findMany({
-      where: { status: 'PUBLISHED', date: { gte: new Date(Date.now() - EVENT_MAX_DURATION_MS) } },
-      include: { ticketTypes: { where: { isActive: true }, orderBy: { price: 'asc' } }, ...ISSUED_TICKETS_COUNT },
-      orderBy: { date: 'asc' },
-      take: 12,
-    });
+    const upcoming = await loadOrFail('HomePage', () =>
+      prisma.event.findMany({
+        where: { status: 'PUBLISHED', date: { gte: new Date(Date.now() - EVENT_MAX_DURATION_MS) } },
+        include: { ticketTypes: { where: { isActive: true }, orderBy: { price: 'asc' } }, ...ISSUED_TICKETS_COUNT },
+        orderBy: { date: 'asc' },
+        take: 12,
+      })
+    );
     events = upcoming.filter((e) => !hasEventEnded(e.date, e.endTime)).slice(0, 6);
-  } catch (error) {
-    if (!(error instanceof SkipEvents)) {
-      console.error('[HomePage] Error al cargar eventos:', errorForLog(error));
-      loadError = true;
-    }
   }
 
-  const copy = await getConfigs([
+  const copy = await getConfigsOrFail([
     'home_hero_badge_fallback',
     'home_hero_subtitle_1',
     'home_hero_subtitle_2',
@@ -132,7 +126,6 @@ export default async function HomePage() {
         italicAccent={brand.theme?.fonts.display === 'instrument-serif'}
         hero={{ badge: hero.badge, title: hero.title, subtitle: hero.subtitle, primaryCta }}
         events={events.map(toTemplateEvent)}
-        loadError={loadError}
         hasEntradas={hasEntradas}
         hasTienda={modules.includes('tienda')}
         hasSponsors={modules.includes('sponsors')}
@@ -172,7 +165,7 @@ export default async function HomePage() {
                 {featured ? copy.home_events_more_subtitle || `Otras fechas de ${brand.name}` : 'Compra tus entradas online'}
               </p>
             </div>
-            {(events?.length ?? 0) > 0 && !loadError && (
+            {(events?.length ?? 0) > 0 && (
               <Link href="/eventos">
                 <Button variant="ghost" className="gap-2 font-display font-semibold shrink-0">
                   Ver todos <ArrowRight className="h-4 w-4" />
@@ -182,23 +175,7 @@ export default async function HomePage() {
           </div>
         </SlideIn>
 
-        {loadError ? (
-          <FadeIn>
-            <div
-              className="rounded-2xl border border-destructive/30 bg-destructive/5 px-6 py-16 text-center"
-              role="alert"
-            >
-              <WifiOff className="h-12 w-12 text-destructive/60 mx-auto mb-4" aria-hidden />
-              <h3 className="font-display text-xl font-bold tracking-tight mb-2">
-                No hemos podido cargar los eventos
-              </h3>
-              <p className="text-muted-foreground max-w-md mx-auto mb-6">
-                Parece un fallo de conexión o del servidor — no es que no haya fechas publicadas.
-              </p>
-              <ReloadButton label="Reintentar" className="gap-2 font-display font-semibold" />
-            </div>
-          </FadeIn>
-        ) : (events?.length ?? 0) === 0 ? (
+        {(events?.length ?? 0) === 0 ? (
           <FadeIn>
             <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 px-6 py-16 text-center">
               <Music className="h-12 w-12 text-primary/40 mx-auto mb-4" aria-hidden />
