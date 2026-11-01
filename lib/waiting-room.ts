@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { currentTenant } from '@/lib/tenant/context';
 
@@ -5,27 +6,36 @@ import { currentTenant } from '@/lib/tenant/context';
 // propia admisión, la limpieza va montada en el tráfico normal de
 // join/status. Exportada por separado (en vez de en línea en el 2% de abajo)
 // para poder probarla directamente sin depender de Math.random().
+/**
+ * Filas de la cola que ya no sirven para nada y retienen la IP de quien entró (H-050): las terminadas (COMPLETED/EXPIRED) de hace más de 24 h, las WAITING
+ * abandonadas (sin latido desde hace más de 24 h: quien cierra la pestaña deja de sondear) y las ADMITTED cuya reserva caducó hace más de 24 h. Antes solo se
+ * borraban las dos primeras y las demás se quedaban para siempre. Lo vivo (WAITING que sigue sondeando, ADMITTED vigente o caducada hace poco) no se toca.
+ */
+function staleEntriesWhere(cutoff: Date): Prisma.WaitingRoomEntryWhereInput {
+  return {
+    OR: [
+      { status: { in: ['COMPLETED', 'EXPIRED'] }, joinedAt: { lt: cutoff } },
+      { status: 'WAITING', joinedAt: { lt: cutoff }, OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: cutoff } }] },
+      { status: 'ADMITTED', OR: [{ expiresAt: { lt: cutoff } }, { expiresAt: null, joinedAt: { lt: cutoff } }] },
+    ],
+  };
+}
+const STALE_AFTER_MS = 24 * 60 * 60_000;
+
+// No hay cron ni proceso de fondo que limpie WaitingRoomEntry — igual que la
+// propia admisión, la limpieza va montada en el tráfico normal de
+// join/status. Exportada por separado (en vez de en línea en el 2% de abajo)
+// para poder probarla directamente sin depender de Math.random().
 export async function cleanupStaleEntries(eventId: string): Promise<void> {
-  await prisma.waitingRoomEntry.deleteMany({
-    where: {
-      eventId,
-      status: { in: ['COMPLETED', 'EXPIRED'] },
-      joinedAt: { lt: new Date(Date.now() - 24 * 60 * 60_000) },
-    },
-  });
+  await prisma.waitingRoomEntry.deleteMany({ where: { eventId, ...staleEntriesWhere(new Date(Date.now() - STALE_AFTER_MS)) } });
 }
 
 // Versión sin scope de evento para el cron (app/api/cron/cleanup-waiting-room):
 // la limpieza de arriba solo se dispara con tráfico sobre ESE evento
 // concreto, así que un evento ya pasado (sin nadie más entrando a su cola)
-// nunca la activa y sus filas EXPIRED/COMPLETED se quedan para siempre.
+// nunca la activa y sus filas se quedan para siempre.
 export async function cleanupAllStaleEntries(): Promise<number> {
-  const result = await prisma.waitingRoomEntry.deleteMany({
-    where: {
-      status: { in: ['COMPLETED', 'EXPIRED'] },
-      joinedAt: { lt: new Date(Date.now() - 24 * 60 * 60_000) },
-    },
-  });
+  const result = await prisma.waitingRoomEntry.deleteMany({ where: staleEntriesWhere(new Date(Date.now() - STALE_AFTER_MS)) });
   return result.count;
 }
 

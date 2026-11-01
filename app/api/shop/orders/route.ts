@@ -7,7 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { getPaymentProvider } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
 import { getConfig } from '@/lib/config';
-import { rateLimit, getClientIp, countPendingSlots, takePendingSlot, releasePendingSlot } from '@/lib/rate-limit';
+import { rateLimit, getClientIp, countPendingSlots, takePendingSlot } from '@/lib/rate-limit';
 import { captchaRejection, verifyCaptcha } from '@/lib/captcha';
 import { MIN_ONLINE_PAYMENT, fromCents, toCents } from '@/lib/pricing';
 import { CHECKOUT_RELEASE_AFTER_MS } from '@/lib/checkout-hold';
@@ -15,7 +15,7 @@ import { PENDING_LIMIT_CONFIG_KEY, parsePendingLimit, MAX_SHOP_LINES_PER_ORDER, 
 import { resumeCheckoutUrl } from '@/lib/reconciliation/close-session';
 import { handleApiError } from '@/lib/api-error';
 import { captureOpsError } from '@/lib/observability/capture';
-import { completeShopOrder } from '@/lib/reconciliation/tienda';
+import { completeShopOrder, releaseExpiredShopOrder } from '@/lib/reconciliation/tienda';
 import { reserveShopStock, releaseShopStock } from '@/lib/product-stock';
 import { shopOrderAccessQuery, signShopOrderAccess } from '@/lib/access-token';
 import { getBrand } from '@/lib/brand/brand';
@@ -52,6 +52,16 @@ const createShopOrderSchema = z.object({
     .min(1)
     .max(MAX_SHOP_LINES_PER_ORDER),
 });
+
+/** Un producto del carrito ya no se vende (desactivado o borrado mientras el comprador compraba): no se cobra un pedido distinto del que vio (H-036). */
+class ProductUnavailableError extends Error {
+  constructor(
+    readonly productId: string,
+    name: string | null
+  ) {
+    super(`${name ? `«${name}»` : 'Uno de los productos'} ya no está disponible. Quítalo del carrito y vuelve a pulsar Pagar.`);
+  }
+}
 
 /** El total calculado con los precios de ahora no es el que el comprador vio (H-132). Lleva las cifras nuevas para que la pantalla las enseñe. */
 class PriceChangedError extends Error {
@@ -152,7 +162,8 @@ export async function POST(request: Request) {
 
         for (const item of items) {
           const product = await tx.product.findUnique({ where: { id: item?.productId } });
-          if (!product || !product.isActive) continue;
+          // H-036: antes se descartaba en silencio y se cobraba menos de lo que el comprador veía.
+          if (!product || !product.isActive) throw new ProductUnavailableError(item.productId, product?.name ?? null);
           const qty = item?.quantity ?? 1;
           totalCents += toCents(product?.price ?? 0) * qty;
           itemsData.push({
@@ -238,6 +249,9 @@ export async function POST(request: Request) {
         const existing = await prisma.shopOrder.findUnique({ where: { idempotencyKey } });
         if (existing) return existingOrderResponse(existing);
       }
+      if (error instanceof ProductUnavailableError) {
+        return NextResponse.json({ error: error.message, code: 'product_unavailable', productId: error.productId }, { status: 409 });
+      }
       if (error instanceof PriceChangedError) {
         return NextResponse.json({ error: error.message, code: 'price_changed', totalAmount: error.totalAmount, prices: error.prices }, { status: 409 });
       }
@@ -307,22 +321,9 @@ export async function POST(request: Request) {
       captureOpsError(error, { route: 'POST /api/shop/orders', kind: 'tienda', provider: paymentProviderForCleanup?.name ?? provider, orderId: createdOrder.id, reason: 'checkout_session_failed' });
       // Si la sesión SÍ se creó en la pasarela y lo que falló fue lo de después, se cierra: el pedido se cancela y no debe poder pagarse.
       if (createdSessionId && paymentProviderForCleanup?.cancelPayment) await paymentProviderForCleanup.cancelPayment(createdSessionId).catch(() => {});
-      await releasePendingSlot(createdOrder.id);
-      await prisma.$transaction(async (tx) => {
-        await releaseShopStock(
-          tx,
-          (createdOrder.items ?? []).map((i) => ({
-            productId: i.productId,
-            quantity: i.quantity,
-            size: i.size,
-            color: i.color,
-          }))
-        );
-        await tx.shopOrder.update({
-          where: { id: createdOrder.id },
-          data: { status: 'CANCELLED', idempotencyKey: null },
-        });
-      });
+      // H-037: anulación con compare-and-swap (PENDING→CANCELLED), la misma del abandono y la caducidad: repone el stock SOLO si este camino es quien anuló el
+      // pedido. Antes era un `update` incondicional: si otro camino ya lo había anulado (o el pedido ya estaba pagado) se reponía el stock otra vez.
+      await releaseExpiredShopOrder(createdOrder.id);
       return NextResponse.json(
         { success: false, error: 'No se ha podido iniciar el pago. Inténtalo de nuevo en unos minutos.' },
         { status: 502 }

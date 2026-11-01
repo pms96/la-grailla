@@ -224,13 +224,22 @@ interface ShopMarkers {
 
 const emptyMarkers = (): ShopMarkers => ({ sentAt: null, dueAt: null, leaseAt: null, tries: 0, lastTryAt: null });
 
-/** Lee los marcadores de varios pedidos de una vez (una consulta). */
-async function readShopMarkers(ids: string[]): Promise<Map<string, ShopMarkers>> {
+/** Intentos que se buscan por pedido. Más allá ya está agotado desde hace mucho (EMAIL_MAX_ATTEMPTS), y un reenvío manual más allá de esto no cambia el estado. */
+const SHOP_TRY_KEYS = 30;
+
+/** Las claves exactas que puede tener un pedido de tienda: así se leen por la clave primaria (igualdad), no con un `LIKE` sobre toda la historia (H-047). */
+const shopMarkerKeys = (id: string): string[] => [shopKey.sent(id), shopKey.due(id), shopKey.lease(id), ...Array.from({ length: SHOP_TRY_KEYS }, (_, i) => shopKey.attempt(id, i + 1))];
+
+/** La consulta de marcadores de unos pedidos: por la clave primaria (igualdad), nunca con un `LIKE` sobre toda la historia. Exportada para probar su plan. */
+export const shopMarkersQuery = (ids: string[]) => Prisma.sql`
+  SELECT "id", "processedAt" FROM "ProcessedWebhookEvent"
+  WHERE "id" = ANY(${ids.flatMap(shopMarkerKeys)}::text[])`;
+
+/** Lee los marcadores de varios pedidos de una vez (una consulta por la clave primaria). */
+export async function readShopMarkers(ids: string[]): Promise<Map<string, ShopMarkers>> {
   const out = new Map<string, ShopMarkers>(ids.map((id) => [id, emptyMarkers()]));
   if (ids.length === 0) return out;
-  const rows = await prisma.$queryRaw<{ id: string; processedAt: Date }[]>(Prisma.sql`
-    SELECT "id", "processedAt" FROM "ProcessedWebhookEvent"
-    WHERE "id" LIKE 'email:shop:%' AND split_part("id", ':', 3) = ANY(${ids}::text[])`);
+  const rows = await prisma.$queryRaw<{ id: string; processedAt: Date }[]>(shopMarkersQuery(ids));
   for (const row of rows) {
     const [, , orderId, kind, n] = row.id.split(':');
     const m = out.get(orderId);
@@ -313,7 +322,9 @@ const backoffCase = Prisma.raw(
   `CASE c.attempts WHEN 0 THEN ${EMAIL_FIRST_SWEEP_AFTER_MS / 60_000} ${EMAIL_BACKOFF_MS.map((ms, i) => `WHEN ${i + 1} THEN ${ms / 60_000}`).join(' ')} ELSE ${EMAIL_BACKOFF_MS[EMAIL_BACKOFF_MS.length - 1] / 60_000} END`
 );
 
-const shopCandidates = (since: Date) => Prisma.sql`
+// H-047: los tres bloques se acotan por fecha (índice sobre `processedAt`): `tries` y `lease` se creaban DESPUÉS de `due`, así que también son posteriores a `since`.
+// Antes recorrían toda la historia de `ProcessedWebhookEvent` (una tabla que no se purga) con `LIKE` de prefijo, dos veces por reclamo y en cada listado del admin.
+export const shopCandidates = (since: Date) => Prisma.sql`
   WITH due AS (
     SELECT split_part("id", ':', 3) AS oid, "processedAt" AS due_at
     FROM "ProcessedWebhookEvent"
@@ -321,12 +332,12 @@ const shopCandidates = (since: Date) => Prisma.sql`
   ), tries AS (
     SELECT split_part("id", ':', 3) AS oid, count(*)::int AS attempts, max("processedAt") AS last_at
     FROM "ProcessedWebhookEvent"
-    WHERE "id" LIKE 'email:shop:%:try:%'
+    WHERE "processedAt" >= ${since} AND "id" LIKE 'email:shop:%:try:%'
     GROUP BY 1
   ), lease AS (
     SELECT split_part("id", ':', 3) AS oid, "processedAt" AS lease_at
     FROM "ProcessedWebhookEvent"
-    WHERE "id" LIKE 'email:shop:%:lease'
+    WHERE "processedAt" >= ${since} AND "id" LIKE 'email:shop:%:lease'
   )
   SELECT d.oid AS id, COALESCE(t.attempts, 0) AS attempts, COALESCE(t.last_at, d.due_at) AS last_at, l.lease_at AS lease_at
   FROM due d

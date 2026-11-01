@@ -9,6 +9,7 @@ import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { invalidateOrder, completeOrder } from '@/lib/reconciliation/entradas';
 import { sendRefundEmail } from '@/lib/reconciliation/gateway-refund';
+import { closeSessionBeforeCancel } from '@/lib/reconciliation/close-session';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
 import { getEmailState } from '@/lib/email-delivery';
@@ -138,7 +139,13 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       if (existing.status !== 'PENDING') {
         return NextResponse.json({ error: 'Este pedido ya no está pendiente' }, { status: 422 });
       }
-      await completeOrder(params?.id, getBaseUrl(request));
+      // H-034: antes de dar el pedido por pagado se cierra su sesión de pago abierta (si el comprador pagara después con tarjeta, cobro duplicado en silencio). Si
+      // la sesión resulta estar YA pagada, se completa con lo cobrado de verdad (y un importe que no cuadra no se completa).
+      const { paid } = await closeSessionBeforeCancel('entradas', existing);
+      const outcome = await completeOrder(params?.id, getBaseUrl(request), paid ? { amount: paid.amount, currency: paid.currency } : undefined);
+      if (outcome === 'amount_mismatch') {
+        return NextResponse.json({ error: 'Lo cobrado en la pasarela no coincide con el importe del pedido: no se ha marcado como pagado. Revísalo en el panel de la pasarela.' }, { status: 422 });
+      }
     } else if (body.action === 'update-email') {
       if (!body.email) {
         return NextResponse.json({ error: 'Introduce un email válido' }, { status: 422 });

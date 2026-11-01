@@ -157,6 +157,22 @@ describe('dispatchTenantJobs', () => {
     expect((await prisma.tenantHealth.findUniqueOrThrow({ where: { subscriptionId: t.subscription.id } })).status).toBe('unreachable');
   });
 
+  it('H-043: la BD por detrás del registro (tras un PITR) se guarda como «blocked», no como «degraded»', async () => {
+    const t = await publishedTenant();
+    await prisma.subscription.update({ where: { id: t.subscription.id }, data: { schemaVersion: '20261009090000_reconcile_queue' } });
+    const detail = {
+      status: 'ok', version: 'abc1234', platform: true, tenantId: t.tenant.id, serving: true,
+      db: { ok: true, latencyMs: 4 },
+      schema: { applied: '20261008213000_contact_inbox', expected: '20261009090000_reconcile_queue', minRequired: '20261009090000_reconcile_queue', upToDate: false },
+      onboarding: { complete: true, missing: [] },
+    };
+    await dispatchTenantJobs({ jobs: ['health'], fetchImpl: fakeFetch(() => ({ status: 200, body: detail })) });
+    const h = await prisma.tenantHealth.findUniqueOrThrow({ where: { subscriptionId: t.subscription.id } });
+    expect(h.status).toBe('blocked');
+    expect(h.ok).toBe(false);
+    expect(h.error).toMatch(/POR DETRÁS/);
+  });
+
   it('NO lanza una llamada que podría acabar pasado el presupuesto (la función moriría sin anotar el estado)', async () => {
     await publishedTenant();
     const calls: Call[] = [];

@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { baseSlug, createWithUniqueSlug } from '@/lib/slug';
 import { planSeasonMove, recordSeasonMove } from '@/lib/contabilidad/season-reassign';
 import { seasonLinkEnabled, withoutSeasonLink } from '@/lib/modules/season-link';
 import { syncProductVariants } from '@/lib/product-stock';
@@ -54,11 +55,12 @@ export async function POST(request: Request) {
   }
   try {
     const body = createProductSchema.parse(await request.json());
-    const slug = (body?.name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const slugBase = baseSlug(body?.name, 'producto');
     // H-019: un producto nuevo no entra ya enlazado a una temporada cerrada (cambiaría su margen).
     const seasonMove = body?.temporadaId && seasonLinkEnabled() ? await planSeasonMove(async () => null, body.temporadaId) : null;
     if (seasonMove?.block) return seasonMove.block;
-    const product = await prisma.$transaction(async (tx) => {
+    // H-052: slug libre (`gorra`, `gorra-2`…), también si otra alta simultánea gana la carrera.
+    const product = await createWithUniqueSlug(slugBase, async (s) => (await prisma.product.findUnique({ where: { slug: s }, select: { id: true } })) !== null, (slug) => prisma.$transaction(async (tx) => {
       const created = await tx.product.create({
         data: {
           name: body?.name ?? '',
@@ -79,7 +81,7 @@ export async function POST(request: Request) {
         where: { id: created.id },
         include: { variants: { orderBy: [{ size: 'asc' }, { color: 'asc' }] } },
       });
-    });
+    }));
     return NextResponse.json(product);
   } catch (error) {
     return handleApiError(error, 'POST /api/admin/products');

@@ -136,6 +136,7 @@ describe('entrega del email del pedido (P0-08)', () => {
     ctl.queue.length = 0;
     ctl.role = 'ADMIN';
     delete process.env.RECONCILE_TIME_BUDGET_MS;
+    delete process.env.RECONCILE_HARD_STOP_MS;
     delete process.env.EMAIL_SWEEP_BUDGET_MS;
     delete process.env.EMAIL_SEND_CAP_MS;
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -526,13 +527,23 @@ describe('entrega del email del pedido (P0-08)', () => {
       expect(Date.now() - t0).toBeLessThan(5_000);
     }, 15_000);
 
-    it('el presupuesto propio del barrido nunca pasa del plazo de la pasada: con el plazo ya vencido no envía nada', async () => {
+    it('el presupuesto propio del barrido nunca pasa del tope de la función: con el tope ya vencido no envía nada', async () => {
       await mkOrder({ touchedAgoMs: 30 * MIN });
-      process.env.RECONCILE_TIME_BUDGET_MS = '1';
+      process.env.RECONCILE_HARD_STOP_MS = '1';
       await new Promise((r) => setTimeout(r, 5));
       const { body } = await cron();
       expect(body.emails).toMatchObject({ examined: 0, sent: 0 });
       expect(tickets()).toHaveLength(0);
+    });
+
+    // H-029: el barrido compartía el plazo de 35 s del bucle de pagos: si éste lo agotaba, el barrido arrancaba vencido y no enviaba nada, pasada tras pasada.
+    it('con el bucle de pagos sin presupuesto, el barrido de emails conserva su tramo de la cola y SÍ envía', async () => {
+      await mkOrder({ touchedAgoMs: 30 * MIN });
+      process.env.RECONCILE_TIME_BUDGET_MS = '1';
+      await new Promise((r) => setTimeout(r, 5));
+      const { body } = await cron();
+      expect(body.emails.sent).toBe(1);
+      expect(tickets()).toHaveLength(1);
     });
   });
 
@@ -774,15 +785,15 @@ describe('entrega del email del pedido (P0-08)', () => {
       expect(tickets()).toHaveLength(1);
     });
 
-    it('con el presupuesto de tiempo agotado por la conciliación, el barrido no envía y lo deja diferido (no ensancha el cron)', async () => {
+    it('con el tope de la función agotado, el barrido no envía y lo deja diferido (no ensancha el cron)', async () => {
       await mkOrder({ touchedAgoMs: 30 * MIN });
-      process.env.RECONCILE_TIME_BUDGET_MS = '1';
+      process.env.RECONCILE_HARD_STOP_MS = '1';
       await new Promise((r) => setTimeout(r, 5));
       const { body } = await cron();
       expect(body.emails).toMatchObject({ examined: 0, sent: 0 });
       expect(body.emails.deferred).toBeGreaterThanOrEqual(1);
       expect(tickets()).toHaveLength(0);
-      delete process.env.RECONCILE_TIME_BUDGET_MS;
+      delete process.env.RECONCILE_HARD_STOP_MS;
       expect((await cron()).body.emails.sent).toBe(1);
     });
 

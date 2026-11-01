@@ -5,6 +5,7 @@ import { GET as getOrder } from '@/app/api/orders/[orderId]/route';
 import { completeOrder, releaseExpiredOrder, invalidateOrder } from '@/lib/reconciliation/entradas';
 import { completeShopOrder, releaseExpiredShopOrder, invalidateShopOrder } from '@/lib/reconciliation/tienda';
 import { signOrderAccess } from '@/lib/access-token';
+import { lateRefundKey } from '@/lib/reconciliation/shared';
 import { createTestEvent, createTicketType, cleanupTestEvent } from '../helpers/fixtures';
 import { gateway, paid, state, unknown } from '../helpers/fake-gateway';
 
@@ -122,7 +123,7 @@ describe('pago tardío (P0-05)', () => {
       expect(after?.status).toBe('REFUNDED');
       expect(after?.tickets.every((t) => t.status === 'REFUNDED')).toBe(true);
       expect(await sold(smallTt.id)).toBe(2); // las de la otra persona; nada se ha tocado
-      expect(gateway.calls.filter((c) => c.op === 'refund')).toEqual([{ op: 'refund', paymentId: late.paymentId, args: [undefined, `late_${late.id}`] }]);
+      expect(gateway.calls.filter((c) => c.op === 'refund')).toEqual([{ op: 'refund', paymentId: late.paymentId, args: [undefined, lateRefundKey(late.id)] }]);
       const buyerMail = to(/Te hemos devuelto tu pago/);
       expect(buyerMail).toHaveLength(1);
       expect(buyerMail[0].to).toBe(after!.buyerEmail);
@@ -259,7 +260,7 @@ describe('pago tardío (P0-05)', () => {
       gateway.script(late.paymentId!, paid(late.paymentId!, 10));
       await Promise.all([completeOrder(late.id), completeOrder(late.id), completeOrder(late.id)]);
       expect((await reload(late.id))?.status).toBe('REFUNDED');
-      expect(new Set(gateway.calls.filter((c) => c.op === 'refund').map((c) => (c.args as unknown[])[1]))).toEqual(new Set([`late_${late.id}`]));
+      expect(new Set(gateway.calls.filter((c) => c.op === 'refund').map((c) => (c.args as unknown[])[1]))).toEqual(new Set([lateRefundKey(late.id)]));
       expect(to(/Te hemos devuelto tu pago/)).toHaveLength(1);
     });
 
@@ -379,7 +380,7 @@ describe('pago tardío (P0-05)', () => {
       expect(await completeShopOrder(o.id)).toBe('refunded_late');
       expect((await shopReload(o.id))?.status).toBe('REFUNDED');
       expect(await stock(productId)).toBe(0);
-      expect(gateway.calls.filter((c) => c.op === 'refund')).toEqual([{ op: 'refund', paymentId: o.paymentId, args: [undefined, `late_${o.id}`] }]);
+      expect(gateway.calls.filter((c) => c.op === 'refund')).toEqual([{ op: 'refund', paymentId: o.paymentId, args: [undefined, lateRefundKey(o.id)] }]);
       expect(to(/Te hemos devuelto tu pago/)).toHaveLength(1);
       expect(to(/Pago tardío reembolsado/)).toHaveLength(1);
     });
@@ -449,3 +450,17 @@ describe('pago tardío (P0-05)', () => {
     });
   });
 });
+
+describe('clave de idempotencia del reembolso tardío (H-032)', () => {
+  it('lleva una ventana de tiempo: no es la clave fija `late_<pedido>` que Stripe repetía 24 h', async () => {
+    const { refundLatePayment } = await import('@/lib/reconciliation/late-payment');
+    const { fakeProvider } = await import('../helpers/fake-gateway');
+    gateway.reset();
+    gateway.active = true;
+    await refundLatePayment(fakeProvider(), { id: 'ord-h032', paymentId: 'cs_h032' });
+    const call = gateway.calls.find((c) => c.op === 'refund' && c.paymentId === 'cs_h032');
+    expect(call?.args?.[1]).toMatch(/^late_ord-h032_\d+$/);
+    gateway.reset();
+  });
+});
+

@@ -18,18 +18,39 @@ import {
 
 type TestSession = { user: { id: string; role: string; email: string; modules: string[] | null } } | null;
 let session: TestSession = { user: { id: 'admin-test', role: 'ADMIN', email: 'admin@test.local', modules: null } };
-const mailer = vi.hoisted(() => ({ sent: [] as { to: string; subject: string; html: string }[], fail: false }));
+const mailer = vi.hoisted(() => ({ sent: [] as { to: string; subject: string; html: string }[], fail: false, hang: false }));
+const race = vi.hoisted(() => ({ flipBeforeInvalidate: null as string | null }));
 
 vi.mock('next-auth', () => ({ getServerSession: vi.fn(async () => session) }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
 vi.mock('@/lib/mailer', async (orig) => ({
   ...(await orig<typeof import('@/lib/mailer')>()),
   sendMail: async (p: { to: string; subject: string; html: string }) => {
+    if (mailer.hang) {
+      await new Promise((r) => setTimeout(r, 6_000)); // el envío tarda más que el tope (proceso muerto / SMTP colgado)
+      return { success: false, transport: 'none' as const, error: 'colgado' };
+    }
     if (mailer.fail) return { success: false, transport: 'none' as const, error: 'smtp caído' };
     mailer.sent.push({ to: p.to, subject: p.subject, html: p.html });
     return { success: true, transport: 'smtp' as const };
   },
 }));
+vi.mock('@/lib/reconciliation/entradas', async (orig) => {
+  const actual = await orig<typeof import('@/lib/reconciliation/entradas')>();
+  return {
+    ...actual,
+    // Simula la carrera: otro camino reembolsa el pedido justo antes de que esta pasada llame a `invalidateOrder`.
+    invalidateOrder: async (orderId: string, mode: 'CANCELLED' | 'REFUNDED') => {
+      if (race.flipBeforeInvalidate === orderId) {
+        const { prisma: p } = await import('@/lib/prisma');
+        await p.order.update({ where: { id: orderId }, data: { status: 'REFUNDED' } });
+        await p.ticket.updateMany({ where: { orderId }, data: { status: 'REFUNDED' } });
+        race.flipBeforeInvalidate = null;
+      }
+      return actual.invalidateOrder(orderId, mode);
+    },
+  };
+});
 vi.mock('@/lib/payment-adapter', async (orig) => {
   const actual = await orig<typeof import('@/lib/payment-adapter')>();
   const { gateway: g, fakeProvider } = await import('../helpers/fake-gateway');
@@ -113,6 +134,64 @@ describe('cancelación de evento y cambio de fecha (P1-04)', () => {
     for (const f of Object.values(job.mailFailed ?? {}) as { nextAt?: number }[]) f.nextAt = 0;
     await prisma.appConfig.update({ where: { key: jobKey() }, data: { value: JSON.stringify(job) } });
   }
+
+  // H-038: (1) con cron y «Continuar» solapados, un pedido que otro camino ya reembolsó contaba como FALLO de reembolso (y su error pisaba el trabajo);
+  // (2) el marcador `event-cancel-mail:<pedido>` se reclamaba antes de `sendMail` y sin tope: si la función moría entre medias, el aviso quedaba como enviado
+  // y no llegaba nunca.
+  describe('avisos y reembolsos robustos ante carreras y muertes a mitad (H-038)', () => {
+    it('un pedido que se reembolsa por otro camino mientras se procesa NO cuenta como fallo de reembolso', async () => {
+      const a = await mk({ total: 20, paymentId: 'cs_h038_a' });
+      await startCancellation(event.id, { refund: true, notify: false, startedBy: 'admin-test' });
+      // Otro camino (el admin desde Ventas, el webhook de la pasarela) lo reembolsa justo antes de que esta pasada llegue a intentarlo: `invalidateOrder` responde
+      // «ya está anulado», que NO es un fallo del reembolso de esta pasada.
+      race.flipBeforeInvalidate = a.id;
+      const progress = await processCancellation(event.id, { deadline: farDeadline() });
+      race.flipBeforeInvalidate = null;
+      expect((await readJob()).failed?.[a.id]).toBeUndefined();
+      expect(progress?.refundsRemaining).toBe(0);
+    });
+
+    it('un fallo real del reembolso (pedido sigue cobrado) sí cuenta como fallo y se reintenta', async () => {
+      const a = await mk({ total: 20, paymentId: 'cs_h038_b' });
+      await startCancellation(event.id, { refund: true, notify: false, startedBy: 'admin-test' });
+      gateway.refundResult = { success: false, error: 'saldo insuficiente' };
+      await processCancellation(event.id, { deadline: farDeadline() });
+      expect((await readJob()).failed?.[a.id]?.attempts).toBe(1);
+      expect(await status(a.id)).toBe('COMPLETED');
+    });
+
+    it('el aviso solo consta como enviado DESPUÉS de enviarlo: un envío colgado (SMTP, proceso muerto) tiene tope, no deja marcador y se reintenta', async () => {
+      const a = await mk({ total: 10 });
+      await startCancellation(event.id, { refund: true, notify: true, startedBy: 'admin-test' });
+      mailer.hang = true;
+      const t0 = Date.now();
+      await processCancellation(event.id, { deadline: farDeadline(), callCapMs: 300 });
+      mailer.hang = false;
+      expect(Date.now() - t0).toBeLessThan(3_000); // sin tope, la pasada esperaba al envío (aquí 6 s) o para siempre
+      expect(await markerCount(a.id)).toBe(0); // no consta como avisado: el envío no terminó
+      expect(mailer.sent.filter((m) => m.to === a.buyerEmail)).toHaveLength(0);
+      // La siguiente pasada lo reintenta y entonces sí queda anotado, una sola vez.
+      await expireBackoff();
+      await prisma.processedWebhookEvent.deleteMany({ where: { id: { startsWith: 'event-cancel-run:' } } });
+      await prisma.processedWebhookEvent.deleteMany({ where: { id: { startsWith: 'event-cancel-lease:' } } });
+      await processCancellation(event.id, { deadline: farDeadline() });
+      expect(mailer.sent.filter((m) => m.to === a.buyerEmail)).toHaveLength(1);
+      expect(await markerCount(a.id)).toBe(1);
+    });
+
+    it('dos pasadas que llegan a avisar a la vez no mandan el email dos veces (reserva con caducidad)', async () => {
+      const a = await mk({ total: 10 });
+      await startCancellation(event.id, { refund: true, notify: true, startedBy: 'admin-test' });
+      await prisma.processedWebhookEvent.create({ data: { id: `event-cancel-lease:${a.id}` } }); // otra pasada está enviando ahora mismo
+      await processCancellation(event.id, { deadline: farDeadline() });
+      expect(mailer.sent.filter((m) => m.to === a.buyerEmail)).toHaveLength(0);
+      // Una reserva caducada (la pasada murió) se retoma.
+      await prisma.processedWebhookEvent.update({ where: { id: `event-cancel-lease:${a.id}` }, data: { processedAt: new Date(Date.now() - 10 * 60_000) } });
+      await prisma.processedWebhookEvent.deleteMany({ where: { id: { startsWith: 'event-cancel-run:' } } });
+      await processCancellation(event.id, { deadline: farDeadline() });
+      expect(mailer.sent.filter((m) => m.to === a.buyerEmail)).toHaveLength(1);
+    });
+  });
 
   // H-041: el cron y el bucle de «continuar» del diálogo (~1 s) se solapaban; cada pasada lee el trabajo, procesa decenas de segundos y reescribe el
   // objeto ENTERO: se pisaban `failed[].attempts`, `mailFailed` y `nextAt`. Ahora una sola pasada por evento (reserva con caducidad).

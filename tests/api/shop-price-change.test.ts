@@ -87,16 +87,31 @@ describe('H-132: el precio que se cobra es el que se vio', () => {
     expect(await pedidos()).toBe(0);
   });
 
-  it('un producto desactivado entre medias también cambia el total: 409, no un pedido más barato en silencio', async () => {
+  // H-036: el checkout descartaba EN SILENCIO los productos inactivos y se cobraba menos de lo que el comprador veía (y, sin total esperado, nadie se enteraba).
+  it('un producto desactivado entre medias da 409 `product_unavailable`, con o sin total esperado: nunca un pedido más barato en silencio', async () => {
     const other = await prisma.product.create({ data: { name: `[TEST] Otro ${Date.now()}`, slug: `test-otro-${Date.now()}`, price: 10, isActive: true } });
     try {
       await prisma.product.update({ where: { id: other.id }, data: { isActive: false } });
-      const res = await createShopOrder(post(body({ expectedTotalCents: 5000 + 1000, items: [{ productId, quantity: 2, size: 'M', color: 'Negro' }, { productId: other.id, quantity: 1 }] })));
-      expect(res.status).toBe(409);
-      expect((await res.json()).code).toBe('price_changed');
+      for (const extra of [{ expectedTotalCents: 5000 + 1000 }, {}]) {
+        const res = await createShopOrder(post(body({ ...extra, items: [{ productId, quantity: 2, size: 'M', color: 'Negro' }, { productId: other.id, quantity: 1 }] })));
+        expect(res.status).toBe(409);
+        const data = await res.json();
+        expect(data.code).toBe('product_unavailable');
+        expect(data.productId).toBe(other.id);
+        expect(data.error).toContain('Otro');
+      }
+      expect(await pedidos()).toBe(0);
+      expect(await stock()).toBe(5);
     } finally {
       await prisma.product.delete({ where: { id: other.id } }).catch(() => {});
     }
+  });
+
+  it('un producto que ya no existe también da 409 `product_unavailable`', async () => {
+    const res = await createShopOrder(post(body({ items: [{ productId, quantity: 1, size: 'M', color: 'Negro' }, { productId: 'no-existe-h036', quantity: 1 }] })));
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('product_unavailable');
+    expect(await pedidos()).toBe(0);
   });
 
   it('sin expectedTotalCents (cliente antiguo o API directa) se sigue cobrando el precio vigente', async () => {

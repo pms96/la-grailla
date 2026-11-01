@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { baseSlug, createWithUniqueSlug } from '@/lib/slug';
 import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
 import { planSeasonMove, recordSeasonMove } from '@/lib/contabilidad/season-reassign';
 import { seasonLinkEnabled, withoutSeasonLink } from '@/lib/modules/season-link';
@@ -129,12 +130,13 @@ export async function POST(request: Request) {
     if (!date) return NextResponse.json({ error: 'Fecha y hora no válidas' }, { status: 400 });
     const numbers = parseEventNumberSettings(body);
     if (!numbers.ok) return NextResponse.json({ error: numbers.error, code: 'invalid_number_setting' }, { status: 400 });
-    const slug = (body?.name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const slugBase = baseSlug(body?.name, 'evento');
     // H-019: un evento nuevo no entra ya enlazado a una temporada cerrada (cambiaría su margen).
     const seasonMove = body?.temporadaId && seasonLinkEnabled() ? await planSeasonMove(async () => null, body.temporadaId) : null;
     if (seasonMove?.block) return seasonMove.block;
     // H-018/H-021: el evento y su rastro se escriben juntos.
-    const event = await prisma.$transaction(async (tx) => {
+    // H-052: slug libre (`noche`, `noche-2`…), también si otra alta simultánea gana la carrera; la transacción entera se reejecuta con el siguiente.
+    const event = await createWithUniqueSlug(slugBase, async (s) => (await prisma.event.findUnique({ where: { slug: s }, select: { id: true } })) !== null, (slug) => prisma.$transaction(async (tx) => {
       const created = await tx.event.create({
       data: {
         name: body?.name ?? '',
@@ -177,7 +179,7 @@ export async function POST(request: Request) {
         meta: { name: created.name, date: created.date, status: created.status, maxCapacity: created.maxCapacity },
       });
       return created;
-    });
+    }));
     return NextResponse.json(event);
   } catch (error) {
     return handleApiError(error, 'POST /api/admin/events');

@@ -21,6 +21,10 @@ export const CANCELLATION_JOB_PREFIX = 'event_cancellation:';
 export const DATE_CHANGE_JOB_PREFIX = 'event_datechange:';
 const CANCEL_MAIL_PREFIX = 'event-cancel-mail:';
 const DATE_MAIL_PREFIX = 'event-date-mail:';
+const CANCEL_MAIL_LEASE_PREFIX = 'event-cancel-lease:';
+const DATE_MAIL_LEASE_PREFIX = 'event-date-lease:';
+/** Cuánto vale una reserva de envío: pasado este tiempo se da por muerta la pasada que la tomó y otra puede reintentar el aviso. */
+const MAIL_LEASE_TTL_MS = 3 * 60_000;
 
 export const MAX_REFUND_ATTEMPTS = 3;
 export const MAX_MAIL_ATTEMPTS = 5;
@@ -95,9 +99,33 @@ async function mapLimit<T>(items: T[], concurrency: number, deadline: number, fn
 async function withCap(call: Promise<{ success: boolean; error?: string }>, capMs: number): Promise<{ success: boolean; error?: string }> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([call, new Promise<{ success: boolean; error?: string }>((resolve) => (timer = setTimeout(() => resolve({ success: false, error: 'la pasarela no responde (tiempo agotado)' }), capMs)))]);
+    return await Promise.race([call, new Promise<{ success: boolean; error?: string }>((resolve) => (timer = setTimeout(() => resolve({ success: false, error: 'sin respuesta (tiempo agotado)' }), capMs)))]);
   } finally {
     if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Manda un aviso UNA sola vez por pedido (H-038). Antes el marcador «ya avisado» se anotaba ANTES de enviar y sin tope: si la función moría (o el SMTP se colgaba)
+ * entre medias, el aviso constaba como enviado y no llegaba nunca. Ahora hay dos filas: una RESERVA con caducidad que solo evita que dos pasadas manden a la vez,
+ * y el marcador definitivo, que solo se anota cuando el envío ha ido bien. El envío tiene tope de tiempo; si no termina, no hay marcador y se reintenta.
+ */
+async function sendNoticeOnce(opts: { finalId: string; leaseId: string; capMs: number; send: () => Promise<{ success: boolean; error?: string }> }): Promise<'sent' | 'skipped' | 'failed'> {
+  const { finalId, leaseId } = opts;
+  if (await prisma.processedWebhookEvent.findUnique({ where: { id: finalId }, select: { id: true } })) return 'skipped';
+  const reserved = await prisma.processedWebhookEvent.createMany({ data: [{ id: leaseId }], skipDuplicates: true });
+  if (reserved.count === 0) {
+    // Hay una reserva: viva (otra pasada está enviando) o abandonada. La toma solo quien la vea caducada, con compare-and-swap sobre la fecha.
+    const stale = await prisma.processedWebhookEvent.updateMany({ where: { id: leaseId, processedAt: { lt: new Date(Date.now() - MAIL_LEASE_TTL_MS) } }, data: { processedAt: new Date() } });
+    if (stale.count === 0) return 'skipped';
+  }
+  try {
+    const sent = await withCap(opts.send(), opts.capMs);
+    if (!sent.success) return 'failed';
+    await prisma.processedWebhookEvent.createMany({ data: [{ id: finalId }], skipDuplicates: true });
+    return 'sent';
+  } finally {
+    await prisma.processedWebhookEvent.deleteMany({ where: { id: leaseId } }).catch(() => {});
   }
 }
 
@@ -373,6 +401,13 @@ async function runCancellationPass(eventId: string, job: CancellationJob, opts: 
           delete live.failed[o.id];
           return;
         }
+        // H-038: otro camino (el cron y «Continuar» solapados, el admin desde Ventas, el webhook de la pasarela) pudo reembolsarlo entre medias: ese pedido ya está
+        // hecho y NO es un fallo de esta pasada (antes se contaba como tal y su error pisaba el estado del trabajo).
+        // Solo cuenta si `invalidateOrder` dijo «ya está anulado»: un tiempo agotado deja el pedido REFUNDED mientras la pasarela aún no ha contestado, y eso SÍ es un fallo.
+        if (/ya está anulado/.test(result.error ?? '') && (await prisma.order.findUnique({ where: { id: o.id }, select: { status: true } }))?.status === 'REFUNDED') {
+          delete live.failed[o.id];
+          return;
+        }
         const attempts = (live.failed[o.id]?.attempts ?? 0) + 1;
         live.failed[o.id] = { attempts, error: String(result.error ?? 'error').slice(0, 160), nextAt: Date.now() + backoff(REFUND_BACKOFF_MS, attempts) };
       });
@@ -388,14 +423,14 @@ async function runCancellationPass(eventId: string, job: CancellationJob, opts: 
       });
       await mapLimit(candidates, concurrency, opts.deadline, async (o) => {
         const kind = cancellationMailKind(o, live)!;
-        const marker = `${CANCEL_MAIL_PREFIX}${o.id}`;
-        // Se reclama el marcador ANTES de enviar: de dos pasadas simultáneas solo una avisa. Si el envío falla se libera para reintentarlo.
-        const claim = await prisma.processedWebhookEvent.createMany({ data: [{ id: marker }], skipDuplicates: true });
-        if (claim.count === 0) return;
         const { subject, html } = await eventCancelledEmail({ buyerName: o.buyerName, eventName: event.name, eventDate: event.date, kind, amount: o.totalAmount, contactEmail });
-        const sent = await sendMail({ to: o.buyerEmail, subject, html, ...(contactEmail ? { replyTo: contactEmail } : {}) });
-        if (!sent.success) {
-          await prisma.processedWebhookEvent.deleteMany({ where: { id: marker } });
+        const outcome = await sendNoticeOnce({
+          finalId: `${CANCEL_MAIL_PREFIX}${o.id}`,
+          leaseId: `${CANCEL_MAIL_LEASE_PREFIX}${o.id}`,
+          capMs: callCapMs,
+          send: () => sendMail({ to: o.buyerEmail, subject, html, ...(contactEmail ? { replyTo: contactEmail } : {}) }),
+        });
+        if (outcome === 'failed') {
           const attempts = (live.mailFailed[o.id]?.attempts ?? 0) + 1;
           live.mailFailed[o.id] = { attempts, nextAt: Date.now() + backoff(MAIL_BACKOFF_MS, attempts) };
         }
@@ -466,13 +501,14 @@ export async function processDateChange(eventId: string, opts: { deadline: numbe
         const nowMail = Date.now();
         const candidates = (await pendingMails()).filter((o) => (job.mailFailed[o.id]?.nextAt ?? 0) <= nowMail).slice(0, BATCH);
         await mapLimit(candidates, opts.concurrency ?? DEFAULT_CONCURRENCY, opts.deadline, async (o) => {
-          const marker = `${DATE_MAIL_PREFIX}${o.id}${suffix}`;
-          const claim = await prisma.processedWebhookEvent.createMany({ data: [{ id: marker }], skipDuplicates: true });
-          if (claim.count === 0) return;
           const { subject, html } = await eventDateChangedEmail({ buyerName: o.buyerName, eventName: event.name, oldDate: new Date(job.oldDate), newDate: new Date(job.newDate), contactEmail });
-          const sent = await sendMail({ to: o.buyerEmail, subject, html, ...(contactEmail ? { replyTo: contactEmail } : {}) });
-          if (!sent.success) {
-            await prisma.processedWebhookEvent.deleteMany({ where: { id: marker } });
+          const outcome = await sendNoticeOnce({
+            finalId: `${DATE_MAIL_PREFIX}${o.id}${suffix}`,
+            leaseId: `${DATE_MAIL_LEASE_PREFIX}${o.id}${suffix}`,
+            capMs: DEFAULT_CALL_CAP_MS,
+            send: () => sendMail({ to: o.buyerEmail, subject, html, ...(contactEmail ? { replyTo: contactEmail } : {}) }),
+          });
+          if (outcome === 'failed') {
             const attempts = (job.mailFailed[o.id]?.attempts ?? 0) + 1;
             job.mailFailed[o.id] = { attempts, nextAt: Date.now() + backoff(MAIL_BACKOFF_MS, attempts) };
           }

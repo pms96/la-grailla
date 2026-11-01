@@ -30,6 +30,12 @@ export function handleApiError(error: unknown, context: string, ops: Omit<OpsErr
     );
   }
 
+  // P2002: violación de un UNIQUE que ninguna ruta atendió por su cuenta (un correo, un nombre repetido…). Es un conflicto del que pide, no una incidencia: 409 con texto
+  // para la persona en lugar del 500 genérico (H-052).
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    return NextResponse.json({ error: 'Ya existe un registro con ese valor. Cambia el dato repetido e inténtalo de nuevo.', code: 'already_exists' }, { status: 409 });
+  }
+
   captureOpsError(error, { route: context, ...ops });
   return NextResponse.json({ error: 'Ha ocurrido un error inesperado. Inténtalo de nuevo en unos segundos; si sigue pasando, avísanos.', code: 'internal_server_error' }, { status: 500 });
 }

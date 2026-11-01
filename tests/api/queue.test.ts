@@ -89,7 +89,8 @@ describe('sala de espera (queue/join, queue/status)', () => {
     const joinJson = await (await joinQueue(joinRequest({ eventId: event.id }, '203.0.113.28'))).json();
     expect(joinJson.status).toBe('ADMITTED');
     expect(joinJson.remainingMs).toBeGreaterThan(290_000);
-    expect(joinJson.remainingMs).toBeLessThanOrEqual(300_000);
+    // Margen de 2 s: `expiresAt` lo fija Postgres y `remainingMs` se mide con el reloj de Node; unos milisegundos de desfase entre los dos no son un fallo.
+    expect(joinJson.remainingMs).toBeLessThanOrEqual(302_000);
 
     const statusJson = await (await queueStatus(statusRequest(event.id, joinJson.token, '203.0.113.28'))).json();
     expect(statusJson.status).toBe('ADMITTED');
@@ -285,7 +286,8 @@ describe('sala de espera (queue/join, queue/status)', () => {
       data: { eventId: event.id, token: `recent-${Date.now()}`, status: 'COMPLETED', joinedAt: new Date() },
     });
     const stillWaiting = await prisma.waitingRoomEntry.create({
-      data: { eventId: event.id, token: `waiting-${Date.now()}`, status: 'WAITING', joinedAt: new Date(Date.now() - 25 * 60 * 60_000) },
+      // Sigue sondeando (latido reciente): aunque entró hace más de 24 h, es una persona esperando y no se toca. Las WAITING sin latido se borran (H-050).
+      data: { eventId: event.id, token: `waiting-${Date.now()}`, status: 'WAITING', joinedAt: new Date(Date.now() - 25 * 60 * 60_000), lastSeenAt: new Date() },
     });
 
     await cleanupStaleEntries(event.id);

@@ -301,6 +301,24 @@ export async function invalidateOrder(
   // condicionado al status exacto que se acaba de leer (compare-and-swap):
   // si otra petición ya cambió el estado entre la lectura y este punto,
   // count será 0 y se aborta sin tocar la pasarela ni el stock.
+  // Anular (sin dinero que devolver por la pasarela): el cambio de estado, la anulación de las entradas y la liberación del aforo van en UNA transacción (H-033).
+  // Antes eran dos: si el proceso moría entre medias quedaba CANCELLED con entradas VALID y aforo ocupado, y la barredera solo mira REFUNDED. Las entradas se leen
+  // dentro de la transacción, no de la lectura inicial, para no liberar de más si cambiaron entre medias.
+  if (mode === 'CANCELLED') {
+    const done = await prisma.$transaction(async (tx) => {
+      const swap = await tx.order.updateMany({ where: { id: orderId, status: order.status }, data: { status: 'CANCELLED', idempotencyKey: null } });
+      if (swap.count === 0) return false;
+      const active = await tx.ticket.findMany({ where: { orderId, status: { in: ['PENDING', 'VALID'] } }, select: { id: true, ticketTypeId: true } });
+      await tx.ticket.updateMany({ where: { id: { in: active.map((t) => t.id) } }, data: { status: 'CANCELLED' } });
+      const byType = new Map<string, number>();
+      for (const t of active) if (t.ticketTypeId) byType.set(t.ticketTypeId, (byType.get(t.ticketTypeId) ?? 0) + 1);
+      for (const [ticketTypeId, quantity] of byType) await tx.ticketType.update({ where: { id: ticketTypeId }, data: { soldCount: { decrement: quantity } } });
+      return true;
+    });
+    if (!done) return { success: false, error: 'El pedido cambió de estado mientras se procesaba; vuelve a intentarlo' };
+    await releasePendingSlot(orderId);
+    return { success: true, status: mode };
+  }
   const claim = await prisma.order.updateMany({
     where: { id: orderId, status: order.status },
     data: { status: mode, idempotencyKey: null },

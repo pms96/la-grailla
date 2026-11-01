@@ -65,6 +65,35 @@ export function lintMigrationSql(rawSql: string): LintFinding[] {
   return findings;
 }
 
+/* Reglas de BLOQUEO (H-045). Una migración aditiva también puede dejar sin escrituras una tabla viva; esto no es «destructivo» pero sí decide si se puede migrar con
+ * una venta en marcha. Se aplican solo a las migraciones POSTERIORES a esta línea (las anteriores ya están aplicadas en producción y no se tocan). Una tabla creada
+ * en la MISMA migración es nueva y nadie la usa todavía: sus índices y restricciones no bloquean nada. Se permite con `-- allow-lock: <motivo>`. */
+export const LOCK_RULES_SINCE = '20261101120000_audit_log_append_only';
+const ALLOW_LOCK_MARKER = /^[ \t]*--[ \t]*allow-lock:[ \t]*\S+/im;
+
+export function lintLockingSql(rawSql: string): LintFinding[] {
+  if (ALLOW_LOCK_MARKER.test(rawSql)) return [];
+  const sql = stripComments(rawSql);
+  const created = new Set([...sql.matchAll(/\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?/gi)].map((m) => m[1].toLowerCase()));
+  const existing = (table: string) => !created.has(table.toLowerCase());
+  const findings: LintFinding[] = [];
+  const add = (rule: string, message: string) => {
+    if (!findings.some((f) => f.rule === rule)) findings.push({ rule, message });
+  };
+  for (const m of sql.matchAll(/\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?"?\w+"?\s+ON\s+(?:ONLY\s+)?"?(\w+)"?/gi)) {
+    if (m[1]) add('create-index-concurrently', 'CREATE INDEX CONCURRENTLY: el runner migra dentro de una transacción y no lo admite');
+    else if (existing(m[2])) add('create-index-existing-table', `CREATE INDEX sobre «${m[2]}», que ya existe: bloquea sus escrituras mientras se construye`);
+  }
+  for (const m of sql.matchAll(/\bALTER\s+TABLE\s+(?:ONLY\s+)?"?(\w+)"?\s+ADD\s+CONSTRAINT\b/gi)) {
+    if (existing(m[1])) add('add-constraint-existing-table', `ADD CONSTRAINT sobre «${m[1]}», que ya existe: recorre toda la tabla bajo bloqueo`);
+  }
+  for (const m of sql.matchAll(/\bUPDATE\s+"?(\w+)"?\s+SET\b/gi)) {
+    if (existing(m[1])) add('backfill-update', `UPDATE sobre «${m[1]}», que ya existe: un relleno de datos bloquea filas (y puede tardar)`);
+  }
+  if (/\bDROP\s+INDEX\b/i.test(sql)) add('drop-index', 'DROP INDEX: el código anterior puede depender de él y bloquea la tabla un instante');
+  return findings;
+}
+
 export function migrationsToCheck(names: string[], baseline = BASELINE_MIGRATION): string[] {
   return names.filter((n) => /^\d{14}_/.test(n) && n > baseline).sort();
 }
@@ -74,7 +103,8 @@ export function lintMigrationsDir(dir: string, baseline = BASELINE_MIGRATION): {
   return migrationsToCheck(names, baseline).flatMap((name) => {
     const file = path.join(dir, name, 'migration.sql');
     if (!fs.existsSync(file)) return [];
-    const findings = lintMigrationSql(fs.readFileSync(file, 'utf8'));
+    const sql = fs.readFileSync(file, 'utf8');
+    const findings = [...lintMigrationSql(sql), ...(name > LOCK_RULES_SINCE ? lintLockingSql(sql) : [])];
     return findings.length ? [{ migration: name, findings }] : [];
   });
 }
@@ -122,7 +152,8 @@ if (process.argv[1] && path.basename(process.argv[1]) === 'migration-lint.ts') {
     if (problems.length) {
       console.error(
         '\nUna migración debe ser aditiva (expand). Si de verdad tiene que ser destructiva, añade una línea ' +
-          '"-- allow-destructive: <motivo>" y asegúrate de que ningún despliegue ejecuta ya el código antiguo.'
+          '"-- allow-destructive: <motivo>" y asegúrate de que ningún despliegue ejecuta ya el código antiguo. ' +
+          'Si solo bloquea escrituras un momento (índice, restricción, relleno), añade "-- allow-lock: <motivo>".'
       );
     }
     process.exit(1);

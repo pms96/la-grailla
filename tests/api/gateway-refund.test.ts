@@ -5,7 +5,7 @@ import { StripeAdapter } from '@/lib/payment-adapter';
 import { POST as stripeWebhook } from '@/app/api/webhooks/stripe/route';
 import { alertDisputeOpened, applyGatewayRefund, repairRefundedOrders, sendRefundEmail } from '@/lib/reconciliation/gateway-refund';
 import { invalidateOrder } from '@/lib/reconciliation/entradas';
-import { refundIdempotencyKey, REFUND_KEY_WINDOW_MS } from '@/lib/reconciliation/shared';
+import { refundIdempotencyKey, lateRefundKey, REFUND_KEY_WINDOW_MS } from '@/lib/reconciliation/shared';
 import { PATCH as patchOrder } from '@/app/api/admin/orders/[id]/route';
 import { createTestEvent, createTicketType, cleanupTestEvent, getAndSetConfig, restoreConfig } from '../helpers/fixtures';
 import { gateway } from '../helpers/fake-gateway';
@@ -320,6 +320,33 @@ describe('reembolsos fuera de la app (P1-01)', () => {
       expect(await ticketStatuses(order.id)).toEqual(['VALID', 'VALID']);
     });
 
+    // H-030: la reparación hacía hasta 20 `verifyPayment` seguidos de hasta 15 s cada uno y no recibía plazo: con la pasarela caída superaba `maxDuration` del cron
+    // y se perdía la respuesta. Con plazo no empieza pedidos nuevos pasado él y ni siquiera espera a una consulta colgada.
+    it('H-030: con plazo, una pasarela colgada no retiene la reparación más allá del plazo y el pedido queda sin tocar para la siguiente pasada', async () => {
+      gateway.active = true;
+      gateway.verifyDelayMs = 3000;
+      const { order } = await makeOrder({ status: 'REFUNDED', valid: 2, provider: 'fake' });
+      gateway.script(order.paymentId!, { success: true, paymentId: order.paymentId!, provider: 'fake', status: 'PAID' });
+      await age(order.id, 60);
+      const t0 = Date.now();
+      const r = await repairRefundedOrders({ deadline: Date.now() + 200 });
+      expect(Date.now() - t0).toBeLessThan(1500); // sin plazo esperaría los 3 s de la consulta
+      expect(r.skipped).toBeGreaterThanOrEqual(1);
+      expect(await statusOf(order.id)).toBe('REFUNDED');
+      expect(await ticketStatuses(order.id)).toEqual(['VALID', 'VALID']);
+      gateway.verifyDelayMs = 0;
+    });
+
+    it('H-030: con el plazo ya vencido no empieza ningún pedido', async () => {
+      gateway.active = true;
+      const { order } = await makeOrder({ status: 'REFUNDED', valid: 2, method: 'CASH' });
+      await age(order.id, 60);
+      const r = await repairRefundedOrders({ deadline: Date.now() - 1 });
+      expect(r).toEqual({ repaired: 0, tickets: 0, reverted: 0, skipped: 0 });
+      expect(await ticketStatuses(order.id)).toEqual(['VALID', 'VALID']);
+      expect((await repairRefundedOrders()).repaired).toBeGreaterThanOrEqual(1); // sin plazo, sí
+    });
+
     it('un pedido sin dinero que devolver (efectivo) se repara directamente (sin pasarela que lo confirme, que daría UNKNOWN y lo dejaría sin tocar)', async () => {
       gateway.active = true;
       const { order } = await makeOrder({ status: 'REFUNDED', valid: 2, method: 'CASH' });
@@ -353,6 +380,12 @@ describe('reembolsos fuera de la app (P1-01)', () => {
       expect(refundIdempotencyKey('ord1', t + 1000)).toBe(k);
       expect(refundIdempotencyKey('ord1', t + REFUND_KEY_WINDOW_MS)).not.toBe(k);
       expect(refundIdempotencyKey('ord2', t)).not.toBe(k);
+      // H-032: el reembolso del pago tardío usaba la clave fija `late_<pedido>` y Stripe repite 24 h el resultado (4xx incluidos): «volverá a intentarlo» no se cumplía.
+      const late = lateRefundKey('ord1', t);
+      expect(lateRefundKey('ord1', t + 1000)).toBe(late);
+      expect(lateRefundKey('ord1', t + REFUND_KEY_WINDOW_MS)).not.toBe(late);
+      expect(lateRefundKey('ord2', t)).not.toBe(late);
+      expect(late).not.toBe(k); // no choca con la clave del reembolso del admin
     });
 
     it('invalidateOrder la manda a la pasarela con esa forma', async () => {
@@ -370,6 +403,50 @@ describe('reembolsos fuera de la app (P1-01)', () => {
       await invalidateOrder(order.id, 'REFUNDED');
       expect(await applyGatewayRefund({ orderId: order.id, full: true, refunded: 10, total: 10, source: 'refund' })).toBe('already');
       expect(buyerMails(email)).toHaveLength(0); // el aviso lo da la ruta del admin, no el webhook
+    });
+  });
+
+  // H-033: `invalidateOrder` hacía el compare-and-swap de estado y, en OTRA transacción, anulaba las entradas y liberaba el aforo: si el proceso fallaba o moría
+  // entre medias quedaba el pedido CANCELLED con entradas VALID y aforo ocupado, sin reparación (la barredera solo mira REFUNDED).
+  describe('anular un pedido es atómico (H-033)', () => {
+    /** Hace que la PRIMERA transacción interactiva se deshaga tras ejecutarse entera (el proceso muere al final) y rechaza la de lista (el código antiguo). */
+    const dieAfterTransaction = () => {
+      // `prisma` es un Proxy que resuelve el cliente real en cada acceso: el espía va sobre ese cliente real (el global de lib/prisma.ts), no sobre el Proxy.
+      const real = (globalThis as unknown as { prisma: typeof prisma }).prisma;
+      const original = real.$transaction.bind(real) as (...a: unknown[]) => Promise<unknown>;
+      let done = false;
+      return vi.spyOn(real, '$transaction').mockImplementation(((arg: unknown, ...rest: unknown[]) => {
+        if (done) return original(arg, ...rest);
+        done = true;
+        if (typeof arg !== 'function') return Promise.reject(new Error('boom: murió entre el estado y las entradas'));
+        return original(async (tx: unknown) => {
+          await (arg as (t: unknown) => Promise<unknown>)(tx);
+          throw new Error('boom: murió al terminar');
+        }, ...rest);
+      }) as never);
+    };
+
+    it('si falla al anular las entradas, el pedido NO queda CANCELLED con entradas VALID y aforo ocupado: todo o nada', async () => {
+      const { order } = await makeOrder({ method: 'CASH', valid: 2 });
+      const before = await sold();
+      const spy = dieAfterTransaction();
+      await expect(invalidateOrder(order.id, 'CANCELLED')).rejects.toThrow('boom');
+      spy.mockRestore();
+      expect(await statusOf(order.id)).toBe('COMPLETED');
+      expect(await ticketStatuses(order.id)).toEqual(['VALID', 'VALID']);
+      expect(await sold()).toBe(before);
+      // y el reintento funciona
+      expect((await invalidateOrder(order.id, 'CANCELLED')).success).toBe(true);
+      expect(await ticketStatuses(order.id)).toEqual(['CANCELLED', 'CANCELLED']);
+      expect(await sold()).toBe(before - 2);
+    });
+
+    it('dos anulaciones simultáneas del mismo pedido liberan el aforo una sola vez', async () => {
+      const { order } = await makeOrder({ method: 'CASH', valid: 2 });
+      const before = await sold();
+      const [a, b] = await Promise.all([invalidateOrder(order.id, 'CANCELLED'), invalidateOrder(order.id, 'CANCELLED')]);
+      expect([a.success, b.success].filter(Boolean)).toHaveLength(1);
+      expect(await sold()).toBe(before - 2);
     });
   });
 

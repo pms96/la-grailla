@@ -11,6 +11,8 @@ vi.mock('next-auth', () => ({
   getServerSession: vi.fn(async () => ({ user: { id: ACTOR, email: ACTOR_EMAIL, role: 'ADMIN' } })),
 }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
+// Marcar un pedido como pagado manda el email de confirmación: en este test no sale nada a ningún servidor de correo.
+vi.mock('@/lib/mailer', async (orig) => ({ ...(await orig<typeof import('@/lib/mailer')>()), sendMail: async () => ({ success: true, transport: 'smtp' as const }) }));
 // Pasarela falsa: el reembolso de un pedido con tarjeta pregunta a la pasarela, y ningún test sale a la red.
 vi.mock('@/lib/payment-adapter', async (orig) => {
   const actual = await orig<typeof import('@/lib/payment-adapter')>();

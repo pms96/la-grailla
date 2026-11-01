@@ -213,6 +213,16 @@ export async function gatewayRefundState(providerName: string, paymentId: string
   }
 }
 
+/** El resultado de `promise`, o `fallback` si no llega antes de `deadline` (ms epoch). La promesa abandonada sigue su curso sin consecuencias. */
+async function raceDeadline<T, F>(promise: Promise<T>, deadline: number, fallback: F): Promise<T | F> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([promise, new Promise<F>((resolve) => (timer = setTimeout(() => resolve(fallback), Math.max(0, deadline - Date.now()))))]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /** Un REFUNDED con entradas activas se considera «en vuelo» (el reembolso del admin marca el pedido ANTES de llamar a la pasarela) hasta pasado este tiempo. */
 export const REFUND_REPAIR_MIN_AGE_MS = 15 * 60_000;
 
@@ -229,7 +239,7 @@ export const REFUND_REPAIR_MIN_AGE_MS = 15 * 60_000;
  *  - no se puede saber   → no se toca nada en esta pasada (se reintenta en la siguiente).
  * Los pedidos sin dinero que devolver (efectivo, simulados, gratis) se reparan directamente. Idempotente. Nunca lanza.
  */
-export async function repairRefundedOrders(opts: { now?: number; limit?: number } = {}): Promise<{ repaired: number; tickets: number; reverted: number; skipped: number }> {
+export async function repairRefundedOrders(opts: { now?: number; limit?: number; deadline?: number } = {}): Promise<{ repaired: number; tickets: number; reverted: number; skipped: number }> {
   let repaired = 0;
   let tickets = 0;
   let reverted = 0;
@@ -243,11 +253,15 @@ export async function repairRefundedOrders(opts: { now?: number; limit?: number 
       orderBy: { updatedAt: 'asc' },
     });
     for (const o of stuck) {
+      // H-030: con plazo, no se empieza un pedido nuevo pasado el plazo; lo que quede se repara en la siguiente pasada (idempotente).
+      if (opts.deadline !== undefined && Date.now() >= opts.deadline) break;
       const id = o.id;
       try {
         const movesMoney = o.paymentMethod === 'CARD' && !!o.paymentProvider && o.paymentProvider !== 'mock' && !!o.paymentId;
         if (movesMoney) {
-          const state = await gatewayRefundState(o.paymentProvider as string, o.paymentId as string);
+          // Con plazo, la consulta a la pasarela (hasta 15 s) no puede pasarse de él: si no contesta a tiempo es «no se puede saber» y se reintenta.
+          const query = gatewayRefundState(o.paymentProvider as string, o.paymentId as string);
+          const state = opts.deadline === undefined ? await query : await raceDeadline(query, opts.deadline, 'unknown' as const);
           if (state === 'unknown') {
             skipped += 1;
             continue;

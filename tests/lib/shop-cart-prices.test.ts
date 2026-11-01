@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cartTotalCents, applyServerPrices, type CartLine } from '@/lib/shop-cart';
+import { cartTotalCents, applyServerPrices, withoutProduct, type CartLine } from '@/lib/shop-cart';
 
 const line = (over: Partial<CartLine>): CartLine => ({ key: 'k', productId: 'p1', name: 'Gorra', price: 25, quantity: 1, ...over });
 
@@ -22,5 +22,13 @@ describe('applyServerPrices', () => {
   it('una línea cuyo producto ya no está disponible (no viene en la respuesta) se quita del carrito', () => {
     const cart = [line({ productId: 'p1' }), line({ key: 'k2', productId: 'gone' })];
     expect(applyServerPrices(cart, [{ productId: 'p1', unitPrice: 25 }]).map((l) => l.productId)).toEqual(['p1']);
+  });
+});
+
+describe('withoutProduct', () => {
+  it('quita todas las líneas de un producto (cualquier talla y color) y no muta el original', () => {
+    const cart = [line({ key: 'a', productId: 'p1' }), line({ key: 'b', productId: 'p1', size: 'L' }), line({ key: 'c', productId: 'p2' })];
+    expect(withoutProduct(cart, 'p1').map((l) => l.key)).toEqual(['c']);
+    expect(cart).toHaveLength(3);
   });
 });

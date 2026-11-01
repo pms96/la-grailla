@@ -104,3 +104,28 @@ Estimación **calculada, no medida**: con N esperando y un sondeo medio de ~15 s
 - **Textos legales (H-142, H-144).** La prueba de edad y de menores, y los textos por defecto que afirman lo que el código no sabe (hojas de reclamaciones, entrega en 30 días, «los precios incluyen el IVA» sin tipo configurado) requieren abogado: **pendientes externos**, sin cambios en este lote.
 - **Sin interfaz de navegador verificada:** la ficha del patrocinio con el campo de importe y el aviso de precio cambiado en el checkout de tienda están cubiertos por tests de API y de lógica, no en navegador (necesitan sesión de administrador y una pasarela de prueba). Van a la fase 4.
 
+## 8. Operación y migraciones: lo que cambia y los límites (lote 6)
+
+**Migración nueva y orden de despliegue.** `20261101130000_operations_indexes_pending_slots` crea la tabla `PendingSlot` (cupo de pedidos pendientes por IP) y ocho índices. El front de este release la necesita: `FRONT_MIN_SCHEMA` sube a ella, así que **hay que migrar la BD de cada cliente ANTES de desplegar el front** (un cliente sin migrar vería «en mantenimiento»; en el proyecto antiguo, que migra en el build, ya ocurre en ese orden). Crear un índice sobre una tabla viva bloquea sus escrituras mientras se construye: con el volumen de un cliente normal son milisegundos, pero **no se migra con una venta en marcha** (el runner ya se niega). La migración es reejecutable (`IF NOT EXISTS`).
+
+**Lo que notará quien administra**
+
+- **Marcar un pedido como pagado a mano** (tienda y entradas) hace lo mismo que un pago confirmado: email al comprador, aviso al vendedor, y cierra antes la sesión de pago abierta (si el comprador pagara después con tarjeta, ya no puede, y no hay cobro duplicado). Si la pasarela dice que lo cobrado no coincide con el pedido, no se marca y se explica (422).
+- **Un turno de la sala de espera solo sirve para una compra**, aunque se lancen varias a la vez. Si la compra se rechaza o la pasarela falla, el turno se conserva.
+- **La tienda no cobra un pedido distinto del que se ve:** un producto desactivado o borrado mientras se compra da un aviso (409 `product_unavailable`), el carrito lo quita y el comprador vuelve a pulsar «Pagar».
+- **Crear un evento o un producto con un nombre repetido (o sin letras) ya funciona:** el enlace es `noche`, `noche-2`… Antes era un error 500 y no se podía crear.
+- **La sala de espera se limpia sola de filas abandonadas** (esperas sin actividad y turnos caducados desde hace más de 24 h, con la IP que guardaban).
+- **Cancelar un evento:** un aviso que no llegó a enviarse (la función murió o el correo se colgó) ya no consta como enviado, y un pedido que otro camino reembolsó no cuenta como fallo.
+- **Pagos y cron:** el cron reserva la cola de la pasada (hasta 54 s de los 60 de la función) para los barridos de emails, avisos de evento, avisos al vendedor y reparación de reembolsos; antes un bucle de pagos lento los dejaba sin tiempo. El reembolso de un pago tardío ya no queda bloqueado 24 h por un primer fallo corregible.
+- **El proyecto antiguo migra en el build con tiempos:** la conexión directa lleva `lock_timeout` de 3 s y `statement_timeout` de 5 min. Si una migración no consigue el bloqueo (hay una venta en marcha), falla, el build no sigue y el despliegue no sale: se repite cuando no haya venta. Requiere que `DIRECT_URL` esté definida (si no lo está, se migra sin tiempos, como antes).
+- **Salud del panel:** una BD restaurada que quedó por detrás del registro aparece como **bloqueada** («Deriva GRAVE»), con el paso de resincronización en `m7-operacion.md` §4.
+- **Revisión de migraciones:** el linter ya avisa de lo que bloquea escrituras (índices sobre tablas existentes, restricciones, rellenos, `DROP INDEX`) y exige `-- allow-lock: <motivo>`. Una prueba comprueba además que `FRONT_MIN_SCHEMA` es verdad: aplica las migraciones solo hasta ella y lee todos los modelos con el esquema actual.
+
+**Límites aceptados y decisiones pendientes**
+
+- **Stock fantasma (H-039).** Si un producto no tenía tallas ni colores cuando se vendió y se le añaden después, cancelar ese pedido repone stock en una variante que no lo reservó. No se arregla sin una columna nueva y su relleno; la mitigación es **no añadir tallas o colores a un producto con pedidos pendientes**, y corregir el stock a mano si ocurre.
+- **`ProcessedWebhookEvent` no se purga (H-047).** Las consultas ya no recorren toda la historia (índice por fecha, lecturas por clave primaria), pero la tabla crece con cada pedido. Borrar marcadores cambiaría el estado de entrega de emails que ven los listados, así que no hay purga automática: con el volumen de un cliente normal (unas decenas de filas por pedido) no es un problema; revisarlo si pasa de ~1 millón de filas.
+- **Reembolso con pasarela y anulación (H-033).** La anulación sin dinero es atómica; el reembolso con tarjeta sigue en dos pasos (la pasarela está en medio) y lo repara la barredera `repairRefundedOrders`.
+- **Pérdida del aviso al comprador con reintento (H-038).** Si el envío del aviso llegó a salir pero la respuesta se perdió (tiempo agotado), se reintenta y el comprador puede recibirlo dos veces: es preferible a no recibirlo.
+- **Sin interfaz de navegador verificada:** el aviso de producto no disponible en el checkout y los mensajes del panel (deriva) están cubiertos por tests de API y de lógica, no en navegador. Van a la fase 4.
+

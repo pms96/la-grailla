@@ -39,6 +39,15 @@ export function refundIdempotencyKey(orderId: string, now = Date.now()): string 
   return `refund_${orderId}_${Math.floor(now / REFUND_KEY_WINDOW_MS)}`;
 }
 
+/**
+ * Clave de idempotencia del reembolso de un pago TARDÍO (H-032). Era `late_<pedido>` fija: Stripe repite 24 h el resultado de la primera petición con una
+ * clave (4xx incluidos), así que «volverá a intentarlo» no se cumplía. Misma ventana que `refundIdempotencyKey`, pero con su propio prefijo: no choca con el
+ * reembolso del admin sobre el mismo pedido.
+ */
+export function lateRefundKey(orderId: string, now = Date.now()): string {
+  return `late_${orderId}_${Math.floor(now / REFUND_KEY_WINDOW_MS)}`;
+}
+
 /** Log estructurado de pagos (una línea JSON tras una etiqueta greppable). Siempre con el cliente y sin datos personales. */
 export function logPaymentEvent(tag: string, fields: Record<string, unknown>, level: 'error' | 'warn' | 'info' = 'error'): void {
   const line = `${tag} ${JSON.stringify({ tenantId: currentTenant()?.tenantId ?? '-', ...fields })}`;

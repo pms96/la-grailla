@@ -105,9 +105,21 @@ export function applyServerPrices(cart: CartLine[], prices: { productId: string;
   return cart.filter((l) => byProduct.has(l.productId)).map((l) => ({ ...l, price: byProduct.get(l.productId)! }));
 }
 
+/** El carrito sin ningún producto con ese id (todas sus tallas y colores). No muta el original. */
+export function withoutProduct(cart: CartLine[], productId: string): CartLine[] {
+  return cart.filter((l) => l.productId !== productId);
+}
+
 /** `applyServerPrices` y guarda el resultado en el navegador. Lo llama el checkout tras un 409 `price_changed`; vive aquí para que el checkout nunca escriba el carrito por su cuenta (no se vacía antes de pagar). */
 export function refreshCartPrices(cart: CartLine[], prices: { productId: string; unitPrice: number }[]): CartLine[] {
   const updated = applyServerPrices(cart, prices);
+  writeCart(updated);
+  return updated;
+}
+
+/** Quita del carrito guardado un producto que ya no se vende (409 `product_unavailable`). Ver `refreshCartPrices`: el checkout no escribe el carrito por su cuenta. */
+export function dropUnavailableProduct(cart: CartLine[], productId: string): CartLine[] {
+  const updated = withoutProduct(cart, productId);
   writeCart(updated);
   return updated;
 }

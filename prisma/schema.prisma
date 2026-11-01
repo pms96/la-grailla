@@ -231,6 +231,7 @@ model WaitingRoomEntry {
 
   @@index([eventId, status, joinedAt])
   @@index([eventId, ip, status])
+  @@index([status, joinedAt])
 }
 
 model TicketType {
@@ -299,6 +300,7 @@ model Order {
   @@index([buyerEmail])
   @@index([paymentId])
   @@index([status, emailSentAt])
+  @@index([createdAt])
 }
 
 model Ticket {
@@ -321,6 +323,7 @@ model Ticket {
   @@index([eventId])
   @@index([orderId])
   @@index([ticketTypeId])
+  @@index([eventId, status])
 }
 
 model ScanLog {
@@ -336,6 +339,7 @@ model ScanLog {
 
   @@index([ticketId])
   @@index([eventId])
+  @@index([eventId, createdAt])
 }
 
 model Product {
@@ -409,6 +413,9 @@ model ShopOrder {
 
   @@index([buyerEmail])
   @@index([temporadaId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([paymentId])
 }
 
 model ShopOrderItem {
@@ -741,6 +748,21 @@ model RateLimitBucket {
 model ProcessedWebhookEvent {
   id          String   @id
   processedAt DateTime @default(now())
+
+  @@index([processedAt])
+}
+
+// Cupo de pedidos PENDIENTES simultáneos por IP (P0-04, H-051). Antes hacía de ello `RateLimitBucket` con claves `pending:<ámbito>:<ip>#<pedido>`: contar y liberar
+// eran búsquedas por prefijo/sufijo de texto (escaneo de toda la tabla, dentro del cerrojo de compra del evento), y la fila ataba una IP a un id de pedido durante
+// el TTL más una hora. Ahora una fila por pedido, con índice por (ámbito, identificador, caducidad) para contar y por la clave primaria (el pedido) para liberar.
+model PendingSlot {
+  ref        String   @id
+  scope      String
+  identifier String
+  expiresAt  DateTime
+
+  @@index([scope, identifier, expiresAt])
+  @@index([expiresAt])
 }
 
 // ---------------------------------------------------------------------------

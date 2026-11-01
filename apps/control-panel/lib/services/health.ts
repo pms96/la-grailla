@@ -27,7 +27,7 @@ export const HealthDetailSchema = z.object({
 export type HealthDetail = z.infer<typeof HealthDetailSchema>;
 
 export type ProbeResult =
-  | { reachable: true; httpStatus: number; latencyMs: number; detail: HealthDetail; problems: string[]; /** Bloque `ops` válido del cliente (ausente en fronts anteriores). */ ops?: OpsBlock | null; /** Por qué `ops` es null: `absent` = front anterior sin el bloque; `invalid` = lo manda y no cumple el contrato. */ opsStatus?: 'ok' | 'absent' | 'invalid' }
+  | { reachable: true; httpStatus: number; latencyMs: number; detail: HealthDetail; problems: string[]; /** La BD está por detrás de lo que el registro declara o del mínimo del front: las lecturas del modelo nuevo dan 500 aunque el front «sirva» (H-043). */ schemaBlocking?: boolean; /** Bloque `ops` válido del cliente (ausente en fronts anteriores). */ ops?: OpsBlock | null; /** Por qué `ops` es null: `absent` = front anterior sin el bloque; `invalid` = lo manda y no cumple el contrato. */ opsStatus?: 'ok' | 'absent' | 'invalid' }
   | { reachable: false; httpStatus: number | null; latencyMs: number; error: string; problems: string[] };
 
 /** Llama a /api/health y lo interpreta. `declaredSchema` es lo que el registro cree que hay en la BD (para detectar deriva). */
@@ -51,15 +51,28 @@ export async function probeTenantHealth(
   if (d.tenantMarker && d.tenantMarker !== target.tenantId) problems.push(`LA BD ES DE OTRO CLIENTE (marcada como ${d.tenantMarker}): revisa las URLs de BD de este cliente ya`);
   if (d.serving === false) problems.push('El front NO está sirviendo a este cliente (mantenimiento por esquema del registro atrasado): ejecuta el runner de migraciones o corrige la versión del registro');
   if (!d.schema.upToDate) problems.push(`Esquema atrasado: aplicado ${d.schema.applied ?? 'desconocido'}, el front exige ${d.schema.minRequired}`);
-  if (target.declaredSchema !== undefined && d.schema.applied && migrationStamp(target.declaredSchema) !== migrationStamp(d.schema.applied)) {
-    // El registro cree una versión y la BD tiene otra: el front decide con la del registro, así que conviene corregirlo.
-    problems.push(`Deriva: el registro declara ${target.declaredSchema ?? 'ninguna'} y la BD tiene ${d.schema.applied}`);
+  // H-043: la deriva tiene dos sentidos y no son igual de graves. El front decide si sirve con la versión del REGISTRO, no con la de la BD:
+  //  - BD POR DETRÁS del registro (típico tras un PITR o una restauración): el front sirve, pero toda lectura del modelo nuevo da 500. Es un cliente roto.
+  //  - BD POR DELANTE del registro (registro sin actualizar tras migrar): el front se pone en mantenimiento él solo; se corrige el registro.
+  let dbBehindRegistry = false;
+  if (target.declaredSchema !== undefined && d.schema.applied) {
+    const declared = migrationStamp(target.declaredSchema);
+    const applied = migrationStamp(d.schema.applied);
+    if (declared !== applied) {
+      dbBehindRegistry = declared !== null && applied !== null && applied < declared;
+      problems.push(
+        dbBehindRegistry
+          ? `Deriva GRAVE: la BD está POR DETRÁS del registro (declara ${target.declaredSchema}, la BD tiene ${d.schema.applied}). ¿Se restauró la BD (PITR)? El front sirve pero las lecturas fallan: migra con el runner o corrige la versión del registro`
+          : `Deriva: el registro declara ${target.declaredSchema ?? 'ninguna'} y la BD tiene ${d.schema.applied}`
+      );
+    }
   }
+  const schemaBlocking = dbBehindRegistry || !d.schema.upToDate;
   if (!d.onboarding.complete) problems.push(`Datos sin completar: ${d.onboarding.missing.join(', ')}`);
   const opsRead = parseOpsBlock(d.ops);
   // Un `ops` que no cumple el contrato es un fallo del front (versión desfasada o un bug), no del cliente: se dice, sin copiar lo recibido.
   if (opsRead.status === 'invalid') problems.push(`El bloque «ops» de la salud no cumple el contrato (${opsRead.issue}): las señales de negocio de este cliente no se están vigilando`);
-  return { reachable: true, httpStatus: res.status, latencyMs: res.durationMs, detail: d, problems, ops: opsRead.status === 'ok' ? opsRead.ops : null, opsStatus: opsRead.status };
+  return { reachable: true, httpStatus: res.status, latencyMs: res.durationMs, detail: d, problems, schemaBlocking, ops: opsRead.status === 'ok' ? opsRead.ops : null, opsStatus: opsRead.status };
 }
 
 /** ¿Está sano TÉCNICAMENTE? Responde, sin error declarado por el propio cliente y sin problemas (esquema atrasado, BD de otro cliente…). Las señales de negocio (`ops`) se tratan aparte. */
@@ -89,7 +102,7 @@ export async function recordHealth(subscriptionId: string, probe: ProbeResult, n
     ? {
         ...base,
         ok: probe.detail.status !== 'error' && probe.problems.length === 0 && opsLines.length === 0,
-        status: probe.detail.serving === false ? 'blocked' : probe.problems.length || opsLines.length ? 'degraded' : probe.detail.status,
+        status: probe.detail.serving === false || probe.schemaBlocking ? 'blocked' : probe.problems.length || opsLines.length ? 'degraded' : probe.detail.status,
         dbOk: probe.detail.db.ok,
         schemaApplied: probe.detail.schema.applied,
         schemaExpected: probe.detail.schema.expected,

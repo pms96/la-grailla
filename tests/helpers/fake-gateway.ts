@@ -27,6 +27,10 @@ export const gateway = {
   resumeUrl: null as string | null,
   /** Si es true, crear la sesión falla (la pasarela no responde). */
   failCreate: false,
+  /** Si no es null, se ejecuta al empezar `createCheckoutSession` (antes de fallar o crear la sesión): permite simular que OTRO camino (abandono, caducidad) actúa en esa ventana. */
+  beforeCreate: null as null | ((p: { orderId: string }) => Promise<void>),
+  /** Si no es null, se ejecuta al empezar `refund` (antes de decidir el resultado): permite simular que OTRO camino reembolsó el pedido en esa ventana. */
+  beforeRefund: null as null | (() => Promise<void>),
   /** Pagos que la pasarela da por REEMBOLSADOS (hechos por la app o a mano en el panel): `verifyPayment` los devuelve como REFUNDED. */
   refunded: new Set<string>(),
   /** Retardo (ms) de un reembolso en curso: permite que dos entregas simultáneas se solapen. */
@@ -50,6 +54,8 @@ export const gateway = {
     this.sessions = [];
     this.resumeUrl = null;
     this.failCreate = false;
+    this.beforeCreate = null;
+    this.beforeRefund = null;
     this.refunded.clear();
     this.refundDelayMs = 0;
     this.inFlight.clear();
@@ -83,6 +89,7 @@ export function fakeProvider(): PaymentProvider {
       return JSON.parse(rawBody) as WebhookEvent;
     },
     async createCheckoutSession(params) {
+      if (gateway.beforeCreate) await gateway.beforeCreate({ orderId: params.orderId });
       if (gateway.failCreate) throw new Error('pasarela caída');
       gateway.sessions.push({ orderId: params.orderId, cancelUrl: params.cancelUrl, successUrl: params.successUrl, amount: params.amount });
       return { sessionId: `cs_fake_${params.orderId}`, checkoutUrl: `https://pay.example/${params.orderId}`, provider: 'fake' };
@@ -118,6 +125,7 @@ export function fakeProvider(): PaymentProvider {
       : {}),
     async refund(paymentId: string, amount?: number, idempotencyKey?: string) {
       gateway.calls.push({ op: 'refund', paymentId, args: [amount, idempotencyKey] });
+      if (gateway.beforeRefund) await gateway.beforeRefund();
       const key = idempotencyKey ?? `${paymentId}:no-key`;
       if (gateway.inFlight.has(key)) return { success: false, error: 'idempotency_key_in_use' };
       if (gateway.strictRefunds && gateway.refunded.has(paymentId)) return { success: false, error: 'already refunded' };

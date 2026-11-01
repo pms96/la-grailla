@@ -60,7 +60,7 @@ describe('topes de compra (P0-04)', () => {
     await prisma.product.deleteMany({ where: { id: { in: productIds } } });
     await prisma.ticketType.deleteMany({ where: { eventId: event.id } });
     await cleanupTestEvent(event.id);
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { startsWith: 'pending:' } } });
+    await prisma.pendingSlot.deleteMany({});
   });
   beforeEach(async () => {
     gateway.reset();
@@ -70,7 +70,7 @@ describe('topes de compra (P0-04)', () => {
     await prisma.order.deleteMany({ where: { eventId: event.id } });
     await prisma.ticketType.updateMany({ where: { eventId: event.id }, data: { soldCount: 0 } });
     await prisma.event.update({ where: { id: event.id }, data: { maxTicketsPerEmail: null } });
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { startsWith: 'pending:' } } });
+    await prisma.pendingSlot.deleteMany({});
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -321,7 +321,7 @@ describe('topes de compra (P0-04)', () => {
       expect(statuses).toEqual([200, 200, 200, 429, 429, 429, 429, 429]);
       expect(await prisma.shopOrder.count({ where: { items: { some: { productId: a } } } })).toBe(CAP);
       expect((await prisma.productVariant.findFirst({ where: { productId: a } }))!.stock).toBe(1000 - CAP); // los rechazados no reservaron stock
-      expect(await prisma.rateLimitBucket.count({ where: { key: { startsWith: `pending:shop:${ip}#` } } })).toBe(CAP);
+      expect(await prisma.pendingSlot.count({ where: { scope: 'shop', identifier: ip } })).toBe(CAP);
     });
 
     it('el tope de la tienda es el suyo (shop_orders_max_pending_per_ip) y no el de entradas', async () => {

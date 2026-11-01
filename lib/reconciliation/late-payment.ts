@@ -5,7 +5,7 @@ import { getBrand } from '@/lib/brand/brand';
 import { brandLogoHtml } from '@/lib/brand/email';
 import { getFallbackBaseUrl } from '@/lib/url';
 import { prisma } from '@/lib/prisma';
-import { alertOperator, logPaymentEvent, paymentMatchesOrder, type CompleteOutcome } from './shared';
+import { alertOperator, lateRefundKey, logPaymentEvent, paymentMatchesOrder, type CompleteOutcome } from './shared';
 import { orderRef } from '@/lib/order-ref';
 
 /** Marca «para este pedido se ha decidido devolver el dinero»: una vez puesta, ya no se intenta reactivar (así un reintento nunca cobra Y entrega). */
@@ -61,7 +61,7 @@ export async function confirmLatePayment(
   return { state: 'paid', provider };
 }
 
-/** Reembolso total e idempotente (`late_<pedido>`): repetirlo, aunque sea desde el webhook y el cron a la vez, no devuelve el dinero dos veces. */
+/** Reembolso total e idempotente (clave `late_<pedido>_<ventana de 10 min>`, ver `lateRefundKey`): repetirlo, aunque sea desde el webhook y el cron a la vez, no devuelve el dinero dos veces. */
 export async function refundLatePayment(
   provider: PaymentProvider,
   order: { id: string; paymentId: string | null }
@@ -69,7 +69,7 @@ export async function refundLatePayment(
   if (!order.paymentId) return { ok: false, error: 'el pedido no tiene pago asociado' };
   if (!provider.capabilities.refunds) return { ok: false, error: `${provider.name} no admite reembolsos por API` };
   try {
-    const refund = await provider.refund(order.paymentId, undefined, `late_${order.id}`);
+    const refund = await provider.refund(order.paymentId, undefined, lateRefundKey(order.id));
     return refund.success ? { ok: true } : { ok: false, error: refund.error ?? 'el reembolso en la pasarela ha fallado' };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -107,7 +107,7 @@ export async function sendLateRefundEmail(
 type LateOrder = { id: string; buyerName: string; buyerEmail: string; totalAmount: number | string | { toString(): string }; paymentId: string | null };
 
 /**
- * Tramo común del pago tardío SIN plazas/stock: devolver el dinero y dejar el pedido REFUNDED. Primero el dinero (idempotente por `late_<pedido>`),
+ * Tramo común del pago tardío SIN plazas/stock: devolver el dinero y dejar el pedido REFUNDED. Primero el dinero (idempotente por `lateRefundKey`),
  * después el estado; si el proceso muere en medio, el siguiente reintento termina sin duplicar nada.
  *  - `claim()`: la transición condicionada CANCELLED → REFUNDED (true = la ha hecho ESTA llamada, y solo ella avisa al comprador).
  *  - `readStatus()`: el estado actual del pedido.

@@ -8,7 +8,9 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
-import { invalidateShopOrder } from '@/lib/reconciliation/tienda';
+import { completeShopOrder, invalidateShopOrder } from '@/lib/reconciliation/tienda';
+import { closeSessionBeforeCancel } from '@/lib/reconciliation/close-session';
+import { getBaseUrl } from '@/lib/url';
 import { planSeasonMove, recordSeasonMove } from '@/lib/contabilidad/season-reassign';
 import { seasonLinkEnabled } from '@/lib/modules/season-link';
 import { isFullAccessRestricted } from '@/lib/modules/runtime';
@@ -75,6 +77,20 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
     const current = await prisma.shopOrder.findUnique({ where: { id: params?.id }, select: { status: true, trackingNumber: true } });
     if (body?.status !== undefined && current && !canChangeShopOrderStatus(current.status, body.status)) {
       return NextResponse.json({ error: `Un pedido ${current.status} no puede pasar a ${body.status}.` }, { status: 422 });
+    }
+
+ // H-034: «Marcar como pagado» a mano (PENDING→PAID) pasa por el MISMO flujo que un pago confirmado: se cierra la sesión de pago abierta (si el comprador pagara
+    // después con tarjeta, cobro duplicado en silencio), y `completeShopOrder` hace el compare-and-swap, anota y manda el email al comprador, avisa al vendedor y
+    // libera el hueco del cupo por IP. Si la sesión resulta estar YA pagada se completa con lo cobrado de verdad. Antes era un `update` plano sin nada de eso.
+    if (body?.status === 'PAID' && current?.status === 'PENDING') {
+      const pending = await prisma.shopOrder.findUnique({ where: { id: params?.id }, select: { id: true, paymentProvider: true, paymentId: true, createdAt: true } });
+      if (pending) {
+        const { paid } = await closeSessionBeforeCancel('tienda', pending);
+        const outcome = await completeShopOrder(pending.id, paid ? { amount: paid.amount, currency: paid.currency } : undefined, { emailInline: true, baseUrl: getBaseUrl(request) });
+        if (outcome === 'amount_mismatch') {
+          return NextResponse.json({ error: 'Lo cobrado en la pasarela no coincide con el importe del pedido: no se ha marcado como pagado. Revísalo en el panel de la pasarela.' }, { status: 422 });
+        }
+      }
     }
 
     // H-018: un cambio de estado «plano» (sobre todo PENDING→PAID a mano, sin pasar por la pasarela) es dinero declarado por una persona: queda quién y

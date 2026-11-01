@@ -31,7 +31,7 @@ const ALL: Mod[] = ['nucleo', 'entradas', 'tienda', 'contabilidad', 'sponsors', 
 /** Dueño de cada tabla. Las de NextAuth y de infraestructura son del núcleo. */
 const MODEL_OWNERS: Record<string, Mod> = {
   User: 'nucleo', AccessRole: 'nucleo', Account: 'nucleo', Session: 'nucleo', VerificationToken: 'nucleo', ContactMessage: 'nucleo',
-  ContactReply: 'nucleo', LegalSnapshot: 'nucleo', AppConfig: 'nucleo', RateLimitBucket: 'nucleo', ProcessedWebhookEvent: 'nucleo', AdminAuditLog: 'nucleo',
+  ContactReply: 'nucleo', LegalSnapshot: 'nucleo', AppConfig: 'nucleo', RateLimitBucket: 'nucleo', PendingSlot: 'nucleo', ProcessedWebhookEvent: 'nucleo', AdminAuditLog: 'nucleo',
   Event: 'entradas', WaitingRoomEntry: 'entradas', TicketType: 'entradas', Order: 'entradas', Ticket: 'entradas', ScanLog: 'entradas',
   GuestList: 'entradas', Invitation: 'entradas',
   Product: 'tienda', ProductVariant: 'tienda', ShopOrder: 'tienda', ShopOrderItem: 'tienda',
@@ -158,7 +158,8 @@ async function seed(present: ReadonlySet<Mod>) {
 type Snapshot = Map<string, string>;
 
 /** Hora y duraciones cambian entre dos cargas aunque los datos sean los mismos: no son parte de lo que se compara. */
-const normalize = (text: string) => text.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/g, '<fecha>');
+// Las fechas ISO y las del CSV de ventas en hora de Madrid («dd/mm/aaaa hh:mm», H-137) cambian de una ejecución a otra: no son datos de los módulos apagados.
+const normalize = (text: string) => text.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/g, '<fecha>').replace(/\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}/g, '<fecha>');
 
 const loaders = import.meta.glob('../../app/api/**/route.ts');
 const routes = getRoutes();

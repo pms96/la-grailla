@@ -48,6 +48,8 @@ function opportunisticCleanup(now: number) {
   prisma.rateLimitBucket
     .deleteMany({ where: { resetAt: { lt: new Date(now - 60 * 60_000) } } })
     .catch(() => {});
+  // Los cupos de pedidos pendientes que ya caducaron (el pedido se pagó o se abandonó sin liberarlos): fuera, y con ellos la IP que guardaban (H-051).
+  prisma.pendingSlot.deleteMany({ where: { expiresAt: { lt: new Date(now) } } }).catch(() => {});
 }
 
 // Antes esto era un Map en memoria del propio proceso. En Vercel serverless
@@ -103,32 +105,31 @@ export async function resetRateLimit(scope: string, identifier: string): Promise
 }
 
 /* Cupo de pedidos PENDIENTES simultáneos (P0-04). No cuenta intentos por minuto (eso es `rateLimit`): cuenta los pedidos que esa IP tiene SIN
- * PAGAR ahora mismo. Cada pedido pendiente ocupa una fila de `RateLimitBucket` (la infraestructura que ya hay, sin tablas nuevas) que se
- * libera al pagarse, liberarse o anularse el pedido y que, en todo caso, caduca sola con la retención. El recuento y la inserción van dentro de
- * la transacción de la compra, y el LLAMANTE debe serializarlos con un cerrojo (`pg_advisory_xact_lock`): en entradas, el cerrojo del
- * evento; en tienda, uno por IP. Sin cerrojo, peticiones simultáneas leen el mismo recuento y se cuelan todas.
+ * PAGAR ahora mismo. Cada pedido pendiente ocupa una fila de `PendingSlot` (H-051; antes, `RateLimitBucket` con claves de texto) que se libera al
+ * pagarse, liberarse o anularse el pedido y que, en todo caso, caduca sola. El recuento y la inserción van dentro de la transacción de la compra, y
+ * el LLAMANTE debe serializarlos con un cerrojo (`pg_advisory_xact_lock`): en entradas, el cerrojo del evento; en tienda, uno por IP. Sin cerrojo,
+ * peticiones simultáneas leen el mismo recuento y se cuelan todas.
+ *
+ * Contar usa el índice (ámbito, identificador, caducidad) y liberar la clave primaria (el pedido): antes eran búsquedas por prefijo y sufijo de texto,
+ * es decir, un escaneo de toda la tabla DENTRO del cerrojo de compra del evento.
  *
  * Es un freno contra scripts desde UNA sola IP, no una defensa completa: rotando IP (o con IPv6, donde cada dirección de un /64 cuenta como
  * distinta) se evade; la defensa real sería un captcha, que necesita claves del dueño. */
-const PENDING_PREFIX = 'pending:';
-type BucketClient = Pick<typeof prisma, 'rateLimitBucket'>;
+type SlotClient = Pick<typeof prisma, 'pendingSlot'>;
 
-export async function countPendingSlots(client: BucketClient, scope: string, identifier: string): Promise<number> {
-  return client.rateLimitBucket.count({ where: { key: { startsWith: `${PENDING_PREFIX}${scope}:${identifier}#` }, resetAt: { gt: new Date() } } });
+export async function countPendingSlots(client: SlotClient, scope: string, identifier: string): Promise<number> {
+  return client.pendingSlot.count({ where: { scope, identifier, expiresAt: { gt: new Date() } } });
 }
 
 /** Reserva un hueco para el pedido `ref`. Idempotente por pedido. */
-export async function takePendingSlot(client: BucketClient, scope: string, identifier: string, ref: string, ttlMs: number): Promise<void> {
-  await client.rateLimitBucket.createMany({
-    data: [{ key: `${PENDING_PREFIX}${scope}:${identifier}#${ref}`, count: 1, resetAt: new Date(Date.now() + ttlMs) }],
-    skipDuplicates: true,
-  });
+export async function takePendingSlot(client: SlotClient, scope: string, identifier: string, ref: string, ttlMs: number): Promise<void> {
+  await client.pendingSlot.createMany({ data: [{ ref, scope, identifier, expiresAt: new Date(Date.now() + ttlMs) }], skipDuplicates: true });
 }
 
 /** Libera el hueco de un pedido (pagado, liberado o fallido). Nunca lanza: no es crítico, y el hueco caduca solo. */
 export async function releasePendingSlot(ref: string): Promise<void> {
   try {
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { startsWith: PENDING_PREFIX, endsWith: `#${ref}` } } });
+    await prisma.pendingSlot.deleteMany({ where: { ref } });
   } catch (error) {
     console.error('[releasePendingSlot]', error instanceof Error ? error.message : error);
   }

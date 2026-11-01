@@ -42,7 +42,7 @@ describe('importes de venta (P1-07)', () => {
     await restoreConfig('orders_max_pending_per_ip', origCap);
     await prisma.ticketType.deleteMany({ where: { eventId: event.id } });
     await cleanupTestEvent(event.id);
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { startsWith: 'pending:' } } });
+    await prisma.pendingSlot.deleteMany({});
   });
   beforeEach(async () => {
     gateway.reset();
@@ -51,7 +51,7 @@ describe('importes de venta (P1-07)', () => {
     await prisma.ticket.deleteMany({ where: { eventId: event.id } });
     await prisma.order.deleteMany({ where: { eventId: event.id } });
     await prisma.ticketType.deleteMany({ where: { eventId: event.id } });
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { startsWith: 'pending:' } } });
+    await prisma.pendingSlot.deleteMany({});
     await getAndSetConfig('commission_percentage', '0');
   });
   afterEach(() => vi.restoreAllMocks());
@@ -229,7 +229,7 @@ describe('tienda: importes en céntimos y mínimo de pago (P1-07)', () => {
   afterAll(async () => {
     await prisma.shopOrder.deleteMany({ where: { items: { some: { productId: { in: productIds } } } } });
     await prisma.product.deleteMany({ where: { id: { in: productIds } } });
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { startsWith: 'pending:' } } });
+    await prisma.pendingSlot.deleteMany({});
   });
 
   const shop = async (price: number, quantity: number) => {

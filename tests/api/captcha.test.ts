@@ -267,7 +267,7 @@ describe('captcha: endpoints', () => {
     await prisma.ticketType.deleteMany({ where: { eventId: event.id } });
     await prisma.waitingRoomEntry.deleteMany({ where: { eventId: event.id } });
     await cleanupTestEvent(event.id);
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { startsWith: 'pending:' } } });
+    await prisma.pendingSlot.deleteMany({});
   });
   beforeEach(async () => {
     gateway.reset();
@@ -280,7 +280,7 @@ describe('captcha: endpoints', () => {
     await prisma.ticketType.updateMany({ where: { eventId: event.id }, data: { soldCount: 0 } });
     await prisma.event.update({ where: { id: event.id }, data: { waitingRoomEnabled: false } });
     await prisma.waitingRoomEntry.deleteMany({ where: { eventId: event.id } });
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { startsWith: 'pending:' } } });
+    await prisma.pendingSlot.deleteMany({});
   });
   afterEach(() => vi.restoreAllMocks());
 

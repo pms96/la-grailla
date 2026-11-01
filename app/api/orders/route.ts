@@ -7,10 +7,11 @@ import type { TicketStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { generateQRCode } from '@/lib/qr';
 import { getConfig } from '@/lib/config';
-import { rateLimit, getClientIp, countPendingSlots, takePendingSlot, releasePendingSlot } from '@/lib/rate-limit';
+import { rateLimit, getClientIp, countPendingSlots, takePendingSlot } from '@/lib/rate-limit';
 import { CHECKOUT_RELEASE_AFTER_MS } from '@/lib/checkout-hold';
 import { MAX_TICKETS_PER_TYPE, MAX_TICKET_LINES_PER_ORDER, PENDING_LIMIT_CONFIG_KEY, normalizeEmailForLimit, parsePendingLimit } from '@/lib/checkout-limits';
 import { resumeCheckoutUrl } from '@/lib/reconciliation/close-session';
+import { releaseExpiredOrder } from '@/lib/reconciliation/entradas';
 import { checkCapacityAlerts } from '@/lib/capacity-alerts';
 import { getPaymentProvider } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
@@ -39,6 +40,9 @@ class OrderRejectedError extends Error {}
 // el pedido a la vez; la que pierde la carrera del UNIQUE de Postgres
 // termina aquí en vez de duplicar el pedido/cobro.
 class DuplicateOrderError extends Error {}
+
+// El turno de la sala de espera ya se gastó (o caducó) entre la comprobación de arriba y la transacción de la compra (H-035): se responde como un turno inválido.
+class TurnSpentError extends Error {}
 
 // Demasiados pedidos sin pagar a la vez desde la misma IP para este evento: se responde 429, no 400, porque se libera sola al pagar o abandonar.
 class TooManyPendingOrdersError extends Error {}
@@ -237,6 +241,14 @@ export async function POST(request: Request) {
         // terminar la transacción, no hace falta desbloquearlo a mano.
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${eventId}))`;
 
+        // H-035: con la sala de espera, el turno se GASTA aquí, dentro de la transacción (ya serializada por evento): `ADMITTED` y vigente → `COMPLETED`. La comprobación
+        // de más arriba solo era de lectura y dos peticiones simultáneas con el mismo turno la pasaban las dos. Si la compra se rechaza (sin entradas…) la transacción
+        // se deshace y el turno sigue siendo suyo; si luego falla la pasarela, se restaura (ver `restoreQueueSlot`).
+        if (queueEntry) {
+          const spent = await tx.waitingRoomEntry.updateMany({ where: { id: queueEntry.id, status: 'ADMITTED', expiresAt: { gt: new Date() } }, data: { status: 'COMPLETED' } });
+          if (spent.count === 0) throw new TurnSpentError();
+        }
+
         // Releer con el lock ya tomado: nadie más puede estar a mitad de
         // reservar para este evento en este momento.
         const freshTicketTypes = await tx.ticketType.findMany({
@@ -382,8 +394,13 @@ export async function POST(request: Request) {
         if (error instanceof OrderRejectedError) return error;
         if (error instanceof DuplicateOrderError) return error;
         if (error instanceof TooManyPendingOrdersError) return error;
+        if (error instanceof TurnSpentError) return error;
         throw error;
       });
+
+    if (order instanceof TurnSpentError) {
+      return NextResponse.json({ error: 'Tu turno ha expirado o no es válido. Vuelve a la sala de espera.' }, { status: 403 });
+    }
 
     if (order instanceof TooManyPendingOrdersError) {
       return NextResponse.json(
@@ -411,18 +428,17 @@ export async function POST(request: Request) {
       return existingOrderResponse(existingOrder);
     }
 
-    // Libera el hueco de la sala de espera ya, en vez de esperar a que
-    // expire por tiempo, para que el siguiente en la cola entre antes. Solo
-    // se marca al confirmar el éxito real (no si luego falla la pasarela),
-    // para que el comprador conserve su turno si necesita reintentar.
-    const releaseQueueSlot = () =>
+    // El turno ya se gastó dentro de la transacción de la compra (H-035), así que el hueco de la sala de espera se libera en el acto, sin esperar a que expire por
+    // tiempo: el siguiente en la cola entra antes. Si luego falla la pasarela, el comprador conserva su turno para reintentar: se restaura aquí.
+    const restoreQueueSlot = () =>
       queueEntry
-        ? prisma.waitingRoomEntry.update({ where: { id: queueEntry.id }, data: { status: 'COMPLETED' } }).catch(() => {})
+        ? prisma.waitingRoomEntry
+            .updateMany({ where: { id: queueEntry.id, status: 'COMPLETED', expiresAt: { gt: new Date() } }, data: { status: 'ADMITTED' } })
+            .catch(() => {})
         : Promise.resolve();
 
     if (!payNow) {
       void checkCapacityAlerts(eventId);
-      await releaseQueueSlot();
       return NextResponse.json({
         success: true,
         orderId: order.id,
@@ -448,7 +464,6 @@ export async function POST(request: Request) {
       });
       createdSessionId = session.sessionId;
       await prisma.order.update({ where: { id: order.id }, data: { paymentId: session.sessionId } });
-      await releaseQueueSlot();
       return NextResponse.json({
         success: true,
         orderId: order.id,
@@ -465,25 +480,11 @@ export async function POST(request: Request) {
       captureOpsError(error, { route: 'POST /api/orders', kind: 'entradas', provider: paymentProvider.name, orderId: order.id, reason: 'checkout_session_failed' });
       // Si la sesión SÍ se creó en la pasarela y lo que falló fue guardar su id, se cierra: el pedido se cancela y no debe poder pagarse.
       if (createdSessionId && paymentProvider.cancelPayment) await paymentProvider.cancelPayment(createdSessionId).catch(() => {});
-      await releasePendingSlot(order.id);
-      const failedTickets = await prisma.ticket.findMany({ where: { orderId: order.id } });
-      const quantityByType = new Map<string, number>();
-      for (const ticket of failedTickets) {
-        if (!ticket.ticketTypeId) continue;
-        quantityByType.set(ticket.ticketTypeId, (quantityByType.get(ticket.ticketTypeId) ?? 0) + 1);
-      }
-      await prisma.$transaction([
-        prisma.ticket.updateMany({ where: { orderId: order.id }, data: { status: 'CANCELLED' } }),
-        // Se limpia idempotencyKey a null (Postgres permite varios NULL en una
-        // columna @unique): si no, un reintento legítimo del comprador con la
-        // misma clave chocaría contra este pedido ya muerto y el comprobante
-        // de idempotencia de arriba le devolvería "éxito" sobre un pedido
-        // cancelado en vez de dejarle intentarlo de nuevo de verdad.
-        prisma.order.update({ where: { id: order.id }, data: { status: 'CANCELLED', idempotencyKey: null } }),
-        ...Array.from(quantityByType.entries()).map(([ticketTypeId, quantity]) =>
-          prisma.ticketType.update({ where: { id: ticketTypeId }, data: { soldCount: { decrement: quantity } } })
-        ),
-      ]);
+      // H-037: la misma anulación con compare-and-swap (PENDING→CANCELLED) que usan el abandono y la caducidad: libera aforo y entradas SOLO si este camino es quien
+      // anuló el pedido. Antes era un `update` incondicional que, si otro camino ya lo había anulado, soltaba el aforo por segunda vez. También se limpia
+      // `idempotencyKey` (un reintento legítimo con la misma clave no debe devolver «éxito» sobre un pedido muerto) y se libera el hueco del cupo por IP.
+      await releaseExpiredOrder(order.id);
+      await restoreQueueSlot();
       return NextResponse.json(
         { error: 'No se ha podido iniciar el pago. Inténtalo de nuevo en unos minutos.' },
         { status: 502 }

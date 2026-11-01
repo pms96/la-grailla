@@ -61,6 +61,30 @@ describe('probeTenantHealth', () => {
     expect(r.problems.join()).toMatch(/Deriva/);
   });
 
+  // H-043: tras un PITR o una restauración, el registro puede decir N y la BD estar en N−1. El front decide con el registro (sirve), pero las lecturas del modelo nuevo
+  // dan 500: eso NO es una simple «deriva» (degraded), es un cliente roto que hay que marcar como bloqueado y resincronizar.
+  it('H-043: si la BD está POR DETRÁS de lo que declara el registro, lo dice con claridad y lo marca como bloqueante', async () => {
+    const stale = detail({ schema: { applied: '20261008213000_contact_inbox', expected: '20261009090000_reconcile_queue', minRequired: '20261009090000_reconcile_queue', upToDate: false } });
+    const r = await probeTenantHealth(target, { fetchImpl: fetchOf(200, stale) });
+    expect(r.reachable).toBe(true);
+    if (r.reachable) {
+      expect(r.schemaBlocking).toBe(true);
+      expect(r.problems.join(' · ')).toMatch(/POR DETRÁS/);
+      expect(r.problems.join(' · ')).toMatch(/restauración|PITR/i);
+    }
+  });
+
+  it('H-043: una BD POR DELANTE del registro (registro sin actualizar) es deriva, pero no bloquea: el front se pone en mantenimiento él solo', async () => {
+    const r = await probeTenantHealth({ ...target, declaredSchema: '20261008213000_contact_inbox' }, { fetchImpl: fetchOf(200, detail()) });
+    expect(r.reachable && r.schemaBlocking).toBe(false);
+    expect(r.problems.join()).toMatch(/Deriva/);
+  });
+
+  it('H-043: una BD con esquema anterior al mínimo del front bloquea aunque el registro esté al día', async () => {
+    const r = await probeTenantHealth(target, { fetchImpl: fetchOf(200, detail({ schema: { applied: '20261008213000_contact_inbox', expected: '20261009090000_reconcile_queue', minRequired: '20261009090000_reconcile_queue', upToDate: false } })) });
+    expect(r.reachable && r.schemaBlocking).toBe(true);
+  });
+
   it('un 401 explica que el front no acepta el secreto; HTML o texto → no válido', async () => {
     const r = await probeTenantHealth(target, { fetchImpl: fetchOf(401, { error: 'No autorizado' }) });
     expect(r).toMatchObject({ reachable: false });

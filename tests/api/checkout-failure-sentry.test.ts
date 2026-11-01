@@ -41,7 +41,7 @@ describe('fallo de la pasarela en el checkout → Sentry', () => {
     await prisma.product.deleteMany({ where: { id: { in: productIds } } });
     await prisma.ticketType.deleteMany({ where: { eventId: event.id } });
     await cleanupTestEvent(event.id);
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { startsWith: 'pending:' } } });
+    await prisma.pendingSlot.deleteMany({});
   });
   beforeEach(() => {
     gateway.reset();

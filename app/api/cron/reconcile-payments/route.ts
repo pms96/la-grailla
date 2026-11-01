@@ -58,6 +58,16 @@ const groupGraceMs = () => {
   const n = raw === undefined || raw === '' ? NaN : Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : DEFAULT_GROUP_GRACE_MS;
 };
+// Tope duro de la función y reserva para la cola de barridos (H-029, H-030). `maxDuration` es 60 s: pasados HARD_STOP (54 s) no se empieza ni se espera nada más.
+// El bucle de pagos no puede pasar de HARD_STOP − TAIL_RESERVE (42 s) ni con un grupo colgado: lo que queda es de los barridos de después (emails, avisos de
+// evento, avisos al vendedor, reparación de reembolsos). Antes compartían el plazo de 35 s del bucle: si éste lo agotaba, arrancaban con el plazo ya vencido y no
+// hacían nada, pasada tras pasada. `RECONCILE_HARD_STOP_MS` y `RECONCILE_TAIL_RESERVE_MS` solo existen para poder probarlo.
+const DEFAULT_HARD_STOP_MS = 54_000;
+const DEFAULT_TAIL_RESERVE_MS = 12_000;
+const envPositiveMs = (name: string, fallback: number) => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
 const timeBudgetMs = () => {
   const n = Number(process.env.RECONCILE_TIME_BUDGET_MS);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_TIME_BUDGET_MS;
@@ -110,7 +120,12 @@ export async function GET(request: Request) {
     }
 
     const now = Date.now();
-    const deadline = now + timeBudgetMs();
+    const hardStop = now + envPositiveMs('RECONCILE_HARD_STOP_MS', DEFAULT_HARD_STOP_MS);
+    const loopCut = hardStop - envPositiveMs('RECONCILE_TAIL_RESERVE_MS', DEFAULT_TAIL_RESERVE_MS);
+    const deadline = Math.min(now + timeBudgetMs(), loopCut);
+    // Plazo de un barrido de la cola: su presupuesto propio, pero sin llevarse más de una fracción de lo que queda hasta el tope duro (así el primero no deja sin
+    // tiempo a los demás) y nunca más allá de él.
+    const tailShare = (capMs: number, fraction: number) => Date.now() + Math.min(capMs, Math.ceil(Math.max(0, hardStop - Date.now()) * fraction));
     const maxCreated = new Date(now - MIN_AGE_MS);
     const staleCreated = new Date(now - STALE_ORDER_SAFETY_NET_MS);
 
@@ -207,7 +222,7 @@ export async function GET(request: Request) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const finished = await Promise.race([
         Promise.all(group.map(settleOne)).then(() => true),
-        new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(false), Math.max(0, deadline + groupGraceMs() - Date.now())))),
+        new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(false), Math.max(0, Math.min(deadline + groupGraceMs(), loopCut) - Date.now())))),
       ]);
       if (timer) clearTimeout(timer);
       examined += group.length;
@@ -246,12 +261,13 @@ export async function GET(request: Request) {
     // Nunca lanza: un fallo aquí no puede tumbar la conciliación.
     let emails: Awaited<ReturnType<typeof sweepUnsentOrderEmails>> | null = null;
     try {
-      const sweepDeadline = Math.min(deadline, Date.now() + emailSweepBudgetMs());
-      const hardStop = sweepDeadline - Date.now() + 4_000; // margen para el último envío (su tope duro es el resto del presupuesto + 3 s)
+      const sweepDeadline = tailShare(emailSweepBudgetMs(), 0.4);
+      // margen para el último envío (su tope duro es el resto del presupuesto + 3 s), sin pasar nunca del tope de la función
+      const cutIn = Math.min(sweepDeadline - Date.now() + 4_000, hardStop + 3_000 - Date.now());
       let timer: ReturnType<typeof setTimeout> | undefined;
       emails = await Promise.race([
         sweepUnsentOrderEmails({ deadline: sweepDeadline, concurrency: CONCURRENCY, baseUrl: getFallbackBaseUrl() }),
-        new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), Math.max(0, hardStop)))),
+        new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), Math.max(0, cutIn)))),
       ]);
       if (timer) clearTimeout(timer);
     } catch (error) {
@@ -261,14 +277,14 @@ export async function GET(request: Request) {
     // pasar del plazo de la pasada; nunca lanza (un fallo aquí no tumba la conciliación).
     let eventNotices: EventNoticeSweepResult | null = null;
     try {
-      eventNotices = await runEventNoticeSweep({ deadline: Math.min(deadline, Date.now() + 15_000), concurrency: CONCURRENCY });
+      eventNotices = await runEventNoticeSweep({ deadline: tailShare(15_000, 0.5), concurrency: CONCURRENCY });
     } catch (error) {
       console.error(`[GET /api/cron/reconcile-payments] [cliente ${tenantTag()}] Error en el barrido de avisos de evento:`, error instanceof Error ? error.message : error);
     }
     // P1-10: reintenta los avisos de pedido nuevo al vendedor que no salieron. Presupuesto corto y propio; nunca lanza.
-    const shopNotices = await sweepShopNewOrderNotices({ deadline: Math.min(deadline, Date.now() + 10_000) });
+    const shopNotices = await sweepShopNewOrderNotices({ deadline: tailShare(10_000, 0.5) });
     // P1-01: repara los pedidos REFUNDED que se quedaron con entradas activas (proceso muerto entre «reembolsado» y «entradas anuladas»). Nunca lanza.
-    const refundRepairs = await repairRefundedOrders();
+    const refundRepairs = await repairRefundedOrders({ deadline: hardStop });
     return NextResponse.json(
       {
         // Pedidos atendidos en esta pasada; `deferred` = los que no cupieron en el presupuesto de tiempo y quedan para la siguiente.

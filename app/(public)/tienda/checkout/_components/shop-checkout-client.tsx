@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FadeIn } from '@/components/ui/animate';
 import { ArrowLeft, CreditCard, Loader2, Lock, ShoppingBag } from 'lucide-react';
-import { type CartLine, cartTotalCents, cartTotals, readCart, refreshCartPrices } from '@/lib/shop-cart';
+import { type CartLine, cartTotalCents, cartTotals, dropUnavailableProduct, readCart, refreshCartPrices } from '@/lib/shop-cart';
 import { LegalAcceptance } from '@/components/legal-acceptance';
 import { CaptchaWidget, type CaptchaWidgetHandle } from '@/components/captcha-widget';
 
@@ -144,6 +144,8 @@ export default function ShopCheckoutClient({
         if (data?.code === 'price_changed' && Array.isArray(data.prices)) {
           setCart(refreshCartPrices(cart, data.prices));
         }
+        // H-036: un producto del carrito ya no se vende: se quita y se avisa antes de cobrar nada.
+        if (data?.code === 'product_unavailable' && typeof data.productId === 'string') setCart(dropUnavailableProduct(cart, data.productId));
         setFormError(data?.error ?? 'No se ha podido procesar el pedido. Inténtalo de nuevo.');
         return;
       }
