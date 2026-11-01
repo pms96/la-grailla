@@ -24,51 +24,55 @@ import { createTestEvent, createTicketType, cleanupTestEvent } from '../../tests
 describe('AUDIT — dos invalidateOrder concurrentes sobre el mismo pedido no deben decrementar soldCount por duplicado', () => {
   it('solo una de las dos llamadas concurrentes tiene éxito y soldCount baja una sola vez', async () => {
     const event = await createTestEvent();
-    const ticketType = await createTicketType(event.id, { maxQuantity: 100 });
-    await prisma.ticketType.update({ where: { id: ticketType.id }, data: { soldCount: 2 } });
+    // H-152: la limpieza va en `finally`. Antes se hacía DESPUÉS de las aserciones: si una fallaba (justo el caso del bug que este test vigila), el evento, el pedido y las
+    // entradas de prueba se quedaban en la BD de desarrollo.
+    try {
+      const ticketType = await createTicketType(event.id, { maxQuantity: 100 });
+      await prisma.ticketType.update({ where: { id: ticketType.id }, data: { soldCount: 2 } });
 
-    const order = await prisma.order.create({
-      data: {
-        eventId: event.id,
-        buyerName: 'Test',
-        buyerLastName: 'Audit',
-        buyerEmail: 'audit-pay04@test.local',
-        totalAmount: 20,
-        commission: 0,
-        paymentMethod: 'CASH',
-        status: 'COMPLETED',
-        channel: 'TAQUILLA',
-      },
-    });
-    await prisma.ticket.createMany({
-      data: [1, 2].map((n) => ({
-        orderId: order.id,
-        eventId: event.id,
-        ticketTypeId: ticketType.id,
-        qrCode: `audit-pay04-${Date.now()}-${n}`,
-        holderName: 'Test Audit',
-        status: 'VALID' as const,
-      })),
-    });
+      const order = await prisma.order.create({
+        data: {
+          eventId: event.id,
+          buyerName: 'Test',
+          buyerLastName: 'Audit',
+          buyerEmail: 'audit-pay04@test.local',
+          totalAmount: 20,
+          commission: 0,
+          paymentMethod: 'CASH',
+          status: 'COMPLETED',
+          channel: 'TAQUILLA',
+        },
+      });
+      await prisma.ticket.createMany({
+        data: [1, 2].map((n) => ({
+          orderId: order.id,
+          eventId: event.id,
+          ticketTypeId: ticketType.id,
+          qrCode: `audit-pay04-${Date.now()}-${n}`,
+          holderName: 'Test Audit',
+          status: 'VALID' as const,
+        })),
+      });
 
-    const [resultA, resultB] = await Promise.all([
-      invalidateOrder(order.id, 'CANCELLED'),
-      invalidateOrder(order.id, 'CANCELLED'),
-    ]);
+      const [resultA, resultB] = await Promise.all([
+        invalidateOrder(order.id, 'CANCELLED'),
+        invalidateOrder(order.id, 'CANCELLED'),
+      ]);
 
-    const succeeded = [resultA, resultB].filter((r) => r.success);
-    const failed = [resultA, resultB].filter((r) => !r.success);
-    expect(succeeded).toHaveLength(1);
-    expect(failed).toHaveLength(1);
+      const succeeded = [resultA, resultB].filter((r) => r.success);
+      const failed = [resultA, resultB].filter((r) => !r.success);
+      expect(succeeded).toHaveLength(1);
+      expect(failed).toHaveLength(1);
 
-    const refreshedTicketType = await prisma.ticketType.findUniqueOrThrow({ where: { id: ticketType.id } });
-    expect(refreshedTicketType.soldCount).toBe(0);
+      const refreshedTicketType = await prisma.ticketType.findUniqueOrThrow({ where: { id: ticketType.id } });
+      expect(refreshedTicketType.soldCount).toBe(0);
 
-    const refreshedOrder = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
-    expect(refreshedOrder.status).toBe('CANCELLED');
-
-    await prisma.ticket.deleteMany({ where: { orderId: order.id } });
-    await prisma.order.delete({ where: { id: order.id } });
-    await cleanupTestEvent(event.id);
+      const refreshedOrder = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+      expect(refreshedOrder.status).toBe('CANCELLED');
+    } finally {
+      await prisma.ticket.deleteMany({ where: { eventId: event.id } });
+      await prisma.order.deleteMany({ where: { eventId: event.id } });
+      await cleanupTestEvent(event.id);
+    }
   });
 });

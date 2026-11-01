@@ -14,6 +14,7 @@ import { Calendar, MapPin, Clock, Users, ShieldCheck, Ticket, AlertTriangle, Mus
 import { FadeIn, SlideIn } from '@/components/ui/animate';
 import { Container } from '@/components/layouts/container';
 import { MobileBuyBar } from './_components/mobile-buy-bar';
+import { eventSaleState } from '@/lib/event-sale-state';
 import { MapFacade } from './_components/map-facade';
 import { AgeWarningGate } from './_components/age-warning-gate';
 import { ReloadButton } from '@/components/reload-button';
@@ -106,6 +107,8 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
   // Cancelado por el organizador (P1-04): sin botón de compra y con un aviso claro; la venta ya está cerrada en el servidor.
   const eventCancelled = event?.status === 'CANCELLED';
   const ageWarningMessage = getEventAgeWarningMessage(event ?? { ageWarningEnabled: false });
+  // H-156: UNA decisión para el botón de compra de la ficha y el de la barra del móvil; «cancelado» gana a todo lo demás.
+  const saleState = eventSaleState({ cancelled: eventCancelled, ended: eventEnded, taquillaOnly, soldOut });
 
   // Todas las plantillas llevan su propia cabecera salvo Feria, que conserva la de siempre (la de La Grailla).
   const brand = await getBrand();
@@ -196,7 +199,7 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
             {EVENT_CANCELLED_NOTICE}
           </p>
         )}
-        {!soldOut && !taquillaOnly && !eventEnded && !eventCancelled && (
+        {saleState === 'open' && (
           <div className="hidden lg:block">
             <AgeWarningGate
               href={`/eventos/${event?.slug ?? ''}/comprar`}
@@ -208,7 +211,7 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
             </AgeWarningGate>
           </div>
         )}
-        {taquillaOnly && !eventEnded && !eventCancelled && (
+        {saleState === 'taquilla_only' && (
           <div className="hidden lg:flex items-start gap-2 mt-4 rounded-lg border border-warm-yellow/30 bg-warm-yellow/5 p-3 text-sm text-muted-foreground">
             <Store className="h-4 w-4 text-warm-yellow shrink-0 mt-0.5" />
             <span>{taquillaOnlyMessage}</span>

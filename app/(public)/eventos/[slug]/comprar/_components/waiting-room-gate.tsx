@@ -9,7 +9,7 @@ import { FadeIn } from '@/components/ui/animate';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { CaptchaWidget } from '@/components/captcha-widget';
-import { busyRetryMs, countdownAnnouncement, createTokenStore, isBusyStatus, readJsonSafe, remainingFrom } from '@/lib/queue-client';
+import { busyRetryMs, countdownAnnouncement, createTokenStore, isBusyStatus, nextPollMs, readJsonSafe, remainingFrom } from '@/lib/queue-client';
 import BuyTicketsForm, { type EventData } from './buy-tickets-form';
 
 // Curva de ease-out reforzada (equivalente a --ease-out en globals.css).
@@ -39,26 +39,6 @@ type QueueApiResult = {
   // Cuánto esperar antes del siguiente sondeo, decidido por el servidor (P1-12). Ausente en un servidor anterior.
   pollAfterMs?: number;
 };
-
-// Intervalo de polling adaptativo: cuanta más gente por delante, menos falta
-// hace comprobar a menudo. Con miles de personas esperando, hacerlo fijo a
-// 3s multiplicaría la carga de barridos en el servidor sin necesidad —
-// quien está lejos de su turno no pierde nada por enterarse unos segundos
-// más tarde de que ha avanzado.
-function pollIntervalFor(position: number): number {
-  if (position > 50) return 8000;
-  if (position > 10) return 5000;
-  return 2000;
-}
-
-// Lo que pide el servidor manda, pero acotado: un valor absurdo (o 0) no puede dejar al comprador sin enterarse de su turno ni martillear la API.
-const MIN_POLL_MS = 1500;
-const MAX_POLL_MS = 30000;
-function nextPollMs(data: QueueApiResult, position: number): number {
-  const asked = data.pollAfterMs;
-  if (typeof asked === 'number' && Number.isFinite(asked)) return Math.min(MAX_POLL_MS, Math.max(MIN_POLL_MS, asked));
-  return pollIntervalFor(position);
-}
 
 // El turno se guarda en localStorage y, si el navegador lo bloquea, en memoria (H-102): ver `createTokenStore`.
 const tokens = createTokenStore();
@@ -166,7 +146,7 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
           position: data.position ?? 1,
           message: data.waitingRoomMessage ?? null,
         });
-        timeoutRef.current = setTimeout(() => pollRef.current(), nextPollMs(data, data.position ?? 1));
+        timeoutRef.current = setTimeout(() => pollRef.current(), nextPollMs(data.pollAfterMs, data.position ?? 1));
       } else if (data?.status === 'EXPIRED') {
         setState({ status: 'EXPIRED' });
       } else if (data?.status === 'NOT_FOUND' || data?.status === 'COMPLETED') {

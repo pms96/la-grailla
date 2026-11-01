@@ -28,6 +28,26 @@ export async function readJsonSafe<T>(res: Response): Promise<T | null> {
   }
 }
 
+// --- H-156: ritmo del sondeo de la cola -----------------------------------------------------------------------------------------------------------------
+// Lo que pide el servidor (`pollAfterMs`) manda, pero acotado a 1,5–30 s: un valor absurdo (0, negativo, NaN, enorme) no puede dejar al comprador sin enterarse de su
+// turno ni martillear la API. Sin valor del servidor (uno anterior a P1-12), el ritmo depende de cuánta gente hay por delante.
+
+export const MIN_POLL_MS = 1500;
+export const MAX_POLL_MS = 30000;
+
+/** Ritmo por defecto según la posición: cuanta más gente por delante, menos falta hace comprobar a menudo. */
+export function pollIntervalFor(position: number): number {
+  if (position > 50) return 8000;
+  if (position > 10) return 5000;
+  return 2000;
+}
+
+/** Espera antes del siguiente sondeo: lo que pide el servidor acotado a [MIN_POLL_MS, MAX_POLL_MS], o el ritmo por posición si no pide nada válido. */
+export function nextPollMs(asked: unknown, position: number): number {
+  if (typeof asked === 'number' && Number.isFinite(asked)) return Math.min(MAX_POLL_MS, Math.max(MIN_POLL_MS, asked));
+  return pollIntervalFor(position);
+}
+
 // --- H-102: almacenamiento bloqueado ------------------------------------------------------------------------------------------------------------------
 // Con el almacenamiento bloqueado (modo privado de algún navegador, cookies desactivadas) `localStorage.getItem` lanza. Antes eso dejaba una promesa
 // rechazada y al comprador en «Comprobando…» hasta el aviso de lentitud. El turno se recuerda también en memoria: sin persistencia entre recargas, pero la cola funciona.

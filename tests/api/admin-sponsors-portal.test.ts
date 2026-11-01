@@ -30,6 +30,11 @@ await prisma.user.upsert({
   create: { id: 'admin-test', email: 'admin-sponsors-portal-test@example.com', role: 'ADMIN' },
 });
 
+// H-152: el usuario de sesión simulada se borra al terminar el archivo (antes se quedaba para siempre en la BD de desarrollo).
+afterAll(async () => {
+  await prisma.user.deleteMany({ where: { id: 'admin-test' } });
+});
+
 const { POST: generate } = await import('@/app/api/admin/sponsors-portal/[id]/generate/route');
 const { POST: markReady } = await import('@/app/api/admin/sponsors-portal/[id]/ready/route');
 const { POST: approve } = await import('@/app/api/admin/sponsors-portal/[id]/approve/route');

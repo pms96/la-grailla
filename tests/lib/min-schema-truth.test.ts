@@ -58,7 +58,8 @@ describe('FRONT_MIN_SCHEMA dice la verdad (H-044)', () => {
     await admin?.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${DB}" WITH (FORCE)`).catch(() => {});
     await admin?.$disconnect();
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
-  });
+    // 60 s: con la batería completa en marcha, el `DROP DATABASE … FORCE` tardó más de los 10 s por defecto de un hook (fallo aislado de la suite, no de la prueba).
+  }, 60_000);
 
   it('el esquema actual lee todos sus modelos en una BD que solo tiene hasta FRONT_MIN_SCHEMA', async () => {
     const client = new PrismaClient({ datasources: { db: { url: target } }, log: [] });

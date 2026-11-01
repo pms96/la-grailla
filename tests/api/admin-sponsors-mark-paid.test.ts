@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
+import { restoreConfigSnapshot, snapshotConfig } from '../helpers/fixtures';
+import type { ConfigRow } from '../helpers/config-journal';
 
 let sessionRole: 'ADMIN' | null = 'ADMIN';
 vi.mock('next-auth', () => ({
@@ -24,8 +26,11 @@ describe('POST /api/admin/sponsors-portal/[id]/mark-paid', () => {
   let requestId: string;
   let sponsorId: string;
   let temporadaId: string;
+  // H-151: los tipos de patrocinio REALES se guardan (con diario) y se devuelven al terminar; antes `afterAll` los borraba.
+  let savedTiers: ConfigRow[] = [];
 
   beforeAll(async () => {
+    savedTiers = await snapshotConfig(['sponsor_tiers']);
     temporadaId = (await prisma.temporada.create({ data: { nombre: `[TEST] Temporada mark-paid ${Date.now()}`, anio: 2089 } })).id;
     // No depender de lo que ya hubiera guardado en Configuración — se fija un
     // tipo con un importe conocido para que el test no dependa del estado
@@ -54,7 +59,7 @@ describe('POST /api/admin/sponsors-portal/[id]/mark-paid', () => {
   afterAll(async () => {
     await prisma.sponsor.deleteMany({ where: { id: sponsorId } });
     await prisma.sponsorRequest.deleteMany({ where: { id: requestId } });
-    await prisma.appConfig.deleteMany({ where: { key: 'sponsor_tiers' } });
+    await restoreConfigSnapshot(['sponsor_tiers'], savedTiers);
     await prisma.temporada.delete({ where: { id: temporadaId } }).catch(() => {});
   });
 

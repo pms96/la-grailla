@@ -63,20 +63,20 @@ describe('cron de reconciliación: duración, concurrencia y presupuesto de tiem
   it('las llamadas a la pasarela van en paralelo con tope 5: 20 pedidos de 60 ms no tardan 1,2 s en serie ni lanzan 20 a la vez', async () => {
     await seed(20);
     gateway.verifyDelayMs = 60;
-    const t0 = Date.now();
     const { body } = await run();
-    const elapsed = Date.now() - t0;
     expect(body.checked).toBe(20);
     expect(body.deferred).toBe(0);
+    // H-150: la concurrencia se mide, no se deduce del reloj (que depende de la máquina): en serie el máximo simultáneo sería 1, y sin tope, 20.
     expect(gateway.maxConcurrentVerifies).toBe(5);
-    expect(elapsed).toBeLessThan(900); // en serie serían ≥ 1200 ms
     expect([...(await attempts()).values()].every((a) => a === 1)).toBe(true);
   });
 
   it('presupuesto agotado: el bucle para, lo no atendido NO se sella como examinado y se informa en `deferred`', async () => {
     await seed(40);
-    gateway.verifyDelayMs = 80;
-    process.env.RECONCILE_TIME_BUDGET_MS = '200'; // ~3 grupos de 5 a 80 ms
+    // H-150: 8 grupos de 5 a 300 ms son ≥ 2,4 s (un `setTimeout` nunca dispara antes), muy por encima del presupuesto de 1,5 s, así que SIEMPRE se difiere algo; y el primer grupo
+    // arranca aunque las consultas previas tarden hasta 1,2 s. Con 200/80 ms, una máquina lenta se quedaba sin atender ni el primer grupo.
+    gateway.verifyDelayMs = 300;
+    process.env.RECONCILE_TIME_BUDGET_MS = '1500';
     const { status, body } = await run();
     expect(status).toBe(200);
     expect(body.checked).toBeGreaterThan(0);
@@ -92,9 +92,9 @@ describe('cron de reconciliación: duración, concurrencia y presupuesto de tiem
   });
 
   it('cola justa conservada: en la pasada siguiente los diferidos pasan por delante de los ya atendidos', async () => {
-    await seed(40);
-    gateway.verifyDelayMs = 80;
-    process.env.RECONCILE_TIME_BUDGET_MS = '200';
+    await seed(60);
+    gateway.verifyDelayMs = 300;
+    process.env.RECONCILE_TIME_BUDGET_MS = '1500';
     const first = (await run()).body;
     const afterFirst = await attempts();
     const deferredIds = ids.filter((id) => afterFirst.get(id) === 0);
@@ -102,11 +102,16 @@ describe('cron de reconciliación: duración, concurrencia y presupuesto de tiem
 
     const second = (await run()).body;
     const afterSecond = await attempts();
-    // La segunda pasada (mismo presupuesto) atiende primero a los diferidos: los primeros `checked` diferidos ya tienen 1 intento…
-    for (const id of deferredIds.slice(0, second.checked)) expect(afterSecond.get(id), id).toBe(1);
-    // …y ninguno de los ya atendidos en la primera se repite mientras queden diferidos.
+    // H-150: la aserción ya no es condicional (antes podía no ejecutarse nunca). Cola justa = los diferidos se atienden EN ORDEN y ANTES que cualquier repetido:
     const alreadyDone = ids.filter((id) => afterFirst.get(id) === 1);
-    if (deferredIds.length >= second.checked) for (const id of alreadyDone) expect(afterSecond.get(id), id).toBe(1);
+    const attendedDeferred = deferredIds.filter((id) => afterSecond.get(id) === 1);
+    const repeated = alreadyDone.filter((id) => afterSecond.get(id) === 2);
+    expect(attendedDeferred.length + repeated.length).toBe(second.checked); // lo atendido en la segunda pasada es o un diferido o un repetido
+    expect(second.checked).toBeGreaterThan(0);
+    // los diferidos atendidos son los PRIMEROS de la fila (los más antiguos)…
+    expect(attendedDeferred).toEqual(deferredIds.slice(0, attendedDeferred.length));
+    // …y un ya atendido solo se repite cuando no queda ningún diferido sin atender.
+    expect(repeated.length === 0 || attendedDeferred.length === deferredIds.length).toBe(true);
   });
 
   it('con presupuesto de sobra no se difiere nada y la respuesta sigue siendo la de siempre', async () => {

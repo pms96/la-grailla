@@ -355,16 +355,16 @@ describe('cancelación de evento y cambio de fecha (P1-04)', () => {
 
     it('una llamada a la pasarela que no responde a tiempo cuenta como fallo y no bloquea el lote', async () => {
       const a = await mk({ total: 20 });
-      gateway.refundDelayMs = 400;
+      gateway.refundDelayMs = 1000;
       await startCancellation(event.id, { refund: true, notify: false, startedBy: null });
-      const t0 = Date.now();
       const progress = await processCancellation(event.id, { deadline: farDeadline(), callCapMs: 60 });
-      expect(Date.now() - t0).toBeLessThan(350);
+      // H-150: sin medir el reloj (dependía de la máquina). Si el lote hubiera esperado a la pasarela, la llamada de 1 s ya habría terminado; al volver sigue EN VUELO.
+      expect(gateway.inFlight.size).toBe(1);
       const failed = (await readJob()).failed[a.id];
       expect(failed.attempts).toBe(1);
       expect(failed.error).toMatch(/tiempo agotado/);
       expect(progress?.retryAt).not.toBeNull();
-      await new Promise((r) => setTimeout(r, 500)); // deja terminar la llamada en vuelo antes de limpiar
+      while (gateway.inFlight.size > 0) await new Promise((r) => setTimeout(r, 25)); // deja terminar la llamada en vuelo antes de limpiar
     });
 
     it('sin reembolso automático no se devuelve nada y se avisa de que lo gestiona el organizador', async () => {

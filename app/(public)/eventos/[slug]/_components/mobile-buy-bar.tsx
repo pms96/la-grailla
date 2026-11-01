@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Ticket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AgeWarningGate } from './age-warning-gate';
+import { eventSaleState } from '@/lib/event-sale-state';
 
 interface MobileBuyBarProps {
   slug: string;
@@ -18,7 +19,7 @@ interface MobileBuyBarProps {
 }
 
 export function MobileBuyBar({ slug, minPrice, soldOut, taquillaOnly = false, taquillaOnlyLabel = null, ended = false, cancelled = false, ageWarningMessage = null }: MobileBuyBarProps) {
-  const disabled = soldOut || taquillaOnly || ended || cancelled;
+  const disabled = eventSaleState({ cancelled, ended, taquillaOnly, soldOut }) !== 'open';
   const label = taquillaOnlyLabel || 'Solo en taquilla';
   return (
     <div

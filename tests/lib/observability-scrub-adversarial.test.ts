@@ -157,10 +157,15 @@ describe('sin ReDoS: entradas adversarias en milisegundos', () => {
     prismaLike: '`a.b()` invocation\n'.repeat(200), tlds: 'ab.es '.repeat(600), cookies: 'Cookie:'.repeat(570),
   };
   it.each(Object.entries(inputs))('%s', (_k, v) => {
-    // Medida local: ≤ 12 ms en todos. El umbral del test es más holgado para no ser frágil en una CI lenta; un backtracking real tarda segundos.
+    // Medida local: ≤ 12 ms en todos; un backtracking real tarda segundos. H-150: se toma el MEJOR de 5 pasadas (una pausa del recolector de basura o un vecino ruidoso en la CI
+    // no puede suspender el test, pero un coste que crece con la entrada se ve en las 5) y el umbral es de 150 ms (≥ 10× la medida local).
     scrubString(v); // calentamiento
-    const t = performance.now();
-    scrubString(v);
-    expect(performance.now() - t).toBeLessThan(60);
+    let best = Infinity;
+    for (let i = 0; i < 5; i++) {
+      const t = performance.now();
+      scrubString(v);
+      best = Math.min(best, performance.now() - t);
+    }
+    expect(best).toBeLessThan(150);
   });
 });

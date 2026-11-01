@@ -26,7 +26,7 @@ Lo que NO se ha podido probar aquí (necesita Vercel/Neon/GitHub reales) está a
 | `REGISTRY_EXPORT_KEY` | donde se ejecute `registry:export` | 32 bytes base64url, **distinta de las demás**, guardada aparte del fichero |
 | `FRONT_PRISMA_DIR` | panel (opcional) | Carpeta `prisma/` del front; por defecto `../../prisma` |
 | `TENANT_URL_TEMPLATE` | panel (solo desarrollo) | p. ej. `http://{host}:57811`; por defecto `https://{host}` |
-| `CRON_BUDGET_MS` | panel (opcional) | Presupuesto de una invocación del disparador (90 000 por defecto, con `maxDuration = 120`). **No lo bajes de 30 000**: una llamada a un cliente puede tardar hasta 20 s y no se lanza ninguna que no quepa |
+| `CRON_BUDGET_MS` | panel (opcional) | Presupuesto de una invocación del disparador (90 000 por defecto, con `maxDuration = 120`). **No lo bajes de 60 000**: `reconcile-payments` y `reconcile-gateway` pueden tardar hasta 55 s (`RECONCILE_CALL_TIMEOUT_MS`; el resto de llamadas, 20 s) y el disparador no lanza ninguna que no quepa entera en lo que queda de presupuesto: con menos de 55 s, esas dos tareas NO se ejecutan nunca y, si otras más cortas (`health`, la limpieza) sí caben, el disparador responde 200 sin avisar: solo el caso de que no se lance NINGUNA tarea vencida responde 500 y lo registra |
 | `SKIP_MIGRATE_ON_BUILD=1` | proyecto de Vercel del front (opcional) | El `build` no migra |
 | `RECONCILE_GATEWAY_BATCH` | front (opcional) | Pedidos con pago en la pasarela que examina `reconcile-payments` por lista y pasada (entradas y tienda). 100 por defecto, máximo 500. Subirlo solo ayuda si la pasada cabe en su presupuesto de unos 35 s (más un tope duro de 10 s por grupo, para que una pasarela colgada no pierda la pasada); lo que no cabe queda para la siguiente (P1-13, [sumup-prueba-real.md](sumup-prueba-real.md)) |
 
@@ -108,7 +108,7 @@ npm run migrate:tenants                                    # todos (concurrencia
 
 - El panel recorre los clientes **publicados** (activos o suspendidos; un cliente suspendido sigue reconciliando sus cobros en vuelo) y llama a cada tarea con el secreto de **ese** cliente. No sigue redirecciones (el secreto va en una cabecera).
 - Tareas: `reconcile-payments` (5 min), `reconcile-gateway` (24 h, conciliación pasarela → BD, ver `observabilidad.md` §3), `cleanup-waiting-room` (30 min), `health` (5 min). El backoff de `reconcile-payments` se queda en **15 min** como máximo (SumUp no tiene webhook: es lo que confirma un cobro); el de la limpieza, en 1 h.
-- No se lanza una llamada que pudiera acabar pasado el presupuesto (`CRON_BUDGET_MS` menos el tiempo máximo de la llamada, 20 s). Con un presupuesto menor de 20 s el disparador no llamaría a nadie: ahora lo dice (responde 500 y lo registra) en lugar de «pasar» en verde.
+- No se lanza una llamada que pudiera acabar pasado el presupuesto (`CRON_BUDGET_MS` menos el tiempo máximo de ESA llamada: 55 s para `reconcile-payments` y `reconcile-gateway`, 20 s para las demás). Con un presupuesto menor que el tiempo de una tarea, esa tarea no se lanza: si había tareas vencidas y no se lanzó NINGUNA, el disparador responde 500 y lo registra; si otras más cortas sí caben, la tarea larga se salta sin aviso (por eso el mínimo de 60 000).
 - Sin `CRON_SECRET` (o `PANEL_CRON_SECRET`) el disparador responde 401, igual que con un secreto equivocado (no revela la configuración); el fallo se registra en el log del panel.
 - Un fallo inesperado de un cliente (p. ej. la BD de control al guardar su salud) cuenta como fallo de **ese** cliente y tarea: queda anotado con su backoff y no aborta la pasada de los demás.
 - Estado por cliente y tarea en `CronState`: un cliente que falla se **espacia solo** (backoff exponencial hasta 1 h) y no frena a los demás; no hay «cabeza de cola». La tarea de salud no se espacia.
@@ -238,8 +238,8 @@ Un agente revisó M7 con mentalidad adversarial y verificó cada hallazgo; los r
 
 ## Verificado
 
-- 210 tests del panel (nuevos: runner, alta, crons, salud, copia) y 927 del front, `tsc` y lint limpios, `next build` del panel y del front en modo normal.
-- Runner contra Postgres reales: migración de cero con las 32 migraciones del repo, parada ante fallo, canarios, linter, bloqueo real con `lock_timeout` + recuperación, ejecución concurrente, ejecución abandonada.
+- 476 tests del panel y 3 175 del front (revisión integral, lote 8; en el cierre del hito eran 210 y 927), `tsc` y lint limpios, `next build` del panel y del front en modo normal.
+- Runner contra Postgres reales: migración de cero con las migraciones del repo (32 al cierre del hito, 39 hoy), parada ante fallo, canarios, linter, bloqueo real con `lock_timeout` + recuperación, ejecución concurrente, ejecución abandonada.
 - **De punta a punta en local**: registro de desarrollo + front en modo plataforma (`c.localhost`) + `tenant:provision` con BD local nueva → web neutra del cliente, aviso legal con el texto sembrado, login del administrador con la contraseña generada y `/api/health` público mínimo; el disparador real (`/api/cron/dispatch`) ejecutó las tres tareas contra ese cliente con su secreto derivado.
 
 ## No verificado / límites

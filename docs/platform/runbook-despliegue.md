@@ -150,3 +150,18 @@ No hay migraciones nuevas. Todo es de pantallas, textos y una reserva más en el
 - **Pedido pendiente recordado (H-100):** vive en el navegador del comprador (un día): si cambia de dispositivo o borra los datos, no hay aviso. Es una ayuda, no una garantía; la garantía es que el pedido se confirma solo cuando llega el aviso de la pasarela.
 - **Texto del evento cancelado (H-099):** no distingue si se avisó o no por email a cada comprador (la ficha pública no lo sabe): por eso no lo promete.
 
+## 10. Pruebas e invariantes: lo que cambia y los límites (lote 8)
+
+No hay migraciones y no cambia nada visible para quien compra o administra. Es casi todo la suite de pruebas.
+
+- **Dos cambios de producción mínimos (H-156):** la ficha del evento y la barra de compra del móvil deciden ahora el botón «Comprar» con una sola función (`lib/event-sale-state.ts`; «cancelado» gana a todo), y el ritmo del sondeo de la cola (`nextPollMs`) vive en `lib/queue-client.ts`. Mismo resultado que antes.
+- **La suite ya no pierde configuración real (H-151):** antes de pisar una clave de `AppConfig`, los tests la apuntan en un diario del directorio temporal (`lagrailla-test-config-journal-*.json`, permisos 0600); si una ejecución se aborta, la siguiente (y el final de esta) la restaura y lo avisa por consola. Si ves ese aviso, es que una ejecución anterior murió a medias y ya está reparada.
+- **Usuarios de prueba (H-152):** los tests de sponsors borran sus usuarios ADMIN de prueba al acabar; los que quedaban de antes en la BD de desarrollo se borraron en la primera ejecución.
+- **Congelación de despliegues (H-153):** hay un test que lee `vercel.json` y el workflow de smoke: quitar `ignoreCommand` o el filtro de producción rompe la CI.
+- **Rutas nuevas (H-154):** toda ruta de `app/api` fuera de `/api/admin` tiene que estar clasificada (superficie de personal o lista pública con motivo en `tests/lib/staff-surfaces.test.ts`); si no, la CI falla.
+
+**Límites aceptados**
+
+- Dos excepciones del test «módulo apagado = cero datos» con rol restringido, a decidir por el dueño (ver el registro): el contable ve ingresos agregados de entradas y patrocinio; el rol de entradas ve el nombre de la temporada de cada evento.
+- Los tiempos de los tests de cancelación y del cron se midieron sin reloj o con margen amplio, pero siguen usando la BD y `setTimeout` reales: una máquina suspendida a mitad puede dar un fallo aislado (repetir).
+

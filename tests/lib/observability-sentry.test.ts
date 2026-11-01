@@ -179,7 +179,9 @@ describe('captura con el SDK real y transporte simulado', () => {
     initSentry({ SENTRY_DSN: DSN } as unknown as NodeJS.ProcessEnv, { transport: slow as never });
     const t0 = Date.now();
     captureOps(new Error('lento'), { route: 'x' }, null);
-    expect(Date.now() - t0).toBeLessThan(100);
+    // H-150: `captureOps` es síncrona y el transporte no se resuelve hasta `release()` (después de esta línea): si esperase al envío, la prueba se colgaría. El tiempo es solo una red
+    // de seguridad holgada (antes 100 ms, frágil en una CI lenta).
+    expect(Date.now() - t0).toBeLessThan(1000);
     release?.();
   });
 });

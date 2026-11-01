@@ -115,6 +115,7 @@ describe('POST /api/webhooks/stripe', () => {
   });
 
   it('no reactiva un pedido que ya estaba CANCELLED al reenviar el evento de expiración', async () => {
+    await prisma.ticketType.update({ where: { id: ticketType.id }, data: { soldCount: 0 } });
     const order = await createPendingOrder(event.id, ticketType.id, 'cs_test_already_cancelled');
     await prisma.order.update({ where: { id: order.id }, data: { status: 'CANCELLED' } });
 
@@ -128,6 +129,6 @@ describe('POST /api/webhooks/stripe', () => {
 
     const ticketTypeAfter = await prisma.ticketType.findUnique({ where: { id: ticketType.id } });
     // No debe decrementar soldCount dos veces por un pedido que ya se había liberado.
-    expect(ticketTypeAfter?.soldCount).toBeGreaterThanOrEqual(0);
+    expect(ticketTypeAfter?.soldCount).toBe(0); // H-150: `>= 0` valía también con un valor negativo corregido; el pedido nunca ocupó plaza y la cuenta queda EXACTAMENTE en 0
   });
 });

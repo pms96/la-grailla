@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isBusyStatus, busyRetryMs, readJsonSafe, createTokenStore, countdownAnnouncement, remainingFrom } from '@/lib/queue-client';
+import { isBusyStatus, busyRetryMs, readJsonSafe, createTokenStore, countdownAnnouncement, remainingFrom, nextPollMs, pollIntervalFor, MIN_POLL_MS, MAX_POLL_MS } from '@/lib/queue-client';
 
 // Lógica pura del cliente de la sala de espera (lote 2b). El componente (`waiting-room-gate.tsx`) solo la usa.
 
@@ -96,5 +96,38 @@ describe('remainingFrom (H-091)', () => {
   it('sin remainingMs (servidor anterior) cae a expiresAt y el reloj local', () => {
     const now = Date.parse('2027-01-01T12:00:00Z');
     expect(remainingFrom({ expiresAt: '2027-01-01T12:04:00Z' }, 0, 0, now)).toBe(240_000);
+  });
+});
+
+describe('nextPollMs: el ritmo del sondeo manda el servidor, pero acotado a 1,5–30 s (H-156)', () => {
+  it('los límites son 1,5 s y 30 s', () => {
+    expect(MIN_POLL_MS).toBe(1500);
+    expect(MAX_POLL_MS).toBe(30000);
+  });
+
+  it('lo que pide el servidor se respeta dentro del rango', () => {
+    expect(nextPollMs(1500, 1)).toBe(1500);
+    expect(nextPollMs(4000, 1)).toBe(4000);
+    expect(nextPollMs(30000, 1)).toBe(30000);
+  });
+
+  it('un valor por debajo del mínimo (0, negativo, 1 ms) sube a 1,5 s: no martillea la API', () => {
+    for (const v of [0, -5, 1, 1499]) expect(nextPollMs(v, 1), String(v)).toBe(1500);
+  });
+
+  it('un valor por encima del máximo (un minuto, Infinity no, que es inválido) baja a 30 s: no deja al comprador sin enterarse', () => {
+    for (const v of [30001, 60000, 1e9]) expect(nextPollMs(v, 1), String(v)).toBe(30000);
+  });
+
+  it('sin valor válido del servidor (ausente, NaN, Infinity, texto) usa el ritmo por posición', () => {
+    for (const v of [undefined, null, NaN, Infinity, -Infinity, '5000', {}]) {
+      expect(nextPollMs(v, 100), String(v)).toBe(8000);
+      expect(nextPollMs(v, 20), String(v)).toBe(5000);
+      expect(nextPollMs(v, 3), String(v)).toBe(2000);
+    }
+  });
+
+  it('el ritmo por posición cambia justo en 10 y 50 personas por delante', () => {
+    expect([pollIntervalFor(1), pollIntervalFor(10), pollIntervalFor(11), pollIntervalFor(50), pollIntervalFor(51)]).toEqual([2000, 2000, 5000, 5000, 8000]);
   });
 });

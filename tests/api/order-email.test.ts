@@ -476,7 +476,8 @@ describe('entrega del email del pedido (P0-08)', () => {
       expect(JSON.parse(row!.value).lastRunAt).toEqual(expect.any(String));
       const { body } = await pending;
       expect(body).toHaveProperty('checked');
-      expect(body.emails === null || body.emails.failed >= 0).toBe(true);
+      // H-150: antes `emails === null || failed >= 0` (siempre cierto). Con el envío colgado y el tope por envío de 10 s, lo único que corta el barrido es el tope de la pasada: no hay resumen.
+      expect(body.emails).toBeNull();
       void o;
     }, 20_000);
 

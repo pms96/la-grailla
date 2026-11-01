@@ -1,10 +1,20 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import { DEFAULT_SPONSOR_TIERS } from '@/lib/sponsor-tiers';
+import { restoreConfigSnapshot, snapshotConfig } from '../helpers/fixtures';
+import type { ConfigRow } from '../helpers/config-journal';
 
 const { GET: getTiers } = await import('@/app/api/sponsors/tiers/route');
 
 describe('GET /api/sponsors/tiers', () => {
+  // H-151: los tipos de patrocinio REALES de la BD de desarrollo se guardan (con diario) y se devuelven al terminar; antes se borraban y el primer test asumía que no existían.
+  let saved: ConfigRow[] = [];
+  beforeAll(async () => {
+    saved = await snapshotConfig(['sponsor_tiers']);
+  });
+  afterAll(async () => {
+    await restoreConfigSnapshot(['sponsor_tiers'], saved);
+  });
   afterEach(async () => {
     await prisma.appConfig.deleteMany({ where: { key: 'sponsor_tiers' } });
   });

@@ -55,5 +55,5 @@ Si el cliente no escribe sus condiciones, se muestra un **borrador orientativo**
 
 ## 6. Despliegue
 
-- **Migración aditiva** `20261027140000_legal_acceptance` (columnas nulables en `Order` y `ShopOrder` + tabla `LegalSnapshot`). `FRONT_MIN_SCHEMA` sube a ella: **antes de desplegar el front, «Migrar BD» en cada cliente** (un cliente sin migrar queda en mantenimiento hasta que se migre; el front viejo funciona con la BD nueva, así que migrar primero no rompe nada).
+- **Migración aditiva** `20261027140000_legal_acceptance` (columnas nulables en `Order` y `ShopOrder` + tabla `LegalSnapshot`). `FRONT_MIN_SCHEMA` subió a ella en su momento (hoy apunta a una posterior: `lib/platform/min-schema.ts` es la fuente de verdad): **antes de desplegar el front, «Migrar BD» en cada cliente** (un cliente sin migrar queda en mantenimiento hasta que se migre; el front viejo funciona con la BD nueva, así que migrar primero no rompe nada).
 - Ventas en curso durante el despliegue: un navegador con el formulario antiguo abierto no manda la aceptación y recibirá un 400 con el mensaje «Debes aceptar las condiciones…»; basta recargar la página.

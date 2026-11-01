@@ -17,6 +17,11 @@ await prisma.user.upsert({
   create: { id: 'admin-stuck-test', email: 'admin-stuck-test@example.com', role: 'ADMIN' },
 });
 
+// H-152: el usuario de sesión simulada se borra al terminar el archivo (antes se quedaba para siempre en la BD de desarrollo).
+afterAll(async () => {
+  await prisma.user.deleteMany({ where: { id: 'admin-stuck-test' } });
+});
+
 const { POST: generate } = await import('@/app/api/admin/sponsors-portal/[id]/generate/route');
 
 // AUDIT: la generación reclama el sponsor (isGenerating = true) ANTES de llamar a la IA. Si la función serverless moría a mitad (límite

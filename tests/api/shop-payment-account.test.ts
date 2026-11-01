@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
+import { restoreConfigSnapshot, snapshotConfig } from '../helpers/fixtures';
+import type { ConfigRow } from '../helpers/config-journal';
 import { encryptSecret, SECRET_MASK } from '@/lib/secrets';
 import { SHOP_ACCOUNT_SINCE_KEY } from '@/lib/config';
 import { accountScopeForOrder } from '@/lib/payment-adapter';
@@ -38,20 +40,19 @@ const { POST: testGateway } = await import('@/app/api/admin/config/test-gateway/
 /* P1-11 / TI-10 / TI-11: «Probar conexión» de la Tienda prueba la cuenta de la Tienda, y un pedido de tienda cobrado ANTES de que la tienda tuviera
  * cuenta propia sigue verificándose y reembolsándose con la cuenta de Entradas con la que se cobró. */
 
-const KEYS = ['shop_payment_gateway', SHOP_ACCOUNT_SINCE_KEY, 'stripe_secret_key', 'shop_stripe_secret_key'];
+// H-151: `footer_tagline` también (un test la guarda por la ruta y antes quedaba pisada); todo va por `snapshotConfig`, que apunta el original en un diario: un Ctrl-C ya no pierde las claves.
+const KEYS = ['shop_payment_gateway', SHOP_ACCOUNT_SINCE_KEY, 'stripe_secret_key', 'shop_stripe_secret_key', 'footer_tagline'];
 
 describe('cuenta de cobro de la tienda (P1-11)', () => {
-  let saved: { key: string; value: string; label: string | null; group: string | null }[] = [];
+  let saved: ConfigRow[] = [];
   const orderIds: string[] = [];
 
   beforeAll(async () => {
-    saved = await prisma.appConfig.findMany({ where: { key: { in: KEYS } }, select: { key: true, value: true, label: true, group: true } });
-    await prisma.appConfig.deleteMany({ where: { key: { in: KEYS } } });
+    saved = await snapshotConfig(KEYS);
   });
   afterAll(async () => {
     await prisma.shopOrder.deleteMany({ where: { id: { in: orderIds } } });
-    await prisma.appConfig.deleteMany({ where: { key: { in: KEYS } } });
-    for (const row of saved) await prisma.appConfig.create({ data: row });
+    await restoreConfigSnapshot(KEYS, saved);
   });
   beforeEach(async () => {
     rec.scopes = [];
