@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetOpsCacheForTests } from '@/lib/ops-health';
 import { deriveCronSecret, generateMasterKey, parseMasterKey } from '@grailla/contracts';
 import { disconnectAllTenantClients } from '@/lib/tenant/db';
 import { FRONT_MIN_SCHEMA } from '@/lib/platform/min-schema';
@@ -42,6 +43,7 @@ beforeAll(async () => {
   route = await import('@/app/api/health/route');
 }, 180_000);
 beforeEach(async () => {
+  resetOpsCacheForTests(); // H-119: la caché del bloque `ops` no cruza pruebas
   cronMaster = generateMasterKey();
   env = enablePlatformEnv({ PLATFORM_CRON_MASTER: cronMaster, CRON_SECRET: 'global-de-tests', VERCEL_GIT_COMMIT_SHA: 'abcdef1234567890' });
   vi.stubEnv('FRONT_SCHEMA_EXPECTED', latestMigrationOnDisk());

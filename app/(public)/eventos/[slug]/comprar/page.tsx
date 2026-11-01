@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { errorForLog } from '@/lib/api-error';
 import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import { Container } from '@/components/layouts/container';
@@ -25,7 +26,7 @@ export default async function ComprarPage(props: { params: Promise<{ slug: strin
       },
     });
   } catch (error) {
-    console.error('[ComprarPage] Error al cargar el evento:', error);
+    console.error('[ComprarPage] Error al cargar el evento:', errorForLog(error));
   }
 
   // H-099: un evento CANCELADO existe: se dice que está cancelado y qué hacer, en lugar de un 404 genérico. Un borrador o un evento inexistente siguen dando 404.

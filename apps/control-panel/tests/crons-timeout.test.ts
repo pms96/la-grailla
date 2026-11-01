@@ -81,6 +81,25 @@ describe('tiempo de la llamada por tarea', () => {
   });
 });
 
+describe('H-120: una tarea larga que no cabe no impide las cortas que sí caben', () => {
+  it('con `reconcile-payments` (55 s) primero en la fila y 40 s de presupuesto, se salta y se ejecuta `health` (20 s); lo saltado se cuenta como diferido', async () => {
+    const id = await publishedTenant();
+    const clock = 1_800_000_000_000;
+    // reconcile-payments lleva más tiempo sin correr que health: va PRIMERO en la fila.
+    await prisma.cronState.createMany({
+      data: [
+        { subscriptionId: id, job: 'reconcile-payments', nextRunAt: new Date(clock - 1000), lastRunAt: new Date(clock - 3_600_000) },
+        { subscriptionId: id, job: 'health', nextRunAt: new Date(clock - 1000), lastRunAt: new Date(clock - 600_000) },
+      ],
+      skipDuplicates: true,
+    });
+    const out = await dispatchTenantJobs({ jobs: ['reconcile-payments', 'health'], fetchImpl: ok200, now: () => clock, budgetMs: 40_000, concurrency: 1 });
+    expect(out).toMatchObject({ due: 2, ran: 1, deferred: 1 });
+    expect(out.perJob.health?.ran).toBe(1);
+    expect(out.perJob['reconcile-payments']).toBeUndefined();
+  });
+});
+
 describe('efecto en el backoff y en los 3 fallos seguidos', () => {
   it('una llamada lenta (entre 20 y 55 s) que acaba bien no cuenta fallo ni espacia la tarea; el backoff y el umbral de aviso siguen igual', async () => {
     const id = await publishedTenant();

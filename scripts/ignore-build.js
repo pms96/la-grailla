@@ -12,7 +12,7 @@
  *                                              descongelaría horas antes de lo que se espera. Equivocarse al escribirla no debe dejar la venta sin protección.
  * Al descongelar, los despliegues que se cancelaron NO se reconstruyen solos: producción se queda en el último que se construyó hasta el siguiente
  * push o hasta lanzar un redeploy a mano desde Vercel.
- * Arreglo urgente durante la congelación: un commit cuyo mensaje contenga «[deploy-anyway]» se construye igualmente.
+ * Arreglo urgente durante la congelación: un commit con «[deploy-anyway]» en el asunto (o en una línea suya del cuerpo) se construye igualmente; un `Revert …` no cuenta.
  * Quitar el ignoreCommand de vercel.json (o ambas variables) lo deja como siempre: todo se construye. */
 
 const BYPASS_MARKER = '[deploy-anyway]';
@@ -20,6 +20,18 @@ const BYPASS_MARKER = '[deploy-anyway]';
 const OFF_VALUES = ['', '0', 'false', 'no', 'off'];
 // Una fecha ISO con hora debe terminar en Z o en un desplazamiento (+01:00, +0100).
 const HAS_ZONE = /(Z|[+-]\d{2}:?\d{2})$/i;
+
+/**
+ * ¿El mensaje del commit pide saltarse la congelación? (H-127) Antes bastaba con que el marcador apareciera EN CUALQUIER SITIO del mensaje: un `git revert` de un commit urgente (cuyo asunto
+ * lo cita entre comillas) o un cherry-pick que arrastra su cuerpo saltaban la congelación sin que nadie lo pidiera. Ahora vale solo en el ASUNTO (primera línea) o en una línea del cuerpo que
+ * sea SOLO el marcador, y nunca en un `Revert …`/`Reapply …`.
+ */
+function hasBypassMarker(message) {
+  const lines = String(message).split(/\r?\n/);
+  const subject = lines[0] || '';
+  if (/^\s*"?(revert|reapply)\b/i.test(subject)) return false;
+  return subject.includes(BYPASS_MARKER) || lines.slice(1).some((l) => l.trim() === BYPASS_MARKER);
+}
 
 /** ¿Se salta esta construcción? Pura, para poder probarla. `skip: true` = no construir. */
 function freezeDecision(env, now = Date.now()) {
@@ -44,13 +56,13 @@ function freezeDecision(env, now = Date.now()) {
   }
   if (!frozen) return { skip: false, reason: 'sin congelación activa' };
 
-  if ((env.VERCEL_GIT_COMMIT_MESSAGE || '').includes(BYPASS_MARKER)) {
+  if (hasBypassMarker(env.VERCEL_GIT_COMMIT_MESSAGE || '')) {
     return { skip: false, reason: `congelación activa (${why}) pero el commit lleva ${BYPASS_MARKER}: se construye` };
   }
   return { skip: true, reason: `congelación de despliegues activa (${why}): no se construye. Para un arreglo urgente, añade ${BYPASS_MARKER} al mensaje del commit` };
 }
 
-module.exports = { freezeDecision, BYPASS_MARKER };
+module.exports = { freezeDecision, hasBypassMarker, BYPASS_MARKER };
 
 if (require.main === module) {
   const { skip, reason } = freezeDecision(process.env);

@@ -59,6 +59,24 @@ export function platformEnvProblems(env: Env = process.env): string[] {
   return out;
 }
 
+/**
+ * Avisos que NO bloquean el servicio pero dejan mudo un canal de dinero (H-128): sin `PLATFORM_ALERT_URL` un reembolso fallido o un cobro sin pedido solo avisan por el correo del cliente (si tiene
+ * `admin_email` y SMTP), y sin `SENTRY_DSN` los errores de los webhooks quedan solo en el log de Vercel. Lista vacía = los dos canales están.
+ */
+export function platformEnvWarnings(env: Env = process.env): string[] {
+  const out: string[] = [];
+  const alertUrl = env.PLATFORM_ALERT_URL?.trim();
+  let alertOk = false;
+  try {
+    alertOk = !!alertUrl && new URL(alertUrl).protocol === 'https:';
+  } catch {
+    alertOk = false;
+  }
+  if (!alertOk) out.push('PLATFORM_ALERT_URL no está definida (o no es https): los avisos de dinero (reembolso fallido, cobro sin pedido) solo saldrían por el correo del cliente');
+  if (!env.SENTRY_DSN?.trim()) out.push('SENTRY_DSN no está definida: los errores de cobros y webhooks quedan solo en el log de Vercel');
+  return out;
+}
+
 const g = globalThis as unknown as { __grailla_env_checked?: boolean };
 
 /** Registra los problemas una sola vez por instancia (la primera petición). Devuelve lo que encontró. */

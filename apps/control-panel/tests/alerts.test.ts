@@ -22,9 +22,9 @@ const recordingFetch = (status = 200) => {
 
 describe('configuración', () => {
   it('sin variables, no hay canales; las URLs deben ser https y los correos válidos', () => {
-    expect(alertConfig({} as NodeJS.ProcessEnv)).toEqual({ webhookUrl: null, emailTo: [], heartbeatUrl: null });
+    expect(alertConfig({} as NodeJS.ProcessEnv)).toEqual({ webhookUrl: null, emailTo: [], heartbeatUrl: null, heartbeatSnapshotsUrl: null });
     const cfg = alertConfig({ ALERT_WEBHOOK_URL: ` ${NTFY} `, ALERT_EMAIL_TO: 'a@b.test, no-es-correo ,c@d.test', HEARTBEAT_URL: 'http://inseguro.test/ping' } as unknown as NodeJS.ProcessEnv);
-    expect(cfg).toEqual({ webhookUrl: NTFY, emailTo: ['a@b.test', 'c@d.test'], heartbeatUrl: null });
+    expect(cfg).toEqual({ webhookUrl: NTFY, emailTo: ['a@b.test', 'c@d.test'], heartbeatUrl: null, heartbeatSnapshotsUrl: null });
     expect(alertConfig({ ALERT_WEBHOOK_URL: 'no es una url' } as unknown as NodeJS.ProcessEnv).webhookUrl).toBeNull();
   });
 
@@ -33,7 +33,7 @@ describe('configuración', () => {
     const only = describeChannels({ ALERT_EMAIL_TO: 'a@b.test' } as unknown as NodeJS.ProcessEnv);
     expect(only).toMatchObject({ webhook: false, email: false, emailNeedsSmtp: true });
     const all = describeChannels({ ALERT_WEBHOOK_URL: NTFY, ALERT_EMAIL_TO: 'a@b.test', HEARTBEAT_URL: 'https://hc-ping.com/abc', ...smtp } as unknown as NodeJS.ProcessEnv);
-    expect(all).toEqual({ webhook: true, email: true, heartbeat: true, emailNeedsSmtp: false });
+    expect(all).toEqual({ webhook: true, email: true, heartbeat: true, heartbeatSnapshots: false, emailNeedsSmtp: false });
     expect(JSON.stringify(all)).not.toMatch(/ntfy|secreto|hc-ping/);
   });
 });
@@ -135,3 +135,27 @@ describe('latido', () => {
     expect(logged).not.toContain('secreto');
   });
 });
+
+describe('H-123: latido del refresco diario de registros', () => {
+  const env = { HEARTBEAT_URL: 'https://hc-ping.com/tenants/', HEARTBEAT_SNAPSHOTS_URL: 'https://hc-ping.com/snapshots/' } as unknown as NodeJS.ProcessEnv;
+
+  it('cada tarea late a SU URL (con una sola no se sabría cuál se paró) y a /fail si reventó', async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    await sendHeartbeat(true, { env, fetchImpl, job: 'snapshots' });
+    await sendHeartbeat(false, { env, fetchImpl, job: 'snapshots' });
+    await sendHeartbeat(true, { env, fetchImpl });
+    expect(calls.map((c) => c.url)).toEqual(['https://hc-ping.com/snapshots/', 'https://hc-ping.com/snapshots/fail', 'https://hc-ping.com/tenants/']);
+  });
+
+  it('sin HEARTBEAT_SNAPSHOTS_URL no hace nada (y no usa la del otro disparador)', async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    expect(await sendHeartbeat(true, { env: { HEARTBEAT_URL: 'https://hc-ping.com/tenants/' } as unknown as NodeJS.ProcessEnv, fetchImpl, job: 'snapshots' })).toBe(false);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('describeChannels y alertConfig lo reflejan; una URL http se descarta', () => {
+    expect(describeChannels(env)).toMatchObject({ heartbeat: true, heartbeatSnapshots: true });
+    expect(alertConfig({ HEARTBEAT_SNAPSHOTS_URL: 'http://inseguro.test/x' } as unknown as NodeJS.ProcessEnv).heartbeatSnapshotsUrl).toBeNull();
+  });
+});
+

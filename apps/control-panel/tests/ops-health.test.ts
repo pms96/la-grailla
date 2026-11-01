@@ -48,6 +48,13 @@ describe('probeTenantHealth con el bloque ops', () => {
     expect(r).toMatchObject({ reachable: true, problems: [], ops: null });
   });
 
+  it('H-118: `ops: null` (el front no pudo medir) es `unavailable`; sin la clave es `absent` (front anterior)', async () => {
+    const blind = await probeTenantHealth(target, { fetchImpl: fetchOf({ ...detail(), ops: null }) });
+    expect(blind).toMatchObject({ reachable: true, problems: [], ops: null, opsStatus: 'unavailable' });
+    const old = await probeTenantHealth(target, { fetchImpl: fetchOf(detail()) });
+    expect(old).toMatchObject({ reachable: true, ops: null, opsStatus: 'absent' });
+  });
+
   it('lee `ops` cuando viene y se queda solo con lo que conoce el contrato', async () => {
     const ops = { ...calmOps(Date.now(), { emailsFailed: 2 }), gatewayCredOk: true };
     const r = await probeTenantHealth(target, { fetchImpl: fetchOf(detail({ ops, campoNuevo: 1 })) });
@@ -103,6 +110,35 @@ describe('señales de negocio en el disparador', () => {
     await pass(() => probeWith(undefined));
     expect(alerts).toEqual([]);
     expect(await stored(c.subscriptionId)).toMatchObject({ ok: true, status: 'ok', error: null });
+  });
+
+  const blind = (): ProbeResult => ({ ...probeWith(null), opsStatus: 'unavailable' }) as ProbeResult;
+
+  it('H-118: tres sondeos seguidos sin poder medir `ops` avisan UNA vez, conservan las señales y, al volver, avisan la recuperación', async () => {
+    const c = await publishedTenant('Peña Ciega');
+    await pass((n) => probeWith(calmOps(n, { emailsFailed: 2 })));
+    expect(alerts).toHaveLength(1); // el aviso de emails con error, ya dado
+    alerts.length = 0;
+    await pass(blind);
+    await pass(blind);
+    expect(alerts).toEqual([]); // un par de tropiezos no avisan
+    expect(await stored(c.subscriptionId)).toMatchObject({ error: expect.stringContaining('emails de confirmación con error de envío') }); // conservada
+    await pass(blind);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ severity: 'warning', title: expect.stringContaining('sin poder medir') });
+    await pass(blind);
+    expect(alerts).toHaveLength(1); // no repite
+    expect(await stored(c.subscriptionId)).toMatchObject({ error: expect.stringMatching(/4 sondeos seguidos/) });
+    await pass((n) => probeWith(calmOps(n)));
+    expect(alerts.at(-1)).toMatchObject({ severity: 'recovery' });
+    expect(await stored(c.subscriptionId)).toMatchObject({ ok: true, error: null });
+  });
+
+  it('H-118: un `ops` ausente (front anterior) NUNCA cuenta como punto ciego', async () => {
+    const c = await publishedTenant('Peña Antigua');
+    for (let i = 0; i < 5; i++) await pass(() => probeWith(undefined));
+    expect(alerts).toEqual([]);
+    expect(await stored(c.subscriptionId)).toMatchObject({ ok: true, error: null });
   });
 
   it('pedidos pendientes: avisa UNA vez al aparecer (incluso en la primera lectura), lo deja en la ficha, y avisa cuando se resuelve', async () => {
@@ -258,15 +294,21 @@ describe('señales de negocio en el disparador', () => {
       expect(sentTo).toHaveLength(3);
       expect((await stored(c.subscriptionId))?.error).not.toContain('[aviso pendiente]');
 
-      // sin ningún canal configurado ({ sent: [], failed: [] }) no hay nada que reintentar: solo queda en el log
+      // H-123: sin ningún canal configurado ({ sent: [], failed: [] }) el aviso NO se da por hecho: queda «aviso pendiente» y sale en cuanto se configure un canal
+      // (antes se daba por avisado y al configurar el canal después no se avisaba de lo que ya estaba pasando).
       await resetControlDb();
       const d = await publishedTenant();
       const none = async (a: Alert) => (void sentTo.push(a), { sent: [], failed: [] });
       const before = sentTo.length;
       await passAll((n) => probeWith(calmOps(n, { emailsFailed: 1 })), none);
+      expect((await stored(d.subscriptionId))?.error).toContain('[aviso pendiente]');
       await passAll((n) => probeWith(calmOps(n, { emailsFailed: 1 })), none);
-      expect(sentTo.length - before).toBe(1);
+      expect(sentTo.length - before).toBe(2); // sigue intentándose mientras no haya canal (queda en el log)
+      await passAll((n) => probeWith(calmOps(n, { emailsFailed: 1 })), working); // se configura un canal: sale
+      expect(sentTo.length - before).toBe(3);
       expect((await stored(d.subscriptionId))?.error).not.toContain('[aviso pendiente]');
+      await passAll((n) => probeWith(calmOps(n, { emailsFailed: 1 })), working);
+      expect(sentTo.length - before).toBe(3); // y a partir de aquí, silencio
     });
 
     it('un canal que LANZA tampoco da el aviso por hecho', async () => {

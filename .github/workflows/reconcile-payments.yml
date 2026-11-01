@@ -5,23 +5,38 @@ name: Reconcile pending payments
 # webhook) no se quede en PENDING durante horas si el comprador nunca vuelve
 # a /confirmacion. GitHub Actions no tiene esa limitación y es gratis para
 # este volumen, así que hace de disparador en vez de vercel.json.
+#
+# H-129: sin `timeout-minutes`, `--max-time` ni `concurrency`, una petición colgada acumulaba ejecuciones cada 5 min. Ahora una sola a la vez
+# (la siguiente espera, y GitHub descarta las intermedias), con tope de tiempo. Sin permisos sobre el repositorio: solo llama a una URL.
 on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch: {}
 
+permissions: {}
+
+concurrency:
+  group: reconcile-payments
+  cancel-in-progress: false
+
 jobs:
   reconcile:
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
       - name: Llamar a /api/cron/reconcile-payments
         run: |
-          status=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+          # La función del front dura hasta 60 s: 75 s de tope total, 10 s para conectar.
+          status=$(curl -s --connect-timeout 10 --max-time 75 -o /tmp/response.json -w "%{http_code}" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "https://www.lagrailla.es/api/cron/reconcile-payments")
+            "https://www.lagrailla.es/api/cron/reconcile-payments") || status=000
           echo "HTTP $status"
-          cat /tmp/response.json
-          if [ "$status" -ge 400 ]; then
+          cat /tmp/response.json 2>/dev/null || true
+          if [ "$status" = "401" ]; then
+            echo "::error::La reconciliación de pagos devolvió 401: CRON_SECRET no coincide, o la URL ya no es la de este proyecto (¿el dominio cambió de proyecto de Vercel?)"
+            exit 1
+          fi
+          if [ "$status" = "000" ] || [ "$status" -ge 400 ]; then
             echo "::error::La reconciliación de pagos devolvió $status"
             exit 1
           fi

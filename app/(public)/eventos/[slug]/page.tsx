@@ -1,4 +1,5 @@
 import { prisma, type EventWithAvailability } from '@/lib/prisma';
+import { errorForLog } from '@/lib/api-error';
 import { EVENT_CANCELLED_NOTICE } from '@/lib/event-cancelled-copy';
 import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { notFound } from 'next/navigation';
@@ -62,7 +63,7 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
       },
     });
   } catch (error) {
-    console.error('[EventoDetailPage] Error al cargar el evento:', error);
+    console.error('[EventoDetailPage] Error al cargar el evento:', errorForLog(error));
     loadError = true;
   }
 

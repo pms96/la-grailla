@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { migrationStamp, parseOpsBlock, type OpsBlock } from '@grailla/contracts';
 import { prisma } from '../db';
 import { callTenant, type FetchLike, type TenantTarget } from './tenant-calls';
-import { OPS_PREFIX, evaluateOps, markUnalerted, splitHealthError, type OpsEvaluation, type OpsKey } from './ops-rules';
+import { OPS_PREFIX, evaluateOps, evaluateOpsUnavailable, markUnalerted, splitHealthError, type OpsEvaluation, type OpsKey } from './ops-rules';
 
 /* Salud básica por cliente (M7): el panel pregunta a `/api/health` de cada cliente con el secreto de cron DE ESE cliente y guarda la
  * última respuesta. La salud «por empuje» (cada cliente avisa) y la telemetría de uso llegan con el umbral de 3 a 5 clientes. */
@@ -27,7 +27,7 @@ export const HealthDetailSchema = z.object({
 export type HealthDetail = z.infer<typeof HealthDetailSchema>;
 
 export type ProbeResult =
-  | { reachable: true; httpStatus: number; latencyMs: number; detail: HealthDetail; problems: string[]; /** La BD está por detrás de lo que el registro declara o del mínimo del front: las lecturas del modelo nuevo dan 500 aunque el front «sirva» (H-043). */ schemaBlocking?: boolean; /** Bloque `ops` válido del cliente (ausente en fronts anteriores). */ ops?: OpsBlock | null; /** Por qué `ops` es null: `absent` = front anterior sin el bloque; `invalid` = lo manda y no cumple el contrato. */ opsStatus?: 'ok' | 'absent' | 'invalid' }
+  | { reachable: true; httpStatus: number; latencyMs: number; detail: HealthDetail; problems: string[]; /** La BD está por detrás de lo que el registro declara o del mínimo del front: las lecturas del modelo nuevo dan 500 aunque el front «sirva» (H-043). */ schemaBlocking?: boolean; /** Bloque `ops` válido del cliente (ausente en fronts anteriores). */ ops?: OpsBlock | null; /** Por qué `ops` es null: `absent` = front anterior sin el bloque; `unavailable` = el front no pudo medirlo en esta pasada (H-118); `invalid` = lo manda y no cumple el contrato. */ opsStatus?: 'ok' | 'absent' | 'unavailable' | 'invalid' }
   | { reachable: false; httpStatus: number | null; latencyMs: number; error: string; problems: string[] };
 
 /** Llama a /api/health y lo interpreta. `declaredSchema` es lo que el registro cree que hay en la BD (para detectar deriva). */
@@ -94,7 +94,9 @@ export async function recordHealth(subscriptionId: string, probe: ProbeResult, n
   const previous = await prisma.tenantHealth.findUnique({ where: { subscriptionId }, select: { error: true } });
   let evaluation: OpsEvaluation | null = null;
   if (probe.reachable && probe.ops) evaluation = evaluateOps(probe.ops, now.getTime(), previous?.error ?? null);
-  // Sin lectura de `ops` en esta pasada (el cliente no responde, o `ops` falta, es nulo o no es válido) NO se sabe si las señales siguen o no: se
+  // H-118: el front sí manda `ops` pero como `null` (no pudo medir). Se conservan las señales anteriores y se cuenta cuántos sondeos seguidos llevan a ciegas.
+  else if (probe.reachable && probe.opsStatus === 'unavailable') evaluation = evaluateOpsUnavailable(now.getTime(), previous?.error ?? null);
+  // Sin lectura de `ops` en esta pasada (el cliente no responde, o `ops` falta o no es válido) NO se sabe si las señales siguen o no: se
   // CONSERVAN las líneas anteriores tal cual. Borrarlas haría que al volver el cliente se avisara otra vez de lo ya avisado, o que se perdiera el
   // «recuperado» de lo que se resolvió durante la caída.
   const opsLines = evaluation ? evaluation.findings.map((f) => f.line) : splitHealthError(previous?.error).ops;

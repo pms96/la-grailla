@@ -9,10 +9,14 @@ import {
   PENDING_MARK,
   hasCriticalOps,
   markUnalerted,
+  OPS_BLIND_AFTER,
+  REMIND_CRITICAL_AFTER_MS,
+  evaluateOpsUnavailable,
   opsAlertFor,
   splitHealthError,
 } from '@/lib/services/ops-rules';
 import { assessSubscription } from '@/lib/queries';
+import { TENANT_JOBS } from '@/lib/services/crons';
 
 /* Reglas de alerta de negocio sobre `ops` (umbrales de la auditoría de lanzamiento §4). Puras: sin BD. */
 
@@ -141,7 +145,7 @@ describe('reconcile', () => {
     expect(keys(evaluateOps(rc({ lastRunAt: minutesAgo(RECONCILE_STALE_MIN) }), NOW, null))).toEqual([]); // justo en el umbral, no
     const e = evaluateOps(rc({ lastRunAt: minutesAgo(RECONCILE_STALE_MIN + 7) }), NOW, null);
     expect(keys(e)).toEqual(['reconcile_stale']);
-    expect(e.findings[0].line).toContain('hace 22 min');
+    expect(e.findings[0].line).toContain(`hace ${RECONCILE_STALE_MIN + 7} min`);
   });
 
   it('se pueden dar a la vez (errores y parado)', () => {
@@ -371,7 +375,7 @@ describe('conciliación diaria con la pasarela (alerta nº 1: cobro sin pedido)'
   it('una pasada que no pudo consultar la pasarela (errors>0, unmatched=0) NO da por resuelto un cobro sin pedido anterior', () => {
     const first = evaluateOps(calm({ gateway: gw({ unmatched: 1 }) }), NOW, null);
     const line = first.findings.map((f) => f.line).join(' · ');
-    const failedPass = evaluateOps(calmAt(24 * 60 * MIN, { gateway: gw({ unmatched: 0, errors: 1 }) }), NOW + 24 * 60 * MIN, line);
+    const failedPass = evaluateOps(calmAt(60 * MIN, { gateway: gw({ unmatched: 0, errors: 1 }) }), NOW + 60 * MIN, line);
     expect(keys(failedPass).sort()).toEqual(['gateway_check', 'gateway_unmatched']);
     expect(failedPass.raise.map((f) => f.key)).toEqual(['gateway_check']); // el cobro ya estaba avisado: no se repite como «nuevo»
     expect(failedPass.recovered).toBe(false);
@@ -391,3 +395,167 @@ describe('conciliación diaria con la pasarela (alerta nº 1: cobro sin pedido)'
     expect(rolledBack.recovered).toBe(false);
   });
 });
+
+describe('H-117: `reconcile: null` no da por resuelto lo que ya constaba', () => {
+  const stale = (min: number) => calm({ reconcile: { lastRunAt: minutesAgo(min), errors: 0, unknown: 0, processing: 0, stuckOver24h: 0 } });
+  const withErrors = calm({ reconcile: { lastRunAt: minutesAgo(2), errors: 3, unknown: 0, processing: 0, stuckOver24h: 0 } });
+
+  it('con «el reconcile no corre» guardado, una pasada con `reconcile: null` CONSERVA la línea (ni «recuperado» ni nueva alerta después)', () => {
+    const first = evaluateOps(stale(60), NOW, null);
+    const stored = first.findings.map((f) => f.line).join(' · ');
+    const blip = evaluateOps(calm({ reconcile: null }), NOW + 5 * MIN, stored);
+    expect(keys(blip)).toEqual(['reconcile_stale']);
+    expect(blip.recovered).toBe(false);
+    expect(blip.raise).toEqual([]);
+    // y cuando la lectura vuelve, con el reconcile al día, ahora sí se resuelve y se avisa
+    const back = evaluateOps(calmAt(10 * MIN), NOW + 10 * MIN, blip.findings.map((f) => f.line).join(' · '));
+    expect(back).toMatchObject({ findings: [], recovered: true });
+  });
+
+  it('con «el reconcile tiene errores» guardado, `reconcile: null` también lo conserva', () => {
+    const stored = evaluateOps(withErrors, NOW, null).findings.map((f) => f.line).join(' · ');
+    const blip = evaluateOps(calm({ reconcile: null }), NOW + 5 * MIN, stored);
+    expect(keys(blip)).toEqual(['reconcile_errors']);
+    expect(blip.recovered).toBe(false);
+  });
+
+  it('una pasada sin fecha (`lastRunAt: null`) conserva el «no corre» anterior, pero no inventa uno', () => {
+    const stored = evaluateOps(stale(60), NOW, null).findings.map((f) => f.line).join(' · ');
+    const noDate = calm({ reconcile: { lastRunAt: null, errors: 0, unknown: 0, processing: 0, stuckOver24h: 0 } });
+    expect(keys(evaluateOps(noDate, NOW + 5 * MIN, stored))).toEqual(['reconcile_stale']);
+    expect(evaluateOps(noDate, NOW, null).findings).toEqual([]);
+  });
+
+  it('sin nada guardado, `reconcile: null` no genera señales (el cliente aún no registró pasadas)', () => {
+    expect(evaluateOps(calm({ reconcile: null }), NOW, null)).toEqual({ findings: [], raise: [], recovered: false });
+  });
+});
+
+describe('H-118: `ops` que el front no pudo medir es un punto ciego', () => {
+  const line = (e: ReturnType<typeof evaluateOpsUnavailable>) => e.findings.map((f) => f.line).join(' · ');
+
+  it(`cuenta los sondeos seguidos y avisa UNA vez al llegar a ${OPS_BLIND_AFTER}`, () => {
+    const e1 = evaluateOpsUnavailable(NOW, null);
+    expect(keys(e1 as never)).toEqual(['ops_blind']);
+    expect(e1.findings[0].line).toContain('1 sondeo seguido');
+    expect(e1.raise).toEqual([]); // un tropiezo suelto no avisa
+    const e2 = evaluateOpsUnavailable(NOW + 5 * MIN, line(e1));
+    expect(e2.findings[0].line).toContain('2 sondeos seguidos');
+    expect(e2.raise).toEqual([]);
+    const e3 = evaluateOpsUnavailable(NOW + 10 * MIN, line(e2));
+    expect(e3.findings[0].line).toContain('3 sondeos seguidos');
+    expect(e3.findings[0].line).toContain('(sostenido)');
+    expect(e3.raise.map((f) => f.key)).toEqual(['ops_blind']);
+    expect(opsAlertFor(e3.raise)).toMatchObject({ severity: 'warning' });
+    const e4 = evaluateOpsUnavailable(NOW + 15 * MIN, line(e3));
+    expect(e4.findings[0].line).toContain('4 sondeos seguidos');
+    expect(e4.raise).toEqual([]); // no repite el aviso en cada sondeo
+  });
+
+  it('conserva las señales anteriores en vez de darlas por resueltas', () => {
+    const stored = evaluateOps(calm({ emailsFailed: 2, pendingOldestMinutes: 70, pendingOver20min: 1 }), NOW, null).findings.map((f) => f.line).join(' · ');
+    const blind = evaluateOpsUnavailable(NOW + 5 * MIN, stored);
+    expect(blind.findings.map((f) => f.key).sort()).toEqual(['emails_failed', 'ops_blind', 'pending_critical']);
+    expect(blind.recovered).toBe(false);
+    expect(blind.raise).toEqual([]);
+  });
+
+  it('un aviso conservado cuyo envío no salió se vuelve a avisar', () => {
+    const stored = evaluateOps(calm({ emailsFailed: 2 }), NOW, null).findings.map((f) => f.line).join(' · ');
+    const marked = markUnalerted(stored, ['emails_failed'])!;
+    expect(evaluateOpsUnavailable(NOW + 5 * MIN, marked).raise.map((f) => f.key)).toEqual(['emails_failed']);
+  });
+
+  it('un aviso «sostenido» cuyo envío no salió se repite al sondeo siguiente', () => {
+    let stored: string | null = null;
+    for (let i = 0; i < OPS_BLIND_AFTER; i++) stored = line(evaluateOpsUnavailable(NOW + i * 5 * MIN, stored));
+    const marked = markUnalerted(stored, ['ops_blind'])!;
+    expect(evaluateOpsUnavailable(NOW + 20 * MIN, marked).raise.map((f) => f.key)).toEqual(['ops_blind']);
+  });
+
+  it('cuando `ops` vuelve a llegar la línea desaparece y, si se había avisado, sale el «recuperado»; si no se llegó a avisar, no', () => {
+    let stored: string | null = null;
+    for (let i = 0; i < OPS_BLIND_AFTER; i++) stored = line(evaluateOpsUnavailable(NOW + i * 5 * MIN, stored));
+    expect(evaluateOps(calmAt(30 * MIN), NOW + 30 * MIN, stored)).toMatchObject({ findings: [], recovered: true });
+    const early = line(evaluateOpsUnavailable(NOW, null));
+    expect(evaluateOps(calmAt(5 * MIN), NOW + 5 * MIN, early)).toMatchObject({ findings: [], recovered: false });
+  });
+
+  it('el punto ciego es un aviso (ámbar), no un fallo', () => {
+    let stored: string | null = null;
+    for (let i = 0; i < OPS_BLIND_AFTER; i++) stored = line(evaluateOpsUnavailable(NOW + i * 5 * MIN, stored));
+    expect(hasCriticalOps(stored)).toBe(false);
+  });
+});
+
+describe('H-123: un fallo que sigue ahí se vuelve a avisar', () => {
+  const pass = (at: number, previous: string | null, over: Partial<OpsBlock> = {}) => evaluateOps(calmAt(at, { emailsFailed: 2, ...over }), NOW + at, previous);
+  const stored = (e: ReturnType<typeof evaluateOps>) => e.findings.map((f) => f.line).join(' · ');
+
+  it('al avisar un fallo, su línea recuerda CUÁNDO se avisó (precisión de minuto)', () => {
+    const e = pass(0, null);
+    expect(e.findings[0].line).toMatch(/ \(avisado 2026-10-27T10:00Z\)$/);
+    expect(e.raise[0].line).not.toContain('avisado'); // el texto del aviso va limpio
+  });
+
+  it('antes de las 6 h no se repite; a las 6 h sí, y la marca se renueva', () => {
+    const first = pass(0, null);
+    const soon = pass(REMIND_CRITICAL_AFTER_MS - 5 * MIN, stored(first));
+    expect(soon.raise).toEqual([]);
+    expect(soon.findings[0].line).toContain('avisado 2026-10-27T10:00Z'); // la marca anterior se conserva
+    const due = pass(REMIND_CRITICAL_AFTER_MS, stored(first));
+    expect(due.raise.map((f) => f.key)).toEqual(['emails_failed']);
+    expect(due.findings[0].line).toContain('avisado 2026-10-27T16:00Z');
+    // y no vuelve a repetir hasta otras 6 h
+    expect(pass(REMIND_CRITICAL_AFTER_MS + 30 * MIN, stored(due)).raise).toEqual([]);
+    expect(pass(2 * REMIND_CRITICAL_AFTER_MS, stored(due)).raise.map((f) => f.key)).toEqual(['emails_failed']);
+  });
+
+  it('un AVISO (ámbar) persistente no se repite nunca', () => {
+    const warn = calm({ pendingOldestMinutes: 50, pendingOver20min: 1 });
+    const first = evaluateOps(warn, NOW, null);
+    expect(first.findings[0].severity).toBe('warning');
+    expect(first.findings[0].line).not.toContain('avisado');
+    expect(evaluateOps({ ...warn, reconcile: calmAt(30 * 3_600_000).reconcile }, NOW + 30 * 3_600_000, stored(first)).raise).toEqual([]);
+  });
+
+  it('un fallo cuyo aviso no salió (marca de «aviso pendiente») se re-avisa y estampa la hora de ESE aviso', () => {
+    const first = pass(0, null);
+    const marked = markUnalerted(stored(first), ['emails_failed'])!;
+    const again = pass(5 * MIN, marked);
+    expect(again.raise.map((f) => f.key)).toEqual(['emails_failed']);
+    expect(again.findings[0].line).toContain('avisado 2026-10-27T10:05Z');
+    expect(again.findings[0].line).not.toContain(PENDING_MARK);
+  });
+
+  it('una línea guardada ANTES de este cambio (sin marca) no se repite por sorpresa: espera a que cambie algo', () => {
+    const legacy = `${OPS_PREFIX}emails de confirmación con error de envío — 2`;
+    const e = pass(10 * 3_600_000, legacy);
+    expect(e.raise).toEqual([]);
+  });
+
+  it('si el fallo se resuelve, no queda marca y sale el «recuperado»', () => {
+    const first = pass(0, null);
+    const ok = evaluateOps(calmAt(MIN), NOW + MIN, stored(first));
+    expect(ok).toMatchObject({ findings: [], recovered: true });
+  });
+});
+
+describe('H-120: el umbral de «el reconcile no corre» deja margen sobre el backoff del propio panel', () => {
+  it('es MAYOR que el tope de espera de reconcile-payments tras fallos (15 min): antes coincidían y salía «crítico» sin que el cron estuviera roto', () => {
+    const backoffMin = (TENANT_JOBS['reconcile-payments'].maxBackoffMs ?? 0) / 60_000;
+    expect(backoffMin).toBe(15);
+    expect(RECONCILE_STALE_MIN).toBeGreaterThanOrEqual(backoffMin + 5);
+  });
+});
+
+describe('H-123: solo los fallos se recuerdan', () => {
+  it('una línea de AVISO (ámbar) con una marca «avisado» antigua no se repite aunque pasen días (la marca solo la ponen los fallos)', () => {
+    const warn = calm({ pendingOldestMinutes: 50, pendingOver20min: 1 });
+    const first = evaluateOps(warn, NOW, null);
+    const withOldStamp = `${first.findings[0].line} (avisado 2026-10-20T10:00Z)`;
+    const later = 3 * 24 * 3_600_000;
+    expect(evaluateOps({ ...warn, reconcile: calmAt(later).reconcile }, NOW + later, withOldStamp).raise).toEqual([]);
+  });
+});
+

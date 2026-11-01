@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetOpsCacheForTests } from '@/lib/ops-health';
 import { GET } from '@/app/api/health/route';
 import { FRONT_MIN_SCHEMA } from '@/lib/platform/min-schema';
 import { latestMigrationOnDisk } from '../helpers/migrations';
@@ -12,6 +13,7 @@ const CRON_SECRET = 'secreto-de-cron-solo-para-este-test';
 
 describe('GET /api/health (modo normal)', () => {
   beforeEach(() => {
+    resetOpsCacheForTests(); // H-119
     vi.stubEnv('CRON_SECRET', CRON_SECRET);
   });
   afterEach(() => {

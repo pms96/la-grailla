@@ -5,7 +5,8 @@ import { latestMigrationOnDisk } from '../helpers/migrations';
 import { enablePlatformEnv } from '../helpers/platform';
 import { TEST_TENANT_IDS, disconnectTenantClients, ensureTenantDatabases, resetTenantDatabase, tenantClient, withTenantForTest } from '../helpers/tenant-dbs';
 import { EMAIL_MAX_ATTEMPTS, EMAIL_WINDOW_MS } from '@/lib/email-delivery';
-import { OPS_RECONCILE_KEY, collectOps, parseReconcileSummary } from '@/lib/ops-health';
+import { OPS_CACHE_MS, OPS_RECONCILE_KEY, OPS_STATEMENT_TIMEOUT_MS, collectOps, collectOpsCached, parseReconcileSummary, resetOpsCacheForTests } from '@/lib/ops-health';
+import * as emailDelivery from '@/lib/email-delivery';
 
 /* P0-07: el productor del bloque `ops` de /api/health, con la BD real del cliente A. Valores con datos sembrados, parcial si falla una consulta,
  * tope de tiempo, sin datos personales y solo con el secreto de cron del cliente. */
@@ -59,6 +60,7 @@ beforeAll(async () => {
   route = await import('@/app/api/health/route');
 }, 180_000);
 beforeEach(async () => {
+  resetOpsCacheForTests(); // H-119: /api/health reutiliza el bloque 30 s; cada prueba parte de cero
   cronMaster = generateMasterKey();
   env = enablePlatformEnv({ PLATFORM_CRON_MASTER: cronMaster, CRON_SECRET: 'global-de-tests', VERCEL_GIT_COMMIT_SHA: 'abcdef1234567890' });
   vi.stubEnv('FRONT_SCHEMA_EXPECTED', latestMigrationOnDisk());
@@ -268,6 +270,103 @@ describe('bloque `ops` de /api/health', () => {
         release();
         await blocker;
       }
+    });
+  });
+
+  describe('H-119: coste del bloque en plena venta', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it('cada medida corre dentro de una transacción con `statement_timeout` (y la de emails también)', async () => {
+      const seen: string[] = [];
+      const real = emailDelivery.countEmailBacklog;
+      vi.spyOn(emailDelivery, 'countEmailBacklog').mockImplementation(async (kind, opts) => {
+        const rows = await opts!.client!.$queryRaw<{ statement_timeout: string }[]>`SHOW statement_timeout`;
+        seen.push(rows[0].statement_timeout);
+        return real(kind, opts);
+      });
+      await ops();
+      expect(seen).toEqual([`${OPS_STATEMENT_TIMEOUT_MS / 1000}s`, `${OPS_STATEMENT_TIMEOUT_MS / 1000}s`]);
+    });
+
+    it('una consulta lenta se CORTA en el servidor al llegar el tope: solo esa medida queda null y el resto del bloque sigue', async () => {
+      vi.spyOn(emailDelivery, 'countEmailBacklog').mockImplementation(async (_kind, opts) => {
+        await opts!.client!.$queryRaw`SELECT pg_sleep(10)`;
+        return { unsent: 1, failed: 1 };
+      });
+      const t0 = Date.now();
+      const block = await withTenantForTest('a', () => collectOps(Date.now(), 8000));
+      expect(Date.now() - t0).toBeLessThan(OPS_STATEMENT_TIMEOUT_MS + 2500); // sin el tope serían 10 s
+      expect(block).toMatchObject({ emailsUnsent: null, emailsFailed: null, pendingOver20min: 0, sales: { orders15min: 0, waitingRoom: 0 } });
+    });
+
+    it('las medidas van en SERIE: nunca hay dos a la vez (como mucho una conexión del pool)', async () => {
+      let active = 0;
+      let max = 0;
+      const real = emailDelivery.countEmailBacklog;
+      vi.spyOn(emailDelivery, 'countEmailBacklog').mockImplementation(async (kind, opts) => {
+        active += 1;
+        max = Math.max(max, active);
+        await new Promise((r) => setTimeout(r, 30));
+        try {
+          return await real(kind, opts);
+        } finally {
+          active -= 1;
+        }
+      });
+      await ops();
+      expect(max).toBe(1);
+    });
+
+    it('la caché reutiliza el bloque durante OPS_CACHE_MS, calcula una vez aunque lleguen varias a la vez, y no guarda un resultado null', async () => {
+      const spy = vi.spyOn(emailDelivery, 'countEmailBacklog');
+      const t = Date.now();
+      const [a, b] = await withTenantForTest('a', () => Promise.all([collectOpsCached(t), collectOpsCached(t + 1000)]));
+      expect(a).toBe(b); // misma promesa resuelta: una sola pasada
+      expect(spy).toHaveBeenCalledTimes(2); // entradas + tienda, una vez
+      await withTenantForTest('a', () => collectOpsCached(t + OPS_CACHE_MS - 1));
+      expect(spy).toHaveBeenCalledTimes(2); // aún dentro de la caché
+      await withTenantForTest('a', () => collectOpsCached(t + OPS_CACHE_MS));
+      expect(spy).toHaveBeenCalledTimes(4); // caducada: se recalcula
+
+      resetOpsCacheForTests();
+      spy.mockClear();
+      spy.mockRejectedValue(new Error('BD caída')); // todas las medidas de emails fallan; el resto se recoge igual (no es null)
+      const partial = await withTenantForTest('a', () => collectOpsCached(t));
+      expect(partial).not.toBeNull();
+      expect(partial!.emailsUnsent).toBeNull();
+    });
+
+    it('un resultado null (no se pudo recoger NADA) NO se guarda en la caché: la siguiente llamada lo reintenta; uno bueno sí se guarda', async () => {
+      const good = { generatedAt: new Date().toISOString(), pendingOldestMinutes: null, pendingOver20min: 0, emailsUnsent: 0, emailsFailed: 0, reconcile: null, gateway: null, sales: null, obligations: null };
+      let calls = 0;
+      const collect = async () => {
+        calls += 1;
+        return calls === 1 ? null : good;
+      };
+      const t = Date.now();
+      await withTenantForTest('a', async () => {
+        expect(await collectOpsCached(t, collect)).toBeNull();
+        expect(await collectOpsCached(t + 1000, collect)).toEqual(good); // la primera no se guardó: se recalcula
+        expect(await collectOpsCached(t + 2000, collect)).toEqual(good); // la buena sí
+      });
+      expect(calls).toBe(2);
+    });
+
+    it('la caché es POR CLIENTE: lo que se calculó para A no se sirve a B', async () => {
+      const spy = vi.spyOn(emailDelivery, 'countEmailBacklog');
+      const t = Date.now();
+      await withTenantForTest('a', () => collectOpsCached(t));
+      await withTenantForTest('b', () => collectOpsCached(t));
+      expect(spy).toHaveBeenCalledTimes(4);
+    });
+
+    it('/api/health usa la caché: dos sondeos seguidos con un pedido nuevo en medio ven lo mismo', async () => {
+      const first = await (await health('valid')).json();
+      await order({ status: 'PENDING', provider: 'sumup', paymentId: 'cs_cache_1', createdAgoMs: 120 * MIN });
+      const second = await (await health('valid')).json();
+      expect(second.ops.pendingOver20min).toBe(first.ops.pendingOver20min);
+      resetOpsCacheForTests();
+      expect((await (await health('valid')).json()).ops.pendingOver20min).toBe(first.ops.pendingOver20min + 1);
     });
   });
 

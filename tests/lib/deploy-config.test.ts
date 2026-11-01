@@ -62,3 +62,65 @@ describe('post-deploy-smoke.yml: el smoke se dispara tras cada despliegue de pro
     expect(wf).toMatch(/^permissions:\s*\n\s+contents:\s*read\s*$/m);
   });
 });
+
+// H-129 (y H-114 en lo que toca a los workflows de cron): los workflows de GitHub son el disparador de los crons mientras el cliente real siga fuera del panel.
+describe('workflows de GitHub: crons y permisos', () => {
+  const dir = path.join(ROOT, '.github/workflows');
+  const files = fs.readdirSync(dir).filter((f) => /\.ya?ml$/.test(f));
+  const text = (f: string) => fs.readFileSync(path.join(dir, f), 'utf8');
+  const crons = files.filter((f) => /^\s*schedule:/m.test(text(f)) && /api\/cron\//.test(text(f)));
+
+  it('hay workflows de cron (si no, este test no demuestra nada)', () => {
+    expect(crons.sort()).toEqual(['cleanup-waiting-room.yml', 'reconcile-gateway.yml', 'reconcile-payments.yml']);
+  });
+
+  it('TODOS los workflows declaran `permissions` (si no, heredan los permisos por defecto del repositorio)', () => {
+    for (const f of files) expect(text(f), f).toMatch(/^permissions:/m);
+  });
+
+  it('los de cron no tienen permisos sobre el repositorio, corren de uno en uno, con tope de tiempo y con `curl --max-time`', () => {
+    for (const f of crons) {
+      const t = text(f);
+      expect(t, f).toMatch(/^permissions: \{\}\s*$/m);
+      expect(t, f).toMatch(/^concurrency:\s*\n\s+group: \S+\s*\n\s+cancel-in-progress: false/m);
+      expect(t, f).toMatch(/timeout-minutes: \d+/);
+      expect(t, f).toMatch(/curl [^\n]*--max-time \d+/);
+      expect(t, f).toMatch(/--connect-timeout \d+/);
+    }
+  });
+
+  it('un fallo de la llamada (no responde: 000; o 4xx/5xx) pone el run en rojo, y el 401 dice por qué', () => {
+    for (const f of crons) {
+      const t = text(f);
+      expect(t, f).toMatch(/\|\| status=000/);
+      expect(t, f).toMatch(/"\$status" -ge 400/);
+      expect(t, f).toMatch(/401[\s\S]*CRON_SECRET no coincide/);
+      expect(t, f).toMatch(/exit 1/);
+    }
+  });
+
+  it('cada cron del front tiene su disparador fuera del panel (la conciliación diaria con la pasarela estaba sin él)', () => {
+    const cronRoutes = fs.readdirSync(path.join(ROOT, 'app/api/cron'), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+    expect(cronRoutes.length).toBeGreaterThanOrEqual(3);
+    const all = crons.map(text).join('\n');
+    for (const route of cronRoutes) expect(all, route).toContain(`/api/cron/${route}`);
+  });
+});
+
+// H-128: el preflight del corte no debe exigir lo que `keys:prod` no genera ni dejar mudos los canales de dinero.
+describe('platform-preflight: comprobaciones de entorno', () => {
+  const pre = read('scripts/platform-preflight.ts');
+
+  it('`CRON_SECRET` solo se exige con --legacy (el cliente legacy la acepta para los workflows de GitHub); si no, un falso «NO hacer el corte»', () => {
+    expect(pre).toMatch(/if \(flag\('legacy'\)\) add\('CRON_SECRET/);
+    expect(pre).not.toMatch(/^\s*add\('CRON_SECRET/m);
+  });
+
+  it('PLATFORM_ALERT_URL y SENTRY_DSN se comprueban como AVISO (⚠) que no bloquea, con la misma regla que el front', () => {
+    expect(pre).toMatch(/platformEnvWarnings\(process\.env\)/);
+    expect(pre).toMatch(/addWarn\('PLATFORM_ALERT_URL/);
+    expect(pre).toMatch(/addWarn\('SENTRY_DSN/);
+    expect(pre).toMatch(/failed = checks\.filter\(\(c\) => !c\.ok && !c\.warn\)/); // un aviso no cuenta como fallo
+  });
+});
+

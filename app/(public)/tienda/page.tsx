@@ -1,4 +1,5 @@
 import { ShoppingBag } from 'lucide-react';
+import { errorForLog } from '@/lib/api-error';
 import { Container } from '@/components/layouts/container';
 import { FadeIn } from '@/components/ui/animate';
 import ShopGrid from './_components/shop-grid';
@@ -30,7 +31,7 @@ export default async function TiendaPage(props: { searchParams?: Promise<{ categ
     try {
       products = await getShopProducts();
     } catch (error) {
-      console.error('[TiendaPage] Error al cargar los productos:', error);
+      console.error('[TiendaPage] Error al cargar los productos:', errorForLog(error));
       loadError = true;
     }
     const raw = searchParams?.categoria;

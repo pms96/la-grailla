@@ -1,5 +1,6 @@
 import { prisma } from './db';
 import { hasCriticalOps, splitHealthError } from './services/ops-rules';
+import { RUN_STALE_MS } from './services/migrations';
 import { pendingChanges } from './services/snapshot';
 
 export async function listTenants() {
@@ -69,7 +70,8 @@ type AssessInput = {
   publishedAt: Date | null;
   health: { checkedAt: Date; ok: boolean; status: string; error: string | null } | null;
   crons: { job: string; consecutiveFailures: number; lastError: string | null }[];
-  lastMigration: { status: string; error: string | null } | null;
+  /** La última ejecución REAL (no un ensayo): H-121. */
+  lastMigration: { status: string; error: string | null; startedAt?: Date } | null;
 };
 
 /** Pura: qué está mal y con qué gravedad (testable sin BD). */
@@ -113,6 +115,13 @@ export function assessSubscription(i: AssessInput, now: number = Date.now()): { 
   if (i.lastMigration?.status === 'FAILED') {
     problems.push(`La última migración falló${i.lastMigration.error ? `: ${i.lastMigration.error.split('\n')[0]}` : ''}`);
     raise('bad');
+  } else if (i.lastMigration?.status === 'SKIPPED') {
+    // H-121: una migración omitida (venta en marcha, lote parado por otro fallo) deja al cliente SIN el esquema nuevo: el siguiente despliegue que lo exija lo pone en mantenimiento.
+    problems.push(`La última migración NO se aplicó${i.lastMigration.error ? `: ${i.lastMigration.error.split('\n')[0]}` : ''}. Repítela fuera de la venta`);
+    raise('warn');
+  } else if (i.lastMigration?.status === 'RUNNING' && i.lastMigration.startedAt && now - i.lastMigration.startedAt.getTime() > RUN_STALE_MS) {
+    problems.push('Hay una migración «en curso» desde hace más de 30 min: el proceso probablemente murió. La BD puede tener una migración a medias; revísala antes de repetir');
+    raise('bad');
   }
   if (!i.publishedAt || now - i.publishedAt.getTime() > PUBLISH_STALE_MS) {
     problems.push('El registro lleva más de 36 h sin republicarse: ejecuta el refresco de snapshots (la licencia dejaría de avanzar)');
@@ -130,7 +139,8 @@ export async function healthOverview(now: number = Date.now()): Promise<HealthRo
       domains: { where: { status: 'VERIFIED' } },
       health: true,
       cronStates: true,
-      migrationRuns: { orderBy: { startedAt: 'desc' }, take: 1 },
+      // H-121: solo ejecuciones REALES; un ensayo (`dryRun`) posterior no debe ocultar un fallo anterior.
+      migrationRuns: { where: { dryRun: false }, orderBy: { startedAt: 'desc' }, take: 1 },
     },
   });
   const rows: HealthRow[] = subs.map((s) => {
@@ -142,7 +152,7 @@ export async function healthOverview(now: number = Date.now()): Promise<HealthRo
         publishedAt: s.lastPublishedAt,
         health: s.health ? { checkedAt: s.health.checkedAt, ok: s.health.ok, status: s.health.status, error: s.health.error } : null,
         crons: s.cronStates.map((c) => ({ job: c.job, consecutiveFailures: c.consecutiveFailures, lastError: c.lastError })),
-        lastMigration: lastRun ? { status: lastRun.status, error: lastRun.error } : null,
+        lastMigration: lastRun ? { status: lastRun.status, error: lastRun.error, startedAt: lastRun.startedAt } : null,
       },
       now
     );

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { generateMasterKey, parseMasterKey } from '@grailla/contracts';
-import { checkPlatformEnvOnce, platformEnvProblems, resetEnvCheckForTests } from '@/lib/tenant/env-check';
+import { checkPlatformEnvOnce, platformEnvProblems, platformEnvWarnings, resetEnvCheckForTests } from '@/lib/tenant/env-check';
 import { logRateLimited, resetLogRateLimitForTests } from '@/lib/tenant/log';
 import { platformMiddleware } from '@/lib/tenant/middleware';
 import { resetResolverStateForTests, setRegistryReaderForTests } from '@/lib/tenant/resolve';
@@ -196,3 +196,27 @@ describe('logRateLimited', () => {
     expect(lines).toEqual(['uno', 'tres', 'cuatro']);
   });
 });
+
+// H-128: los canales de dinero (PLATFORM_ALERT_URL y SENTRY_DSN) no bloquean el servicio pero, si faltan, dejan mudos los avisos: el preflight los muestra como aviso (⚠), no como fallo.
+describe('platformEnvWarnings (H-128)', () => {
+  it('con los dos canales configurados no hay avisos', () => {
+    expect(platformEnvWarnings({ PLATFORM_ALERT_URL: 'https://ntfy.sh/mi-tema', SENTRY_DSN: 'https://abc@o1.ingest.sentry.io/2' })).toEqual([]);
+  });
+
+  it('sin ninguno, avisa de los dos', () => {
+    const w = platformEnvWarnings({});
+    expect(w).toHaveLength(2);
+    expect(w.join()).toMatch(/PLATFORM_ALERT_URL/);
+    expect(w.join()).toMatch(/SENTRY_DSN/);
+  });
+
+  it('una URL de avisos que no es https (o ilegible) cuenta como no configurada, y un DSN vacío o en blanco también', () => {
+    for (const bad of ['http://ntfy.sh/tema', 'no es una url', '   ', '']) expect(platformEnvWarnings({ PLATFORM_ALERT_URL: bad, SENTRY_DSN: 'https://x@y/1' }).join(), JSON.stringify(bad)).toMatch(/PLATFORM_ALERT_URL/);
+    expect(platformEnvWarnings({ PLATFORM_ALERT_URL: 'https://ntfy.sh/t', SENTRY_DSN: '  ' }).join()).toMatch(/SENTRY_DSN/);
+  });
+
+  it('los avisos NO se mezclan con los problemas que bloquean (`platformEnvProblems` no los lista)', () => {
+    expect(platformEnvProblems({}).join()).not.toMatch(/PLATFORM_ALERT_URL|SENTRY_DSN/);
+  });
+});
+

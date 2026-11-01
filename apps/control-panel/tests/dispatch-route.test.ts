@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateMasterKey } from '@grailla/contracts';
 import { GET } from '@/app/api/cron/dispatch/route';
+import { dispatchHttpStatus, dispatchTenantJobs, effectiveCronBudgetMs, MIN_CRON_BUDGET_MS } from '@/lib/services/crons';
 import { verifyDomainManually } from '@/lib/services/domains';
 import { publishSubscription } from '@/lib/services/snapshot';
 import { freshStore, makeOperator, resetControlDb, rootCreateTenant } from './helpers';
@@ -100,14 +101,44 @@ describe('el código HTTP refleja si las tareas funcionaron', () => {
     expect(lines.some((l) => l.includes('[cron-dispatch] reconcile-payments falló para el cliente') && l.includes('HTTP 503'))).toBe(true);
   });
 
-  it('había tareas vencidas y el presupuesto no dejó lanzar ninguna: 500, no un 200 que parezca bueno', async () => {
+  it('H-125: un CRON_BUDGET_MS por debajo del mínimo (60 s) NO deja sin ejecutar reconcile-payments: se sube al mínimo y se avisa en el log', async () => {
     await publishedTenant();
-    vi.stubEnv('CRON_BUDGET_MS', '8000'); // menos que el tiempo máximo de una llamada (20 s): el valor que recomendaba la documentación para Hobby
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubEnv('CRON_BUDGET_MS', '8000'); // el valor que recomendaba la documentación para Hobby: con él, reconcile-payments (55 s) no se lanzaba NUNCA
     const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetchSpy);
     const res = await call('?job=tenants&only=reconcile-payments', `Bearer ${VERCEL_SECRET}`);
-    expect(res.status).toBe(500);
-    expect(await res.json()).toMatchObject({ due: 1, ran: 0, deferred: 1 });
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(await res.json()).toMatchObject({ due: 1, ran: 1, deferred: 0 });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const logged = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0])).join('\n');
+    expect(logged).toMatch(/CRON_BUDGET_MS=8000 es menor/);
+  });
+
+  it('había tareas vencidas y el presupuesto no dejó lanzar ninguna: 500, no un 200 que parezca bueno (la función del disparador, sin el mínimo de la ruta)', async () => {
+    await publishedTenant();
+    const out = await dispatchTenantJobs({ jobs: ['reconcile-payments'], fetchImpl: async () => new Response('{}', { status: 200 }), budgetMs: 8_000 });
+    expect(out).toMatchObject({ due: 1, ran: 0, deferred: 1 });
+    expect(dispatchHttpStatus(out)).toBe(500);
+  });
+
+  it('effectiveCronBudgetMs: sube a 60 s lo que esté por debajo, respeta lo de arriba y un valor ilegible usa el de por defecto', () => {
+    expect([effectiveCronBudgetMs(8_000), effectiveCronBudgetMs(59_999), effectiveCronBudgetMs(60_000), effectiveCronBudgetMs(100_000)]).toEqual([MIN_CRON_BUDGET_MS, MIN_CRON_BUDGET_MS, 60_000, 100_000]);
+    expect([effectiveCronBudgetMs(NaN), effectiveCronBudgetMs(0), effectiveCronBudgetMs(-5)]).toEqual([90_000, 90_000, 90_000]);
   });
 });
+
+describe('H-123: el refresco diario de registros también late', () => {
+  it('job=snapshots-refresh hace GET a HEARTBEAT_SNAPSHOTS_URL (y no a la de tenants)', async () => {
+    vi.stubEnv('HEARTBEAT_SNAPSHOTS_URL', 'https://hc-ping.com/snapshots-uuid');
+    vi.stubEnv('HEARTBEAT_URL', 'https://hc-ping.com/tenants-uuid');
+    process.env.CRON_SECRET = VERCEL_SECRET;
+    const fetchSpy = vi.fn(async () => new Response('OK', { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const res = await call('?job=snapshots-refresh', `Bearer ${VERCEL_SECRET}`);
+    expect(res.status).toBe(200);
+    const urls = fetchSpy.mock.calls.map((c) => String((c as unknown[])[0]));
+    expect(urls).toContain('https://hc-ping.com/snapshots-uuid');
+    expect(urls).not.toContain('https://hc-ping.com/tenants-uuid');
+  });
+});
+

@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { NextResponse } from 'next/server';
 import type { ActingOperator } from '@/lib/actor';
 import { notify, sendHeartbeat } from '@/lib/services/alerts';
-import { dispatchHttpStatus, dispatchTenantJobs, TENANT_JOBS } from '@/lib/services/crons';
+import { dispatchHttpStatus, dispatchTenantJobs, effectiveCronBudgetMs, MIN_CRON_BUDGET_MS, RECONCILE_CALL_TIMEOUT_MS, TENANT_JOBS } from '@/lib/services/crons';
 import { refreshAllSnapshots } from '@/lib/services/license';
 
 /* Único disparador de tareas periódicas. Lo llama Vercel Cron (apps/control-panel/vercel.json) con `Authorization: Bearer $CRON_SECRET`:
@@ -45,6 +45,8 @@ export async function GET(request: Request) {
         // Sin este refresco diario la licencia deja de avanzar y el registro envejece: avisar el mismo día, no cuando alguien lo note.
         await notify({ severity: 'critical', title: `El refresco diario del registro falló para ${failed.length} ${failed.length === 1 ? 'cliente' : 'clientes'}`, detail: failed.slice(0, 2).map((f) => f.error).join(' | ') });
       }
+      // H-123: latido propio del refresco diario (si falla algún cliente, latido de fallo).
+      await sendHeartbeat(failed.length === 0, { job: 'snapshots' });
       return NextResponse.json({ published, failed: failed.length }, { status: failed.length ? 500 : 200 });
     }
     if (job === 'tenants') {
@@ -52,8 +54,10 @@ export async function GET(request: Request) {
       if (only && !TENANT_JOBS[only]) return NextResponse.json({ error: 'Tarea desconocida' }, { status: 400 });
       // Con maxDuration = 120 s y llamadas de hasta 55 s (reconcile-payments; el resto 20 s), 90 s de presupuesto dejan margen para anotar el estado:
       // una llamada solo empieza si cabe entera en lo que queda de presupuesto.
-      const budget = Number(process.env.CRON_BUDGET_MS ?? 90_000);
-      const summary = await dispatchTenantJobs({ jobs: only ? [only] : undefined, budgetMs: Number.isFinite(budget) && budget > 0 ? budget : 90_000 });
+      const requested = Number(process.env.CRON_BUDGET_MS ?? 90_000);
+      const budget = effectiveCronBudgetMs(requested);
+      if (Number.isFinite(requested) && requested > 0 && requested < MIN_CRON_BUDGET_MS) console.error(`[cron-dispatch] CRON_BUDGET_MS=${requested} es menor que lo que dura una llamada de reconcile (${RECONCILE_CALL_TIMEOUT_MS} ms): se usa ${budget}`);
+      const summary = await dispatchTenantJobs({ jobs: only ? [only] : undefined, budgetMs: budget });
       const status = dispatchHttpStatus(summary);
       console.log(`[cron-dispatch] due=${summary.due} ran=${summary.ran} ok=${summary.ok} failed=${summary.failed} deferred=${summary.deferred}`);
       if (summary.due > 0 && summary.ran === 0) console.error('[cron-dispatch] había tareas vencidas y no se lanzó ninguna: ¿CRON_BUDGET_MS menor que el tiempo máximo de una llamada (55 s en reconcile-payments)?');
@@ -66,6 +70,7 @@ export async function GET(request: Request) {
     console.error('[GET /api/cron/dispatch]', error instanceof Error ? error.message : error);
     // El disparador reventó (BD de control caída, etc.): el latido de fallo avisa de inmediato en vez de esperar al plazo del servicio externo.
     if (job === 'tenants') await sendHeartbeat(false);
+    if (job === 'snapshots-refresh') await sendHeartbeat(false, { job: 'snapshots' });
     return NextResponse.json({ error: 'Error interno' }, { status: 500 });
   }
 }

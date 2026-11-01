@@ -10,7 +10,7 @@ import { FRONT_MIN_SCHEMA } from '@/lib/platform/min-schema';
 import { currentTenant } from '@/lib/tenant/context';
 import { gateBySchema } from '@/lib/tenant/middleware';
 import { isPlatformMode } from '@/lib/tenant/mode';
-import { collectOps } from '@/lib/ops-health';
+import { collectOpsCached } from '@/lib/ops-health';
 
 /* Salud del front para ESTE cliente.
  *  - Público y sin datos: `{status}` y 200 si la BD responde, 503 si no. Sirve a un monitor externo.
@@ -93,7 +93,7 @@ export async function GET(request: Request) {
   const onboardingPending = dbOk && onboardingApplies() && !onboarding.complete;
   const status = !dbOk || wrongDatabase ? 'error' : !serving || !upToDate || onboardingPending ? 'degraded' : 'ok';
   // Con la BD de otro cliente (`wrongDatabase`) no se lee nada de negocio: serían datos de otro.
-  const ops = dbOk && !wrongDatabase ? await collectOps() : null;
+  const ops = dbOk && !wrongDatabase ? await collectOpsCached() : null;
 
   return NextResponse.json(
     {

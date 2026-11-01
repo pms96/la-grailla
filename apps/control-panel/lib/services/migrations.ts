@@ -34,6 +34,9 @@ export const MIGRATION_LOCK_TIMEOUT_MS = 3_000;
 export const MIGRATION_MAX_ATTEMPTS = 3;
 /** Una ejecución «en curso» más vieja que esto se da por abandonada (el proceso murió). */
 export const RUN_STALE_MS = 30 * 60_000;
+/** Tope de tiempo del motor cuando el runner corre DENTRO de una petición (botón «Migrar BD», alta): la función dura `maxDuration = 300` s y muere sin avisar; se corta a los 270 s y se
+ *  anota el fallo (H-122). El script `migrate:tenants` (trabajo externo) no lleva tope. */
+export const IN_REQUEST_MIGRATION_BUDGET_MS = 270_000;
 
 const ALLOW_MARKER_LINE = /^[ \t]*--[ \t]*allow-destructive:.*$/gim;
 
@@ -72,6 +75,8 @@ export type RunOptions = {
   /** Aplicar aunque el linter vea algo destructivo (queda en la auditoría). */
   allowDestructive?: boolean;
   maxAttempts?: number;
+  /** Tope de tiempo de TODA la aplicación (todos los intentos): pasado, se corta el motor y la ejecución queda FAILED con aviso (H-122). Sin él, sin tope. */
+  timeBudgetMs?: number;
   lockTimeoutMs?: number;
   /** Dónde se pone el lock_timeout: en la conexión del runner (por defecto) o en la BD entera (plan B). */
   lockTimeoutMode?: 'connection' | 'database';
@@ -163,20 +168,22 @@ async function salesWindowBlock(
 }
 
 /** Reserva la ejecución: dos runners a la vez sobre el mismo cliente se pisarían. */
-async function reserveRun(subscriptionId: string, tenantId: string, dryRun: boolean, actor: ActingOperator): Promise<MigrationRun> {
+async function reserveRun(subscriptionId: string, tenantId: string, dryRun: boolean, actor: ActingOperator): Promise<{ run: MigrationRun; abandoned: MigrationRun | null }> {
   return prisma.$transaction(async (tx) => {
+    let abandoned: MigrationRun | null = null;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`migrate:${subscriptionId}`}))`;
     const running = await tx.migrationRun.findFirst({ where: { subscriptionId, status: 'RUNNING' }, orderBy: { startedAt: 'desc' } });
     if (running) {
       if (Date.now() - running.startedAt.getTime() < RUN_STALE_MS) {
         throw new ServiceError('migration_in_progress', 'Ya hay una ejecución de migraciones en curso para este cliente');
       }
-      await tx.migrationRun.update({
+      abandoned = await tx.migrationRun.update({
         where: { id: running.id },
-        data: { status: 'FAILED', finishedAt: new Date(), error: 'Abandonada: el proceso no terminó' },
+        data: { status: 'FAILED', finishedAt: new Date(), error: 'Abandonada: el proceso no terminó (¿se cortó la función a mitad? La BD puede tener una migración a medias: el siguiente intento lo dirá)' },
       });
     }
-    return tx.migrationRun.create({ data: { subscriptionId, tenantId, dryRun, triggeredBy: actor.email, status: 'RUNNING' } });
+    const run = await tx.migrationRun.create({ data: { subscriptionId, tenantId, dryRun, triggeredBy: actor.email, status: 'RUNNING' } });
+    return { run, abandoned };
   });
 }
 
@@ -198,8 +205,18 @@ export async function runMigrationsForSubscription(subscriptionId: string, actor
   if (sub.tenant.status === 'PENDING_DELETION' || sub.tenant.status === 'DELETED') {
     throw new ServiceError('invalid_state', 'Este cliente está en borrado: no se migra');
   }
-  const run = await reserveRun(subscriptionId, sub.tenantId, dryRun, actor);
+  const { run, abandoned } = await reserveRun(subscriptionId, sub.tenantId, dryRun, actor);
   const warnings: string[] = [];
+  // H-122: la ejecución anterior murió a medias y se da por fallida; antes se marcaba FAILED sin avisar a nadie. Si era un ensayo, no tocó nada y no es un aviso.
+  if (abandoned && !abandoned.dryRun) {
+    warnings.push('Una ejecución anterior quedó sin terminar y se dio por fallida: si la BD tiene una migración a medias, este intento lo indicará');
+    await prisma
+      .$transaction((tx) =>
+        appendAudit(tx, { actor, action: 'migration.abandoned', targetType: 'subscription', targetId: subscriptionId, tenantId: sub.tenantId, meta: { runId: abandoned.id, startedAt: abandoned.startedAt.toISOString() } })
+      )
+      .catch(() => undefined);
+    await notify({ severity: 'critical', title: `${sub.tenant.name}: una migración de su BD quedó sin terminar`, detail: `Empezó ${abandoned.startedAt.toISOString()} y no terminó (función cortada o proceso muerto). Revisa la BD antes de seguir.`, tenant: { name: sub.tenant.name } });
+  }
 
   /** Guarda la versión de esquema de la BD en el registro y, si ya estaba publicado, lo republica. Devuelve true si la republicación falló. */
   const syncRegistry = async (version: string | null): Promise<boolean> => {
@@ -309,15 +326,28 @@ export async function runMigrationsForSubscription(subscriptionId: string, actor
     let attempts = 0;
     let lastError = '';
     let applied = false;
+    const applyStarted = Date.now();
+    let timedOut = false;
     const applyLoop = async () => {
       while (attempts < maxAttempts) {
+        // H-122: lo que queda del presupuesto de tiempo; sin presupuesto, sin tope. Si ya no queda nada, no se lanza otro intento.
+        const remaining = opts.timeBudgetMs === undefined ? undefined : opts.timeBudgetMs - (Date.now() - applyStarted);
+        if (remaining !== undefined && remaining <= 1_000) {
+          timedOut = true;
+          lastError = lastError || 'Sin tiempo para otro intento';
+          return;
+        }
         attempts += 1;
-        const outcome = await executor.deploy(migrateUrl, { schemaPath });
+        const outcome = await executor.deploy(migrateUrl, { schemaPath, ...(remaining !== undefined ? { timeoutMs: remaining } : {}) });
         if (outcome.ok) {
           applied = true;
           return;
         }
         lastError = outcome.message;
+        if (outcome.kind === 'timeout') {
+          timedOut = true;
+          return; // cortada por tiempo: puede haber quedado a medias; no se reintenta
+        }
         if (outcome.kind !== 'lock_timeout' || !outcome.migration) return; // fallo real: se queda a la vista
         await executor.resolveRolledBack(migrateUrl, outcome.migration, { schemaPath });
         if (attempts < maxAttempts) await sleep(Math.min(30_000, 1_000 * 2 ** (attempts - 1)) + Math.floor(Math.random() * 250));
@@ -325,6 +355,14 @@ export async function runMigrationsForSubscription(subscriptionId: string, actor
     };
     if (lockMode === 'database') await executor.withLockTimeout(directUrl, lockMs, applyLoop);
     else await applyLoop();
+    if (!applied && timedOut) {
+      return await fail(
+        `La migración se cortó por tiempo (tope de ${Math.round((opts.timeBudgetMs ?? 0) / 1000)} s dentro de una petición) y la BD puede haber quedado con una migración a medias (_prisma_migrations sin terminar). ` +
+          'Una persona debe revisarla (`prisma migrate resolve`) y repetir con el script `migrate:tenants`, que no tiene tope de tiempo.' +
+          (lastError ? ` Salida: ${lastError.slice(-300)}` : ''),
+        { fromVersion, pending, attempts }
+      );
+    }
     if (!applied) {
       return await fail(attempts >= maxAttempts && /55P03/.test(lastError) ? `Bloqueo de la BD tras ${attempts} intentos (lock_timeout): reintenta fuera de las horas de venta` : lastError || 'La migración falló', {
         fromVersion,
@@ -364,7 +402,7 @@ export async function runMigrationsForAll(actor: ActingOperator, opts: BatchOpti
   const subs = await prisma.subscription.findMany({
     where: { tenant: { status: { in: ['ACTIVE', 'SUSPENDED'] } }, ...(opts.only ? { id: { in: opts.only } } : {}) },
     orderBy: { createdAt: 'asc' },
-    select: { id: true, tenantId: true },
+    select: { id: true, tenantId: true, tenant: { select: { name: true } } },
   });
   const canary = (opts.canary ?? []).filter((id) => subs.some((s) => s.id === id));
   const ordered = [...canary.map((id) => subs.find((s) => s.id === id)!), ...subs.filter((s) => !canary.includes(s.id))];
@@ -372,7 +410,7 @@ export async function runMigrationsForAll(actor: ActingOperator, opts: BatchOpti
   const results: MigrationRunResult[] = [];
   let stop = false;
   let stopReason = 'No lanzado: falló otro cliente antes';
-  const runOne = async (s: { id: string; tenantId: string }, isCanary = false) => {
+  const runOne = async (s: { id: string; tenantId: string; tenant: { name: string } }, isCanary = false) => {
     if (stop) {
       const skipped = await prisma.migrationRun.create({
         data: { subscriptionId: s.id, tenantId: s.tenantId, status: 'SKIPPED', dryRun: !!opts.dryRun, triggeredBy: actor.email, finishedAt: new Date(), error: stopReason },
@@ -389,6 +427,10 @@ export async function runMigrationsForAll(actor: ActingOperator, opts: BatchOpti
         data: { subscriptionId: s.id, tenantId: s.tenantId, status: 'FAILED', dryRun: !!opts.dryRun, triggeredBy: actor.email, finishedAt: new Date(), error: err instanceof Error ? err.message : String(err) },
       });
       res = toResult(failed);
+      // H-122: antes este fallo (p. ej. «ya hay una ejecución en curso») solo contaba en el lote y no avisaba a nadie.
+      if (!opts.dryRun) {
+        await notify({ severity: 'critical', title: `${s.tenant.name}: no se pudo migrar su BD`, detail: failed.error ?? undefined, tenant: { name: s.tenant.name } });
+      }
     }
     results.push(res);
     if (res.status === 'FAILED' && stopOnFailure) stop = true;

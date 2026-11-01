@@ -89,7 +89,7 @@ export default async function HealthPage() {
                   <td>
                     {r.lastMigration ? (
                       <>
-                        <Pill tone={r.lastMigration.status === 'SUCCEEDED' ? 'ok' : r.lastMigration.status === 'FAILED' ? 'bad' : undefined}>{r.lastMigration.status.toLowerCase()}</Pill>
+                        <Pill tone={r.lastMigration.status === 'SUCCEEDED' ? 'ok' : r.lastMigration.status === 'FAILED' ? 'bad' : r.lastMigration.status === 'SKIPPED' ? 'warn' : undefined}>{r.lastMigration.status.toLowerCase()}</Pill>
                         <div className="muted">{formatDate(r.lastMigration.at)}</div>
                       </>
                     ) : (
@@ -117,6 +117,7 @@ export default async function HealthPage() {
             {channels.email ? '✓' : '✗'} Correo: {channels.email ? 'configurado' : channels.emailNeedsSmtp ? 'falta el SMTP del panel (PANEL_SMTP_*)' : 'sin configurar (ALERT_EMAIL_TO)'}
           </li>
           <li>{channels.heartbeat ? '✓' : '✗'} Latido (avisa si el propio panel o su cron se paran): {channels.heartbeat ? 'configurado' : 'sin configurar (HEARTBEAT_URL)'}</li>
+          <li>{channels.heartbeatSnapshots ? '✓' : '✗'} Latido del refresco diario de registros (sin él, si se para solo se nota por la licencia): {channels.heartbeatSnapshots ? 'configurado' : 'sin configurar (HEARTBEAT_SNAPSHOTS_URL)'}</li>
         </ul>
         {canTest && <ActionForm className="inline" action={testAlertAction} submitLabel="Enviar alerta de prueba" tone="quiet" />}
       </div>

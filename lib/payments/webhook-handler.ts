@@ -7,6 +7,8 @@ import { ProviderNotConfiguredError, WebhookRejected, getPaymentProviderByName, 
 import { resolveExpiredCheckout, resolvePaidCheckout } from '@/lib/order-reconciliation';
 import { currentTenant } from '@/lib/tenant/context';
 import { alertDisputeOpened, applyGatewayRefund } from '@/lib/reconciliation/gateway-refund';
+import { alertOperator } from '@/lib/reconciliation/shared';
+import { escapeHtml } from '@/lib/html-escape';
 
 /* Entrada común de los webhooks de cobro: `/api/webhooks/{proveedor}`. Cada proveedor aporta SU verificación de firma y su traducción
  * a un evento neutro (`PaymentProvider.parseWebhook`); aquí está todo lo demás, igual para todos: idempotencia, reconciliación del pedido
@@ -22,6 +24,28 @@ const WEBHOOK_TARGETS: Record<string, { provider: string; scope: PaymentScope }>
 /** Las filas de Stripe ya guardadas son el `evt_…` a secas; el resto de proveedores llevan su nombre delante para no chocar entre sí. */
 const processedKey = (provider: string, eventId: string) => (provider === 'stripe' ? eventId : `${provider}:${eventId}`);
 // (`stripe-tienda` lleva su nombre delante: el `evt_…` de otra cuenta de Stripe nunca choca con uno de Entradas.)
+
+/**
+ * H-124: un cobro (o un reembolso o una disputa) de un pedido que NO existe en la BD de este cliente. Se responde 200 (un reintento no lo arreglaría) y la pasarela deja de insistir: sin
+ * este aviso, un endpoint de webhook apuntado al cliente equivocado quedaba invisible hasta la conciliación diaria (y SumUp no la tiene). Avisa al operador por los dos canales de siempre,
+ * con un solo aviso al día por pedido. Un pago CADUCADO sin pedido no mueve dinero y no avisa. Sin datos personales: solo ids de la pasarela.
+ */
+async function alertUnmatched(scope: PaymentScope, provider: string, kind: string, orderId: string, eventId: string | undefined): Promise<void> {
+  try {
+    await alertOperator({
+      kind: scope,
+      tag: '[webhook-unmatched]',
+      orderId,
+      reason: 'order_not_found',
+      subject: `⚠️ Llegó un ${kind === 'payment_succeeded' ? 'cobro' : kind === 'payment_refunded' ? 'reembolso' : 'aviso de disputa'} de ${provider} para un pedido que no existe`,
+      html: `<p>La pasarela (${escapeHtml(provider)}) ha notificado un movimiento de dinero para el pedido <strong>${escapeHtml(orderId)}</strong>, que <strong>no existe</strong> en la base de datos de este cliente.</p><p>Suele ser un webhook de otro entorno o de otro cliente apuntado a esta web, o un pedido borrado. Evento: <code>${escapeHtml(eventId ?? '—')}</code>. Revisa el panel de la pasarela: si es un cobro real, el dinero está cobrado y sin pedido.</p>`,
+      dedupeKey: `webhook-unmatched:${orderId}`,
+      details: { provider, kind, eventId: eventId ?? null },
+    });
+  } catch {
+    // el aviso es accesorio: nunca cambia la respuesta al webhook
+  }
+}
 
 export async function handleProviderWebhook(providerName: string, request: Request): Promise<NextResponse> {
   const name = providerName.toLowerCase();
@@ -73,6 +97,7 @@ export async function handleProviderWebhook(providerName: string, request: Reque
         console.error(
           `[webhook] webhook.order_not_found ${JSON.stringify({ tenantId: currentTenant()?.tenantId ?? '-', provider: target.provider, route: name, kind: event.kind, eventId: event.eventId, orderId: event.orderId })}`
         );
+        if (event.kind === 'payment_succeeded') await alertUnmatched(target.scope, target.provider, event.kind, event.orderId, event.eventId);
         return NextResponse.json({ received: true, unmatched: true });
       }
     }
@@ -88,6 +113,7 @@ export async function handleProviderWebhook(providerName: string, request: Reque
         console.error(
           `[webhook] webhook.order_not_found ${JSON.stringify({ tenantId: currentTenant()?.tenantId ?? '-', provider: target.provider, route: name, kind: event.kind, eventId: event.eventId, orderId: event.orderId })}`
         );
+        await alertUnmatched(target.scope, target.provider, event.kind, event.orderId, event.eventId);
         return NextResponse.json({ received: true, unmatched: true });
       }
     }

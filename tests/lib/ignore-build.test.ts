@@ -4,7 +4,8 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const script = path.resolve(__dirname, '../../scripts/ignore-build.js');
-const { freezeDecision, BYPASS_MARKER } = createRequire(import.meta.url)(script) as {
+const { freezeDecision, hasBypassMarker, BYPASS_MARKER } = createRequire(import.meta.url)(script) as {
+  hasBypassMarker: (message: string) => boolean;
   freezeDecision: (env: Record<string, string | undefined>, now?: number) => { skip: boolean; reason: string };
   BYPASS_MARKER: string;
 };
@@ -71,6 +72,27 @@ describe('scripts/ignore-build.js: ¿se congela este despliegue?', () => {
     expect(d.skip).toBe(false);
     expect(d.reason).toMatch(/se construye/);
     expect(freezeDecision(prod({ SALES_FREEZE: '1', VERCEL_GIT_COMMIT_MESSAGE: 'Arreglo del checkout' }), NOW).skip).toBe(true);
+  });
+
+  // H-127: el marcador como subcadena en CUALQUIER sitio saltaba la congelación con un `git revert` o un cherry-pick del commit urgente.
+  it('H-127: el marcador vale en el ASUNTO o en una línea suya del cuerpo, no citado dentro de otro texto', () => {
+    expect(hasBypassMarker(`Arreglo ${BYPASS_MARKER}`)).toBe(true);
+    expect(hasBypassMarker(`${BYPASS_MARKER} arreglo del checkout`)).toBe(true);
+    expect(hasBypassMarker(`Arreglo del checkout\n\nMás detalles\n${BYPASS_MARKER}\n`)).toBe(true);
+    expect(hasBypassMarker(`Arreglo del checkout\r\n\r\n  ${BYPASS_MARKER}  `)).toBe(true);
+    expect(hasBypassMarker('Arreglo del checkout\n\nvaya, ya no hace falta [deploy-anyway] aquí dentro')).toBe(false); // en medio de una frase del cuerpo
+    expect(hasBypassMarker('Arreglo del checkout')).toBe(false);
+    expect(hasBypassMarker('')).toBe(false);
+  });
+
+  it('H-127: un `git revert` (o reapply) de un commit urgente NO salta la congelación aunque cite el marcador', () => {
+    const revert = `Revert "Arreglo del checkout ${BYPASS_MARKER}"\n\nThis reverts commit abc123.`;
+    expect(hasBypassMarker(revert)).toBe(false);
+    expect(hasBypassMarker(`revert: arreglo ${BYPASS_MARKER}`)).toBe(false);
+    expect(hasBypassMarker(`Reapply "Arreglo ${BYPASS_MARKER}"`)).toBe(false);
+    expect(freezeDecision(prod({ SALES_FREEZE: '1', VERCEL_GIT_COMMIT_MESSAGE: revert }), NOW).skip).toBe(true);
+    // y un mensaje que SOLO lo cita en el cuerpo, tampoco
+    expect(freezeDecision(prod({ SALES_FREEZE: '1', VERCEL_GIT_COMMIT_MESSAGE: `Otra cosa\n\n(cherry picked from "Arreglo ${BYPASS_MARKER}")` }), NOW).skip).toBe(true);
   });
 
   it('ejecutado como script respeta la convención de Vercel: 0 = no construir, 1 = construir', () => {

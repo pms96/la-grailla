@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { countEmailBacklog } from '@/lib/email-delivery';
 import { CHECKOUT_RELEASE_AFTER_MS } from '@/lib/checkout-hold';
+import { currentTenant } from '@/lib/tenant/context';
 
 /* Bloque `ops` de /api/health: las señales de negocio que el panel necesita para alertar antes que el comprador (P0-07 · OB-06).
  *
@@ -123,14 +124,32 @@ export function parseReconcileSummary(raw: string | null | undefined): OpsBlock[
   }
 }
 
+/** Tope de CADA consulta del bloque (H-119): una consulta lenta (recuentos sobre tablas grandes en plena venta) se corta en el servidor en lugar de seguir ocupando una conexión del pool
+ *  (`Promise.race` solo deja de ESPERAR, no cancela). Va como `SET LOCAL` de la transacción de cada medida: no toca ninguna otra conexión ni el resto de la app. */
+export const OPS_STATEMENT_TIMEOUT_MS = 2000;
+/** Cuánto se reutiliza el bloque (H-119): el panel lo pide cada 5 min por cliente, pero también lo piden la guarda del runner de migraciones y la de módulos; sin caché cada llamada son
+ *  ~16 consultas sobre un pool pequeño compartido con el checkout. 30 s: lo que decide una guarda no queda desfasado más que eso. */
+export const OPS_CACHE_MS = 30_000;
+
+type Db = Pick<typeof prisma, 'order' | 'shopOrder' | 'event' | 'appConfig' | 'waitingRoomEntry' | '$queryRaw'>;
+
 export async function collectOps(now = Date.now(), timeoutMs = OPS_TIMEOUT_MS): Promise<OpsBlock | null> {
   try {
     const out: OpsBlock = { generatedAt: new Date(now).toISOString(), pendingOldestMinutes: null, pendingOver20min: null, emailsUnsent: null, emailsFailed: null, reconcile: null, gateway: null, sales: null, obligations: null };
     let collected = 0;
-    // Una medida que falla (o no llega a tiempo) deja su campo en null; las demás siguen.
-    const measure = async (fn: () => Promise<void>) => {
+    let expired = false;
+    // Una medida que falla (o no llega a tiempo) deja su campo en null; las demás siguen. Cada medida va en SU transacción, con tope de sentencia, y las medidas van EN SERIE (H-119):
+    // como mucho UNA conexión del pool a la vez (antes ~16 consultas simultáneas sobre un pool de 3 compartido con el checkout). Una sentencia cortada por el tope solo anula esa medida.
+    const measure = (fn: (db: Db) => Promise<void>) => async () => {
+      if (expired) return;
       try {
-        await fn();
+        await prisma.$transaction(
+          async (tx) => {
+            await tx.$executeRaw`SELECT set_config('statement_timeout', ${String(OPS_STATEMENT_TIMEOUT_MS)}, true)`;
+            await fn(tx as unknown as Db);
+          },
+          { maxWait: 1000, timeout: OPS_STATEMENT_TIMEOUT_MS + 1500 }
+        );
         collected += 1;
       } catch {
         /* campo en null */
@@ -139,69 +158,91 @@ export async function collectOps(now = Date.now(), timeoutMs = OPS_TIMEOUT_MS): 
     // Pedidos con pago en una pasarela real (no la simulada) sin resolver.
     const gatewayPending = { status: 'PENDING' as const, paymentId: { not: null }, paymentProvider: { notIn: ['mock'] } };
 
-    const work = Promise.all([
-      measure(async () => {
+    const steps: Array<() => Promise<void>> = [
+      measure(async (db) => {
         // Solo los que ya pasaron su plazo (H-115): el «más antiguo» es lo que el panel convierte en alerta crítica.
         const overdue = { ...gatewayPending, createdAt: { lt: new Date(now - PENDING_OVER_MS) } };
-        const [o, s] = await Promise.all([
-          prisma.order.aggregate({ where: overdue, _min: { createdAt: true } }),
-          prisma.shopOrder.aggregate({ where: overdue, _min: { createdAt: true } }),
-        ]);
+        const o = await db.order.aggregate({ where: overdue, _min: { createdAt: true }, _count: true });
+        const s = await db.shopOrder.aggregate({ where: overdue, _min: { createdAt: true }, _count: true });
         const oldest = [o._min.createdAt, s._min.createdAt].filter((d): d is Date => d instanceof Date).sort((a, b) => a.getTime() - b.getTime())[0];
         out.pendingOldestMinutes = oldest ? Math.max(0, Math.floor((now - oldest.getTime()) / 60_000)) : null;
+        out.pendingOver20min = o._count + s._count;
       }),
-      measure(async () => {
-        const where = { ...gatewayPending, createdAt: { lt: new Date(now - PENDING_OVER_MS) } };
-        const [o, s] = await Promise.all([prisma.order.count({ where }), prisma.shopOrder.count({ where })]);
-        out.pendingOver20min = o + s;
-      }),
-      measure(async () => {
-        const [a, b] = await Promise.all([countEmailBacklog('entradas', { now }), countEmailBacklog('tienda', { now })]);
+      measure(async (db) => {
+        const [a, b] = [await countEmailBacklog('entradas', { now, client: db }), await countEmailBacklog('tienda', { now, client: db })];
         out.emailsUnsent = a.unsent + b.unsent;
         out.emailsFailed = a.failed + b.failed;
       }),
-      measure(async () => {
-        const row = await prisma.appConfig.findUnique({ where: { key: OPS_RECONCILE_KEY }, select: { value: true } });
+      measure(async (db) => {
+        const row = await db.appConfig.findUnique({ where: { key: OPS_RECONCILE_KEY }, select: { value: true } });
         out.reconcile = parseReconcileSummary(row?.value);
       }),
-      measure(async () => {
-        const row = await prisma.appConfig.findUnique({ where: { key: OPS_GATEWAY_KEY }, select: { value: true } });
+      measure(async (db) => {
+        const row = await db.appConfig.findUnique({ where: { key: OPS_GATEWAY_KEY }, select: { value: true } });
         out.gateway = parseGatewaySummary(row?.value);
       }),
-      measure(async () => {
+      measure(async (db) => {
         const since = { createdAt: { gte: new Date(now - SALES_WINDOW_MS) } };
-        const [tickets, shop, waitingRoom] = await Promise.all([
-          prisma.order.count({ where: since }),
-          prisma.shopOrder.count({ where: since }),
-          prisma.waitingRoomEntry.count({
-            where: { OR: [{ status: 'ADMITTED', expiresAt: { gt: new Date(now) } }, { status: 'WAITING', joinedAt: { gte: new Date(now - WAITING_LIVE_MS) } }] },
-          }),
-        ]);
+        const tickets = await db.order.count({ where: since });
+        const shop = await db.shopOrder.count({ where: since });
+        const waitingRoom = await db.waitingRoomEntry.count({
+          where: { OR: [{ status: 'ADMITTED', expiresAt: { gt: new Date(now) } }, { status: 'WAITING', joinedAt: { gte: new Date(now - WAITING_LIVE_MS) } }] },
+        });
         out.sales = { orders15min: tickets + shop, waitingRoom };
       }),
-      measure(async () => {
+      measure(async (db) => {
         const recent = { gte: new Date(now - OBLIGATION_PENDING_MS) };
         // PENDING reciente (un comprador a medio pago) O con un pago real en la pasarela sea cual sea su edad: un cobro sin pedido confirmado
         // es justo lo que apagar el módulo deja de conciliar. Un PENDING viejo sin pago real es un carrito abandonado y no cuenta.
         const pending = { status: 'PENDING' as const, OR: [{ createdAt: recent }, { paymentId: { not: null }, paymentProvider: { notIn: ['mock'] } }] };
         const validTickets = { tickets: { some: { status: 'VALID' as const } } };
-        const [ticketOrdersPending, futureEventsWithTickets, cancelledEventsWithTickets, shopOrdersPending, shopOrdersToShip] = await Promise.all([
-          prisma.order.count({ where: pending }),
-          prisma.event.count({ where: { status: 'PUBLISHED', date: { gte: new Date(now - EVENT_ONGOING_MS) }, ...validTickets } }),
-          prisma.event.count({ where: { status: 'CANCELLED', ...validTickets } }),
-          prisma.shopOrder.count({ where: pending }),
-          prisma.shopOrder.count({ where: { status: { in: ['PAID', 'PROCESSING'] } } }),
-        ]);
+        const ticketOrdersPending = await db.order.count({ where: pending });
+        const futureEventsWithTickets = await db.event.count({ where: { status: 'PUBLISHED', date: { gte: new Date(now - EVENT_ONGOING_MS) }, ...validTickets } });
+        const cancelledEventsWithTickets = await db.event.count({ where: { status: 'CANCELLED', ...validTickets } });
+        const shopOrdersPending = await db.shopOrder.count({ where: pending });
+        const shopOrdersToShip = await db.shopOrder.count({ where: { status: { in: ['PAID', 'PROCESSING'] } } });
         out.obligations = { ticketOrdersPending, futureEventsWithTickets, cancelledEventsWithTickets, shopOrdersPending, shopOrdersToShip };
       }),
-    ]);
+    ];
+    const work = (async () => {
+      for (const step of steps) await step();
+    })();
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([work, new Promise<void>((resolve) => (timer = setTimeout(resolve, timeoutMs)))]);
     if (timer) clearTimeout(timer);
+    expired = true; // lo que no haya empezado, ya no empieza
     if (collected === 0) return null;
     // Lo que llegue tarde ya no se mira: se devuelve una copia de lo recogido hasta ahora.
     return { ...out };
   } catch {
     return null;
   }
+}
+
+const cache = new Map<string, { at: number; value: Promise<OpsBlock | null> }>();
+const cacheKey = () => {
+  try {
+    return currentTenant()?.tenantId ?? 'single';
+  } catch {
+    return 'single';
+  }
+};
+
+/** `collectOps` reutilizado `OPS_CACHE_MS` por cliente (y un solo cálculo a la vez: varios sondeos simultáneos comparten la misma promesa). Un resultado `null` NO se guarda: se reintenta en la
+ *  siguiente llamada. Lo usa /api/health; `collectOps` (sin caché) queda para las pruebas. */
+export function collectOpsCached(now = Date.now(), collect: (now: number) => Promise<OpsBlock | null> = collectOps): Promise<OpsBlock | null> {
+  const key = cacheKey();
+  const hit = cache.get(key);
+  if (hit && now - hit.at < OPS_CACHE_MS && now >= hit.at) return hit.value;
+  const value = collect(now);
+  cache.set(key, { at: now, value });
+  void value.then((v) => {
+    if (v === null && cache.get(key)?.value === value) cache.delete(key);
+  });
+  return value;
+}
+
+/** Solo para pruebas. */
+export function resetOpsCacheForTests(): void {
+  cache.clear();
 }

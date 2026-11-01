@@ -118,9 +118,14 @@ export const OpsBlockSchema = z.object({
 });
 export type OpsBlock = z.infer<typeof OpsBlockSchema>;
 
-/** Lee el campo `ops` de una respuesta de salud. `absent` = el front no lo manda (versión anterior); `invalid` = lo manda y no cumple el contrato. */
-export function parseOpsBlock(value: unknown): { status: 'absent' } | { status: 'invalid'; issue: string } | { status: 'ok'; ops: OpsBlock } {
-  if (value === undefined || value === null) return { status: 'absent' };
+/**
+ * Lee el campo `ops` de una respuesta de salud. `absent` = la clave no viene (un front anterior al bloque); `unavailable` = viene con `null` (H-118: el front lo conoce pero no pudo
+ * medirlo, p. ej. BD saturada: es un PUNTO CIEGO, no «sin señales»); `invalid` = lo manda y no cumple el contrato.
+ * Un front anterior que ya mandaba `null` al fallar se lee igual como `unavailable`: no hace falta subir `CONTRACT_VERSION`.
+ */
+export function parseOpsBlock(value: unknown): { status: 'absent' } | { status: 'unavailable' } | { status: 'invalid'; issue: string } | { status: 'ok'; ops: OpsBlock } {
+  if (value === undefined) return { status: 'absent' };
+  if (value === null) return { status: 'unavailable' };
   const parsed = OpsBlockSchema.safeParse(value);
   if (parsed.success) return { status: 'ok', ops: parsed.data };
   const first = parsed.error.issues[0];

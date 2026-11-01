@@ -7,7 +7,7 @@ import { openField } from '../secrets-store';
 import { ServiceError } from './errors';
 import { probeTenantHealth, recordHealth } from './health';
 import { inviteTenantAdmin, type InviteDeps, type InviteResult } from './invitations';
-import { frontPrismaDir, runMigrationsForSubscription, type MigrationRunResult } from './migrations';
+import { IN_REQUEST_MIGRATION_BUDGET_MS, frontPrismaDir, runMigrationsForSubscription, type MigrationRunResult } from './migrations';
 import { goLiveTenant, type ProvisionDeps, type ProvisionResult, type StepResult } from './provision';
 import type { FetchLike } from './tenant-calls';
 import type { SeedResult } from './tenant-setup';
@@ -51,7 +51,8 @@ export function describeMigration(res: MigrationRunResult): Outcome {
 }
 
 export async function runMigration(subscriptionId: string, dryRun: boolean, actor: ActingOperator): Promise<Outcome> {
-  return describeMigration(await runMigrationsForSubscription(subscriptionId, actor, { dryRun }));
+  // Dentro de una petición (botón «Migrar BD», maxDuration 300 s): con tope de tiempo para que un backfill largo no mate la función a mitad (H-122).
+  return describeMigration(await runMigrationsForSubscription(subscriptionId, actor, { dryRun, timeBudgetMs: IN_REQUEST_MIGRATION_BUDGET_MS }));
 }
 
 const STEP_LABEL: Record<string, string> = {

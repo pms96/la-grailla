@@ -7,14 +7,16 @@
  * No imprime secretos: solo identificadores, estados y recuentos. Sale con código 1 si falla alguna comprobación. */
 import { isSchemaAtLeast, parseMasterKey } from '@grailla/contracts';
 import { FRONT_MIN_SCHEMA } from '@/lib/platform/min-schema';
+import { platformEnvWarnings } from '@/lib/tenant/env-check';
 import { runWithTenant } from '@/lib/tenant/context';
 import { getRegistryReader, resolveHost } from '@/lib/tenant/resolve';
 import { effectiveLicensePhase } from '@grailla/contracts';
 import { isLegacyTenant } from '@/lib/tenant/installation-secret';
 
-type Check = { name: string; ok: boolean; detail?: string };
+type Check = { name: string; ok: boolean; detail?: string; /** Una comprobación `warn` que falla se enseña con ⚠ pero NO impide el corte. */ warn?: boolean };
 const checks: Check[] = [];
 const add = (name: string, ok: boolean, detail?: string) => checks.push({ name, ok, detail });
+const addWarn = (name: string, ok: boolean, detail?: string) => checks.push({ name, ok, detail, warn: true });
 /** Un texto de ayuda («haz esto») solo tiene sentido cuando la comprobación falla: en un ✓ confundía. */
 const hint = (ok: boolean, text: string): string | undefined => (ok ? undefined : text);
 
@@ -73,7 +75,13 @@ async function main() {
     !!process.env.UPSTASH_REDIS_REST_READ_ONLY_TOKEN,
     hint(!!process.env.UPSTASH_REDIS_REST_READ_ONLY_TOKEN, 'el front no escribe nunca; con el token de escritura, quien lo comprometiera podría borrar la revocación de un cliente o reponer snapshots. Créalo en la consola de Upstash («Read-Only Token») y quita UPSTASH_REDIS_REST_TOKEN de este proyecto')
   );
-  add('CRON_SECRET definida (los crons de GitHub la usan)', !!process.env.CRON_SECRET);
+  // H-128: en modo plataforma el secreto de cron de cada cliente sale de PLATFORM_CRON_MASTER (comprobada arriba). `CRON_SECRET` solo lo acepta el cliente LEGACY (los workflows de GitHub
+  // antiguos): exigirla siempre daba un falso «NO hacer el corte» en una plataforma sin legacy, y `keys:prod` no la genera para este proyecto.
+  if (flag('legacy')) add('CRON_SECRET definida (el cliente legacy la acepta para los workflows de GitHub)', !!process.env.CRON_SECRET);
+  // Canales de dinero: no bloquean, pero si faltan los avisos (reembolso fallido, cobro sin pedido) quedan mudos.
+  const warnings = platformEnvWarnings(process.env);
+  addWarn('PLATFORM_ALERT_URL (canal de avisos de dinero)', !warnings.some((w) => w.startsWith('PLATFORM_ALERT_URL')), warnings.find((w) => w.startsWith('PLATFORM_ALERT_URL')));
+  addWarn('SENTRY_DSN (errores de cobros y webhooks)', !warnings.some((w) => w.startsWith('SENTRY_DSN')), warnings.find((w) => w.startsWith('SENTRY_DSN')));
   add('BLOB_READ_WRITE_TOKEN definida (subidas de imágenes y vídeos)', !!process.env.BLOB_READ_WRITE_TOKEN);
   if (flag('legacy')) {
     add('LEGACY_TENANT_ID + LEGACY_NEXTAUTH_SECRET', !!process.env.LEGACY_TENANT_ID && !!process.env.LEGACY_NEXTAUTH_SECRET);
@@ -156,9 +164,10 @@ async function main() {
 
 function report(): void {
   console.log('');
-  for (const c of checks) console.log(`${c.ok ? '✓' : '✗'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
-  const failed = checks.filter((c) => !c.ok);
-  console.log(`\n${failed.length === 0 ? 'Todo listo.' : `${failed.length} comprobación(es) fallida(s): NO hacer el corte.`}`);
+  for (const c of checks) console.log(`${c.ok ? '✓' : c.warn ? '⚠' : '✗'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
+  const failed = checks.filter((c) => !c.ok && !c.warn);
+  const warned = checks.filter((c) => !c.ok && c.warn);
+  console.log(`\n${failed.length === 0 ? 'Todo listo.' : `${failed.length} comprobación(es) fallida(s): NO hacer el corte.`}${warned.length ? ` (${warned.length} aviso(s) que no bloquean: revísalos)` : ''}`);
   if (failed.length) process.exitCode = 1;
 }
 

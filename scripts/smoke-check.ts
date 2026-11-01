@@ -10,6 +10,7 @@
  *      Un cliente sin el módulo de entradas (`/eventos` da 404 y su home no lo enlaza) no es un fallo; un cliente sin eventos publicados tampoco.
  *      SÍ es un fallo que `/eventos` dé 404 estando enlazado desde la home (la ruta ha desaparecido) o que responda 200 con el aviso de que no
  *      pudo cargar los eventos (la página captura el error de BD y devuelve 200: sin esta comprobación, un fallo de BD pasaría en verde).
+ *   4. `/tienda` responde 200 (un cliente sin tienda —404 y su home no la enlaza— no es un fallo; un 404 estando enlazada, sí) y `/auth/login` responde 200 con HTML.
  * Sale con código 1 si algo falla (el workflow marca el despliegue en rojo) y con 2 si no hay ninguna URL que comprobar. */
 import path from 'node:path';
 
@@ -24,6 +25,9 @@ const SLOW_MS = 8_000;
 const EVENTS_LOAD_ERROR = /No hemos podido cargar (la programaci[oó]n|la agenda|la cartelera|los eventos)/i;
 // El menú público solo enlaza /eventos si el módulo de entradas está activo (se filtra con las mismas reglas que el servidor).
 const LINKS_TO_EVENTS = /href="\/eventos["/?#]/i;
+// Igual con la tienda (H-126): solo se enlaza si el módulo está activo.
+const LINKS_TO_SHOP = /href="\/tienda["/?#]/i;
+const SHOP_LOAD_ERROR = /No hemos podido cargar la tienda/i;
 
 /** URLs del entorno o de los argumentos → orígenes `https://host` sin duplicados. Lanza si alguna no es una URL http(s) válida. */
 export function parseTargets(raw: string): string[] {
@@ -118,6 +122,18 @@ export async function smokeTarget(origin: string, deps: Deps = {}): Promise<Smok
       }
     }
   }
+
+  // H-126: la tienda (módulo aparte de las entradas) y la pantalla de acceso del administrador: lo primero que se rompe tras un despliegue con cambios de sesión o de módulos.
+  const shop = await get(`${origin}/tienda`, d);
+  if (shop.status === 404 && !LINKS_TO_SHOP.test(home.body)) {
+    add('tienda', `${origin}/tienda`, shop, true, '', 'sin módulo de tienda (omitido)');
+  } else {
+    const loadFailed = shop.status === 200 && SHOP_LOAD_ERROR.test(shop.body);
+    const why = loadFailed ? 'la página responde 200 pero avisa de que no pudo cargar la tienda' : shop.status === 404 ? 'HTTP 404, pero la home enlaza /tienda: la ruta ha desaparecido' : `HTTP ${shop.status}, se esperaba 200`;
+    add('tienda', `${origin}/tienda`, shop, shop.status === 200 && !loadFailed, why);
+  }
+  const login = await get(`${origin}/auth/login`, d);
+  add('login', `${origin}/auth/login`, login, login.status === 200 && /<html/i.test(login.body), `HTTP ${login.status}, se esperaba 200 con HTML`);
   return { target: origin, checks, ok: checks.every((c) => c.ok) };
 }
 

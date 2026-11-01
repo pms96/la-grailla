@@ -1,4 +1,5 @@
 import { getActiveModules } from '@/lib/modules/runtime';
+import { errorForLog } from '@/lib/api-error';
 import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import Link from 'next/link';
 import { prisma, type EventWithAvailability } from '@/lib/prisma';
@@ -61,7 +62,7 @@ export default async function HomePage() {
     events = upcoming.filter((e) => !hasEventEnded(e.date, e.endTime)).slice(0, 6);
   } catch (error) {
     if (!(error instanceof SkipEvents)) {
-      console.error('[HomePage] Error al cargar eventos:', error);
+      console.error('[HomePage] Error al cargar eventos:', errorForLog(error));
       loadError = true;
     }
   }

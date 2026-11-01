@@ -21,11 +21,12 @@ export type TenantDbState = {
 
 export type DeployOutcome =
   | { ok: true }
-  | { ok: false; kind: 'lock_timeout' | 'failed'; migration: string | null; message: string };
+  | { ok: false; kind: 'lock_timeout' | 'failed' | 'timeout'; migration: string | null; message: string };
 
 export interface MigrationExecutor {
   inspect(directUrl: string): Promise<TenantDbState>;
-  deploy(directUrl: string, opts: { schemaPath: string }): Promise<DeployOutcome>;
+  /** `timeoutMs`: tope de tiempo del motor (H-122); pasado, se corta el proceso y el resultado es `kind: 'timeout'` (la migración puede haber quedado a medias). Sin él, sin tope. */
+  deploy(directUrl: string, opts: { schemaPath: string; timeoutMs?: number }): Promise<DeployOutcome>;
   /** Marca como revertida una migración abortada (ya deshecha por Postgres) para poder reintentarla. */
   resolveRolledBack(directUrl: string, migration: string, opts: { schemaPath: string }): Promise<void>;
   /**
@@ -184,17 +185,26 @@ export function engineEnv(): Record<string, string> {
   return env;
 }
 
-function runPrisma(args: string[], url: string): Promise<{ code: number | null; output: string }> {
+function runPrisma(args: string[], url: string, timeoutMs?: number): Promise<{ code: number | null; output: string; timedOut: boolean }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [prismaBin(), ...args], {
       env: { ...childEnv(url), ...engineEnv() },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let output = '';
+    let timedOut = false;
+    // H-122: dentro de una petición de Vercel la función muere a los `maxDuration` s sin dejar rastro; cortar ANTES permite anotar el fallo (en lugar de dejar la ejecución «en curso»).
+    const timer = timeoutMs && timeoutMs > 0 ? setTimeout(() => { timedOut = true; child.kill('SIGTERM'); }, timeoutMs) : null;
     child.stdout.on('data', (d) => (output += d));
     child.stderr.on('data', (d) => (output += d));
-    child.on('error', reject);
-    child.on('close', (code) => resolve({ code, output }));
+    child.on('error', (err) => {
+      if (timer) clearTimeout(timer);
+      reject(err);
+    });
+    child.on('close', (code) => {
+      if (timer) clearTimeout(timer);
+      resolve({ code, output, timedOut });
+    });
   });
 }
 
@@ -213,8 +223,9 @@ export const prismaExecutor: MigrationExecutor = {
     });
   },
 
-  async deploy(directUrl, { schemaPath }) {
-    const { code, output } = await runPrisma(['migrate', 'deploy', '--schema', schemaPath], directUrl);
+  async deploy(directUrl, { schemaPath, timeoutMs }) {
+    const { code, output, timedOut } = await runPrisma(['migrate', 'deploy', '--schema', schemaPath], directUrl, timeoutMs);
+    if (timedOut) return { ok: false, kind: 'timeout', migration: /Migration name:\s*(\S+)/.exec(output)?.[1] ?? null, message: redactUrls(output).slice(-800) };
     if (code === 0) return { ok: true };
     const migration = /Migration name:\s*(\S+)/.exec(output)?.[1] ?? null;
     // 55P03 = lock_not_available: Postgres abortó la sentencia por el lock_timeout y deshizo la migración entera.

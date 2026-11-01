@@ -1,0 +1,36 @@
+name: Reconcile gateway (diaria)
+
+# H-129: la conciliación diaria pasarela → BD (alerta nº 1 de la auditoría: «cobro sin pedido») solo la disparaba el panel. Mientras el cliente real siga fuera del panel
+# (o el panel esté caído) nadie la ejecutaba. Es de solo lectura e idempotente: si el panel también la dispara, no pasa nada. Una vez al día, a las 04:47 UTC.
+# Se retira junto con los otros dos workflows de cron cuando el proyecto `platform` sirva a La Grailla y el disparador del panel lleve días sin errores.
+on:
+  schedule:
+    - cron: '47 4 * * *'
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: reconcile-gateway
+  cancel-in-progress: false
+
+jobs:
+  reconcile-gateway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Llamar a /api/cron/reconcile-gateway
+        run: |
+          status=$(curl -s --connect-timeout 10 --max-time 75 -o /tmp/response.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://www.lagrailla.es/api/cron/reconcile-gateway") || status=000
+          echo "HTTP $status"
+          cat /tmp/response.json 2>/dev/null || true
+          if [ "$status" = "401" ]; then
+            echo "::error::La conciliación con la pasarela devolvió 401: CRON_SECRET no coincide, o la URL ya no es la de este proyecto"
+            exit 1
+          fi
+          if [ "$status" = "000" ] || [ "$status" -ge 400 ]; then
+            echo "::error::La conciliación con la pasarela devolvió $status"
+            exit 1
+          fi

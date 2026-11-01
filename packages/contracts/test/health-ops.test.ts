@@ -71,9 +71,10 @@ describe('bloque ops de la salud (contrato)', () => {
     expect(moduleObligations('tienda', none)).toEqual([]);
   });
 
-  it('ausente (front anterior) no es un error; null tampoco', () => {
+  // H-118: la clave ausente es un front anterior al bloque; `null` explícito es un front que lo conoce pero no pudo medirlo (un punto ciego, no «sin señales»).
+  it('ausente (front anterior) no es un error; null es «no se pudo medir» (unavailable)', () => {
     expect(parseOpsBlock(undefined)).toEqual({ status: 'absent' });
-    expect(parseOpsBlock(null)).toEqual({ status: 'absent' });
+    expect(parseOpsBlock(null)).toEqual({ status: 'unavailable' });
   });
 
   it('los campos desconocidos se ignoran (el front puede añadir contadores sin romper a un panel antiguo)', () => {

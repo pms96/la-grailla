@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { errorForLog } from '@/lib/api-error';
 import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { prisma, type EventWithAvailability } from '@/lib/prisma';
 import { EVENT_MAX_DURATION_MS, hasEventEnded } from '@/lib/active-event';
@@ -49,7 +50,7 @@ export default async function EventosPage() {
     });
     events = upcoming.filter((e) => !hasEventEnded(e.date, e.endTime));
   } catch (error) {
-    console.error('[EventosPage] Error al cargar eventos:', error);
+    console.error('[EventosPage] Error al cargar eventos:', errorForLog(error));
     loadError = true;
   }
 

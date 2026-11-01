@@ -11,6 +11,7 @@ const HEALTHY: Record<string, Reply> = {
   '/eventos': { status: 200, body: html('<a href="/eventos/noche-grande">Noche grande</a>') },
   '/eventos/noche-grande': { status: 200, body: html() },
   '/eventos/noche-grande/comprar': { status: 200, body: html() },
+  '/auth/login': { status: 200, body: html('<form></form>') },
 };
 
 /** `routes[path]` puede ser una respuesta fija o una lista (una por intento, la última se repite). */
@@ -61,8 +62,8 @@ describe('smokeTarget', () => {
   it('cliente sano: home, health, listado, ficha y página de compra, todo en verde', async () => {
     const { report, calls } = await run(HEALTHY);
     expect(report.ok).toBe(true);
-    expect(report.checks.map((c) => c.name)).toEqual(['home', 'health', 'eventos', 'evento', 'comprar']);
-    expect(calls).toEqual(['/', '/api/health', '/eventos', '/eventos/noche-grande', '/eventos/noche-grande/comprar']);
+    expect(report.checks.map((c) => c.name)).toEqual(['home', 'health', 'eventos', 'evento', 'comprar', 'tienda', 'login']);
+    expect(calls).toEqual(['/', '/api/health', '/eventos', '/eventos/noche-grande', '/eventos/noche-grande/comprar', '/tienda', '/auth/login']);
   });
 
   it('un cliente en mantenimiento (health 503) falla aunque la home responda', async () => {
@@ -91,10 +92,10 @@ describe('smokeTarget', () => {
   });
 
   it('sin módulo de entradas (/eventos da 404) NO es un fallo y no se piden ficha ni compra', async () => {
-    const { report, calls } = await run({ '/': HEALTHY['/'], '/api/health': HEALTHY['/api/health'], '/eventos': { status: 404 } });
+    const { report, calls } = await run({ '/': HEALTHY['/'], '/api/health': HEALTHY['/api/health'], '/eventos': { status: 404 }, '/auth/login': HEALTHY['/auth/login'] });
     expect(report.ok).toBe(true);
     expect(byName(report).eventos.detail).toMatch(/sin módulo/);
-    expect(calls).toEqual(['/', '/api/health', '/eventos']);
+    expect(calls).toEqual(['/', '/api/health', '/eventos', '/tienda', '/auth/login']);
   });
 
   it('/eventos que da 404 estando ENLAZADO desde la home es un fallo: la ruta ha desaparecido, no es un cliente sin el módulo', async () => {
@@ -128,7 +129,7 @@ describe('smokeTarget', () => {
   it('sin eventos publicados NO es un fallo: se dice y se omiten ficha y compra', async () => {
     const { report } = await run({ ...HEALTHY, '/eventos': { status: 200, body: html('<p>Próximamente</p>') } });
     expect(report.ok).toBe(true);
-    expect(report.checks.map((c) => c.name)).toEqual(['home', 'health', 'eventos']);
+    expect(report.checks.map((c) => c.name)).toEqual(['home', 'health', 'eventos', 'tienda', 'login']);
     expect(byName(report).eventos.detail).toMatch(/sin eventos publicados/);
   });
 
@@ -146,7 +147,36 @@ describe('smokeTarget', () => {
     const c = byName(report);
     expect(c.home).toMatchObject({ ok: false, status: null });
     expect(c.home.detail).toMatch(/ENOTFOUND/);
-    expect(calls).toHaveLength(6);
+    expect(calls).toHaveLength(8); // 2 intentos en cada una de las 3 primeras + /tienda y /auth/login (404, sin reintento)
+  });
+
+  // H-126
+  it('la tienda: sin módulo (404 y la home no la enlaza) se omite; con 200 pasa; 404 estando enlazada, o 5xx, es un fallo', async () => {
+    const withShop = await run({ ...HEALTHY, '/tienda': { status: 200, body: html('<h1>Tienda</h1>') } });
+    expect(byName(withShop.report).tienda).toMatchObject({ ok: true, status: 200 });
+    const noShop = await run(HEALTHY);
+    expect(byName(noShop.report).tienda).toMatchObject({ ok: true, status: 404 });
+    expect(byName(noShop.report).tienda.detail).toMatch(/sin módulo de tienda/);
+    const linked = await run({ ...HEALTHY, '/': { status: 200, body: html('<nav><a href="/tienda">Tienda</a></nav>') } });
+    expect(byName(linked.report).tienda.ok).toBe(false);
+    expect(byName(linked.report).tienda.detail).toMatch(/la home enlaza \/tienda/);
+    const broken = await run({ ...HEALTHY, '/tienda': { status: 500 } });
+    expect(byName(broken.report).tienda).toMatchObject({ ok: false, status: 500 });
+    expect(broken.report.ok).toBe(false);
+  });
+
+  it('la tienda que responde 200 con el aviso de que no pudo cargar es un fallo', async () => {
+    const { report } = await run({ ...HEALTHY, '/tienda': { status: 200, body: html('<h2>No hemos podido cargar la tienda</h2>') } });
+    expect(byName(report).tienda.ok).toBe(false);
+    expect(byName(report).tienda.detail).toMatch(/no pudo cargar la tienda/);
+  });
+
+  it('el acceso del administrador (/auth/login) debe responder 200 con HTML; si se cae, el despliegue falla', async () => {
+    const down = await run({ ...HEALTHY, '/auth/login': { status: 500 } });
+    expect(byName(down.report).login).toMatchObject({ ok: false, status: 500 });
+    expect(down.report.ok).toBe(false);
+    const empty = await run({ ...HEALTHY, '/auth/login': { status: 200, body: '' } });
+    expect(byName(empty.report).login.ok).toBe(false);
   });
 
   it('un 4xx NO se reintenta (no es transitorio)', async () => {

@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import crypto from 'crypto';
 import { setConfig } from '@/lib/config';
+import * as shared from '@/lib/reconciliation/shared';
 import { disconnectAllTenantClients } from '@/lib/tenant/db';
 import { enablePlatformEnv } from '../helpers/platform';
 import { TEST_TENANT_IDS, disconnectTenantClients, ensureTenantDatabases, resetTenantDatabase, tenantClient, withTenantForTest } from '../helpers/tenant-dbs';
@@ -194,6 +195,61 @@ describe('webhook con un orderId que no existe en esta BD', () => {
     expect(await res.json()).toEqual({ received: true, unmatched: true });
     expect(await tenantClient('a').processedWebhookEvent.findUnique({ where: { id: 'evt_u2' } })).toBeNull();
     expect(JSON.parse(webhookLogs()[0].slice(webhookLogs()[0].indexOf('{')))).toMatchObject({ kind: 'payment_expired', eventId: 'evt_u2', orderId: 'pedido_inexistente' });
+  });
+
+  describe('H-124: un cobro sin pedido AVISA al operador (antes solo iba al log y la pasarela dejaba de reintentar)', () => {
+    let alert: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      alert = vi.spyOn(shared, 'alertOperator').mockResolvedValue(undefined);
+    });
+    afterEach(() => alert.mockRestore());
+    const refunded = (id: string, orderId: string) => JSON.stringify({ id, type: 'charge.refunded', data: { object: { id: 'ch_x', amount: 1000, amount_refunded: 1000, refunded: true, metadata: { orderId } } } });
+
+    it('pago confirmado sin pedido: un aviso por los canales del operador, con el pedido y el evento, y la respuesta no cambia', async () => {
+      const body = paid('evt_h124a', 'pedido_inexistente');
+      const res = await viaGeneric('a', 'stripe', body, sign(body, SECRET_A));
+      expect(await res.json()).toEqual({ received: true, unmatched: true });
+      expect(alert).toHaveBeenCalledTimes(1);
+      const arg = alert.mock.calls[0][0] as Parameters<typeof shared.alertOperator>[0];
+      expect(arg).toMatchObject({ kind: 'entradas', reason: 'order_not_found', orderId: 'pedido_inexistente', dedupeKey: 'webhook-unmatched:pedido_inexistente' });
+      expect(arg.subject).toMatch(/cobro/);
+      expect(arg.html).toContain('pedido_inexistente');
+      expect(arg.html).toContain('evt_h124a');
+    });
+
+    it('un pago CADUCADO sin pedido no mueve dinero: se queda en el log, sin aviso', async () => {
+      const body = expired('evt_h124b', 'pedido_inexistente');
+      expect(await (await viaGeneric('a', 'stripe', body, sign(body, SECRET_A))).json()).toEqual({ received: true, unmatched: true });
+      expect(alert).not.toHaveBeenCalled();
+    });
+
+    it('un reembolso de un pedido que no existe también avisa', async () => {
+      const body = refunded('evt_h124c', 'pedido_inexistente');
+      expect(await (await viaGeneric('a', 'stripe', body, sign(body, SECRET_A))).json()).toEqual({ received: true, unmatched: true });
+      expect(alert).toHaveBeenCalledTimes(1);
+      expect((alert.mock.calls[0][0] as Parameters<typeof shared.alertOperator>[0]).subject).toMatch(/reembolso/);
+    });
+
+    it('el aviso escapa el id del pedido (viene de la pasarela) y NUNCA rompe la respuesta aunque falle', async () => {
+      alert.mockRejectedValue(new Error('SMTP caído'));
+      const body = paid('evt_h124d', '<script>alert(1)</script>');
+      const res = await viaGeneric('a', 'stripe', body, sign(body, SECRET_A));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ received: true, unmatched: true });
+      alert.mockResolvedValue(undefined);
+      const body2 = paid('evt_h124e', '<b>x</b>');
+      await viaGeneric('a', 'stripe', body2, sign(body2, SECRET_A));
+      const html = (alert.mock.calls.at(-1)![0] as Parameters<typeof shared.alertOperator>[0]).html;
+      expect(html).not.toContain('<b>x</b>');
+      expect(html).toContain('&lt;b&gt;x&lt;/b&gt;');
+    });
+
+    it('un pedido que SÍ existe no avisa', async () => {
+      await ticketOrder('a', 'ord_h124');
+      const body = paid('evt_h124f', 'ord_h124');
+      expect(await (await viaGeneric('a', 'stripe', body, sign(body, SECRET_A))).json()).toEqual({ received: true });
+      expect(alert).not.toHaveBeenCalled();
+    });
   });
 
   it('la ruta de siempre (/api/webhooks/stripe) hace lo mismo', async () => {

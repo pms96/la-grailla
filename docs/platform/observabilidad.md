@@ -162,7 +162,7 @@ Se reutiliza el de la salud técnica: la tarea `health` (cada 5 min) compara con
 
 ### 4.3 Variables en Vercel
 
-En los dos proyectos del front: el nuevo **`platform`** (en [m9](m9-primer-despliegue.md) se llama `grailla-platform`) y el antiguo **`la-grailla`**. Settings → Environment Variables, marcadas **Sensitive** y **solo en el entorno Production** (en Preview no: los despliegues de prueba mandarían errores de pruebas):
+En los dos proyectos del front: el nuevo **`grailla-platform`** (el «proyecto `platform`» de los demás documentos; ver la tabla de nombres de [m9](m9-primer-despliegue.md)) y el antiguo **`la-grailla`**. Settings → Environment Variables, marcadas **Sensitive** y **solo en el entorno Production** (en Preview no: los despliegues de prueba mandarían errores de pruebas):
 
 | Variable | Valor |
 |---|---|
@@ -172,7 +172,7 @@ En los dos proyectos del front: el nuevo **`platform`** (en [m9](m9-primer-despl
 
 **Comprueba antes la versión de Node de cada proyecto del front** (Vercel → Settings → Build and Deployment → Node.js Version): `@sentry/nextjs` 11.7.0 exige Node `>=20.19`, `>=22.12` o `>=23.2`. El repo fija `22` en `.nvmrc` (lo usa la CI) pero el `package.json` del front **no tiene `engines`**, así que en Vercel manda el ajuste del proyecto: `22.x` o `20.x` valen (Vercel instala la última versión de la serie); `18.x` NO. El proyecto antiguo `la-grailla` puede estar en una serie anterior: míralo antes de poner `SENTRY_DSN`. Si la versión no sirve, el servidor arranca igualmente sin Sentry y deja una línea `[sentry] la carga del SDK falló` en el log (una sola vez), pero no habrá captura.
 
-Después **redespliega** ambos proyectos (las variables no se aplican a despliegues ya hechos). El panel (`panel-control`) hay que **redesplegarlo** también (recoge las reglas de `ops`), pero no necesita variables nuevas: usa las suyas (`ALERT_WEBHOOK_URL`, `ALERT_EMAIL_TO`, `HEARTBEAT_URL`). En el proyecto antiguo, su build migra la BD real (`prisma migrate deploy`) salvo con `SKIP_MIGRATE_ON_BUILD=1`, y una Preview ya lo hizo una vez (P1-22 de la auditoría): confirma que esa variable está puesta antes de redesplegar.
+Después **redespliega** ambos proyectos (las variables no se aplican a despliegues ya hechos). El panel (`grailla-panel`) hay que **redesplegarlo** también (recoge las reglas de `ops`), pero no necesita variables nuevas: usa las suyas (`ALERT_WEBHOOK_URL`, `ALERT_EMAIL_TO`, `HEARTBEAT_URL`). En el proyecto antiguo, su build migra la BD real (`prisma migrate deploy`) salvo con `SKIP_MIGRATE_ON_BUILD=1`, y una Preview ya lo hizo una vez (P1-22 de la auditoría): confirma que esa variable está puesta antes de redesplegar.
 
 ### 4.4 Reglas mínimas dentro de Sentry
 

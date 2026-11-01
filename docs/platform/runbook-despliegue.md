@@ -165,3 +165,27 @@ No hay migraciones y no cambia nada visible para quien compra o administra. Es c
 - Dos excepciones del test «módulo apagado = cero datos» con rol restringido, a decidir por el dueño (ver el registro): el contable ve ingresos agregados de entradas y patrocinio; el rol de entradas ve el nombre de la temporada de cada evento.
 - Los tiempos de los tests de cancelación y del cron se midieron sin reloj o con margen amplio, pero siguen usando la BD y `setTimeout` reales: una máquina suspendida a mitad puede dar un fallo aislado (repetir).
 
+## 11. Operación y observabilidad del panel: lo que cambia y los límites (lote 9)
+
+No hay migraciones. Casi todo es del panel (se despliega solo) más un cambio en el front (`/api/health`, el webhook de cobros y `build.js`).
+
+**Lo que notará quien opera**
+
+- **Menos falsas alarmas y menos silencios (H-117, H-118, H-120):** un fallo de lectura del reconcile ya no «recupera» y vuelve a alertar; si el front no puede medir `ops` durante ≈15 min (3 sondeos) sale un aviso «sin poder medir el estado del negocio»; «el reconcile no corre» salta a los 25 min (antes 15, igual que el tope del backoff); las tareas cortas (`health`) ya no se quedan sin ejecutar porque una larga (`reconcile-payments`, 55 s) no cabe.
+- **Salud de las migraciones (H-121):** se ve «La última migración NO se aplicó» (venta en marcha o lote parado), una migración «en curso» de más de 30 min, y un ensayo ya no tapa un fallo real anterior.
+- **«Migrar BD» dentro de la petición (H-122):** se corta a los 270 s y queda FAILED con la instrucción (revisar `_prisma_migrations`, `prisma migrate resolve` y repetir con `npm run migrate:tenants`, sin tope). Una ejecución abandonada se da por fallida con aviso crítico. **Para un backfill largo usa siempre el script.**
+- **Alertas (H-123):** sin ningún canal configurado el aviso queda «pendiente» y sale en cuanto pongas uno; un fallo que sigue ahí se recuerda cada 6 h (la línea de Salud dice «avisado …»); nuevo latido opcional `HEARTBEAT_SNAPSHOTS_URL` (periodo 24 h) para el refresco diario de registros.
+- **Cobro sin pedido (H-124):** un cobro, reembolso o disputa de un pedido que no existe en la BD del cliente avisa al operador (correo del cliente + `PLATFORM_ALERT_URL`), un aviso al día por pedido. Sirve para detectar un webhook apuntado al cliente equivocado.
+- **Despliegues (H-125, H-127):** `CRON_BUDGET_MS` por debajo de 60 000 se sube a 60 000 (con aviso en el log); `SKIP_MIGRATE_ON_BUILD` acepta true/yes/on y cualquier valor raro salta la migración; una vista previa de Vercel NUNCA migra; `[deploy-anyway]` ya no vale citado en un `Revert`.
+- **Preflight (H-128):** `CRON_SECRET` solo se exige con `--legacy`; `PLATFORM_ALERT_URL` y `SENTRY_DSN` salen como aviso ⚠ (no bloquean).
+- **GitHub (H-126, H-129):** los workflows de cron corren de uno en uno, con tope de tiempo y sin permisos; `reconcile-gateway.yml` dispara a diario la conciliación con la pasarela fuera del panel (se retira con los otros dos); el smoke tras desplegar comprueba además `/tienda` y `/auth/login`. **Al dar de alta un cliente, añade su URL a `SMOKE_URLS`.**
+- **`/api/health` más barato (H-119):** el bloque `ops` se calcula en serie con tope de 2 s por consulta y se reutiliza 30 s por cliente.
+- **Logs (H-111, H-130):** `handleApiError` ya no vuelca el error entero (un error de Prisma llevaba nombre y email del comprador); una clave foránea rota al crear/actualizar dice otra cosa y SÍ avisa a Sentry.
+
+**Límites aceptados**
+
+- La caché de 30 s hace que una guarda (módulos, runner de migraciones) pueda ver el bloque `ops` con hasta 30 s de retraso.
+- `countEmailBacklog` ya cuenta dentro de la transacción con tope; las consultas de listado del barrido de emails no.
+- El smoke no comprueba que sirva el despliegue NUEVO (el `/api/health` público no trae versión) ni cubre la puerta, la cola ni el POST de checkout.
+- Sin verificar en navegador: la fila nueva de Salud (latido de registros) y el pill ámbar de migraciones.
+

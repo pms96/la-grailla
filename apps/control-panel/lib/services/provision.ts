@@ -11,7 +11,7 @@ import { ServiceError } from './errors';
 import { probeTenantHealth, recordHealth, type ProbeResult } from './health';
 import type { FetchLike } from './tenant-calls';
 import { redactUrls } from '../migrations/executor';
-import { runMigrationsForSubscription, type MigrationRunResult, type RunOptions } from './migrations';
+import { IN_REQUEST_MIGRATION_BUDGET_MS, runMigrationsForSubscription, type MigrationRunResult, type RunOptions } from './migrations';
 import { loadSubscription, pendingChanges, publishSubscription } from './snapshot';
 import { assertProvisionTarget, withTenantDb, writeTenantMarker } from './tenant-db';
 import { createTenant, DB_URL_DIRECT_FIELD } from './tenants';
@@ -330,7 +330,7 @@ export async function provisionTenant(input: ProvisionInput, actor: ActingOperat
   result.tenantId = tenantId;
 
   // 4. Migrar (el mismo runner que usa el lote; sin republicar: aún no hay nada publicado).
-  const migration: MigrationRunResult = await runMigrationsForSubscription(subscriptionId, actor, { salesGuard: false, ...deps.migrate, republish: false });
+  const migration: MigrationRunResult = await runMigrationsForSubscription(subscriptionId, actor, { salesGuard: false, timeBudgetMs: IN_REQUEST_MIGRATION_BUDGET_MS, ...deps.migrate, republish: false });
   if (migration.status !== 'SUCCEEDED') return stop({ step: 'migrate', status: 'failed', detail: migration.error ?? 'La migración falló' });
   step({ step: 'migrate', status: migration.pending.length ? 'done' : 'skipped', detail: migration.pending.length ? `${migration.pending.length} migraciones → ${migration.toVersion}` : `ya estaba al día (${migration.toVersion})` });
 

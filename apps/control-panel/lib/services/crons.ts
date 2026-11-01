@@ -30,6 +30,15 @@ export const TENANT_JOBS: Record<string, TenantJob> = {
   health: { name: 'health', intervalMs: 5 * 60_000, kind: 'health' },
 };
 
+/** Presupuesto mínimo del disparador (H-125): por debajo de lo que dura una llamada de `reconcile-payments` (55 s) esa tarea no se lanzaría NUNCA y el disparador respondería 200 si otras cortas
+ *  sí caben. Se redondea a 60 s. */
+export const MIN_CRON_BUDGET_MS = 60_000;
+/** El presupuesto con el que corre el disparador: el pedido en `CRON_BUDGET_MS` (90 000 por defecto), nunca por debajo del mínimo; un valor ilegible o ≤ 0 vale el de por defecto. */
+export function effectiveCronBudgetMs(requested: number): number {
+  if (!Number.isFinite(requested) || requested <= 0) return 90_000;
+  return Math.max(MIN_CRON_BUDGET_MS, requested);
+}
+
 /** Margen para que un disparador que llega unos segundos «antes» de lo previsto no salte una vuelta entera. */
 export const DUE_GRACE_MS = 60_000;
 export const MAX_BACKOFF_MS = 60 * 60_000;
@@ -118,7 +127,8 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
   const send = opts.notify ?? ((a: Alert) => notify(a));
   let sentAlerts = 0;
   let omittedAlerts = 0;
-  /** Devuelve si el aviso SALIÓ: false si lo omitió el tope o si fallaron todos los canales configurados (sin canales no hay nada que reintentar). */
+  /** Devuelve si el aviso SALIÓ: false si lo omitió el tope, si fallaron todos los canales o si NO HAY ningún canal configurado (H-123: antes eso contaba como «avisado» y, al configurar
+   *  luego un canal, no se avisaba de lo que ya estaba pasando; ahora queda «aviso pendiente» y se avisa en cuanto haya canal). Un notificador a medida (tests) que no devuelve nada cuenta como enviado. */
   const emit = async (a: Alert): Promise<boolean> => {
     if (sentAlerts >= MAX_ALERTS_PER_RUN) {
       omittedAlerts += 1;
@@ -127,7 +137,8 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
     sentAlerts += 1;
     try {
       const res = (await send(a)) as { sent?: string[]; failed?: string[] } | undefined;
-      return !(res && (res.failed?.length ?? 0) > 0 && (res.sent?.length ?? 0) === 0);
+      if (!res) return true;
+      return (res.sent?.length ?? 0) > 0;
     } catch {
       // un aviso que no sale no puede dejar a los demás clientes sin atender
       return false;
@@ -241,17 +252,24 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
     }
   };
 
+  let skipped = 0;
   await Promise.all(
     Array.from({ length: Math.min(concurrency, dueRows.length) }, async () => {
       while (next < dueRows.length) {
+        const row = dueRows[next++];
         // No se lanza una llamada que podría acabar pasado el presupuesto (la función serverless moriría sin anotar el estado).
         // (con el tiempo máximo de ESA tarea: una llamada de 55 s no puede empezar a los 60 s de un presupuesto de 90)
-        if (now() - started >= budgetMs - timeoutFor(TENANT_JOBS[dueRows[next].job])) return; // sin presupuesto: lo que queda espera a la siguiente invocación
-        await runOne(dueRows[next++]);
+        // H-120: la que no cabe se SALTA (`continue`), no corta el bucle: antes un `reconcile-payments` (55 s) que no cabía tras los 35 s dejaba sin ejecutar los `health` (20 s) que sí cabían.
+        // Lo saltado queda vencido y se atiende en la siguiente invocación, empezando por lo que más tiempo lleva sin ejecutarse.
+        if (now() - started >= budgetMs - timeoutFor(TENANT_JOBS[row.job])) {
+          skipped += 1;
+          continue;
+        }
+        await runOne(row);
       }
     })
   );
-  summary.deferred = dueRows.length - next;
+  summary.deferred = skipped;
   if (omittedAlerts > 0) {
     try {
       await send({ severity: 'warning', title: `${omittedAlerts} avisos más en esta pasada`, detail: 'Varios clientes cambian de estado a la vez: mira la página Salud del panel.' });

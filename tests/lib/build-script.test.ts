@@ -1,8 +1,9 @@
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 
-const { shouldMigrateOnBuild, withMigrationTimeouts, migrationEnv, migrateDeployInvocation } = createRequire(import.meta.url)('../../scripts/build.js') as {
+const { shouldMigrateOnBuild, skipReason, withMigrationTimeouts, migrationEnv, migrateDeployInvocation } = createRequire(import.meta.url)('../../scripts/build.js') as {
   shouldMigrateOnBuild: (env: Record<string, string | undefined>) => boolean;
+  skipReason: (env: Record<string, string | undefined>) => string;
   withMigrationTimeouts: (url: string) => string;
   migrationEnv: (env: Record<string, string | undefined>) => Record<string, string | undefined>;
   migrateDeployInvocation: (env: Record<string, string | undefined>) => { command: string; args: string[]; env: Record<string, string | undefined> };
@@ -18,6 +19,25 @@ describe('scripts/build.js: ¿se migra en el build?', () => {
 
   it('SKIP_MIGRATE_ON_BUILD=1 lo apaga (interruptor reversible por variable de entorno)', () => {
     expect(shouldMigrateOnBuild({ SKIP_MIGRATE_ON_BUILD: '1' })).toBe(false);
+  });
+
+  // H-127: antes solo valía exactamente «1»; `true`, `on` o `yes` seguían migrando la BD real.
+  it('H-127: también lo apagan true, yes, si, on (sin importar mayúsculas ni espacios) y cualquier valor raro: ante la duda, no se migra', () => {
+    for (const v of ['true', 'TRUE', ' yes ', 'si', 'On', 'x', 'quizá', '2']) expect(shouldMigrateOnBuild({ SKIP_MIGRATE_ON_BUILD: v }), JSON.stringify(v)).toBe(false);
+    for (const v of ['', '0', 'false', 'No', 'OFF', '  ']) expect(shouldMigrateOnBuild({ SKIP_MIGRATE_ON_BUILD: v }), JSON.stringify(v)).toBe(true);
+  });
+
+  it('H-127: una vista previa de Vercel NUNCA migra, aunque no tenga la variable (el proyecto antiguo compartía la BD real con los Preview)', () => {
+    expect(shouldMigrateOnBuild({ VERCEL_ENV: 'preview' })).toBe(false);
+    expect(shouldMigrateOnBuild({ VERCEL_ENV: 'preview', SKIP_MIGRATE_ON_BUILD: '0' })).toBe(false);
+    expect(shouldMigrateOnBuild({ VERCEL_ENV: 'production' })).toBe(true); // producción sí, como siempre
+    expect(shouldMigrateOnBuild({ VERCEL_ENV: 'development' })).toBe(true);
+  });
+
+  it('el motivo del salto sale en el log del build', () => {
+    expect(skipReason({ PLATFORM_MODE: 'on' })).toBe('PLATFORM_MODE=on');
+    expect(skipReason({ SKIP_MIGRATE_ON_BUILD: 'true' })).toBe('SKIP_MIGRATE_ON_BUILD=true');
+    expect(skipReason({ VERCEL_ENV: 'preview' })).toMatch(/vistas previas/);
   });
 
   it('el modo plataforma nunca migra en el build', () => {

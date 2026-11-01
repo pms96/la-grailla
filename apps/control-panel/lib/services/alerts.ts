@@ -8,6 +8,7 @@ import { mailerConfig, smtpMailer, type Mailer } from './mailer';
  * Canales (todos opcionales; sin ninguno, el aviso solo queda en el log de Vercel):
  *  - `ALERT_WEBHOOK_URL`  ntfy (móvil, sin cuenta), Slack, Discord o cualquier URL que acepte JSON. La URL lleva un token: es un SECRETO.
  *  - `ALERT_EMAIL_TO`     direcciones separadas por comas; sale por el SMTP del panel (`PANEL_SMTP_*`, ver mailer.ts).
+ *  - `HEARTBEAT_SNAPSHOTS_URL`  igual, para el refresco diario de registros (`job=snapshots-refresh`): sin él, que esa tarea deje de correr solo se nota por la licencia.
  *  - `HEARTBEAT_URL`      «latido»: cada pasada del disparador hace un GET a esta URL (healthchecks.io, Better Stack…). Si el panel o el cron
  *                         dejan de funcionar, ese servicio externo avisa por su cuenta: es lo único que cubre la caída del propio panel.
  * Un aviso nunca lanza: si un canal falla se anota en el log y se sigue. Nada de lo que se envía lleva URLs de BD ni secretos. */
@@ -15,7 +16,7 @@ import { mailerConfig, smtpMailer, type Mailer } from './mailer';
 export type AlertSeverity = 'critical' | 'warning' | 'recovery' | 'test';
 export type Alert = { severity: AlertSeverity; title: string; detail?: string; tenant?: { name: string; host?: string } };
 
-export type AlertConfig = { webhookUrl: string | null; emailTo: string[]; heartbeatUrl: string | null };
+export type AlertConfig = { webhookUrl: string | null; emailTo: string[]; heartbeatUrl: string | null; /** Latido del refresco diario de registros (H-123): otro monitor, porque con una sola URL no se distingue qué tarea dejó de latir. */ heartbeatSnapshotsUrl: string | null };
 
 const httpsUrl = (v: string | undefined): string | null => {
   const s = v?.trim();
@@ -35,14 +36,15 @@ export function alertConfig(env: NodeJS.ProcessEnv = process.env): AlertConfig {
       .map((e) => e.trim())
       .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)),
     heartbeatUrl: httpsUrl(env.HEARTBEAT_URL),
+    heartbeatSnapshotsUrl: httpsUrl(env.HEARTBEAT_SNAPSHOTS_URL),
   };
 }
 
 /** Qué canales hay configurados (sin mostrar ninguna URL ni dirección). El correo exige además el SMTP del panel. */
-export function describeChannels(env: NodeJS.ProcessEnv = process.env): { webhook: boolean; email: boolean; heartbeat: boolean; emailNeedsSmtp: boolean } {
+export function describeChannels(env: NodeJS.ProcessEnv = process.env): { webhook: boolean; email: boolean; heartbeat: boolean; heartbeatSnapshots: boolean; emailNeedsSmtp: boolean } {
   const cfg = alertConfig(env);
   const smtp = mailerConfig(env) !== null;
-  return { webhook: cfg.webhookUrl !== null, email: cfg.emailTo.length > 0 && smtp, heartbeat: cfg.heartbeatUrl !== null, emailNeedsSmtp: cfg.emailTo.length > 0 && !smtp };
+  return { webhook: cfg.webhookUrl !== null, email: cfg.emailTo.length > 0 && smtp, heartbeat: cfg.heartbeatUrl !== null, heartbeatSnapshots: cfg.heartbeatSnapshotsUrl !== null, emailNeedsSmtp: cfg.emailTo.length > 0 && !smtp };
 }
 
 const LABEL: Record<AlertSeverity, string> = { critical: '🔴 FALLO', warning: '🟠 AVISO', recovery: '🟢 RECUPERADO', test: '🔔 PRUEBA' };
@@ -128,8 +130,9 @@ export async function notify(alert: Alert, deps: NotifyDeps = {}): Promise<Notif
 }
 
 /** «Latido» del disparador: GET a `HEARTBEAT_URL` (y a `/fail` si la pasada reventó). Devuelve si se envió. No lanza nunca. */
-export async function sendHeartbeat(ok: boolean, deps: Pick<NotifyDeps, 'env' | 'fetchImpl'> = {}): Promise<boolean> {
-  const url = alertConfig(deps.env ?? process.env).heartbeatUrl;
+export async function sendHeartbeat(ok: boolean, deps: Pick<NotifyDeps, 'env' | 'fetchImpl'> & { /** `snapshots` = el latido del refresco diario de registros (`HEARTBEAT_SNAPSHOTS_URL`). */ job?: 'tenants' | 'snapshots' } = {}): Promise<boolean> {
+  const cfg = alertConfig(deps.env ?? process.env);
+  const url = deps.job === 'snapshots' ? cfg.heartbeatSnapshotsUrl : cfg.heartbeatUrl;
   if (!url) return false;
   try {
     const target = ok ? url : `${url.replace(/\/+$/, '')}/fail`;

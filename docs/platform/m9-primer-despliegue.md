@@ -24,6 +24,16 @@ Crea `~/grailla-produccion/` (fuera del repo) con tres ficheros de permisos 0600
 
 **Guarda los tres ya en tu gestor de contraseñas.** Las variables marcadas «Sensitive» en Vercel no se pueden volver a leer, y perder `SECRETS_KEYS` es perder las URLs de BD de todos los clientes. El script no sobrescribe nunca ficheros existentes ni acepta una carpeta dentro del repo.
 
+## Nombres de los proyectos (para no confundirlos)
+
+| Qué es | Nombre en esta guía | Notas |
+|---|---|---|
+| Proyecto de Vercel del **panel** | `grailla-panel` | El del ensayo de octubre (m8) se llamó `panel-control`: es el mismo papel; si ya existe con ese nombre, úsalo y sustituye el nombre en los pasos. |
+| Proyecto de Vercel del **front en modo plataforma** | `grailla-platform` | Lleva `PLATFORM_MODE=on`. En otros documentos aparece como «el proyecto `platform`»: es este. |
+| Proyecto de Vercel **antiguo** de La Grailla | `la-grailla` | El que sirve hoy `www.lagrailla.es` hasta el corte. |
+| Proyecto de **Neon** de la BD de control | `grailla-control` | NO es un proyecto de Vercel: es la BD del panel (`CONTROL_DATABASE_URL`). |
+| Proyecto de **Neon** del cliente demo | `grailla-demo` | Ídem. |
+
 ## A · Vercel (primera pasada: proyectos y dominios, sin variables)
 
 Todo dentro del **equipo Pro**, no en una cuenta personal (los crons de cada 5 minutos solo existen en Pro).
@@ -92,6 +102,16 @@ Todo lo de esta sección se hace en el panel; los comandos `tenant:provision`, `
 4. **Acceso del administrador de su web.** Con la casilla «Invitar al administrador» (marcada por defecto) **no hay contraseña temporal**: el administrador recibe un enlace de un solo uso, que caduca a las 72 horas, para fijar la suya. La invitación solo puede salir cuando el dominio ya está verificado: si todavía no lo está, el alta lo dice y se envía después desde la ficha (apartado «Invitar al administrador de su web»). Sin la casilla, el panel crea al administrador con una **contraseña temporal que se muestra una sola vez**: guárdala y pásasela al cliente por un canal seguro.
 5. El panel dice qué registro DNS crear (el TXT de verificación y el CNAME o A hacia Vercel). Cuando exista, entra en la ficha y pulsa «Salir a producción».
 
+**Migrar la BD de control del panel (una vez, y en cada versión del panel que traiga migraciones).** El build del panel NO la migra (solo hace `prisma generate` y `next build`) y la CI solo migra una BD `_test` desechable: la BD de control de producción se migra a mano, **antes de desplegar el panel nuevo**:
+
+```bash
+cd apps/control-panel
+# con CONTROL_DATABASE_URL y CONTROL_DIRECT_URL de producción en el entorno (por ejemplo, cargadas desde panel.env sin imprimirlas)
+npm run db:migrate        # = prisma migrate deploy sobre prisma/schema.prisma del panel
+```
+
+Es solo aditiva y se puede repetir (no hace nada si está al día). Un panel desplegado con una BD de control atrasada falla en la primera consulta que toque lo nuevo.
+
 **Cliente ya registrado** (ficha, tarjeta «Puesta en marcha»): la lista de pasos dice cuál toca. Botones: **Migrar BD**, **Datos iniciales** (email de avisos, textos legales y administrador, para quien se registró sin ellos), **Salir a producción**, **Comprobar salud**. En cada dominio, **Añadir a Vercel**.
 
 **Dominios en Vercel desde el panel (opcional).** Sin esto, el panel enseña el registro DNS y tú añades el dominio a mano en el proyecto `grailla-platform`. Para que lo haga el panel, añade estas variables al proyecto **`grailla-panel`** (solo Production, Sensitive) y redespliega:
@@ -106,7 +126,7 @@ Los dominios `*.vercel.app` no necesitan nada de esto.
 
 **Invitaciones por correo (opcional).** La ficha del cliente tiene el botón «Enviar invitación» (superadmin; necesita la BD migrada, un administrador creado y el dominio verificado). El panel guarda en la BD del cliente un token de un solo uso (solo su hash) y le manda al administrador un enlace a la web del propio cliente (`/auth/establecer-contrasena?token=…`) donde fija su contraseña (mínimo 10 caracteres). Volver a invitar anula la invitación anterior. La contraseña no pasa nunca por el panel ni por el correo. No hace falta ninguna migración de BD.
 
-Sin correo configurado en el panel, el botón te enseña el enlace **una sola vez** para que se lo pases tú. Para que lo envíe el panel, añade estas variables al proyecto **`panel-control`** (solo Production, Sensitive) y redespliega:
+Sin correo configurado en el panel, el botón te enseña el enlace **una sola vez** para que se lo pases tú. Para que lo envíe el panel, añade estas variables al proyecto **`grailla-panel`** (solo Production, Sensitive) y redespliega:
 
 | Variable | Qué es |
 |---|---|
@@ -166,13 +186,14 @@ Sin esto, si un cliente se cae o una migración falla, nadie te avisa: te entera
 
 Si muchos clientes cambian a la vez (una caída general), manda los 10 primeros y **un solo resumen**, no un mensaje por cliente. Todo queda además en el registro del servidor (`[alert] …`) y la página **Salud** del panel sigue mostrando el estado de cada cliente.
 
-**Dónde te llega** (tres canales, todos opcionales; añade los que quieras al proyecto `panel-control`, solo Production y Sensitive, y redespliega):
+**Dónde te llega** (tres canales, todos opcionales; añade los que quieras al proyecto `grailla-panel`, solo Production y Sensitive, y redespliega):
 
 | Variable | Qué es |
 |---|---|
 | `ALERT_WEBHOOK_URL` | **El móvil o un chat.** Con **ntfy** (gratis, sin cuenta): instala la app «ntfy», suscríbete a un tema con un nombre largo y secreto (genera uno con `openssl rand -hex 12` y úsalo como `grailla-` + eso) y pon `https://ntfy.sh/grailla-…`. También vale un webhook de Slack o de Discord. **La URL es un secreto**: cualquiera con ella puede mandarte avisos. |
 | `ALERT_EMAIL_TO` | Una o varias direcciones separadas por comas. Necesita que el panel tenga el SMTP configurado (`PANEL_SMTP_*`, sección E). |
 | `HEARTBEAT_URL` | **Un latido contra la caída del propio panel.** Si el panel o su cron se paran, el panel no puede avisar de que se ha parado. Crea una comprobación en **healthchecks.io** (gratis): periodo 10 minutos y margen 10 minutos, con tu móvil o correo como destino, y pon aquí su URL de «ping». Cada pasada del disparador (cada 5 min) la llama; si dejan de llegar, healthchecks avisa. |
+| `HEARTBEAT_SNAPSHOTS_URL` | **El mismo latido, para el refresco diario de registros** (`job=snapshots-refresh`, 04:17 UTC). Otra comprobación en healthchecks.io: periodo 24 h y margen 2 h. Sin ella, que esa tarea se pare solo se nota cuando la licencia deja de avanzar (a las 168 h). Un refresco que falla en algún cliente manda el latido de fallo. |
 
 Para probarlo: **Salud → Alertas → «Enviar alerta de prueba»**. Debe llegarte al instante. Hazlo antes de fiarte de ello.
 

@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { errorForLog } from '@/lib/api-error';
 import { absoluteBrandUrl, getBrand } from '@/lib/brand/brand';
 import { canonicalAlternates } from '@/lib/seo/canonical';
 import { getFallbackBaseUrl } from '@/lib/url';
@@ -18,7 +19,7 @@ async function load(slug: string): Promise<{ product: ShopProductView | null; fa
   try {
     return { product: await getShopProduct(slug), failed: false };
   } catch (error) {
-    console.error('[ProductoPage] Error al cargar el producto:', error);
+    console.error('[ProductoPage] Error al cargar el producto:', errorForLog(error));
     return { product: null, failed: true };
   }
 }

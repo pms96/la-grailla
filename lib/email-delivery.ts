@@ -480,8 +480,9 @@ export async function listUnsent(kind: EmailKind, opts: { limit: number; now?: n
  * minutos sin que nadie lo intente; no cuenta los que están enviándose en este momento) y cuántos han agotado los intentos (`failed`).
  * Solo cuenta los de los últimos días. Es una consulta agregada, barata, para el bloque `ops` de /api/health.
  */
-export async function countEmailBacklog(kind: EmailKind, opts: { now?: number } = {}): Promise<{ unsent: number; failed: number }> {
+export async function countEmailBacklog(kind: EmailKind, opts: { now?: number; client?: Pick<typeof prisma, 'order' | '$queryRaw'> } = {}): Promise<{ unsent: number; failed: number }> {
   const now = opts.now ?? Date.now();
+  const db = opts.client ?? prisma; // H-119: el bloque `ops` lo pasa para contar dentro de su transacción con tope de sentencia
   const since = new Date(now - EMAIL_WINDOW_MS);
   const leaseSince = new Date(now - EMAIL_LEASE_MS);
   const staleSince = new Date(now - EMAIL_UNSENT_AFTER_MS);
@@ -489,7 +490,7 @@ export async function countEmailBacklog(kind: EmailKind, opts: { now?: number } 
   if (kind === 'entradas') {
     const base = { status: 'COMPLETED' as const, channel: 'ONLINE', emailSentAt: null, event: liveEventWhere(now) };
     const [unsent, failed] = await Promise.all([
-      prisma.order.count({
+      db.order.count({
         where: {
           ...base,
           updatedAt: { gte: since },
@@ -500,11 +501,11 @@ export async function countEmailBacklog(kind: EmailKind, opts: { now?: number } 
           ],
         },
       }),
-      prisma.order.count({ where: { ...base, updatedAt: { gte: failedSince }, emailAttempts: { gte: EMAIL_MAX_ATTEMPTS } } }),
+      db.order.count({ where: { ...base, updatedAt: { gte: failedSince }, emailAttempts: { gte: EMAIL_MAX_ATTEMPTS } } }),
     ]);
     return { unsent, failed };
   }
-  const rows = await prisma.$queryRaw<{ unsent: number; failed: number }[]>(Prisma.sql`
+  const rows = await db.$queryRaw<{ unsent: number; failed: number }[]>(Prisma.sql`
     SELECT
       count(*) FILTER (WHERE c.attempts < ${EMAIL_MAX_ATTEMPTS}
         AND (c.lease_at IS NULL OR c.lease_at < ${leaseSince})

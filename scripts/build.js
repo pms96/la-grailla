@@ -2,16 +2,32 @@
  *
  * Por defecto migra en el build, como siempre (el proyecto actual de La Grailla sigue así). Se desactiva SIN tocar código con una variable
  * de entorno del proyecto, para poder pasar a migrar con el runner del panel (antes/después del despliegue, cliente a cliente):
- *   - SKIP_MIGRATE_ON_BUILD=1
+ *   - SKIP_MIGRATE_ON_BUILD=1 (o true, yes, on…: cualquier valor salvo vacío, 0, false, no u off)
+ *   - VERCEL_ENV=preview (las vistas previas nunca migran)
  *   - PLATFORM_MODE=on  (el proyecto `platform` no tiene una BD global: nunca migra en el build)
  * Volver atrás = quitar la variable. `next build` se ejecuta siempre. */
 const { spawnSync } = require('node:child_process');
 
+// SKIP_MIGRATE_ON_BUILD (H-127): estos valores NO saltan la migración; CUALQUIER otro valor sí. Antes solo valía exactamente «1»: `true`, `on` o `yes` (lo natural) seguían migrando la BD REAL.
+// Ante la duda, no migrar: lo peor que pasa es que el front, sin migración, se queda en mantenimiento por la puerta de esquema; migrar a ciegas puede tocar una BD que no toca.
+const MIGRATE_ON_VALUES = ['', '0', 'false', 'no', 'off'];
+const skipFlag = (value) => !MIGRATE_ON_VALUES.includes(String(value ?? '').trim().toLowerCase());
+
 /** ¿Hay que ejecutar `prisma migrate deploy` antes de `next build`? (pura, para poder probarla) */
 function shouldMigrateOnBuild(env) {
-  if (env.SKIP_MIGRATE_ON_BUILD === '1') return false;
+  if (skipFlag(env.SKIP_MIGRATE_ON_BUILD)) return false;
   if (env.PLATFORM_MODE === 'on') return false;
+  // Una vista previa (Preview) NUNCA migra: en el proyecto antiguo comparte variables con producción y, sin SKIP_MIGRATE_ON_BUILD, migraba la BD REAL por cada rama subida.
+  if (env.VERCEL_ENV === 'preview') return false;
   return true;
+}
+
+/** Por qué no se migra (para el log del build). */
+function skipReason(env) {
+  if (env.PLATFORM_MODE === 'on') return 'PLATFORM_MODE=on';
+  if (skipFlag(env.SKIP_MIGRATE_ON_BUILD)) return `SKIP_MIGRATE_ON_BUILD=${env.SKIP_MIGRATE_ON_BUILD}`;
+  if (env.VERCEL_ENV === 'preview') return 'VERCEL_ENV=preview (las vistas previas nunca migran)';
+  return 'motivo desconocido';
 }
 
 // Tiempos de la conexión con la que migra el build (H-046). `lock_timeout`: si una migración no consigue el bloqueo de una tabla en 3 s (hay una venta en marcha),
@@ -66,12 +82,11 @@ function main(env = process.env) {
       return code;
     }
   } else {
-    const why = env.PLATFORM_MODE === 'on' ? 'PLATFORM_MODE=on' : 'SKIP_MIGRATE_ON_BUILD=1';
-    console.log(`[build] No se migra en el build (${why}): las migraciones las aplica el runner antes o después del despliegue.`);
+    console.log(`[build] No se migra en el build (${skipReason(env)}): las migraciones las aplica el runner antes o después del despliegue.`);
   }
   return run('next build', 'npx', ['next', 'build']);
 }
 
-module.exports = { shouldMigrateOnBuild, withMigrationTimeouts, migrationEnv, migrateDeployInvocation };
+module.exports = { shouldMigrateOnBuild, skipReason, withMigrationTimeouts, migrationEnv, migrateDeployInvocation };
 
 if (require.main === module) process.exit(main());

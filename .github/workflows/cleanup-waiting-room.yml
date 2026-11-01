@@ -4,23 +4,36 @@ name: Cleanup waiting room
 # global. Mismo motivo que reconcile-payments.yml: Vercel Cron (plan Hobby)
 # solo permite tareas diarias, y esto conviene que corra más a menudo para
 # que la tabla no se llene entre evento y evento.
+#
+# H-129: una sola ejecución a la vez, con tope de tiempo y sin permisos sobre el repositorio (ver reconcile-payments.yml).
 on:
   schedule:
     - cron: '*/30 * * * *'
   workflow_dispatch: {}
 
+permissions: {}
+
+concurrency:
+  group: cleanup-waiting-room
+  cancel-in-progress: false
+
 jobs:
   cleanup:
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
       - name: Llamar a /api/cron/cleanup-waiting-room
         run: |
-          status=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+          status=$(curl -s --connect-timeout 10 --max-time 60 -o /tmp/response.json -w "%{http_code}" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "https://www.lagrailla.es/api/cron/cleanup-waiting-room")
+            "https://www.lagrailla.es/api/cron/cleanup-waiting-room") || status=000
           echo "HTTP $status"
-          cat /tmp/response.json
-          if [ "$status" -ge 400 ]; then
+          cat /tmp/response.json 2>/dev/null || true
+          if [ "$status" = "401" ]; then
+            echo "::error::La limpieza de la sala de espera devolvió 401: CRON_SECRET no coincide, o la URL ya no es la de este proyecto"
+            exit 1
+          fi
+          if [ "$status" = "000" ] || [ "$status" -ge 400 ]; then
             echo "::error::La limpieza de la sala de espera devolvió $status"
             exit 1
           fi
