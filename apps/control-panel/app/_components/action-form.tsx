@@ -1,7 +1,7 @@
 'use client';
 
-import { useFormState, useFormStatus } from 'react-dom';
-import type { ReactNode } from 'react';
+import { useFormStatus } from 'react-dom';
+import { useActionState, type ReactNode } from 'react';
 
 export type ActionState = {
   error?: string;
@@ -40,7 +40,8 @@ export function ActionForm({
   className?: string;
   confirm?: string;
 }) {
-  const [state, formAction] = useFormState(action, {});
+  // Next 15 trae React 19: useFormState (react-dom) se renombró a useActionState (react) y avisa en consola (H-107).
+  const [state, formAction] = useActionState(action, {});
   return (
     <form
       action={formAction}

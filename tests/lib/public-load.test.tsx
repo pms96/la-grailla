@@ -82,6 +82,17 @@ describe('páginas que guarda el CDN (H-104)', () => {
   });
 });
 
+describe('H-159: las plantillas públicas no llevan ramas de error de carga', () => {
+  /** Todos los fuentes de app/(public)/_home (plantillas y sus props). */
+  const sourcesOf = (dir: string): string[] =>
+    fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? sourcesOf(path.join(dir, e.name)) : /\.(ts|tsx)$/.test(e.name) ? [path.join(dir, e.name)] : []));
+
+  it('ninguna plantilla recibe ni pinta `loadError`: un fallo de carga lanza y lo pinta error.tsx', () => {
+    const offenders = sourcesOf(path.join(PUBLIC, '_home')).filter((f) => /\bloadError\b/.test(fs.readFileSync(f, 'utf8')));
+    expect(offenders.map((f) => path.relative(ROOT, f))).toEqual([]);
+  });
+});
+
 describe('pantalla de error pública y «Reintentar»', () => {
   const html = renderToStaticMarkup((PublicError as unknown as () => JSX.Element)() as unknown as Parameters<typeof renderToStaticMarkup>[0]);
 

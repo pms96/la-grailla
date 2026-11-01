@@ -5,11 +5,11 @@ import { getSession, type LiveSession } from './session';
 import { readSessionToken, requestContext } from './session-cookie';
 
 export async function currentSession(): Promise<LiveSession | null> {
-  return getSession(readSessionToken());
+  return getSession(await readSessionToken());
 }
 
-export function actorOf(live: LiveSession): ActingOperator {
-  const ctx = requestContext();
+export async function actorOf(live: LiveSession): Promise<ActingOperator> {
+  const ctx = await requestContext();
   return { id: live.operator.id, email: live.operator.email, role: live.operator.role, ip: ctx.ip, userAgent: ctx.userAgent };
 }
 
@@ -22,7 +22,7 @@ export async function requireOperator(permission: Permission = 'view'): Promise<
   if (!live || !live.mfaVerified) redirect('/login');
   if (live.operator.mustChangePassword) redirect('/login');
   if (!can(live.operator.role, permission)) redirect('/?denied=1');
-  return { live, actor: actorOf(live) };
+  return { live, actor: await actorOf(live) };
 }
 
 /** Para las pantallas intermedias del login (cambio de contraseña, MFA): sesión viva aunque falte el MFA. */

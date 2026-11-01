@@ -6,7 +6,8 @@ import { Pill, PublishPill, TenantStatusPill, formatDate } from './_components/u
 
 export const dynamic = 'force-dynamic';
 
-export default async function TenantsPage({ searchParams }: { searchParams: { denied?: string; retired?: string } }) {
+export default async function TenantsPage(props: { searchParams: Promise<{ denied?: string; retired?: string }> }) {
+  const searchParams = await props.searchParams;
   const { live } = await requireOperator('view');
   const rows = await listTenants();
   return (

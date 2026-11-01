@@ -46,7 +46,8 @@ export const maxDuration = 300;
 /** `yyyy-mm-dd` del día de Madrid (el formulario edita el día de cobertura tal como lo ve el operador, no el UTC). */
 const madridDay = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(d);
 
-export default async function TenantPage({ params }: { params: { id: string } }) {
+export default async function TenantPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { live } = await requireOperator('view');
   const role = live.operator.role;
   const detail = await getTenantDetail(params.id);

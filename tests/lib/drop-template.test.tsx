@@ -92,7 +92,7 @@ describe('DropCard', () => {
 });
 
 describe('DropShop', () => {
-  const shop = (over: Partial<Parameters<typeof DropShop>[0]> = {}) => render(<DropShop brandName="Merch" title="Tienda" lead="Elige talla." products={products} loadError={false} {...over} />);
+  const shop = (over: Partial<Parameters<typeof DropShop>[0]> = {}) => render(<DropShop brandName="Merch" title="Tienda" lead="Elige talla." products={products} {...over} />);
 
   it('cabecera con el único h1, filtros por categoría como enlaces y una tarjeta por producto', () => {
     const html = shop();
@@ -111,8 +111,7 @@ describe('DropShop', () => {
     expect(shop({ category: 'zapatos' }).match(/class="dp-card"/g)).toHaveLength(3);
   });
 
-  it('error de carga, catálogo vacío y una sola categoría (sin filtros) se distinguen', () => {
-    expect(shop({ products: [], loadError: true })).toContain('No hemos podido cargar la tienda');
+  it('catálogo vacío y una sola categoría (sin filtros) se distinguen', () => {
     const vacio = shop({ products: [] });
     expect(vacio).toContain('Catálogo en preparación');
     expect(vacio).not.toContain('No hemos podido cargar');
@@ -191,7 +190,6 @@ describe('HomeDrop', () => {
     brandName: 'Merch',
     hero: { badge: '', title: 'Ropa que se nota', subtitle: 'Hecha en pequeñas tiradas.', primaryCta: { href: '/eventos', label: 'Ver eventos', icon: 'ticket' } },
     events: [toTemplateEvent(event())],
-    loadError: false,
     hasEntradas: false,
     hasTienda: true,
     hasSponsors: false,
@@ -241,11 +239,10 @@ describe('HomeDrop', () => {
 });
 
 describe('eventos y cabecera interior con «drop»', () => {
-  it('DropEvents y /eventos: tarjetas, estados de error y vacío', () => {
+  it('DropEvents y /eventos: tarjetas y estado vacío', () => {
     expect(render(<DropEvents events={[toTemplateEvent(event())]} />)).toContain('desde 15.00€');
-    expect(render(<EventosDrop brandName="Merch" events={[toTemplateEvent(event())]} loadError={false} />)).toContain('Noche de Verano');
-    expect(render(<EventosDrop brandName="Merch" events={[]} loadError />)).toContain('No hemos podido cargar los eventos');
-    expect(render(<EventosDrop brandName="Merch" events={[]} loadError={false} />)).toContain('Todavía no hay fechas publicadas');
+    expect(render(<EventosDrop brandName="Merch" events={[toTemplateEvent(event())]} />)).toContain('Noche de Verano');
+    expect(render(<EventosDrop brandName="Merch" events={[]} />)).toContain('Todavía no hay fechas publicadas');
   });
 
   it('PageBanner: un h1, datos como etiquetas, cartel a la derecha; en versión baja, sin imagen', () => {

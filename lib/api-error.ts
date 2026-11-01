@@ -3,6 +3,7 @@ import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
 import { captureOpsError, type OpsErrorContext } from '@/lib/observability/capture';
 import { scrubString } from '@/lib/observability/scrub';
+import { BodyTooLargeError } from '@/lib/http-body';
 
 /**
  * El error como texto SEGURO para el log (H-111, H-130): tipo, código de Prisma y mensaje depurado (`scrubString` quita emails, teléfonos, ids de pago y los valores de una consulta de Prisma)
@@ -33,6 +34,11 @@ export function errorForLog(error: unknown): string {
  */
 export function handleApiError(error: unknown, context: string, ops: Omit<OpsErrorContext, 'route'> = {}): NextResponse {
   console.error(`[${context}]`, errorForLog(error));
+
+  // H-162: cuerpo por encima del tope de las rutas públicas (lib/http-body.ts). Lo provoca el cliente: ni Sentry ni 500.
+  if (error instanceof BodyTooLargeError) {
+    return NextResponse.json({ error: 'La petición es demasiado grande.', code: 'payload_too_large' }, { status: 413 });
+  }
 
   // `error` es SIEMPRE un texto para la persona (en español): ~40 pantallas lo enseñan tal cual (H-084/H-010). El código técnico va aparte, en `code`.
   if (error instanceof ZodError) {

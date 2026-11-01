@@ -5,12 +5,13 @@ const secure = process.env.NODE_ENV === 'production';
 // El prefijo __Host- obliga a Secure, Path=/ y sin Domain: la cookie no puede venir de un subdominio.
 export const SESSION_COOKIE = secure ? '__Host-cp_session' : 'cp_session';
 
-export function readSessionToken(): string | undefined {
-  return cookies().get(SESSION_COOKIE)?.value;
+// Next 15: cookies() y headers() son asíncronas (H-107).
+export async function readSessionToken(): Promise<string | undefined> {
+  return (await cookies()).get(SESSION_COOKIE)?.value;
 }
 
-export function setSessionCookie(token: string, kind: 'full' | 'pre-mfa'): void {
-  cookies().set(SESSION_COOKIE, token, {
+export async function setSessionCookie(token: string, kind: 'full' | 'pre-mfa'): Promise<void> {
+  (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure,
     sameSite: 'strict',
@@ -19,16 +20,16 @@ export function setSessionCookie(token: string, kind: 'full' | 'pre-mfa'): void 
   });
 }
 
-export function clearSessionCookie(): void {
-  cookies().delete(SESSION_COOKIE);
+export async function clearSessionCookie(): Promise<void> {
+  (await cookies()).delete(SESSION_COOKIE);
 }
 
 /**
  * IP y user-agent de la petición en curso. `x-vercel-forwarded-for` solo se confía cuando de verdad se sirve desde
  * Vercel (lo fija su edge); en cualquier otro sitio lo puede inventar el cliente.
  */
-export function requestContext(): { ip: string; userAgent: string } {
-  const h = headers();
+export async function requestContext(): Promise<{ ip: string; userAgent: string }> {
+  const h = await headers();
   const vercel = process.env.VERCEL ? h.get('x-vercel-forwarded-for') : null;
   const fwd = h.get('x-forwarded-for');
   const ip = vercel?.split(',')[0]?.trim() || (fwd ? fwd.split(',').map((v) => v.trim()).filter(Boolean).pop() : null) || h.get('x-real-ip') || 'unknown';

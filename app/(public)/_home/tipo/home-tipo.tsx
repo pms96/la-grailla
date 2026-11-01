@@ -1,9 +1,8 @@
 import Link from 'next/link';
-import { ArrowUpRight, WifiOff } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Marquee } from '@/components/ui/marquee';
 import { ContactForm } from '@/components/contact-form';
-import { ReloadButton } from '@/components/reload-button';
 import '@/components/templates/tipo.css';
 import { titleSize, type TemplateEvent } from '../event-view';
 import type { HomeTemplateProps } from '../template-props';
@@ -115,20 +114,13 @@ export function HomeTipo(p: HomeTipoProps) {
         <section id="programa" className="mx-auto max-w-[1600px] py-12 md:py-20">
           <div className="flex items-end justify-between gap-4 px-4 pb-6 md:px-8 md:pb-10">
             <h2 className="tp-heading text-5xl md:text-7xl">Programa</h2>
-            {p.events.length > 0 && !p.loadError && (
+            {p.events.length > 0 && (
               <Link href="/eventos" className="inline-flex shrink-0 items-center gap-1.5 text-sm font-bold underline-offset-4 hover:underline">
                 Ver todos <ArrowUpRight className="h-4 w-4" aria-hidden />
               </Link>
             )}
           </div>
-          {p.loadError ? (
-            <div role="alert" className="mx-4 border-[3px] border-destructive px-6 py-12 text-center md:mx-8">
-              <WifiOff className="mx-auto mb-4 h-10 w-10 text-destructive-text" aria-hidden />
-              <h3 className="tp-heading text-3xl">No hemos podido cargar los eventos</h3>
-              <p className="mx-auto mb-6 mt-3 max-w-md text-muted-foreground">Parece un fallo de conexión o del servidor: no es que no haya fechas publicadas.</p>
-              <ReloadButton label="Reintentar" className="gap-2 font-bold" />
-            </div>
-          ) : p.events.length === 0 ? (
+          {p.events.length === 0 ? (
             <p className="mx-4 border-y-[3px] border-foreground py-12 text-lg text-muted-foreground md:mx-8">Aún no hay eventos publicados. Vuelve pronto: el programa sale aquí primero.</p>
           ) : (
             <EventList events={p.events} />

@@ -1,9 +1,8 @@
 import Link from 'next/link';
-import { ArrowUpRight, WifiOff } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Marquee } from '@/components/ui/marquee';
 import { ContactForm } from '@/components/contact-form';
-import { ReloadButton } from '@/components/reload-button';
 import '@/components/templates/marquesina.css';
 import type { HomeTemplateProps } from '../template-props';
 import { ContentSections } from '../sections/content-sections';
@@ -83,20 +82,13 @@ export function HomeMarquesina(p: HomeMarquesinaProps) {
         <section id="programacion" className="mx-auto max-w-[1600px] py-12 md:py-20">
           <div className="flex items-end justify-between gap-4 px-4 pb-6 md:px-8">
             <h2 className="font-display text-4xl uppercase leading-none md:text-6xl">Programación</h2>
-            {p.events.length > 0 && !p.loadError && (
+            {p.events.length > 0 && (
               <Link href="/eventos" className="inline-flex shrink-0 items-center gap-1.5 text-sm font-medium underline-offset-4 hover:underline">
                 Ver todos <ArrowUpRight className="h-4 w-4" aria-hidden />
               </Link>
             )}
           </div>
-          {p.loadError ? (
-            <div role="alert" className="mx-4 border border-destructive/40 px-6 py-12 text-center md:mx-8">
-              <WifiOff className="mx-auto mb-4 h-10 w-10 text-destructive/70" aria-hidden />
-              <h3 className="font-display text-2xl uppercase">No hemos podido cargar los eventos</h3>
-              <p className="mx-auto mb-6 mt-2 max-w-md text-muted-foreground">Parece un fallo de conexión o del servidor: no es que no haya fechas publicadas.</p>
-              <ReloadButton label="Reintentar" className="gap-2 font-semibold" />
-            </div>
-          ) : p.events.length === 0 ? (
+          {p.events.length === 0 ? (
             <p className="mx-4 border-y border-border py-12 text-lg text-muted-foreground md:mx-8">Aún no hay eventos publicados. Vuelve pronto: la programación sale aquí primero.</p>
           ) : (
             <EventRows events={p.events} />

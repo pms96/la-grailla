@@ -14,7 +14,7 @@ export default async function MfaSetupPage() {
   // Ya activado y con sesión completa: nada que configurar (la pantalla de códigos de recuperación
   // vive en el estado del formulario, así que no se redirige mientras se está mostrando).
   if (live.operator.totpEnabledAt && !live.mfaVerified) redirect('/login/mfa');
-  const { secret, uri } = await startTotpSetup(readSessionToken()!).catch(() => ({ secret: '', uri: '' }));
+  const { secret, uri } = await startTotpSetup((await readSessionToken())!).catch(() => ({ secret: '', uri: '' }));
   const qr = uri ? await QRCode.toDataURL(uri, { margin: 1, width: 220, errorCorrectionLevel: 'M' }) : '';
   return (
     <main className="auth">

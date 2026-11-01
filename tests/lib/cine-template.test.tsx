@@ -188,7 +188,6 @@ describe('HomeCine', () => {
     brandName: 'Sala Rodrigo',
     hero: { badge: '', title: 'Sala Rodrigo', subtitle: '', primaryCta: null },
     events: [toTemplateEvent(event()), toTemplateEvent(event({ id: 'e2', slug: 'otra', name: 'Otra noche' }))],
-    loadError: false,
     hasEntradas: true,
     hasTienda: true,
     hasSponsors: true,
@@ -216,8 +215,7 @@ describe('HomeCine', () => {
     expect(html.match(/<h1/g)).toHaveLength(1);
   });
 
-  it('error de carga y lista vacía se distinguen', () => {
-    expect(render(<HomeCine {...base} events={[]} loadError />)).toContain('No hemos podido cargar los eventos');
+  it('con la lista vacía se pinta el estado vacío', () => {
     const vacio = render(<HomeCine {...base} events={[]} />);
     expect(vacio).toContain('Aún no hay eventos publicados');
     expect(vacio).not.toContain('No hemos podido cargar');
@@ -225,12 +223,11 @@ describe('HomeCine', () => {
 });
 
 describe('/eventos y cabecera interior con «cine»', () => {
-  it('/eventos: rejilla de carteles y estados de error y vacío', () => {
-    const lleno = render(<EventosCine brandName="Sala" events={[toTemplateEvent(event())]} loadError={false} />);
+  it('/eventos: rejilla de carteles y estado vacío', () => {
+    const lleno = render(<EventosCine brandName="Sala" events={[toTemplateEvent(event())]} />);
     expect(lleno).toContain('Noche de Verano');
     expect(lleno).toContain('@view-transition');
-    expect(render(<EventosCine brandName="Sala" events={[]} loadError />)).toContain('No hemos podido cargar la cartelera');
-    expect(render(<EventosCine brandName="Sala" events={[]} loadError={false} />)).toContain('Todavía no hay fechas publicadas');
+    expect(render(<EventosCine brandName="Sala" events={[]} />)).toContain('Todavía no hay fechas publicadas');
   });
 
   it('la ficha lleva el cartel con el MISMO nombre de transición que su tarjeta (así crece de una a otra)', () => {

@@ -132,7 +132,6 @@ describe('HomeGaleria y EventosGaleria — cada sección solo con su módulo', (
     brandName: 'Sala Rodrigo',
     hero: { badge: '', title: 'Sala Rodrigo', subtitle: '', primaryCta: null },
     events: [toTemplateEvent(event())],
-    loadError: false,
     hasEntradas: true,
     hasTienda: true,
     hasSponsors: true,
@@ -158,19 +157,17 @@ describe('HomeGaleria y EventosGaleria — cada sección solo con su módulo', (
     expect(html).toContain('Una sala con historia.');
   });
 
-  it('error de carga y lista vacía se distinguen', () => {
-    expect(render(<HomeGaleria {...base} events={[]} loadError />)).toContain('No hemos podido cargar los eventos');
+  it('con la lista vacía se pinta el estado vacío', () => {
     const vacio = render(<HomeGaleria {...base} events={[]} />);
     expect(vacio).toContain('Aún no hay eventos publicados');
     expect(vacio).not.toContain('No hemos podido cargar');
   });
 
-  it('/eventos: titular, programa, y los estados de error y vacío', () => {
-    const ok = render(<EventosGaleria brandName="Sala Rodrigo" events={[toTemplateEvent(event())]} loadError={false} italicAccent />);
+  it('/eventos: titular, programa y estado vacío', () => {
+    const ok = render(<EventosGaleria brandName="Sala Rodrigo" events={[toTemplateEvent(event())]} italicAccent />);
     expect(text(h1(ok))).toBe('Programa completo');
     expect(ok).toContain('N.º 01');
-    expect(render(<EventosGaleria brandName="Sala Rodrigo" events={[]} loadError />)).toContain('No hemos podido cargar la programación');
-    expect(render(<EventosGaleria brandName="Sala Rodrigo" events={[]} loadError={false} />)).toContain('Todavía no hay fechas publicadas');
+    expect(render(<EventosGaleria brandName="Sala Rodrigo" events={[]} />)).toContain('Todavía no hay fechas publicadas');
   });
 });
 

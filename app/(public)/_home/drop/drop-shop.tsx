@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { Package } from 'lucide-react';
-import { ReloadButton } from '@/components/reload-button';
 import '@/components/templates/drop.css';
 import type { ShopProductView } from '@/lib/shop/product-view';
 import { categoriesOf, filterByCategory } from '@/lib/shop/product-view';
@@ -18,7 +17,6 @@ export function DropShop({
   lead,
   products,
   category,
-  loadError,
 }: {
   brandName: string;
   title: string;
@@ -26,8 +24,6 @@ export function DropShop({
   products: readonly ShopProductView[];
   /** Categoría pedida en la URL (puede no existir: entonces se enseña todo). */
   category?: string | null;
-  /** Sin uso desde H-104: un fallo de carga lanza (500) y lo pinta app/(public)/error.tsx. */
-  loadError?: boolean;
 }) {
   const categories = categoriesOf(products);
   const shown = filterByCategory(products, category);
@@ -49,14 +45,7 @@ export function DropShop({
       </section>
 
       <section className="mx-auto max-w-[1400px] px-5 pb-28 pt-8 md:px-10 md:pt-12">
-        {loadError ? (
-          <div role="alert" className="rounded-lg border border-destructive/40 px-6 py-16 text-center">
-            <Package className="mx-auto mb-4 h-10 w-10 text-destructive/70" aria-hidden />
-            <h2 className="dp-heading !text-2xl">No hemos podido cargar la tienda</h2>
-            <p className="mx-auto mb-6 mt-2 max-w-md text-muted-foreground">Parece un fallo de conexión o del servidor: no es que el catálogo esté vacío.</p>
-            <ReloadButton label="Reintentar" className="gap-2 font-semibold" />
-          </div>
-        ) : products.length === 0 ? (
+        {products.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border px-6 py-20 text-center">
             <Package className="mx-auto mb-4 h-10 w-10 text-muted-foreground" aria-hidden />
             <h2 className="dp-heading !text-2xl">Catálogo en preparación</h2>

@@ -71,9 +71,12 @@ export class TermsChangedError extends Error {
   }
 }
 
-// Versiones ya guardadas en ESTE proceso y cliente (la clave lleva el cliente: la misma versión en dos BD no es la misma fila).
-const recorded = new Set<string>();
+// Versiones ya guardadas en ESTE proceso y cliente (la clave lleva el cliente: la misma versión en dos BD no es la misma fila), con la hora hasta la que
+// se da la marca por buena. Sin caducidad (H-054) una BD restaurada o una fila borrada no se recreaba nunca mientras el proceso siguiera vivo.
+const recorded = new Map<string, number>();
 const MAX_RECORDED = 500;
+/** Cada cuánto se vuelve a comprobar que la copia sigue en la BD: una escritura por versión y diez minutos, no una por pedido. */
+export const RECORDED_TTL_MS = 10 * 60 * 1000;
 
 /**
  * Registra la versión de condiciones que el comprador está aceptando y devuelve su hash para guardarlo en el pedido. `expectedHash` = la
@@ -85,11 +88,13 @@ export async function recordTermsVersion(kind: TermsKind, extra = '', expectedHa
   const { hash, content } = await computeTermsVersion(kind, extra);
   if (expectedHash && expectedHash !== hash) throw new TermsChangedError();
   const cacheKey = `${currentTenant()?.tenantId ?? 'single'}:${hash}`;
-  if (!recorded.has(cacheKey)) {
+  if ((recorded.get(cacheKey) ?? 0) <= Date.now()) {
+    const save = () => prisma.legalSnapshot.upsert({ where: { hash }, update: {}, create: { hash, kind, content } });
     try {
-      await prisma.legalSnapshot.upsert({ where: { hash }, update: {}, create: { hash, kind, content } });
+      // Un segundo intento cubre un fallo de conexión de un instante (H-054); si también falla, se avisa y la siguiente venta lo intenta de nuevo.
+      await save().catch(() => save());
       if (recorded.size >= MAX_RECORDED) recorded.clear();
-      recorded.add(cacheKey);
+      recorded.set(cacheKey, Date.now() + RECORDED_TTL_MS);
     } catch (error) {
       // P2002: otra petición la creó a la vez (misma versión, mismo contenido): no es un fallo.
       if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) {

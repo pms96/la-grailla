@@ -14,6 +14,7 @@ import { CHECKOUT_RELEASE_AFTER_MS } from '@/lib/checkout-hold';
 import { PENDING_LIMIT_CONFIG_KEY, parsePendingLimit, MAX_SHOP_LINES_PER_ORDER, MAX_SHOP_UNITS_PER_LINE, MAX_SHOP_UNITS_PER_ORDER } from '@/lib/checkout-limits';
 import { resumeCheckoutUrl } from '@/lib/reconciliation/close-session';
 import { handleApiError } from '@/lib/api-error';
+import { readJsonLimited } from '@/lib/http-body';
 import { captureOpsError } from '@/lib/observability/capture';
 import { completeShopOrder, releaseExpiredShopOrder } from '@/lib/reconciliation/tienda';
 import { reserveShopStock, releaseShopStock } from '@/lib/product-stock';
@@ -98,7 +99,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = createShopOrderSchema.parse(await request.json());
+    const body = createShopOrderSchema.parse(await readJsonLimited(request));
     const {
       buyerName,
       buyerEmail,

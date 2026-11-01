@@ -1,9 +1,8 @@
 import Link from 'next/link';
 import type { CSSProperties } from 'react';
-import { ArrowUpRight, WifiOff } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ContactForm } from '@/components/contact-form';
-import { ReloadButton } from '@/components/reload-button';
 import '@/components/templates/estudio.css';
 import type { HomeTemplateProps } from '../template-props';
 import { ContentSections } from '../sections/content-sections';
@@ -94,21 +93,14 @@ export function HomeEstudio(p: HomeEstudioProps) {
         <section id="agenda" className="mx-auto max-w-[1400px] border-t border-border py-12 md:py-20">
           <div className="flex items-end justify-between gap-4 px-5 pb-6 md:px-10 md:pb-10">
             <h2 className="es-heading">Agenda</h2>
-            {p.events.length > 0 && !p.loadError && (
+            {p.events.length > 0 && (
               <Link href="/eventos" className="inline-flex shrink-0 items-center gap-1.5 text-sm font-medium underline-offset-4 hover:underline">
                 Ver todos <ArrowUpRight className="h-4 w-4" aria-hidden />
               </Link>
             )}
           </div>
           <div className="px-5 md:px-10">
-            {p.loadError ? (
-              <div role="alert" className="border border-destructive/40 px-6 py-12 text-center">
-                <WifiOff className="mx-auto mb-4 h-10 w-10 text-destructive/70" aria-hidden />
-                <h3 className="es-heading !text-2xl">No hemos podido cargar los eventos</h3>
-                <p className="mx-auto mb-6 mt-2 max-w-md text-muted-foreground">Parece un fallo de conexión o del servidor: no es que no haya fechas publicadas.</p>
-                <ReloadButton label="Reintentar" className="gap-2 font-medium" />
-              </div>
-            ) : p.events.length === 0 ? (
+            {p.events.length === 0 ? (
               <p className="border-y border-border py-12 text-lg text-muted-foreground">Aún no hay eventos publicados. Vuelve pronto.</p>
             ) : (
               <EventList events={p.events} />

@@ -1,9 +1,8 @@
 import Link from 'next/link';
 import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import type { CSSProperties } from 'react';
-import { ArrowUpRight, WifiOff } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { ContactForm } from '@/components/contact-form';
-import { ReloadButton } from '@/components/reload-button';
 import '@/components/templates/drop.css';
 import type { ShopProductView } from '@/lib/shop/product-view';
 import type { HomeTemplateProps } from '../template-props';
@@ -146,20 +145,13 @@ export function HomeDrop(p: HomeDropProps) {
             <h2 id="eventos-titulo" className="dp-heading">
               Eventos
             </h2>
-            {p.events.length > 0 && !p.loadError && (
+            {p.events.length > 0 && (
               <Link href="/eventos" className="inline-flex shrink-0 items-center gap-1.5 text-sm font-medium underline-offset-4 hover:underline">
                 Ver todos <ArrowUpRight className="h-4 w-4" aria-hidden />
               </Link>
             )}
           </div>
-          {p.loadError ? (
-            <div role="alert" className="rounded-lg border border-destructive/40 px-6 py-12 text-center">
-              <WifiOff className="mx-auto mb-4 h-10 w-10 text-destructive/70" aria-hidden />
-              <h3 className="dp-heading !text-2xl">No hemos podido cargar los eventos</h3>
-              <p className="mx-auto mb-6 mt-2 max-w-md text-muted-foreground">Parece un fallo de conexión o del servidor: no es que no haya fechas publicadas.</p>
-              <ReloadButton label="Reintentar" className="gap-2 font-semibold" />
-            </div>
-          ) : p.events.length === 0 ? (
+          {p.events.length === 0 ? (
             <p className="border-y border-border py-12 text-lg text-muted-foreground">Aún no hay eventos publicados. Vuelve pronto.</p>
           ) : (
             <DropEvents events={p.events.slice(0, 6)} />

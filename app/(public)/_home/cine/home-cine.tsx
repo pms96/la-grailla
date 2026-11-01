@@ -1,9 +1,8 @@
 import Link from 'next/link';
 import type { CSSProperties } from 'react';
-import { ArrowUpRight, WifiOff } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ContactForm } from '@/components/contact-form';
-import { ReloadButton } from '@/components/reload-button';
 import '@/components/templates/cine.css';
 import type { HomeTemplateProps } from '../template-props';
 import { ContentSections } from '../sections/content-sections';
@@ -96,22 +95,15 @@ export function HomeCine(p: HomeCineProps) {
               Cartelera
             </h2>
             <div className="flex items-center gap-6">
-              {p.events.length > 0 && !p.loadError && (
+              {p.events.length > 0 && (
                 <Link href="/eventos" className="hidden items-center gap-1.5 text-sm font-medium underline-offset-4 hover:underline sm:inline-flex">
                   Ver todos <ArrowUpRight className="h-4 w-4" aria-hidden />
                 </Link>
               )}
-              {p.events.length > 1 && !p.loadError && <RailControls targetId="cartelera-riel" />}
+              {p.events.length > 1 && <RailControls targetId="cartelera-riel" />}
             </div>
           </div>
-          {p.loadError ? (
-            <div role="alert" className="mx-5 border border-destructive/40 px-6 py-12 text-center md:mx-10">
-              <WifiOff className="mx-auto mb-4 h-10 w-10 text-destructive/70" aria-hidden />
-              <h3 className="cn-heading !text-2xl">No hemos podido cargar los eventos</h3>
-              <p className="mx-auto mb-6 mt-2 max-w-md text-muted-foreground">Parece un fallo de conexión o del servidor: no es que no haya fechas publicadas.</p>
-              <ReloadButton label="Reintentar" className="gap-2 font-medium" />
-            </div>
-          ) : p.events.length === 0 ? (
+          {p.events.length === 0 ? (
             <p className="mx-5 border-y border-border py-12 text-lg text-muted-foreground md:mx-10">Aún no hay eventos publicados. Vuelve pronto: la cartelera sale aquí primero.</p>
           ) : (
             <CineRail events={p.events} id="cartelera-riel" label="Cartelera de eventos" />

@@ -18,9 +18,9 @@ function nextStep(s: { mustChangePassword: boolean; needsTotpSetup: boolean }): 
 
 export async function loginAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
   try {
-    const result = await loginWithPassword(str(fd, 'email'), str(fd, 'password'), requestContext());
+    const result = await loginWithPassword(str(fd, 'email'), str(fd, 'password'), await requestContext());
     if (result.status !== 'mfa_required') return { error: GENERIC_LOGIN_ERROR };
-    setSessionCookie(result.token, 'pre-mfa');
+    await setSessionCookie(result.token, 'pre-mfa');
     redirect(nextStep(result));
   } catch (err) {
     return toState(err);
@@ -29,12 +29,12 @@ export async function loginAction(_prev: ActionState, fd: FormData): Promise<Act
 
 export async function mfaAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
   try {
-    const token = readSessionToken();
+    const token = await readSessionToken();
     if (!token) redirect('/login');
-    const res = await verifyMfa(token, str(fd, 'code'), requestContext());
+    const res = await verifyMfa(token, str(fd, 'code'), await requestContext());
     if (res.status === 'locked') return { error: 'Demasiados intentos. Cuenta bloqueada temporalmente.' };
     if (res.status !== 'ok') return { error: 'Código incorrecto.' };
-    setSessionCookie(res.token, 'full');
+    await setSessionCookie(res.token, 'full');
     redirect('/');
   } catch (err) {
     return toState(err);
@@ -44,10 +44,10 @@ export async function mfaAction(_prev: ActionState, fd: FormData): Promise<Actio
 export async function changePasswordAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
   try {
     const live = await requirePreMfa();
-    const token = readSessionToken()!;
+    const token = (await readSessionToken())!;
     const next = str(fd, 'next');
     if (next !== str(fd, 'confirm')) return { error: 'Las contraseñas nuevas no coinciden.' };
-    await changePassword(token, str(fd, 'current'), next, requestContext());
+    await changePassword(token, str(fd, 'current'), next, await requestContext());
     // Sin MFA activado, sigue la configuración; con él, sesión completa → inicio.
     redirect(live.mfaVerified ? '/' : live.operator.totpEnabledAt ? '/login/mfa' : '/account/mfa');
   } catch (err) {
@@ -58,10 +58,10 @@ export async function changePasswordAction(_prev: ActionState, fd: FormData): Pr
 export async function completeTotpAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
   try {
     await requirePreMfa();
-    const token = readSessionToken()!;
-    const res = await completeTotpSetup(token, str(fd, 'code'), requestContext());
+    const token = (await readSessionToken())!;
+    const res = await completeTotpSetup(token, str(fd, 'code'), await requestContext());
     if (res.status !== 'ok') return { error: 'Código incorrecto. Comprueba la hora de tu móvil e inténtalo de nuevo.' };
-    setSessionCookie(res.token, 'full');
+    await setSessionCookie(res.token, 'full');
     return {
       ok: 'Verificación en dos pasos activada.',
       reveal: {
@@ -77,7 +77,7 @@ export async function completeTotpAction(_prev: ActionState, fd: FormData): Prom
 
 export async function logoutAction(): Promise<void> {
   const live = await currentSession();
-  if (live) await destroySession(readSessionToken());
-  clearSessionCookie();
+  if (live) await destroySession(await readSessionToken());
+  await clearSessionCookie();
   redirect('/login');
 }

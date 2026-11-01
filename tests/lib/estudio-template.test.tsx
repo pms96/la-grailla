@@ -151,7 +151,6 @@ describe('HomeEstudio', () => {
     brandName: 'Estudio Rovira',
     hero: { badge: '', title: 'Diseñamos webs que se entienden', subtitle: '', primaryCta: null },
     events: [toTemplateEvent(event())],
-    loadError: false,
     hasEntradas: false,
     hasTienda: false,
     hasSponsors: false,
@@ -184,8 +183,7 @@ describe('HomeEstudio', () => {
     expect(html.match(/<h1/g)).toHaveLength(1);
   });
 
-  it('error de carga y lista vacía de la agenda se distinguen', () => {
-    expect(render(<HomeEstudio {...base} hasEntradas events={[]} loadError />)).toContain('No hemos podido cargar los eventos');
+  it('con la lista vacía de la agenda se pinta el estado vacío', () => {
     const vacio = render(<HomeEstudio {...base} hasEntradas events={[]} />);
     expect(vacio).toContain('Aún no hay eventos publicados');
     expect(vacio).not.toContain('No hemos podido cargar');
@@ -202,11 +200,10 @@ describe('EventList y EventosEstudio', () => {
     expect(html).toContain('Sin plazas online');
   });
 
-  it('/eventos: cabecera y estados de error y vacío', () => {
-    expect(render(<EventosEstudio brandName="Estudio" events={[]} loadError />)).toContain('No hemos podido cargar la agenda');
-    const vacio = render(<EventosEstudio brandName="Estudio" events={[]} loadError={false} />);
+  it('/eventos: cabecera y estado vacío', () => {
+    const vacio = render(<EventosEstudio brandName="Estudio" events={[]} />);
     expect(vacio).toContain('Todavía no hay fechas publicadas');
-    expect(render(<EventosEstudio brandName="Estudio" events={[toTemplateEvent(event())]} loadError={false} />)).toContain('Jornada abierta');
+    expect(render(<EventosEstudio brandName="Estudio" events={[toTemplateEvent(event())]} />)).toContain('Jornada abierta');
   });
 });
 

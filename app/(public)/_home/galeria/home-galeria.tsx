@@ -1,9 +1,8 @@
 import Link from 'next/link';
 import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
-import { ArrowUpRight, WifiOff } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ContactForm } from '@/components/contact-form';
-import { ReloadButton } from '@/components/reload-button';
 import '@/components/templates/galeria.css';
 import { titleSize, type TemplateEvent } from '../event-view';
 import type { HomeTemplateProps } from '../template-props';
@@ -132,20 +131,13 @@ export function HomeGaleria(p: HomeGaleriaProps) {
         <section id="programa" className="mx-auto max-w-[1400px]">
           <div className="flex items-end justify-between gap-4 px-5 pb-8 md:px-10 md:pb-12">
             <h2 className="gl-serif text-5xl md:text-7xl">Programa</h2>
-            {p.events.length > 0 && !p.loadError && (
+            {p.events.length > 0 && (
               <Link href="/eventos" className="inline-flex shrink-0 items-center gap-1.5 text-sm font-medium underline-offset-4 hover:underline">
                 Ver todos <ArrowUpRight className="h-4 w-4" aria-hidden />
               </Link>
             )}
           </div>
-          {p.loadError ? (
-            <div role="alert" className="mx-5 border border-destructive/40 px-6 py-14 text-center md:mx-10">
-              <WifiOff className="mx-auto mb-4 h-10 w-10 text-destructive/70" aria-hidden />
-              <h3 className="gl-serif text-3xl">No hemos podido cargar los eventos</h3>
-              <p className="mx-auto mb-6 mt-3 max-w-md text-muted-foreground">Parece un fallo de conexión o del servidor: no es que no haya fechas publicadas.</p>
-              <ReloadButton label="Reintentar" className="gap-2 font-medium" />
-            </div>
-          ) : p.events.length === 0 ? (
+          {p.events.length === 0 ? (
             <p className="mx-5 border-y border-border py-14 text-lg text-muted-foreground md:mx-10">Aún no hay eventos publicados. Vuelve pronto: el programa sale aquí primero.</p>
           ) : (
             <EventEntries events={p.events} />

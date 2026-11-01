@@ -7,7 +7,8 @@ import { Pill, formatDate } from '../_components/ui';
 
 export const dynamic = 'force-dynamic';
 
-export default async function AuditPage({ searchParams }: { searchParams: { tenant?: string; verify?: string } }) {
+export default async function AuditPage(props: { searchParams: Promise<{ tenant?: string; verify?: string }> }) {
+  const searchParams = await props.searchParams;
   const { live } = await requireOperator('view');
   // Recorrer toda la cadena es O(n): solo quien administra el panel puede lanzarlo.
   const canVerify = can(live.operator.role, 'operators:manage');

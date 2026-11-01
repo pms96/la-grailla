@@ -220,5 +220,33 @@ Pasos:
 
 - Marca degradada en el CDN (H-160): con la BD caída, `getBrand()` cae a la marca neutra y las páginas que no leen nada más se guardan con ella 60-90 s. Para el cliente legacy cae a la semilla de La Grailla (la marca correcta); hoy no hay otros clientes en producción. Revisar al dar de alta el primero.
 - `/eventos` y la ficha ya no enseñan el esqueleto de carga al navegar entre páginas (hay que quitar `loading.tsx` para que el estado HTTP sea el real); con la copia en el CDN la espera es mínima.
-- Las ramas de aviso de error por plantilla (`loadError`) quedan sin uso (H-159, limpieza menor).
-- Subir el panel de control de Next 14 a 15.5 (H-107) sigue pendiente, en un lote aparte.
+- Las ramas de aviso de error por plantilla (`loadError`) quedaron sin uso; se limpiaron en el lote 11 (H-159).
+- Subir el panel de control de Next 14 a 15.5 (H-107) quedó para el lote 11 (§13).
+
+## 13. Panel en Next 15, dependencias y los últimos menores: lo que cambia y los límites (lote 11)
+
+No hay migraciones. Cambia el panel (`apps/control-panel`: Next 15.5.28, `vitest` 4.1.12, `useActionState`), el front (`node-forge`, `passkit-generator`, tope de cuerpo en las compras públicas, copia de condiciones) y las plantillas públicas (código muerto fuera).
+
+**Lo que cambia**
+
+- **Panel en Next 15.5.28 (H-107):** la misma versión que el front, fijada exacta (`apps/control-panel/tests/next-version.test.ts` falla si se separan, si algo usa `cookies()`/`headers()` sin `await` o si una página lee `params`/`searchParams` sin esperarlos). La cookie de sesión del panel conserva nombre y duración: **nadie tiene que volver a entrar** por el despliegue. Tras desplegar el panel: entra, abre un cliente (`/tenants/<id>`), `/audit` y Salud, y comprueba que «Salir» vuelve al login.
+- **Compras públicas (H-162):** `/api/orders` y `/api/shop/orders` rechazan con **413** (`payload_too_large`) un cuerpo de más de 32 KB. Un pedido real mide cientos de bytes; solo lo provocaría alguien llamando a la API a mano. No se avisa a Sentry (lo causa el cliente).
+- **Wallet y firma (H-161):** `node-forge` 1.4.2 y `passkit-generator` 3.7.0 (con `joi` 17.13.9 forzado en `overrides`). Hay un test que firma un `.pkpass` de verdad con un certificado de prueba. **Tras desplegar, descarga un pase de Apple Wallet de una entrada de prueba** (el test cubre las librerías, no el certificado real del cliente).
+- **Condiciones aceptadas (H-054):** la copia de condiciones se vuelve a comprobar cada 10 minutos por versión y un fallo transitorio se reintenta una vez.
+
+**`npm audit`: lo que queda y por qué (H-161)** — se revisa con `npm audit --omit=dev` en la raíz y en `apps/control-panel`. Hoy: front 17 avisos en producción (35 con desarrollo) y panel 3. Ninguno se puede cerrar sin un salto de versión mayor, y ninguno es alcanzable con datos de un atacante:
+
+| Paquete | De dónde viene | Por qué no es alcanzable hoy | Cuándo revisarlo |
+|---|---|---|---|
+| `postcss` ≤ 8.5.22 | dentro de Next | solo procesa nuestro CSS en el build, nunca CSS ajeno | al subir a Next 16 |
+| `glob` / `minimatch` | plugins de build de Sentry; `archiver`/`exceljs` | patrones escritos por nosotros, no por usuarios | al subir Sentry o `exceljs` |
+| `zod` 3 | front, panel y `packages/contracts` | en las rutas públicas con arrays ya hay tope de cuerpo (H-162); el resto pide sesión de personal u operador | al migrar a zod 4 (cambio mayor en los tres sitios a la vez) |
+| `joi` (vía `passkit-generator`) | firma de pases | valida datos propios; forzada a 17.13.9 | quitar el `override` cuando `passkit-generator` suba su dependencia |
+
+**Límites aceptados**
+
+- **`vatRate` es `Float` (H-056):** los importes son céntimos enteros y `vatBreakdown` redondea una sola vez, así que la imprecisión del `Float` no llega a ningún importe. Cambiarlo a `Decimal(5,2)` exigiría una migración con conversión de filas y tocar todos los lectores, sin beneficio medible.
+- **Estado de las reglas del panel en `TenantHealth.error` (H-057):** el texto se corta a 1 200 caracteres. Las líneas de operación van delante, así que el corte se come antes los problemas del sondeo; solo una señal de operación podría perderse con muchas activas a la vez, y se leería como «recuperada» y volvería a avisarse (ruido, no una alerta perdida de golpe). Si se ven avisos repetidos de una misma señal, el estado pasa a una columna JSON propia (migración del panel).
+- **Copia de condiciones sin clave foránea (H-054):** con una caída persistente de la BD durante la venta el pedido conserva el hash sin copia, y si las condiciones cambian antes de que se guarde, el texto aceptado ya no se puede reconstruir. Se avisa a operación en cada fallo.
+- **El tope de 32 KB solo cubre las dos rutas públicas con arrays** (H-162). No es un sustituto de zod 4.
+- **Pendientes externos (sin cambios):** H-133 (criterio de margen y devoluciones, gestoría), H-135 (emisor del justificante, gestoría), H-142 (prueba de edad y menores, abogado), H-144 (textos legales por defecto, abogado) y H-028 (plazo de conservación de la auditoría, abogado).

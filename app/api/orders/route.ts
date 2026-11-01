@@ -16,6 +16,7 @@ import { checkCapacityAlerts } from '@/lib/capacity-alerts';
 import { getPaymentProvider } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
 import { handleApiError } from '@/lib/api-error';
+import { readJsonLimited } from '@/lib/http-body';
 import { captureOpsError } from '@/lib/observability/capture';
 import { orderAccessQuery, signOrderAccess } from '@/lib/access-token';
 import { captchaRejection, verifyCaptcha } from '@/lib/captcha';
@@ -108,7 +109,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = createOrderSchema.parse(await request.json());
+    const body = createOrderSchema.parse(await readJsonLimited(request));
     const { eventId, buyerName, buyerLastName, buyerEmail, items, queueToken, captchaToken, idempotencyKey, acceptedTerms, ageConfirmed, termsVersion: seenTermsVersion } = body;
 
     // Un reintento (red, doble clic, "atrás" + reenviar) con la misma clave

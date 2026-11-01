@@ -168,7 +168,6 @@ describe('HomeMarquesina — cada sección solo con su módulo', () => {
     brandName: 'Sala Rodrigo',
     hero: { badge: '', title: 'Sala Rodrigo', subtitle: '', primaryCta: null },
     events: [toTemplateEvent(event())],
-    loadError: false,
     hasEntradas: true,
     hasTienda: true,
     hasSponsors: true,
@@ -194,8 +193,7 @@ describe('HomeMarquesina — cada sección solo con su módulo', () => {
     expect(html).toContain('Una sala con historia.');
   });
 
-  it('error de carga y lista vacía se distinguen', () => {
-    expect(render(<HomeMarquesina {...base} events={[]} loadError />)).toContain('No hemos podido cargar los eventos');
+  it('con la lista vacía se pinta el estado vacío', () => {
     const vacio = render(<HomeMarquesina {...base} events={[]} />);
     expect(vacio).toContain('Aún no hay eventos publicados');
     expect(vacio).not.toContain('No hemos podido cargar');
