@@ -129,3 +129,24 @@ Estimación **calculada, no medida**: con N esperando y un sondeo medio de ~15 s
 - **Pérdida del aviso al comprador con reintento (H-038).** Si el envío del aviso llegó a salir pero la respuesta se perdió (tiempo agotado), se reintenta y el comprador puede recibirlo dos veces: es preferible a no recibirlo.
 - **Sin interfaz de navegador verificada:** el aviso de producto no disponible en el checkout y los mensajes del panel (deriva) están cubiertos por tests de API y de lógica, no en navegador. Van a la fase 4.
 
+## 9. Interfaz y textos: lo que cambia y los límites (lote 7)
+
+No hay migraciones nuevas. Todo es de pantallas, textos y una reserva más en el servidor.
+
+**Lo que notará quien administra o usa la puerta**
+
+- **Puerta (H-085, H-086):** el veredicto se lee a pleno sol y de noche (verde, rojo y amarillo con texto que contrasta) y dice el resultado con palabras; se cierra con el botón «Continuar» o con Escape. «Cerrar sesión» ya no está pegado a «Modo noche»: pide confirmar con «Sí, salir».
+- **Cancelar un evento (H-087…H-089):** cerrar el diálogo «sigue en segundo plano» y reabrirlo ya no lanza un segundo bucle; si la carga falla, sale el error con «Reintentar»; y los pedidos «a resolver a mano» traen nombre, email e importe, con un consejo según el motivo (un aviso que no salió dice «avísale tú», no «reembolsa»).
+- **Configuración (H-095, H-096):** el navegador ya no rellena las claves secretas con la contraseña del administrador; si la configuración no carga, sale el error (no un formulario vacío) y no hay que guardar nada hasta que cargue.
+- **Auditoría (H-097):** cambiar de filtro cancela lo anterior; un error no deja las filas del filtro previo.
+- **Confirmaciones del comprador (H-098, H-100):** un pedido reembolsado dice una frase que es verdad siempre; un pedido sin confirmar tras el sondeo dice «NO vuelvas a pagar» y da la referencia, sigue comprobando despacio hasta 10 minutos y deja «Comprobar de nuevo». El checkout avisa si queda un pedido anterior sin confirmar (se recuerda en el navegador un día).
+- **Evento cancelado (H-099):** `/comprar` explica que está cancelado; la ficha ya no promete un aviso por email.
+- **Correo de relleno (H-101):** la taquilla y las invitaciones guardan `@taquilla.local` / `@invitacion.local` y todo correo `.local` (también los antiguos con el nombre de La Grailla) se ve como «Taquilla (sin correo)» / «Invitación (sin correo)». No se tocan las filas ya guardadas.
+- **Reenviar aviso de envío (H-103):** el botón se bloquea mientras envía y el servidor reserva el envío en curso (dos clics seguidos no mandan dos avisos; un reenvío posterior sí se puede forzar).
+
+**Límites aceptados**
+
+- **Sin navegador verificado:** el diálogo de cancelar evento, la configuración, la auditoría, la puerta y el aviso del checkout necesitan una sesión de administrador o de taquilla, o una pasarela de prueba; están cubiertos por pruebas de la lógica pura y de marcado, no en navegador. Van a la fase 4.
+- **Pedido pendiente recordado (H-100):** vive en el navegador del comprador (un día): si cambia de dispositivo o borra los datos, no hay aviso. Es una ayuda, no una garantía; la garantía es que el pedido se confirma solo cuando llega el aviso de la pasarela.
+- **Texto del evento cancelado (H-099):** no distingue si se avisó o no por email a cada comprador (la ficha pública no lo sabe): por eso no lo promete.
+

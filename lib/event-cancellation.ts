@@ -192,8 +192,19 @@ export interface CancellationProgress {
   /** Cuándo vuelve a intentarse lo que falló (ISO), si hay algo esperando. El diálogo deja de sondear hasta entonces. */
   retryAt: string | null;
   /** Pedidos que hay que resolver a mano (reembolso fallido tras los reintentos, a medias, o con entradas ya usadas) y avisos sin enviar. */
-  manual: { orderId: string; reason: string }[];
+  manual: ManualItem[];
 }
+
+/** Un pedido «a resolver a mano» con lo que necesita quien lo resuelve: a quién avisar y qué le pasa (H-089). */
+export type ManualItem = {
+  orderId: string;
+  reason: string;
+  kind: ManualKind;
+  buyerName: string;
+  buyerEmail: string;
+  amount: number;
+};
+export type ManualKind = 'refund_failed' | 'half_refunded' | 'used' | 'mail_failed';
 
 async function countMarkers(prefix: string, eventId: string, suffix = ''): Promise<number> {
   const rows = await prisma.$queryRaw<{ n: number }[]>`
@@ -270,12 +281,20 @@ export async function cancellationProgress(eventId: string, jobIn?: Cancellation
     ...Object.values(job.failed).filter((f) => f.attempts < MAX_REFUND_ATTEMPTS && (f.nextAt ?? 0) > now).map((f) => f.nextAt as number),
     ...Object.entries(job.mailFailed).filter(([, f]) => f.attempts < MAX_MAIL_ATTEMPTS && f.nextAt > now).map(([, f]) => f.nextAt),
   ];
-  const manual: CancellationProgress['manual'] = [
-    ...Object.entries(job.failed).filter(([, f]) => f.attempts >= MAX_REFUND_ATTEMPTS).map(([orderId, f]) => ({ orderId, reason: `Reembolso fallido: ${f.error}` })),
-    ...halfRefunded.map((o) => ({ orderId: o.id, reason: 'Reembolso a medias (el pedido consta reembolsado pero sus entradas siguen activas): revisa el cobro en la pasarela' })),
-    ...usedCompleted.map((o) => ({ orderId: o.id, reason: 'Tiene entradas ya usadas: no se reembolsa solo' })),
-    ...mailExhausted.map((o) => ({ orderId: o.id, reason: 'No se pudo enviar el aviso por email (revisa el SMTP): avísale tú' })),
+  const manualBase: { orderId: string; reason: string; kind: ManualKind }[] = [
+    ...Object.entries(job.failed).filter(([, f]) => f.attempts >= MAX_REFUND_ATTEMPTS).map(([orderId, f]) => ({ orderId, kind: 'refund_failed' as const, reason: `Reembolso fallido: ${f.error}` })),
+    ...halfRefunded.map((o) => ({ orderId: o.id, kind: 'half_refunded' as const, reason: 'Reembolso a medias (el pedido consta reembolsado pero sus entradas siguen activas): revisa el cobro en la pasarela' })),
+    ...usedCompleted.map((o) => ({ orderId: o.id, kind: 'used' as const, reason: 'Tiene entradas ya usadas: no se reembolsa solo' })),
+    ...mailExhausted.map((o) => ({ orderId: o.id, kind: 'mail_failed' as const, reason: 'No se pudo enviar el aviso por email (revisa el SMTP): avísale tú' })),
   ];
+  // Quién es cada uno (nombre, email, importe): sin eso el admin solo veía los 8 primeros caracteres de un id (H-089).
+  const contacts = manualBase.length
+    ? new Map((await prisma.order.findMany({ where: { id: { in: [...new Set(manualBase.map((m) => m.orderId))] } }, select: { id: true, buyerName: true, buyerEmail: true, totalAmount: true } })).map((o) => [o.id, o]))
+    : new Map<string, { id: string; buyerName: string; buyerEmail: string; totalAmount: number }>();
+  const manual: ManualItem[] = manualBase.map((m) => {
+    const c = contacts.get(m.orderId);
+    return { ...m, buyerName: c?.buyerName ?? '', buyerEmail: c?.buyerEmail ?? '', amount: Number(c?.totalAmount ?? 0) };
+  });
   return {
     job: { refund: job.refund, notify: job.notify, startedAt: job.startedAt, doneAt: job.doneAt },
     done: job.doneAt !== null,

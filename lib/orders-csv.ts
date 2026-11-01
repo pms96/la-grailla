@@ -1,4 +1,5 @@
 import { csvMoney, csvText, formatMadridDateTime } from '@/lib/shop-orders-csv';
+import { displayBuyerEmail } from '@/lib/placeholder-email';
 
 /* CSV de ventas (pedidos de entradas) y de asistentes, con la misma convención que el de tienda y pensado para Excel en español: separador «;», coma decimal,
  * UTF-8 con BOM, CRLF y fechas en hora de Madrid (el servidor corre en UTC). Pura: la usa la ruta de exportación y sus tests (H-137). */
@@ -65,7 +66,7 @@ export function ordersToCsv(orders: OrderCsvInput[]): string {
       csvText(o.event?.name),
       csvText(o.buyerName),
       csvText(o.buyerLastName),
-      csvText(o.buyerEmail),
+      csvText(displayBuyerEmail(o.buyerEmail, o.channel)),
       csvText(o.channel),
       csvText(o.paymentMethod),
       String(o._count.tickets),
@@ -100,7 +101,7 @@ export function attendeesToCsv(tickets: AttendeeCsvInput[]): string {
       csvText(t.qrCode),
       csvText(t.order?.id),
       csvText(`${t.order?.buyerName ?? ''} ${t.order?.buyerLastName ?? ''}`.trim()),
-      csvText(t.order?.buyerEmail),
+      csvText(displayBuyerEmail(t.order?.buyerEmail, t.order?.channel)),
       csvText(t.order?.channel),
     ])
   );

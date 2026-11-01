@@ -19,6 +19,9 @@ import { orderRef } from '@/lib/order-ref';
 
 const NEW_ORDER_PREFIX = 'shop-new-order-notice:';
 const SHIPPED_PREFIX = 'shop-shipped-mail:';
+// Reserva del envío en curso de un «Reenviar» forzado (H-103): evita que dos clics simultáneos se borren el marcador el uno al otro y manden el aviso dos veces.
+const SHIPPED_LEASE_PREFIX = 'shop-shipped-lease:';
+const SHIPPED_LEASE_TTL_MS = 2 * 60_000;
 const SINCE_KEY = 'shop_new_order_notice_since';
 /** Hasta cuándo se reintenta un aviso de pedido nuevo que no salió (después, el vendedor ya lo habrá visto en el panel). */
 const NOTICE_RETRY_WINDOW_MS = 48 * 3600_000;
@@ -214,12 +217,23 @@ const trackingTag = (tracking: string | null) => createHash('sha1').update((trac
  */
 export async function sendShopShippedEmail(orderId: string, opts: { force?: boolean; capMs?: number } = {}): Promise<NoticeResult> {
   let claimed: string | null = null;
+  let leaseHeld: string | null = null;
   try {
     const order = await prisma.shopOrder.findUnique({ where: { id: orderId }, include: { items: { include: { product: true } } } });
     if (!order || order.status !== 'SHIPPED') return 'not_applicable';
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(order.buyerEmail)) return 'no_recipient';
     const marker = `${SHIPPED_PREFIX}${orderId}:${trackingTag(order.trackingNumber)}`;
-    if (opts.force) await prisma.processedWebhookEvent.deleteMany({ where: { id: marker } });
+    if (opts.force) {
+      // Una sola solicitud forzada a la vez por pedido: la reserva viva de otra (menos de 2 min) la deja en «skipped»; una caducada (la función murió) se retoma.
+      const leaseId = `${SHIPPED_LEASE_PREFIX}${orderId}`;
+      const got = await prisma.processedWebhookEvent.createMany({ data: [{ id: leaseId }], skipDuplicates: true });
+      if (got.count === 0) {
+        const stale = await prisma.processedWebhookEvent.updateMany({ where: { id: leaseId, processedAt: { lt: new Date(Date.now() - SHIPPED_LEASE_TTL_MS) } }, data: { processedAt: new Date() } });
+        if (stale.count === 0) return 'skipped';
+      }
+      leaseHeld = leaseId;
+      await prisma.processedWebhookEvent.deleteMany({ where: { id: marker } });
+    }
     const claim = await prisma.processedWebhookEvent.createMany({ data: [{ id: marker }], skipDuplicates: true });
     if (claim.count === 0) return 'skipped';
     claimed = marker;
@@ -247,5 +261,7 @@ export async function sendShopShippedEmail(orderId: string, opts: { force?: bool
     if (claimed) await prisma.processedWebhookEvent.deleteMany({ where: { id: claimed } }).catch(() => {});
     console.error('[shop-notices] error en el aviso de envío:', error instanceof Error ? error.message : error);
     return 'failed';
+  } finally {
+    if (leaseHeld) await prisma.processedWebhookEvent.deleteMany({ where: { id: leaseHeld } }).catch(() => {});
   }
 }

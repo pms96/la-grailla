@@ -9,9 +9,10 @@ import { ReceiptPrinter, usePrintSequence } from '@/components/receipt-printer';
 import { useBrand } from '@/components/brand-provider';
 import { FiscalFootnote } from '@/components/fiscal-footnote';
 import type { FiscalView } from '@/lib/fiscal';
-import { cartMatchesOrderItems, readCart, writeCart } from '@/lib/shop-cart';
-import { confirmationView, emailNotice, shouldKeepPolling, type EmailDelivery, type PaymentCheck } from '@/lib/confirmation-state';
+import { cartMatchesOrderItems, clearUnconfirmedOrder, readCart, rememberUnconfirmedOrder, writeCart } from '@/lib/shop-cart';
+import { confirmationView, emailNotice, pendingNotice, shouldKeepPolling, type EmailDelivery, type PaymentCheck } from '@/lib/confirmation-state';
 import { orderRef } from '@/lib/order-ref';
+import { REFUNDED_TITLE, refundedMessage } from '@/lib/refund-copy';
 
 export type ShopOrderView = {
   id: string;
@@ -45,6 +46,9 @@ export type ShopOrderView = {
 };
 
 const MAX_POLLS = 12;
+// H-100: agotado el sondeo rápido (30 s) se sigue preguntando despacio, hasta 10 minutos, por si el aviso de la pasarela solo tardaba: antes se paraba y la pantalla se quedaba en «Confirmando…» para siempre.
+const SLOW_POLL_INTERVAL_MS = 15_000;
+const MAX_SLOW_POLLS = 40;
 // Mientras el email está «enviándose» o «reintentándose» se vuelve a preguntar (no es el sondeo del pago): cada 5 s, hasta un minuto.
 const MAX_EMAIL_POLLS = 12;
 const EMAIL_POLL_INTERVAL_MS = 5000;
@@ -53,6 +57,7 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
   const [order, setOrder] = useState<ShopOrderView | null>(null);
   const [loading, setLoading] = useState(true);
   const [pollCount, setPollCount] = useState(0);
+  const [slowPollCount, setSlowPollCount] = useState(0);
   const [emailPollCount, setEmailPollCount] = useState(0);
   const [resend, setResend] = useState<'idle' | 'sending' | 'queued' | 'error' | 'limited'>('idle');
   const tokenQs = accessToken ? `?t=${encodeURIComponent(accessToken)}` : '';
@@ -86,6 +91,23 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
     const items = (order.items ?? []).filter((i): i is typeof i & { productId: string } => typeof i.productId === 'string');
     if (items.length === order.items.length && cartMatchesOrderItems(readCart(), items)) writeCart([]);
   }, [order]);
+
+  // H-100: mientras el pedido no conste pagado se recuerda en el navegador (el checkout avisa si el comprador vuelve a empezar); al constar pagado, se olvida.
+  useEffect(() => {
+    if (!order) return;
+    if (order.status === 'PENDING') rememberUnconfirmedOrder(order.id, accessToken);
+    else clearUnconfirmedOrder();
+  }, [order, accessToken]);
+
+  // Sondeo lento tras agotar el rápido, mientras el pedido siga PENDING.
+  useEffect(() => {
+    if (!order || order.status !== 'PENDING' || pollCount < MAX_POLLS || slowPollCount >= MAX_SLOW_POLLS) return;
+    const t = setTimeout(() => {
+      setSlowPollCount((c) => c + 1);
+      void load();
+    }, SLOW_POLL_INTERVAL_MS);
+    return () => clearTimeout(t);
+  }, [order, pollCount, slowPollCount, load]);
 
   useEffect(() => {
     if (!view || !shouldKeepPolling(view) || pollCount >= MAX_POLLS) return;
@@ -179,15 +201,13 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
       <div className="space-y-6 py-8">
         <div className="text-center">
           <XCircle className="h-16 w-16 text-destructive-text mx-auto mb-4" />
-          <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Te hemos devuelto el pago</h1>
-          <p className="text-muted-foreground mt-2">
-            Este pedido no se ha podido completar y te hemos devuelto el importe ({order.totalAmount.toFixed(2)}€). Puede tardar unos días en
-            aparecer en tu cuenta.
-          </p>
+          <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">{REFUNDED_TITLE}</h1>
+          <p className="text-muted-foreground mt-2">{refundedMessage(order.totalAmount)}</p>
+          <p className="text-xs text-muted-foreground mt-2">Referencia #{orderRef(order.id)}</p>
         </div>
         <div className="flex justify-center">
           <Button asChild>
-            <Link href="/tienda/checkout">Volver al checkout</Link>
+            <Link href="/tienda">Volver a la tienda</Link>
           </Button>
         </div>
       </div>
@@ -214,15 +234,30 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
   }
 
   if (order.status === 'PENDING') {
+    const notice = pendingNotice({ pollsExhausted: pollCount >= MAX_POLLS, ref: orderRef(order.id) });
     return (
       <div className="space-y-6 py-8">
-        <div className="text-center">
+        <div className="text-center" role="status">
           <Clock className="h-16 w-16 text-yellow-500 mx-auto mb-4" />
-          <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Confirmando el pago…</h1>
-          <p className="text-muted-foreground mt-2">
-            Estamos esperando la confirmación de la pasarela. Esto suele tardar unos segundos.
-          </p>
-          <Loader2 className="h-5 w-5 animate-spin text-primary mx-auto mt-4" />
+          <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">{notice.title}</h1>
+          <p className="text-muted-foreground mt-2 max-w-md mx-auto">{notice.detail}</p>
+          {notice.spinner && <Loader2 className="h-5 w-5 animate-spin text-primary mx-auto mt-4" />}
+          {notice.offerRecheck && (
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSlowPollCount(0);
+                  void load();
+                }}
+              >
+                Comprobar de nuevo
+              </Button>
+              <Button asChild variant="ghost">
+                <Link href="/tienda/checkout">Volver al carrito</Link>
+              </Button>
+            </div>
+          )}
         </div>
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">

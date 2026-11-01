@@ -15,6 +15,7 @@ import {
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { downloadAdminCsv } from '@/lib/admin-export';
+import { displayBuyerEmail, isPlaceholderEmail } from '@/lib/placeholder-email';
 
 const statusLabels: Record<OrderStatus, string> = {
   PENDING: 'Pendiente',
@@ -189,7 +190,7 @@ export default function VentasPage() {
 
   const openEmailDialog = () => {
     if (!detail) return;
-    setEmailDraft(detail.buyerEmail);
+    setEmailDraft(isPlaceholderEmail(detail.buyerEmail) ? '' : detail.buyerEmail);
     setEmailDialogOpen(true);
   };
 
@@ -363,7 +364,7 @@ export default function VentasPage() {
                         {order.buyerName} {order.buyerLastName}
                       </p>
                       <p className="text-xs text-muted-foreground truncate">
-                        {order.buyerEmail} · {order.event?.name ?? '—'}
+                        {displayBuyerEmail(order.buyerEmail, order.channel)} · {order.event?.name ?? '—'}
                       </p>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {new Date(order.createdAt).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}
@@ -411,7 +412,7 @@ export default function VentasPage() {
                       {detail.buyerName} {detail.buyerLastName}
                     </p>
                     <p className="text-xs text-muted-foreground break-all flex items-center gap-1.5">
-                      {detail.buyerEmail}
+                      {displayBuyerEmail(detail.buyerEmail, detail.channel)}
                       <button
                         type="button"
                         onClick={openEmailDialog}

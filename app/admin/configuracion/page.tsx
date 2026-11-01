@@ -15,6 +15,7 @@ import { ConfigField } from '@/app/admin/_components/config-field';
 import { SponsorTiersConfig } from '@/app/admin/_components/sponsor-tiers-config';
 import { useBrand } from '@/components/brand-provider';
 import { ownerEnabled } from '@/lib/modules/registry';
+import { readConfigPayload } from '@/lib/config-client';
 import { PaymentAccount } from './_sections/payment-account';
 import { PrinterSettings } from './_sections/printer-settings';
 
@@ -37,19 +38,29 @@ export default function ConfiguracionPage() {
   const [saving, setSaving] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
 
-  const loadConfigs = () =>
-    fetch('/api/admin/config')
-      .then((r) => r.json())
-      .then((d) => {
-        setConfigs(d ?? []);
+  // H-096: una carga fallida ya no deja un formulario vacío con valores por defecto aparentes: se dice y se puede reintentar.
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadConfigs = () => {
+    setLoadError(null);
+    return fetch('/api/admin/config')
+      .then(async (r) => readConfigPayload(r.ok, await r.json().catch(() => null)))
+      .then((read) => {
+        if ('error' in read) {
+          setLoadError(read.error);
+          return;
+        }
+        setConfigs(read.configs as AppConfig[]);
         const vals: Record<string, string> = {};
-        (d ?? []).forEach((c: AppConfig) => { vals[c?.key ?? ''] = c?.value ?? ''; });
+        read.configs.forEach((c) => { vals[c.key] = c.value; });
         setValues(vals);
       })
-      .catch(() => {});
+      .catch(() => setLoadError('No se ha podido conectar para cargar la configuración. Revisa la red.'));
+  };
 
   useEffect(() => {
     loadConfigs().finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const updateValue = (key: string, value: string) => {
@@ -85,6 +96,28 @@ export default function ConfiguracionPage() {
   };
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+
+  if (loadError) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Configuración" description="Ajustes de cada módulo de tu web" />
+        <div role="alert" className="mx-auto max-w-md space-y-3 rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center text-sm">
+          <p className="font-medium text-destructive-text">No se ha podido cargar la configuración.</p>
+          <p className="text-muted-foreground">{loadError}</p>
+          <p className="text-muted-foreground">No guardes nada hasta que cargue: los valores que verías no serían los tuyos.</p>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setLoading(true);
+              void loadConfigs().finally(() => setLoading(false));
+            }}
+          >
+            Reintentar
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   const firstTab = has('entradas') ? 'entradas' : has('tienda') ? 'tienda' : has('wallets') ? 'wallet' : has('sponsors') ? 'sponsors' : core ? 'content' : 'connections';
 

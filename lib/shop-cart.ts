@@ -1,4 +1,5 @@
 import { toCents } from '@/lib/pricing';
+import { UNCONFIRMED_ORDER_KEY, parseUnconfirmedOrder, type UnconfirmedOrder } from '@/lib/confirmation-state';
 
 export const SHOP_CART_KEY = 'lagrailla_cart';
 
@@ -129,3 +130,34 @@ export function cartTotals(cart: CartLine[]) {
   const totalAmount = cart.reduce((sum, l) => sum + (l.price ?? 0) * (l.quantity ?? 0), 0);
   return { totalItems, totalAmount };
 }
+
+/** Recuerda un pedido que sigue sin constar pagado (H-100). Nunca lanza: `localStorage` puede estar bloqueado. */
+export function rememberUnconfirmedOrder(orderId: string, token?: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(UNCONFIRMED_ORDER_KEY, JSON.stringify({ orderId, ...(token ? { token } : {}), at: Date.now() } satisfies UnconfirmedOrder));
+  } catch {
+    // sin almacenamiento: solo se pierde el aviso del checkout
+  }
+}
+
+/** El pedido recordado que sigue vigente (menos de un día), o null. */
+export function readUnconfirmedOrder(): UnconfirmedOrder | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return parseUnconfirmedOrder(window.localStorage.getItem(UNCONFIRMED_ORDER_KEY), Date.now());
+  } catch {
+    return null;
+  }
+}
+
+/** El pedido ya consta pagado, o no era de verdad: se deja de avisar. */
+export function clearUnconfirmedOrder(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(UNCONFIRMED_ORDER_KEY);
+  } catch {
+    // ignorar
+  }
+}
+

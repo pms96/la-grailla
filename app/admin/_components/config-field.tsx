@@ -32,6 +32,12 @@ export function ConfigField({ label, value, onChange, description, placeholder, 
           onChange={(e) => onChange(e.target.value)}
           className="mt-1"
           placeholder={placeholder}
+          // H-095: ni el navegador ni un gestor de contraseñas rellenan estos campos con credenciales ajenas (la contraseña del propio administrador acababa guardada
+          // como clave secreta de la pasarela). `new-password` es lo que Chrome respeta; los `data-*` son los de 1Password, LastPass y Bitwarden.
+          autoComplete={type === 'password' ? 'new-password' : 'off'}
+          data-1p-ignore
+          data-lpignore="true"
+          data-bwignore="true"
         />
       )}
       {description && <p className="text-xs text-muted-foreground mt-1">{description}</p>}

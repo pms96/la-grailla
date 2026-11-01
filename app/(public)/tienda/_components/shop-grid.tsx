@@ -61,7 +61,7 @@ export function ShopEmptyCatalog() {
         {!hasEntradas
           ? 'Ahora mismo no hay productos a la venta. Vuelve pronto.'
           : legacy
-            ? 'Ahora mismo no hay productos a la venta. Mientras tanto, las entradas de los eventos están el plan.'
+            ? 'Ahora mismo no hay productos a la venta. Mientras tanto, las entradas de los eventos están a la venta.' // H-101: decía «están el plan»
             : 'Ahora mismo no hay productos a la venta. Mientras tanto, puedes consultar los próximos eventos.'}
       </p>
       {hasEntradas && (

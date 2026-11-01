@@ -113,6 +113,17 @@ export default function PedidosPage() {
 
   // Punto único de envío (concesión atómica, rastro del intento); solo ADMIN y queda en el log de auditoría.
   const [resending, setResending] = useState<string | null>(null);
+  // H-103: guarda de doble clic en «Reenviar aviso de envío» (el servidor también reserva el envío en curso, pero el botón no debe ofrecerse dos veces).
+  const [resendingShipped, setResendingShipped] = useState<string | null>(null);
+  const resendShipped = async (id: string) => {
+    if (resendingShipped) return;
+    setResendingShipped(id);
+    try {
+      await updateOrder(id, { resendShippedEmail: true });
+    } finally {
+      setResendingShipped(null);
+    }
+  };
   const resendEmail = async (id: string) => {
     setResending(id);
     try {
@@ -230,8 +241,8 @@ export default function PedidosPage() {
                   )}
                   {order?.status === 'SHIPPED' && (
                     <p>
-                      <Button variant="outline" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={() => updateOrder(order.id, { resendShippedEmail: true })}>
-                        <Mail className="h-3 w-3" /> Reenviar aviso de envío
+                      <Button variant="outline" size="sm" className="h-9 gap-1 px-3 text-xs" disabled={resendingShipped !== null} onClick={() => resendShipped(order.id)}>
+                        {resendingShipped === order.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Mail className="h-3 w-3" />} Reenviar aviso de envío
                       </Button>
                     </p>
                   )}
@@ -241,7 +252,7 @@ export default function PedidosPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-6 gap-1 px-2 text-xs"
+                        className="h-9 gap-1 px-3 text-xs"
                         disabled={resending === order.id}
                         onClick={() => resendEmail(order.id)}
                       >

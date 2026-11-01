@@ -223,6 +223,40 @@ describe('avisos de la tienda (P1-10)', () => {
       expect(mails[1].html).toContain('SEUR-999');
     });
 
+    // H-103: sin guarda de doble clic en «Reenviar aviso de envío»: dos peticiones forzadas a la vez (doble clic, dos pestañas) borraban el marcador la una a la otra y
+    // el comprador recibía el aviso dos veces. Ahora una reserva con caducidad cubre el envío en curso (los reenvíos SEGUIDOS siguen siendo posibles).
+    it('dos «Reenviar» simultáneos mandan UN solo aviso; uno posterior, otro (forzar sigue siendo posible)', async () => {
+      const o = await order('PAID');
+      expect((await (await put(o.id, { status: 'SHIPPED', trackingNumber: 'H103-1' })).json()).shippedEmail).toBe('sent');
+      mailer.sent = [];
+      mailer.delayMs = 150; // el envío tarda: los dos clics se solapan
+      const [a, b] = await Promise.all([put(o.id, { resendShippedEmail: true }), put(o.id, { resendShippedEmail: true })]);
+      const kinds = [(await a.json()).shippedEmail, (await b.json()).shippedEmail].sort();
+      expect(kinds).toEqual(['sent', 'skipped']);
+      expect(mailer.sent.filter((m) => m.to === o.buyerEmail)).toHaveLength(1);
+      mailer.delayMs = 0;
+      expect((await (await put(o.id, { resendShippedEmail: true })).json()).shippedEmail).toBe('sent'); // ya sin solapar
+      expect(mailer.sent.filter((m) => m.to === o.buyerEmail)).toHaveLength(2);
+    });
+
+    it('con un envío en curso (reserva viva) un «Reenviar» no manda otro aviso; con la reserva caducada (la función murió) sí', async () => {
+      const o = await order('PAID');
+      expect((await (await put(o.id, { status: 'SHIPPED', trackingNumber: 'H103-2' })).json()).shippedEmail).toBe('sent');
+      mailer.sent = [];
+      const lease = `shop-shipped-lease:${o.id}`;
+      await prisma.processedWebhookEvent.create({ data: { id: lease } }); // otro clic está enviando ahora mismo
+      try {
+        expect((await (await put(o.id, { resendShippedEmail: true })).json()).shippedEmail).toBe('skipped');
+        expect(mailer.sent).toHaveLength(0);
+        await prisma.processedWebhookEvent.update({ where: { id: lease }, data: { processedAt: new Date(Date.now() - 10 * 60_000) } });
+        expect((await (await put(o.id, { resendShippedEmail: true })).json()).shippedEmail).toBe('sent');
+        expect(mailer.sent.filter((m) => m.to === o.buyerEmail)).toHaveLength(1);
+        expect(await prisma.processedWebhookEvent.findUnique({ where: { id: lease } })).toBeNull(); // la reserva se suelta al terminar
+      } finally {
+        await prisma.processedWebhookEvent.deleteMany({ where: { id: lease } });
+      }
+    });
+
     it('un cambio de estado que no es «Enviado» no envía nada', async () => {
       const o = await order('PAID');
       const res = await put(o.id, { status: 'PROCESSING' });

@@ -9,6 +9,7 @@ import { authOptions } from '@/lib/auth';
 import { generateQRCode } from '@/lib/qr';
 import { checkCapacityAlerts } from '@/lib/capacity-alerts';
 import { handleApiError } from '@/lib/api-error';
+import { TAQUILLA_PLACEHOLDER_EMAIL } from '@/lib/placeholder-email';
 
 class TaquillaSaleRejectedError extends Error {}
 
@@ -138,7 +139,7 @@ export async function POST(request: Request) {
           eventId,
           buyerName: finalBuyerName,
           buyerLastName: finalBuyerLastName,
-          buyerEmail: duringEvent ? 'taquilla@lagrailla.local' : buyerEmail || 'taquilla@lagrailla.local',
+          buyerEmail: duringEvent ? TAQUILLA_PLACEHOLDER_EMAIL : buyerEmail || TAQUILLA_PLACEHOLDER_EMAIL,
           totalAmount,
           commission: 0,
           paymentMethod: method,

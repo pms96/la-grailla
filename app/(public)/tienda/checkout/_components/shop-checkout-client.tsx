@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FadeIn } from '@/components/ui/animate';
 import { ArrowLeft, CreditCard, Loader2, Lock, ShoppingBag } from 'lucide-react';
-import { type CartLine, cartTotalCents, cartTotals, dropUnavailableProduct, readCart, refreshCartPrices } from '@/lib/shop-cart';
+import { type CartLine, cartTotalCents, cartTotals, dropUnavailableProduct, readCart, readUnconfirmedOrder, refreshCartPrices } from '@/lib/shop-cart';
+import { orderRef } from '@/lib/order-ref';
 import { LegalAcceptance } from '@/components/legal-acceptance';
 import { CaptchaWidget, type CaptchaWidgetHandle } from '@/components/captcha-widget';
 
@@ -59,8 +60,12 @@ export default function ShopCheckoutClient({
   const cityRef = useRef<HTMLInputElement>(null);
   const zipRef = useRef<HTMLInputElement>(null);
 
+  // H-100: un pedido anterior que sigue sin constar pagado (el aviso de la pasarela tarda): se avisa antes de que vuelva a pagar lo mismo.
+  const [unconfirmed, setUnconfirmed] = useState<{ orderId: string; token?: string } | null>(null);
+
   useEffect(() => {
     setCart(readCart());
+    setUnconfirmed(readUnconfirmedOrder());
     setHydrated(true);
   }, []);
 
@@ -205,6 +210,18 @@ export default function ShopCheckoutClient({
             {totalItems} artículo{totalItems !== 1 ? 's' : ''} · {totalAmount.toFixed(2)}€
           </p>
         </div>
+
+        {unconfirmed && (
+          <div role="alert" className="rounded-lg border border-warm-yellow/50 bg-warm-yellow/10 p-4 text-sm">
+            <p className="font-medium">Tienes un pedido anterior que aún no consta como pagado (referencia {orderRef(unconfirmed.orderId)}).</p>
+            <p className="mt-1 text-muted-foreground">
+              Si llegaste a pagar, no repitas la compra: se confirmará solo y te escribiremos.{' '}
+              <Link className="underline underline-offset-2" href={`/tienda/confirmacion/${unconfirmed.orderId}${unconfirmed.token ? `?t=${encodeURIComponent(unconfirmed.token)}` : ''}`}>
+                Comprobar su estado
+              </Link>
+            </p>
+          </div>
+        )}
 
         <div className="grid lg:grid-cols-5 gap-6">
           <form onSubmit={submitOrder} className="lg:col-span-3 space-y-4" noValidate>

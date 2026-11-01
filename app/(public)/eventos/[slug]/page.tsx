@@ -1,4 +1,5 @@
 import { prisma, type EventWithAvailability } from '@/lib/prisma';
+import { EVENT_CANCELLED_NOTICE } from '@/lib/event-cancelled-copy';
 import { blobImgProps, IMG_SIZES } from '@/lib/images/blob-image';
 import { notFound } from 'next/navigation';
 import { hasEventEnded } from '@/lib/active-event';
@@ -192,7 +193,7 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
         </div>
         {eventCancelled && (
           <p className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm" role="status">
-            Este evento se ha cancelado y ya no se venden entradas. Quien ya compró recibe un aviso por email con lo que pasa con su pedido.
+            {EVENT_CANCELLED_NOTICE}
           </p>
         )}
         {!soldOut && !taquillaOnly && !eventEnded && !eventCancelled && (

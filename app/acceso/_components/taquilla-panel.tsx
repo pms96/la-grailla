@@ -370,9 +370,9 @@ export default function TaquillaPanel({ events, selectedEvent, onSold }: Props) 
                   <p className="text-xs text-muted-foreground">{(tt?.price ?? 0).toFixed(2)} € · quedan {remaining}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <Button variant="outline" size="icon-lg" onClick={() => changeQty(tt.id, -1)} disabled={(quantities?.[tt.id] ?? 0) === 0}><Minus className="h-4 w-4" /></Button>
+                  <Button variant="outline" size="icon-lg" aria-label={`Quitar una entrada de ${tt.name}`} onClick={() => changeQty(tt.id, -1)} disabled={(quantities?.[tt.id] ?? 0) === 0}><Minus className="h-4 w-4" aria-hidden="true" /></Button>
                   <span className="w-6 text-center font-semibold tabular-nums">{quantities?.[tt.id] ?? 0}</span>
-                  <Button variant="outline" size="icon-lg" onClick={() => changeQty(tt.id, 1)} disabled={(quantities?.[tt.id] ?? 0) >= remaining}><Plus className="h-4 w-4" /></Button>
+                  <Button variant="outline" size="icon-lg" aria-label={`Añadir una entrada de ${tt.name}`} onClick={() => changeQty(tt.id, 1)} disabled={(quantities?.[tt.id] ?? 0) >= remaining}><Plus className="h-4 w-4" aria-hidden="true" /></Button>
                 </div>
               </div>
             );

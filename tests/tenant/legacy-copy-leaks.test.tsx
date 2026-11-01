@@ -195,7 +195,9 @@ describe('La Grailla (cliente legacy): todo sigue como siempre', () => {
 
   it('la tienda vacía conserva su frase y su enlace a /eventos', async () => {
     const html = await onB(() => render(withBrand(<ShopEmptyCatalog />)));
-    expect(visibleText(html)).toContain('Mientras tanto, las entradas de los eventos están el plan.');
+    // H-101: la frase de siempre tenía una errata («están el plan»); se corrige y se conserva el resto.
+    expect(visibleText(html)).toContain('Mientras tanto, las entradas de los eventos están a la venta.');
+    expect(visibleText(html)).not.toContain('están el plan');
     expect(html).toContain('href="/eventos"');
   });
 

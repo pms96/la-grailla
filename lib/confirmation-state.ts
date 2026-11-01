@@ -103,3 +103,44 @@ export function emailNotice(input: { delivery?: EmailDelivery | null; kind: 'ent
       };
   }
 }
+
+/* Qué dice la pantalla de un pedido que SIGUE pendiente cuando el cliente ya agotó el sondeo (H-100). Antes seguía diciendo «Confirmando el pago…» con un spinner que ya no
+ * giraba y sin ninguna salida; como el carrito de la tienda solo se vacía con el pedido pagado, el comprador podía creer que no había pagado y repetir la compra. */
+export interface PendingNotice {
+  title: string;
+  detail: string;
+  /** Ofrecer «Comprobar de nuevo» (el sondeo automático ya paró o va despacio). */
+  offerRecheck: boolean;
+  spinner: boolean;
+}
+
+export function pendingNotice(input: { pollsExhausted: boolean; ref: string }): PendingNotice {
+  if (!input.pollsExhausted) {
+    return { title: 'Confirmando el pago…', detail: 'Estamos esperando la confirmación de la pasarela. Esto suele tardar unos segundos.', offerRecheck: false, spinner: true };
+  }
+  return {
+    title: 'Todavía no vemos la confirmación de tu pago',
+    detail: `Si has pagado, NO vuelvas a pagar: tu pedido se confirmará solo en cuanto llegue el aviso de la pasarela y te escribiremos por email. Guarda esta referencia: ${input.ref}. Si no has llegado a pagar, puedes volver al carrito.`,
+    offerRecheck: true,
+    spinner: false,
+  };
+}
+
+/* Pedido pendiente de confirmar que se recuerda en el navegador (H-100), para avisar en el checkout si el comprador vuelve a empezar la compra sin haber visto «pagado». */
+export const UNCONFIRMED_ORDER_KEY = 'lagrailla_unconfirmed_order';
+export const UNCONFIRMED_ORDER_TTL_MS = 24 * 60 * 60_000;
+export type UnconfirmedOrder = { orderId: string; token?: string; at: number };
+
+/** Lee lo guardado; `null` si no hay nada, está estropeado o ya pasó un día (pura). */
+export function parseUnconfirmedOrder(raw: string | null | undefined, now: number): UnconfirmedOrder | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Partial<UnconfirmedOrder> | null;
+    if (!v || typeof v.orderId !== 'string' || v.orderId === '' || typeof v.at !== 'number') return null;
+    if (now - v.at > UNCONFIRMED_ORDER_TTL_MS || v.at > now + 60_000) return null;
+    return { orderId: v.orderId, ...(typeof v.token === 'string' && v.token ? { token: v.token } : {}), at: v.at };
+  } catch {
+    return null;
+  }
+}
+

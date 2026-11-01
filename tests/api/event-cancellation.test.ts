@@ -283,6 +283,9 @@ describe('cancelación de evento y cambio de fecha (P1-04)', () => {
       expect(mailer.sent.find((m) => m.to === free.buyerEmail)!.html).toMatch(/gratuito/i);
       expect(progress?.done).toBe(true);
       expect(progress?.manual.map((m) => m.orderId)).toContain(used.id);
+      // H-089: cada entrada «a resolver a mano» trae a QUIÉN (nombre y email) y de qué tipo es, para avisarle y no mandarle a Ventas sin motivo.
+      const entry = progress?.manual.find((m) => m.orderId === used.id);
+      expect(entry).toMatchObject({ kind: 'used', buyerName: used.buyerName, buyerEmail: used.buyerEmail, amount: Number(used.totalAmount) });
     });
 
     it('es idempotente: volver a lanzar el trabajo no reembolsa ni avisa dos veces', async () => {
@@ -314,6 +317,7 @@ describe('cancelación de evento y cambio de fecha (P1-04)', () => {
       expect(gateway.count('refund')).toBe(MAX_REFUND_ATTEMPTS);
       expect(progress?.done).toBe(true);
       expect(progress?.manual.some((m) => m.orderId === a.id && /charge_already_disputed/.test(m.reason))).toBe(true);
+      expect(progress?.manual.find((m) => m.orderId === a.id)).toMatchObject({ kind: 'refund_failed', buyerEmail: a.buyerEmail });
       expect(mailer.sent).toHaveLength(1);
       expect(mailer.sent[0].html).toMatch(/pendiente de devolución/i);
       expect(mailer.sent[0].html).not.toMatch(/hemos devuelto/i);
@@ -416,6 +420,7 @@ describe('cancelación de evento y cambio de fecha (P1-04)', () => {
       expect(progress?.emailsRemaining).toBe(0);
       expect(progress?.emailsFailed).toBe(1);
       expect(progress?.manual.some((m) => /No se pudo enviar el aviso/.test(m.reason))).toBe(true);
+      expect(progress?.manual.find((m) => /No se pudo enviar el aviso/.test(m.reason))?.kind).toBe('mail_failed');
     });
 
     it('un lote que se queda sin tiempo no hace nada y el siguiente (o el cron) lo continúa', async () => {
@@ -448,6 +453,7 @@ describe('cancelación de evento y cambio de fecha (P1-04)', () => {
       expect(mailer.sent).toHaveLength(0);
       expect(gateway.count('refund')).toBe(0);
       expect(progress?.manual.some((m) => m.orderId === half.id && /a medias/.test(m.reason))).toBe(true);
+      expect(progress?.manual.find((m) => m.orderId === half.id)?.kind).toBe('half_refunded');
     });
 
     it('un pedido reembolsado ANTES de cancelar el evento no recibe un segundo aviso', async () => {

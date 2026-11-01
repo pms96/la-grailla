@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, ScrollText } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/layouts/page-header';
 import { cn } from '@/lib/utils';
+import { createLatestOnly } from '@/lib/latest-only';
 
 /* Registro de auditoría (P1-16): quién hizo qué, en dinero, cuentas y accesos. Solo lo ve el propietario (el middleware y la API lo comprueban).
  * Los reembolsos, las anulaciones de gastos e ingresos, los cierres de temporada, los cambios de pasarela, correo y claves, y los de usuarios y roles. */
@@ -105,41 +106,70 @@ export default function AuditoriaPage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // H-097: solo vale la última petición. Sin esto, la respuesta tardía de «Gastos» pintaba con «Pedidos» activo, un error dejaba las filas del filtro anterior y «Cargar
+  // más» pedía con el cursor de otro filtro.
+  const latest = useRef(createLatestOnly()).current;
+  const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(
-    async (after: string | null) => {
+    async (after: string | null, signal?: AbortSignal) => {
       const params = new URLSearchParams();
       if (filter) params.set('accion', filter);
       if (after) params.set('cursor', after);
-      const res = await fetch(`/api/admin/auditoria?${params}`);
+      const res = await fetch(`/api/admin/auditoria?${params}`, { signal });
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? 'Error');
       return (await res.json()) as { items: Row[]; nextCursor: string | null };
     },
     [filter]
   );
 
-  useEffect(() => {
+  const reload = useCallback(() => {
+    const token = latest.next();
+    const ctrl = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = ctrl;
     setLoading(true);
-    load(null)
+    setLoadingMore(false);
+    setError(null);
+    // Se vacía YA lo del filtro anterior: ni filas ni cursor ajenos mientras llega (o falla) lo nuevo.
+    setRows([]);
+    setCursor(null);
+    load(null, ctrl.signal)
       .then((d) => {
+        if (!latest.isCurrent(token)) return;
         setRows(d.items);
         setCursor(d.nextCursor);
       })
-      .catch((e: Error) => toast.error(e.message || 'No se ha podido cargar el registro'))
-      .finally(() => setLoading(false));
-  }, [load]);
+      .catch((e: Error) => {
+        if (!latest.isCurrent(token) || e.name === 'AbortError') return;
+        setError(e.message && e.message !== 'Error' ? e.message : 'No se ha podido cargar el registro.');
+      })
+      .finally(() => {
+        if (latest.isCurrent(token)) setLoading(false);
+      });
+  }, [load, latest]);
+  useEffect(() => {
+    reload();
+    return () => abortRef.current?.abort();
+  }, [reload]);
 
   async function more() {
     if (!cursor) return;
+    const token = latest.next(); // «cargar más» también invalida lo anterior; si cambia el filtro mientras tanto, esta respuesta no vale
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setLoadingMore(true);
     try {
-      const d = await load(cursor);
+      const d = await load(cursor, ctrl.signal);
+      if (!latest.isCurrent(token)) return;
       setRows((r) => [...r, ...d.items]);
       setCursor(d.nextCursor);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'No se han podido cargar más');
+      if (!latest.isCurrent(token) || (e instanceof Error && e.name === 'AbortError')) return;
+      toast.error(e instanceof Error && e.message && e.message !== 'Error' ? e.message : 'No se han podido cargar más');
     } finally {
-      setLoadingMore(false);
+      if (latest.isCurrent(token)) setLoadingMore(false);
     }
   }
 
@@ -158,6 +188,14 @@ export default function AuditoriaPage() {
       {loading ? (
         <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Cargando el registro…
+        </div>
+      ) : error ? (
+        <div role="alert" className="space-y-3 rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center text-sm">
+          <p className="font-medium text-destructive-text">No se ha podido cargar el registro.</p>
+          <p className="text-muted-foreground">{error}</p>
+          <Button variant="outline" onClick={reload}>
+            Reintentar
+          </Button>
         </div>
       ) : rows.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-14 text-center text-sm text-muted-foreground">

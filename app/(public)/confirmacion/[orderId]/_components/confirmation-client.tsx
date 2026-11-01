@@ -29,6 +29,7 @@ import { FiscalFootnote } from '@/components/fiscal-footnote';
 import type { FiscalView } from '@/lib/fiscal';
 import { confirmationView, emailNotice, shouldKeepPolling, type EmailDelivery, type PaymentCheck } from '@/lib/confirmation-state';
 import { orderRef } from '@/lib/order-ref';
+import { REFUNDED_TITLE, refundedMessage } from '@/lib/refund-copy';
 
 type OrderWithTickets = Prisma.OrderGetPayload<{
   include: { event: true; tickets: { include: { ticketType: true } } };
@@ -289,11 +290,11 @@ export default function ConfirmationClient({
           <SearchX className="h-12 w-12 text-muted-foreground mx-auto" aria-hidden />
           <div className="space-y-2">
             <h1 className="font-display text-2xl font-bold tracking-tight">
-              {isRefunded ? 'Te hemos devuelto el pago' : 'Pedido no completado'}
+              {isRefunded ? REFUNDED_TITLE : 'Pedido no completado'}
             </h1>
             <p className="text-sm text-muted-foreground">
               {isRefunded
-                ? `Este pedido no se ha podido completar y te hemos devuelto el importe (${(validOrder?.totalAmount ?? 0).toFixed(2)}€). Puede tardar unos días en aparecer en tu cuenta.`
+                ? refundedMessage(Number(validOrder?.totalAmount ?? 0))
                 : 'Este pedido se ha cancelado o no se ha podido cobrar. No se ha realizado ningún cargo.'}
             </p>
           </div>

@@ -8,6 +8,7 @@ import { getConfig } from '@/lib/config';
 import { getCaptchaSiteKey } from '@/lib/captcha';
 import { currentVatRate } from '@/lib/fiscal';
 import { termsVersionOrNull } from '@/lib/legal-terms';
+import { EVENT_CANCELLED_NOTICE, EVENT_CANCELLED_TITLE } from '@/lib/event-cancelled-copy';
 import { getOnlineSalesClosedLabel, getOnlineSalesClosedMessage } from '@/lib/online-sales-closed';
 import WaitingRoomGate from './_components/waiting-room-gate';
 
@@ -25,6 +26,21 @@ export default async function ComprarPage(props: { params: Promise<{ slug: strin
     });
   } catch (error) {
     console.error('[ComprarPage] Error al cargar el evento:', error);
+  }
+
+  // H-099: un evento CANCELADO existe: se dice que está cancelado y qué hacer, en lugar de un 404 genérico. Un borrador o un evento inexistente siguen dando 404.
+  if (event?.status === 'CANCELLED') {
+    return (
+      <Container size="md">
+        <div className="py-20 text-center space-y-4">
+          <p className="font-display text-xl font-bold tracking-tight">{EVENT_CANCELLED_TITLE}</p>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">{EVENT_CANCELLED_NOTICE}</p>
+          <Button asChild>
+            <Link href="/eventos">Ver programación</Link>
+          </Button>
+        </div>
+      </Container>
+    );
   }
 
   if (!event || event?.status !== 'PUBLISHED') notFound();

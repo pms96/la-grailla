@@ -16,6 +16,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TaquillaPanel from './taquilla-panel';
+import { VerdictOverlay } from './verdict-overlay';
 import InvitationsPanel from './invitations-panel';
 import {
   getStoredActiveEventId,
@@ -83,6 +84,7 @@ export default function AccessClient() {
   const [selectedEvent, setSelectedEvent] = useState('');
   const [activeTab, setActiveTab] = useState('scan');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [confirmingExit, setConfirmingExit] = useState(false);
   const [capacity, setCapacity] = useState({ current: 0, max: 0, sold: 0, entryRate5min: 0, rejectionRate5min: null as number | null });
   const [mode, setMode] = useState<'camera' | 'manual'>('camera');
   const [manualCode, setManualCode] = useState('');
@@ -261,44 +263,22 @@ export default function AccessClient() {
     }
   };
 
-  const bgColor = scanResult?.color === 'green'
-    ? 'bg-green-500'
-    : scanResult?.color === 'red'
-    ? 'bg-red-500'
-    : scanResult?.color === 'yellow'
-    ? 'bg-yellow-500'
-    : '';
-
   const capacityPercent = (capacity?.max ?? 0) > 0
     ? Math.round(((capacity?.current ?? 0) / (capacity?.max ?? 1)) * 100)
     : 0;
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Full-screen scan result overlay */}
+      {/* Veredicto a pantalla completa (H-085): contraste, anuncio, teclado. */}
       {scanResult && (
-        <div className={`fixed inset-0 z-50 ${bgColor} flex items-center justify-center p-8 transition-all`} onClick={() => { setScanResult(null); setScanning(false); }}>
-          <div className="text-center text-white max-w-lg">
-            <p className="text-4xl md:text-6xl font-display font-bold mb-4">
-              {scanResult?.result === 'VALID' ? '✅' : scanResult?.result === 'DUPLICATE' ? '🔁' : scanResult?.result === 'WRONG_EVENT' || scanResult?.result === 'ERROR' ? '⚠️' : '❌'}
-            </p>
-            <p className="text-2xl md:text-4xl font-bold mb-4">{scanResult?.message ?? ''}</p>
-            {scanResult?.ticketType && <p className="text-lg opacity-80">Tipo: {scanResult.ticketType}</p>}
-            {canAllowReentry(scanResult) && scanResult?.ticketId && (
-              <button
-                type="button"
-                className="mt-6 rounded-lg bg-white px-6 py-3 text-lg font-semibold text-black shadow-lg"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void allowReentry(scanResult.ticketId as string);
-                }}
-              >
-                Permitir reentrada
-              </button>
-            )}
-            <p className="text-sm opacity-60 mt-6">Toca para continuar</p>
-          </div>
-        </div>
+        <VerdictOverlay
+          result={scanResult}
+          onDismiss={() => {
+            setScanResult(null);
+            setScanning(false);
+          }}
+          reentry={canAllowReentry(scanResult) && scanResult.ticketId ? { onAllow: () => void allowReentry(scanResult.ticketId as string) } : null}
+        />
       )}
 
       {/* Header */}
@@ -317,9 +297,21 @@ export default function AccessClient() {
               </Button>
             )}
             <Badge variant="outline">{session?.user?.role ?? ''}</Badge>
-            <Button variant="ghost" size="icon-sm" onClick={() => signOut?.({ callbackUrl: '/auth/login' })}>
-              <LogOut className="h-4 w-4" />
-            </Button>
+            {/* H-086: «Salir» ya no está pegado a «Modo noche», mide 44 px, se llama por su nombre y pide confirmar: un toque erróneo en plena cola no cierra la sesión. */}
+            {confirmingExit ? (
+              <div className="ml-4 flex items-center gap-2">
+                <Button variant="destructive" className="min-h-11" onClick={() => signOut?.({ callbackUrl: '/auth/login' })}>
+                  Sí, salir
+                </Button>
+                <Button variant="outline" className="min-h-11" onClick={() => setConfirmingExit(false)}>
+                  Seguir
+                </Button>
+              </div>
+            ) : (
+              <Button variant="ghost" size="icon-lg" className="ml-4" aria-label="Cerrar sesión" onClick={() => setConfirmingExit(true)}>
+                <LogOut className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -355,7 +347,7 @@ export default function AccessClient() {
                 <Badge variant={capacityPercent >= 95 ? 'destructive' : capacityPercent >= 80 ? 'secondary' : 'outline'}>
                   {capacityPercent}%
                 </Badge>
-                <Button variant="ghost" size="icon-sm" onClick={refreshCapacity}>
+                <Button variant="ghost" size="icon-lg" aria-label="Actualizar el aforo" onClick={refreshCapacity}>
                   <RefreshCw className="h-4 w-4" />
                 </Button>
               </div>

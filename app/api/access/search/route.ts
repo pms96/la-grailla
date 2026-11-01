@@ -10,6 +10,7 @@ import { rateLimit } from '@/lib/rate-limit';
 import { handleApiError } from '@/lib/api-error';
 import { ticketUnusable } from '@/lib/ticket-validity';
 import { maskEmail, orderRef } from '@/lib/door-search';
+import { displayBuyerEmail, isPlaceholderEmail } from '@/lib/placeholder-email';
 
 /* Búsqueda de asistentes en la PUERTA (P1-06 / EN-12): «no encuentro el email» es el motivo nº 1 de soporte en la entrada. El personal escribe un
  * nombre, un email o la referencia del pedido y admite a mano desde el resultado (`POST /api/scan` con `ticketId`). Vive bajo `/api/access`, así que
@@ -84,7 +85,7 @@ export async function GET(request: Request) {
         status: t.status,
         entryTime: t.entryTime,
         buyerName: `${t.order.buyerName} ${t.order.buyerLastName}`.trim(),
-        buyerEmail: maskEmail(t.order.buyerEmail),
+        buyerEmail: isPlaceholderEmail(t.order.buyerEmail) ? displayBuyerEmail(t.order.buyerEmail) : maskEmail(t.order.buyerEmail),
         orderRef: orderRef(t.order.id),
         admittable,
         blockedMessage: admittable ? null : unusable?.scanMessage ?? null,

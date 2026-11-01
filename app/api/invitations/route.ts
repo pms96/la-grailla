@@ -13,6 +13,7 @@ import { sendOrderEmail, sendResultResponse } from '@/lib/order-email';
 import { getBaseUrl } from '@/lib/url';
 import { handleApiError } from '@/lib/api-error';
 import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
+import { INVITATION_PLACEHOLDER_EMAIL } from '@/lib/placeholder-email';
 
 class InvitationRejectedError extends Error {}
 class InvitationHasEntriesError extends Error {}
@@ -111,7 +112,7 @@ export async function POST(request: Request) {
           eventId,
           buyerName: guestName,
           buyerLastName: '',
-          buyerEmail: guestEmail || 'invitacion@lagrailla.local',
+          buyerEmail: guestEmail || INVITATION_PLACEHOLDER_EMAIL,
           totalAmount: 0,
           commission: 0,
           paymentMethod: 'FREE',
