@@ -25,7 +25,9 @@ export async function consumePasswordToken(token: unknown, password: unknown): P
       // «Reclamar» el token borrándolo: si dos peticiones llegan a la vez con el mismo enlace, solo una ve count = 1.
       const claimed = await tx.verificationToken.deleteMany({ where: { token: hash, expires: { gt: new Date() } } });
       if (claimed.count !== 1) throw new Error('token_not_claimed');
-      const updated = await tx.user.updateMany({ where: { email }, data: { hashedPassword: hashed } });
+      // H-062: fijar la contraseña cierra las sesiones abiertas ANTES de ahora. Reenviar la invitación es la vía para recuperar una cuenta
+      // comprometida, y sin esto la sesión del atacante seguía viva hasta 30 días.
+      const updated = await tx.user.updateMany({ where: { email }, data: { hashedPassword: hashed, sessionsValidAfter: new Date() } });
       if (updated.count !== 1) throw new Error('user_not_found');
       // Cualquier otra invitación pendiente de ese usuario queda anulada.
       await tx.verificationToken.deleteMany({ where: { identifier: row.identifier } });

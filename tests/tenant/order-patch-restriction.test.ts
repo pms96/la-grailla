@@ -49,3 +49,34 @@ describe('PATCH /api/admin/orders/[id] bajo licencia vencida o sin módulo', () 
     }
   });
 });
+
+// H-066: con PANEL_BLOCKED, BLOCKED o la Tienda apagada, un pedido de tienda cobrado no se podía cancelar ni reembolsar (sí uno de entradas). El PUT está
+// exento en el middleware y el handler solo acepta lo que es dinero ya en vuelo: cancelar y reembolsar. El resto (estado plano, seguimiento, notas) no.
+const putShop = async (body: object, license?: { phase: 'ACTIVE' | 'GRACE' | 'PANEL_BLOCKED' | 'BLOCKED'; nextPhaseChangeAt: null }, modules = ['nucleo', 'tienda']) => {
+  const { PUT } = await import('@/app/api/admin/shop-orders/[id]/route');
+  const req = new Request('http://a.cliente.test/api/admin/shop-orders/x', { method: 'PUT', body: JSON.stringify(body) });
+  return withTenantForTest('a', () => PUT(req, { params: Promise.resolve({ id: 'no-existe' }) }), { license, modules });
+};
+
+describe('PUT /api/admin/shop-orders/[id] bajo licencia vencida o sin módulo (H-066)', () => {
+  it('cancelar y reembolsar siguen funcionando en cualquier fase y sin el módulo de tienda', async () => {
+    for (const phase of ['ACTIVE', 'GRACE', 'PANEL_BLOCKED', 'BLOCKED'] as const) {
+      for (const status of ['CANCELLED', 'REFUNDED']) expect((await putShop({ status }, { phase, nextPhaseChangeAt: null })).status, `${status} en ${phase}`).not.toBe(402);
+    }
+    expect((await putShop({ status: 'REFUNDED' }, undefined, ['nucleo'])).status).not.toBe(402);
+  });
+
+  it('cambiar el estado a otra cosa, el seguimiento o las notas se rechazan en PANEL_BLOCKED, BLOCKED o sin tienda', async () => {
+    for (const body of [{ status: 'SHIPPED' }, { trackingNumber: 'X1' }, { notes: 'n' }, { resendShippedEmail: true }]) {
+      expect((await putShop(body, { phase: 'PANEL_BLOCKED', nextPhaseChangeAt: null })).status, JSON.stringify(body)).toBe(402);
+      expect((await putShop(body, { phase: 'BLOCKED', nextPhaseChangeAt: null })).status, JSON.stringify(body)).toBe(402);
+      expect((await putShop(body, { phase: 'ACTIVE', nextPhaseChangeAt: null }, ['nucleo'])).status, JSON.stringify(body)).toBe(402);
+    }
+  });
+
+  it('con la licencia al día y el módulo, el resto de cambios llegan a su lógica de siempre', async () => {
+    for (const body of [{ status: 'SHIPPED' }, { trackingNumber: 'X1' }]) {
+      expect((await putShop(body, { phase: 'ACTIVE', nextPhaseChangeAt: null })).status).not.toBe(402);
+    }
+  });
+});

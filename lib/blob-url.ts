@@ -8,6 +8,18 @@
 
 const BLOB_HOST_SUFFIX = '.public.blob.vercel-storage.com';
 
+/**
+ * ¿Es este hostname un almacén de Blob admisible? Con `BLOB_PUBLIC_HOST` definida (el almacén de la plataforma) solo ese host exacto: otro almacén de
+ * Blob también acaba en el mismo sufijo y aceptarlo permitía apuntar logos, carteles y borrados a un almacén ajeno (H-067). Sin la variable (desarrollo,
+ * donde no hay almacén fijo) vale cualquier almacén de Blob. Se lee `process.env.BLOB_PUBLIC_HOST` literal: Next la sustituye en el build.
+ */
+export function isPlatformBlobHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  const platformHost = (process.env.BLOB_PUBLIC_HOST ?? '').trim().toLowerCase();
+  if (platformHost) return host === platformHost;
+  return host.endsWith(BLOB_HOST_SUFFIX) && host.length > BLOB_HOST_SUFFIX.length;
+}
+
 export function parseBlobUrl(raw: string): URL | null {
   let url: URL;
   try {
@@ -16,7 +28,7 @@ export function parseBlobUrl(raw: string): URL | null {
     return null;
   }
   if (url.protocol !== 'https:') return null;
-  if (!url.hostname.endsWith(BLOB_HOST_SUFFIX) || url.hostname.length === BLOB_HOST_SUFFIX.length) return null;
+  if (!isPlatformBlobHost(url.hostname)) return null;
   if (url.search || url.hash || url.username || url.password || url.port) return null;
   return url;
 }

@@ -76,9 +76,9 @@ export default function InvitationsManager({ selectedEvent }: Props) {
   };
 
   const deleteList = async (id: string) => {
-    if (!confirm('¿Eliminar esta lista? Se perderán sus invitaciones.')) return;
+    if (!confirm('¿Eliminar esta lista? Sus invitaciones no se anulan: quedan sin lista.')) return;
     const res = await fetch('/api/guest-lists?id=' + id, { method: 'DELETE' });
-    if (res.ok) { toast.success('Lista eliminada'); load(); } else { toast.error('No se pudo eliminar'); }
+    if (res.ok) { toast.success('Lista eliminada'); load(); } else { toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo eliminar'); }
   };
 
   const createInvitation = async () => {
@@ -112,9 +112,9 @@ export default function InvitationsManager({ selectedEvent }: Props) {
   };
 
   const deleteInvitation = async (id: string) => {
-    if (!confirm('¿Anular esta invitación? Se cancelará la entrada asociada y bajará el aforo.')) return;
+    if (!confirm('¿Anular esta invitación? Se cancelarán sus entradas. Si alguna ya ha entrado, no se podrá anular.')) return;
     const res = await fetch('/api/invitations?id=' + id, { method: 'DELETE' });
-    if (res.ok) { toast.success('Invitación anulada'); load(); } else { toast.error('No se pudo anular'); }
+    if (res.ok) { toast.success('Invitación anulada'); load(); } else { toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo anular'); }
   };
 
   const resend = async (orderId: string) => {

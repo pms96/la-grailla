@@ -316,22 +316,42 @@ describe('la puerta del evento (escáner): abierta en todas las fases y con Entr
     expect(passes(await platformMiddleware(req('/acceso', 'GET', cookie)))).toBe(true);
   });
 
-  it('cliente SUSPENDIDO (incluye revocación de emergencia), PENDING_DELETION y DELETED: se corta TODO, también la puerta, aunque haya sesión de staff', async () => {
-    for (const [i, status] of (['SUSPENDED', 'PENDING_DELETION', 'DELETED'] as const).entries()) {
+  it('cliente SUSPENDIDO (incluye revocación de emergencia): se corta TODO, también la puerta, aunque haya sesión de staff; solo siguen webhooks, crons y salud', async () => {
+    await publish({ status: 'SUSPENDED', license: { phase: 'BLOCKED', nextPhaseChangeAt: null } });
+    for (const role of ['TAQUILLA', 'ADMIN'] as const) {
+      const cookie = await staffCookie(role);
+      for (const [p, m] of door) expect((await platformMiddleware(req(p, m, cookie))).status, `SUSPENDED ${role} ${p}`).toBe(503);
+      expect((await platformMiddleware(reqWithOrigin('/api/scan', 'POST', cookie))).status, `SUSPENDED ${role} /api/scan`).toBe(503);
+    }
+    // anónimos: tampoco (503, no login ni 401)
+    expect((await platformMiddleware(req('/acceso'))).status).toBe(503);
+    expect((await platformMiddleware(req('/api/access/events'))).status).toBe(503);
+    // y el login también; lo único que sigue es lo de siempre. SUSPENDED es una suspensión REVERSIBLE (impago, revocación de emergencia): un pago o un
+    // reembolso en vuelo no se pierde, así que webhooks y crons siguen vivos (decisión documentada, H-069).
+    expect((await platformMiddleware(req('/auth/login'))).status).toBe(503);
+    expect(passes(await platformMiddleware(req('/api/webhooks/stripe', 'POST')))).toBe(true);
+    expect(passes(await platformMiddleware(req('/api/cron/reconcile-payments', 'GET')))).toBe(true);
+    expect(passes(await platformMiddleware(req('/api/health')))).toBe(true);
+  });
+
+  // H-069: PENDING_DELETION y DELETED no son una pausa: el cliente se da de baja. Webhooks y crons seguían completando pedidos, enviando emails con el SMTP del
+  // cliente y reconciliando contra la pasarela de alguien que ya no es cliente. Todo da 410, salvo la salud (el panel necesita ver el estado).
+  it('cliente PENDING_DELETION o DELETED: 410 en TODO, también webhooks, crons y la puerta; solo la salud sigue', async () => {
+    for (const [i, status] of (['PENDING_DELETION', 'DELETED'] as const).entries()) {
       reg.data.clear();
       resetResolverStateForTests();
       await publish({ status, seq: i + 1, license: { phase: 'BLOCKED', nextPhaseChangeAt: null } });
       for (const role of ['TAQUILLA', 'ADMIN'] as const) {
         const cookie = await staffCookie(role);
-        for (const [p, m] of door) expect((await platformMiddleware(req(p, m, cookie))).status, `${status} ${role} ${p}`).toBe(503);
-        expect((await platformMiddleware(reqWithOrigin('/api/scan', 'POST', cookie))).status, `${status} ${role} /api/scan`).toBe(503);
+        for (const [p, m] of door) expect((await platformMiddleware(req(p, m, cookie))).status, `${status} ${role} ${p}`).toBe(410);
+        expect((await platformMiddleware(reqWithOrigin('/api/scan', 'POST', cookie))).status, `${status} ${role} /api/scan`).toBe(410);
       }
-      // anónimos: tampoco (503, no login ni 401)
-      expect((await platformMiddleware(req('/acceso'))).status).toBe(503);
-      expect((await platformMiddleware(req('/api/access/events'))).status).toBe(503);
-      // y el login también; lo único que sigue es lo de siempre
-      expect((await platformMiddleware(req('/auth/login'))).status).toBe(503);
-      expect(passes(await platformMiddleware(req('/api/webhooks/stripe', 'POST')))).toBe(true);
+      for (const [p, m] of [['/acceso', 'GET'], ['/api/access/events', 'GET'], ['/auth/login', 'GET'], ['/api/webhooks/stripe', 'POST'], ['/api/webhooks/sumup', 'POST'], ['/api/cron/reconcile-payments', 'GET'], ['/', 'GET']] as const) {
+        const res = await platformMiddleware(req(p, m));
+        expect(res.status, `${status} anónimo ${m} ${p}`).toBe(410);
+        expect(res.headers.get('x-middleware-next'), `${status} ${p}`).toBeNull();
+      }
+      expect(passes(await platformMiddleware(req('/api/health'))), `${status} health`).toBe(true);
     }
   });
 

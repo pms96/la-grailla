@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   BRAND_FONTS_ATTR,
   FONT_CATALOG,
@@ -235,5 +235,25 @@ describe('avisos de contraste (no bloquean)', () => {
   });
   it('colores con buen contraste sobre el fondo no avisan', () => {
     expect(themeContrastWarnings({ colors: { primary: '#1e3a8a', accent: '#b91c1c', surfaceDark: '#0b0b14' } }).filter((w) => w.includes('claro'))).toEqual([]);
+  });
+});
+
+// H-067: una imagen de marca de Blob tiene que ser del almacén de la plataforma, no de cualquier almacén de Blob.
+describe('isBrandAssetUrl con BLOB_PUBLIC_HOST (H-067)', () => {
+  const saved = process.env.BLOB_PUBLIC_HOST;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.BLOB_PUBLIC_HOST;
+    else process.env.BLOB_PUBLIC_HOST = saved;
+  });
+
+  it('solo acepta el host de la plataforma cuando está definido', () => {
+    process.env.BLOB_PUBLIC_HOST = 'abc123.public.blob.vercel-storage.com';
+    expect(isBrandAssetUrl('https://abc123.public.blob.vercel-storage.com/t1/brand/logo.png')).toBe(true);
+    expect(isBrandAssetUrl('https://otro999.public.blob.vercel-storage.com/t1/brand/logo.png')).toBe(false);
+  });
+
+  it('sin la variable vale cualquier almacén de Blob (desarrollo)', () => {
+    delete process.env.BLOB_PUBLIC_HOST;
+    expect(isBrandAssetUrl('https://otro999.public.blob.vercel-storage.com/t1/brand/logo.png')).toBe(true);
   });
 });

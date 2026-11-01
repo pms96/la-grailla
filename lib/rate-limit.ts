@@ -81,6 +81,18 @@ export async function rateLimit(scope: string, identifier: string, limit: number
   return { ok: true, remaining: limit - row.count, retryAfter: 0 };
 }
 
+/**
+ * Devuelve el hueco de UNA llamada anterior a `rateLimit` (resta 1, sin bajar de 0) y conserva el resto del cubo. Para el intento que SALIÓ BIEN:
+ * un límite de intentos fallidos no debe gastarse con los correctos (H-061). Nunca lanza.
+ */
+export async function refundRateLimit(scope: string, identifier: string): Promise<void> {
+  try {
+    await prisma.$executeRaw`UPDATE "RateLimitBucket" SET "count" = GREATEST("count" - 1, 0) WHERE "key" = ${`${scope}:${identifier}`} AND "resetAt" > now()`;
+  } catch (error) {
+    console.error('[refundRateLimit]', error instanceof Error ? error.message : error);
+  }
+}
+
 /** Devuelve el cupo de un `rateLimit` (borra su fila). Para quien toma el cupo antes de hacer el trabajo y el trabajo falla. Nunca lanza. */
 export async function resetRateLimit(scope: string, identifier: string): Promise<void> {
   try {

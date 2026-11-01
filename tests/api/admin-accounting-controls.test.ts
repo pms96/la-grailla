@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
+import { purgeAuditLog } from '../helpers/audit';
 
 const ACTOR = 'acct-controls-test';
 const ACTOR_EMAIL = 'acct-controls-test@example.com';
@@ -55,7 +56,7 @@ describe('P1-16 — controles de contabilidad: anulación, temporada cerrada y a
   afterAll(async () => {
     await prisma.gasto.deleteMany({ where: { temporadaId } });
     await prisma.ingreso.deleteMany({ where: { temporadaId } });
-    await prisma.adminAuditLog.deleteMany({ where: { actorId: ACTOR } });
+    await purgeAuditLog({ actorId: ACTOR });
     await prisma.temporada.delete({ where: { id: temporadaId } }).catch(() => {});
     await prisma.user.delete({ where: { id: ACTOR } }).catch(() => {});
   });

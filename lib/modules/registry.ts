@@ -172,6 +172,9 @@ export function isLicenseExempt(path: string, method: string): boolean {
   if (read && /^\/api\/(shop\/)?orders\/[^/]+\/abandon$/.test(p)) return true;
   // Reembolsos y cancelaciones de pedidos ya existentes (PATCH con `action`): el dinero del comprador no depende de que el cliente pague.
   if (method === 'PATCH' && /^\/api\/admin\/orders\/[^/]+$/.test(p)) return true;
+  // H-066: lo mismo con los pedidos de la tienda (PUT): sin esto, con PANEL_BLOCKED, BLOCKED o la Tienda apagada un pedido de entradas se podía reembolsar y uno de
+  // tienda no. El handler solo deja pasar `status: CANCELLED | REFUNDED` (dinero ya cobrado); el resto de cambios exige licencia y módulo.
+  if (method === 'PUT' && /^\/api\/admin\/shop-orders\/[^/]+$/.test(p)) return true;
   if (p === '/licencia' || p.startsWith('/licencia/') || p.startsWith('/auth/')) return true;
   return false;
 }

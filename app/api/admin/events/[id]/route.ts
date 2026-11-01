@@ -8,6 +8,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { planSeasonMove, recordSeasonMove } from '@/lib/contabilidad/season-reassign';
 import { seasonLinkEnabled } from '@/lib/modules/season-link';
 import { parseEventNumberSettings } from '@/lib/waiting-room-settings';
 import { releaseUnusedBlobs } from '@/lib/blob-cleanup';
@@ -70,6 +71,9 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
     if (date === null) return NextResponse.json({ error: 'Fecha y hora no válidas' }, { status: 400 });
     const numbers = parseEventNumberSettings(body);
     if (!numbers.ok) return NextResponse.json({ error: numbers.error, code: 'invalid_number_setting' }, { status: 400 });
+    // H-019: mover el evento a o desde una temporada cerrada da 423; entre abiertas queda en la auditoría.
+    const seasonMove = body?.temporadaId !== undefined && seasonLinkEnabled() ? await planSeasonMove(async () => (await prisma.event.findUnique({ where: { id: params?.id }, select: { temporadaId: true } }))?.temporadaId, body.temporadaId) : null;
+    if (seasonMove?.block) return seasonMove.block;
     // P1-04: cancelar un evento con pedidos y cambiar la fecha de uno con compradores tienen su propio flujo (reembolso, avisos por email). Antes este PUT
     // solo cambiaba la fila: compradores sin enterarse, entradas válidas y ninguna devolución.
     const before = body?.status !== undefined || date ? await prisma.event.findUnique({ where: { id: params?.id }, select: { status: true, date: true } }) : null;
@@ -135,6 +139,7 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
         temporadaId: body?.temporadaId === undefined || !seasonLinkEnabled() ? undefined : body.temporadaId || null,
       },
     });
+    await recordSeasonMove(seasonMove, { session, request, targetType: 'Event', targetId: params?.id });
     // Aviso del cambio de fecha: se anota el trabajo y se envía un primer lote ya; el resto sigue en el cron. Un fallo aquí no deshace el cambio.
     if (dateChanged && recipients > 0 && body?.notifyDateChange === true && before) {
       try {
@@ -163,6 +168,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
   try {
     const body = patchEventSchema.parse(await request.json());
     const data: Prisma.EventUpdateInput = {};
+    // H-019: igual que en el PUT.
+    const seasonMove = body?.temporadaId !== undefined && seasonLinkEnabled() ? await planSeasonMove(async () => (await prisma.event.findUnique({ where: { id: params?.id }, select: { temporadaId: true } }))?.temporadaId, body.temporadaId) : null;
+    if (seasonMove?.block) return seasonMove.block;
 
     if (typeof body?.alertThresholds === 'string') {
       const cleaned = body.alertThresholds
@@ -186,6 +194,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     }
 
     const event = await prisma.event.update({ where: { id: params?.id }, data });
+    await recordSeasonMove(seasonMove, { session, request, targetType: 'Event', targetId: params?.id });
     return NextResponse.json(event);
   } catch (error) {
     return handleApiError(error, 'PATCH /api/admin/events/[id]');

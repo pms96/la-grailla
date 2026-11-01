@@ -9,3 +9,12 @@ export function toPublicEvent<T extends Record<string, unknown>>(event: T): Omit
   for (const key of INTERNAL_EVENT_FIELDS) delete copy[key];
   return copy as Omit<T, InternalField>;
 }
+
+/**
+ * ¿Puede verse la ficha pública de este evento? Un borrador solo lo ve quien puede gestionarlo (ADMIN con Entradas): antes `/eventos/[slug]` y el PDF de
+ * autorización de menores lo servían por slug —cartel, fecha, lugar y precios antes del anuncio—, mientras `/api/events*` y `/comprar` ya lo escondían (H-059).
+ * Finalizado y cancelado siguen visibles (con su aviso): son eventos ya anunciados.
+ */
+export function isEventPageVisible(status: string, viewerCanSeeDrafts: boolean): boolean {
+  return status !== 'DRAFT' || viewerCanSeeDrafts;
+}

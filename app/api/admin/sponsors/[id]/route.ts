@@ -7,6 +7,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { getBaseUrl } from '@/lib/url';
+import { planSeasonMove, recordSeasonMove } from '@/lib/contabilidad/season-reassign';
 import { seasonLinkEnabled, withoutSeasonLink } from '@/lib/modules/season-link';
 import { ensureSponsorPortalInvite, buildSponsorPortalUrl } from '@/lib/sponsor-portal';
 
@@ -69,6 +70,9 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
   }
   try {
     const body = updateSponsorSchema.parse(await request.json());
+    // H-019: mover el patrocinio a o desde una temporada cerrada da 423; entre abiertas queda en la auditoría.
+    const seasonMove = body?.temporadaId !== undefined && seasonLinkEnabled() ? await planSeasonMove(async () => (await prisma.sponsorRequest.findUnique({ where: { id: params?.id }, select: { temporadaId: true } }))?.temporadaId, body.temporadaId) : null;
+    if (seasonMove?.block) return seasonMove.block;
     const sponsor = await prisma.sponsorRequest.update({
       where: { id: params?.id },
       data: {
@@ -78,6 +82,8 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
         sponsorType: body?.sponsorType === undefined ? undefined : body.sponsorType || null,
       },
     });
+
+    await recordSeasonMove(seasonMove, { session, request, targetType: 'SponsorRequest', targetId: params?.id });
 
     // Se espera el envío (deja de ser fire-and-forget) — aceptar un lead es
     // una acción de baja frecuencia, y así el admin ve al instante si la

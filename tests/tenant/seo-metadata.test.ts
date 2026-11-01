@@ -164,13 +164,15 @@ describe('ficha de evento: robots y datos estructurados', () => {
     expect(ld?.offers?.[0]).toMatchObject({ price: '12.00', availability: 'https://schema.org/InStock', url: 'https://a.cliente.es/eventos/concierto/comprar' });
   });
 
-  it('un borrador se puede abrir por URL pero lleva noindex y no publica datos estructurados', async () => {
+  // H-059: un borrador ya no se sirve por su slug a un anónimo (antes se abría con `noindex` pero enseñaba cartel, fecha, lugar y precios antes del anuncio).
+  it('un borrador no se sirve a un anónimo: la ficha da 404 y los metadatos no filtran el nombre del evento', async () => {
     await createEvent('a', 'borrador', { status: 'DRAFT' });
     const { generateMetadata, default: Page } = await import('@/app/(public)/eventos/[slug]/page');
-    const meta = (await asA(() => generateMetadata({ params: Promise.resolve({ slug: 'borrador' }) }))) as { robots?: { index?: boolean } };
-    expect(meta.robots?.index).toBe(false);
-    const tree = await asA(() => Page({ params: Promise.resolve({ slug: 'borrador' }) }));
-    expect(ldScripts(tree)).toHaveLength(0);
+    const meta = (await asA(() => generateMetadata({ params: Promise.resolve({ slug: 'borrador' }) }))) as { title?: string; openGraph?: unknown; description?: string };
+    expect(meta.title).toBe('Evento');
+    expect(meta.openGraph).toBeUndefined();
+    expect(meta.description).toBeUndefined();
+    await expect(asA(() => Page({ params: Promise.resolve({ slug: 'borrador' }) }))).rejects.toThrow(/NEXT_HTTP_ERROR_FALLBACK;404|NEXT_NOT_FOUND/);
   });
 
   it('el día del evento es el de Madrid, no el del servidor (UTC): un evento a la 01:30 del día 2 no sale como el 1', async () => {

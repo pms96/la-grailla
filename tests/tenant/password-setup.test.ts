@@ -151,6 +151,27 @@ describe('POST /api/auth/set-password', () => {
     expect((await submit('a', { token: 123, password: ['x'] }, '203.0.113.32')).status).toBe(400);
   });
 
+  // H-062: reenviar la invitación es la vía para recuperar una cuenta comprometida; fijar la contraseña tiene que cerrar las sesiones que ya había.
+  it('fijar la contraseña cierra las sesiones abiertas antes (sessionsValidAfter)', async () => {
+    const before = Date.now();
+    const token = await invite('a');
+    expect((await submit('a', { token, password: 'contraseña nueva 123' })).status).toBe(200);
+    const user = await tenantClient('a').user.findUniqueOrThrow({ where: { email: EMAIL } });
+    expect(user.sessionsValidAfter).not.toBeNull();
+    expect(user.sessionsValidAfter!.getTime()).toBeGreaterThanOrEqual(before);
+    expect(user.sessionsValidAfter!.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  // H-062: el tope global de la hora solo cuenta FALLOS; si no, quien tenga muchas IPs lo agota y nadie más puede fijar su contraseña.
+  it('un enlace que sale bien no gasta el tope global; uno que falla sí', async () => {
+    const globalRow = () => tenantClient('a').rateLimitBucket.findUnique({ where: { key: 'set-password-all:cliente' } });
+    const token = await invite('a');
+    expect((await submit('a', { token, password: 'contraseña nueva 123' }, '203.0.113.50')).status).toBe(200);
+    expect((await globalRow())?.count ?? 0).toBe(0);
+    expect((await submit('a', { token: 'z'.repeat(43), password: 'contraseña nueva 123' }, '203.0.113.51')).status).toBe(400);
+    expect((await globalRow())?.count).toBe(1);
+  });
+
   it('limita los intentos por IP', async () => {
     const statuses: number[] = [];
     for (let i = 0; i < 12; i++) statuses.push((await submit('a', { token: 'y'.repeat(43), password: 'contraseña nueva 123' }, '198.51.100.77')).status);

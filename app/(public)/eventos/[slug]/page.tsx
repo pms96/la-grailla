@@ -22,6 +22,8 @@ import { canonicalAlternates, siteBaseUrl } from '@/lib/seo/canonical';
 import { eventJsonLd } from '@/lib/seo/event-json-ld';
 import { safeJsonLd } from '@/lib/seo/json-ld';
 import { EVENT_TIMEZONE } from '@/lib/event-time';
+import { isEventPageVisible } from '@/lib/public-event';
+import { isAdminSessionFor } from '@/lib/access-token';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
@@ -29,7 +31,7 @@ export const dynamic = 'force-dynamic';
 export async function generateMetadata(props: { params: Promise<{ slug: string }> }) {
   const params = await props.params;
   const [event, brand] = await Promise.all([prisma.event.findUnique({ where: { slug: params?.slug } }), getBrand()]);
-  if (!event) return { title: 'Evento' };
+  if (!event || !isEventPageVisible(event.status, event.status === 'DRAFT' && (await isAdminSessionFor('entradas')))) return { title: 'Evento' };
   const description = `${event.name} en ${event.venue}, ${event.city}. Compra tus entradas online.`;
   // El cartel del evento y, si no tiene, la imagen social de la marca: así un evento sin cartel no se comparte sin imagen.
   const image = event.imageUrl || absoluteBrandUrl(brand.ogImage);
@@ -82,6 +84,8 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
   }
 
   if (!event) notFound();
+  // H-059: un borrador no se sirve por su slug; solo lo previsualiza quien gestiona los eventos (ADMIN con Entradas). La sesión solo se lee para los borradores.
+  if (!isEventPageVisible(event.status, event.status === 'DRAFT' && (await isAdminSessionFor('entradas')))) notFound();
 
   const dateStr = event?.date
     ? new Date(event.date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: EVENT_TIMEZONE })

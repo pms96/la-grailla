@@ -5,7 +5,7 @@ import { deriveInstallationSecret, effectiveLicensePhase, enabledModules, isSche
 import { isLicenseExempt, ownerEnabled, ownerOfPath } from '@/lib/modules/registry';
 import { isCrossOriginMutation, isOriginCheckExempt } from '@/lib/origin-check';
 import { FRONT_MIN_SCHEMA } from '@/lib/platform/min-schema';
-import { isAuthorizedStaffRequest, isStaffApiPath } from '@/lib/staff-paths';
+import { decodedPath, isAuthorizedStaffRequest, isStaffApiPath } from '@/lib/staff-paths';
 import { signContext } from './context-sign';
 import { CONTEXT_HEADER, type TenantContext } from './context-types';
 import { isDevHost } from './dev-host';
@@ -123,7 +123,9 @@ export const isPreviewDeployment = (): boolean => process.env.VERCEL_ENV === 'pr
 export async function platformMiddleware(req: NextRequest): Promise<NextResponse> {
   if (isPreviewDeployment()) return plain(404, 'Sitio no configurado');
   checkPlatformEnvOnce();
-  const path = req.nextUrl.pathname;
+  // H-065: la ruta con los `%XX` decodificados y las barras repetidas colapsadas, igual que `middleware.ts` (modo normal). Next resuelve la variante
+  // decodificada hasta el handler: decidir sobre la ruta cruda abría una divergencia entre lo que el middleware cree que es y lo que el router sirve.
+  const path = decodedPath(req.nextUrl.pathname);
   // Solo el header `host`: x-forwarded-host y compañía los puede mandar el cliente.
   const rawHost = (req.headers.get('host') ?? '').toLowerCase();
 
@@ -142,9 +144,14 @@ export async function platformMiddleware(req: NextRequest): Promise<NextResponse
   // Con calendario, el próximo cambio es el siguiente que NO ha pasado (null si ya han pasado todos); sin él, el del snapshot.
   ctx.license = { phase, nextPhaseChangeAt: ctx.license?.schedule ? (ctx.license.schedule.find((c) => c.at > now)?.at ?? null) : (ctx.license?.nextPhaseChangeAt ?? null) };
 
-  // Una suspensión (SUSPENDED, que incluye la revocación de emergencia), PENDING_DELETION y DELETED cortan TODO, también la puerta del evento
-  // (`/acceso`, `/api/scan`, `/api/access/*`): la revocación es un corte de seguridad y no puede dejar rutas vivas. La puerta solo se
-  // exime de la fase de licencia y del módulo apagado (más abajo, en `gateByModuleAndLicense`). Solo sobreviven webhooks, crons y health.
+  // PENDING_DELETION y DELETED (H-069): el cliente se da de baja, no es una pausa. Todo responde 410 —también webhooks y crons, que antes seguían completando
+  // pedidos, enviando emails con el SMTP del cliente y reconciliando contra su pasarela—; solo `/api/health` se sirve, para que el panel vea el estado.
+  if ((ctx.status === 'PENDING_DELETION' || ctx.status === 'DELETED') && path !== '/api/health') return plain(410, 'Cliente dado de baja');
+
+  // Una suspensión (SUSPENDED, que incluye la revocación de emergencia) corta TODO, también la puerta del evento (`/acceso`, `/api/scan`, `/api/access/*`): la
+  // revocación es un corte de seguridad y no puede dejar rutas vivas. La puerta solo se exime de la fase de licencia y del módulo apagado (más abajo, en
+  // `gateByModuleAndLicense`). Solo sobreviven webhooks, crons y health: SUSPENDED es reversible (impago, revocación de emergencia) y un pago o un reembolso
+  // en vuelo no debe perderse (decisión documentada en H-069).
   if (ctx.status !== 'ACTIVE' && !isNeverBlockable(path)) return plain(503, 'Servicio suspendido');
 
   // BD del cliente por detrás de lo que exige este build: mantenimiento SOLO para él (los demás clientes siguen). Se reintenta pronto:

@@ -9,7 +9,9 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { invalidateShopOrder } from '@/lib/reconciliation/tienda';
+import { planSeasonMove, recordSeasonMove } from '@/lib/contabilidad/season-reassign';
 import { seasonLinkEnabled } from '@/lib/modules/season-link';
+import { isFullAccessRestricted } from '@/lib/modules/runtime';
 import { canChangeShopOrderStatus } from '@/lib/shop-order-status';
 import { sendShopShippedEmail } from '@/lib/shop/shop-notices';
 import { sendRefundEmail } from '@/lib/reconciliation/gateway-refund';
@@ -32,6 +34,13 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
   }
   try {
     const body = updateShopOrderSchema.parse(await request.json());
+
+    // El middleware deja pasar este PUT aunque la licencia esté vencida o falte el módulo, para no frenar un reembolso (H-066). Cancelar y reembolsar es
+    // dinero ya cobrado; cambiar el estado a otra cosa, el seguimiento, las notas o la temporada no lo es.
+    const isMoneyAction = body.status === 'CANCELLED' || body.status === 'REFUNDED';
+    if (!isMoneyAction && isFullAccessRestricted('tienda')) {
+      return NextResponse.json({ error: 'Licencia vencida o módulo no disponible' }, { status: 402 });
+    }
 
     // Cancelar/reembolsar tiene lógica de negocio propia (liberar stock, y
     // en reembolso intentar devolver el dinero en la pasarela primero) — no
@@ -58,6 +67,10 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
       return NextResponse.json(order);
     }
 
+    // H-019: mover el pedido a o desde una temporada cerrada da 423; entre abiertas queda en la auditoría.
+    const seasonMove = body?.temporadaId !== undefined && seasonLinkEnabled() ? await planSeasonMove(async () => (await prisma.shopOrder.findUnique({ where: { id: params?.id }, select: { temporadaId: true } }))?.temporadaId, body.temporadaId) : null;
+    if (seasonMove?.block) return seasonMove.block;
+
     // Cambio de estado "plano": solo transiciones con sentido (ver canChangeShopOrderStatus).
     const current = await prisma.shopOrder.findUnique({ where: { id: params?.id }, select: { status: true, trackingNumber: true } });
     if (body?.status !== undefined && current && !canChangeShopOrderStatus(current.status, body.status)) {
@@ -73,6 +86,8 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
         temporadaId: body?.temporadaId === undefined || !seasonLinkEnabled() ? undefined : body.temporadaId || null,
       },
     });
+
+    await recordSeasonMove(seasonMove, { session, request, targetType: 'ShopOrder', targetId: params?.id });
 
     // P1-10: al pasar a «Enviado» el comprador recibe un email con su enlace y el seguimiento; si el número llega o cambia después, otro con el nuevo.
     // `resendShippedEmail` (botón del admin) lo vuelve a enviar. El fallo del correo NO deshace el cambio de estado: se devuelve para avisar al admin.

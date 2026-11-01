@@ -15,6 +15,7 @@ const STAFF_CHECK = /getServerSession|isStaffSession|isAdminSession|allow(Order|
 const PUBLIC_WITH_OPTIONAL_STAFF: Record<string, string> = {
   '/api/events': 'listado público de eventos; con sesión de personal añade borradores (solo lectura)',
   '/api/events/[slug]': 'ficha pública del evento; con sesión de personal ve también los no publicados',
+  '/api/events/[slug]/minor-authorization': 'PDF público de autorización de menores; con ADMIN con Entradas se descarga también el de un borrador (H-059)',
   '/api/orders/[orderId]/send-tickets': 'reenvío de entradas: lo usa el comprador con su token o el personal desde el admin',
   // Token del comprador o del sponsor, o personal CON el módulo dueño: el fallback de personal es module-aware (isStaffSessionFor / isAdminSessionFor).
   '/api/orders/[orderId]': 'confirmación del comprador (token) o personal de Entradas',

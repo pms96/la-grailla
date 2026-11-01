@@ -8,6 +8,7 @@ import { StripeAdapter, SumUpAdapter } from '@/lib/payment-adapter';
 import { handleApiError } from '@/lib/api-error';
 import { getConfigOrThrow } from '@/lib/config';
 import { SECRET_MASK } from '@/lib/secrets';
+import { adminLacksModule } from '@/lib/modules/access';
 
 // Comprueba la credencial tal como está escrita AHORA MISMO en el formulario
 // de /admin/configuracion, antes de guardarla — un espacio invisible pegado
@@ -28,6 +29,11 @@ export async function POST(request: Request) {
   }
   try {
     const body = testGatewaySchema.parse(await request.json());
+    // H-068: con la máscara se prueba la clave GUARDADA de esa cuenta, así que probarla equivale a «preguntar» por ella. Cada cuenta pide su módulo (el
+    // middleware deja pasar `/api/admin/config/*` a todo administrador porque la pantalla de configuración filtra por módulo clave a clave).
+    if (adminLacksModule(session.user, body.scope)) {
+      return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 });
+    }
 
     if (body.gateway === 'stripe') {
       // El formulario nunca recibe la clave real (ver GET /api/admin/config): si no la

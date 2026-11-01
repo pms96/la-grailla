@@ -7,6 +7,8 @@ type TestSession = { user: { id: string; role: string; email: string; modules: s
 let session: TestSession = null;
 vi.mock('next-auth', () => ({ getServerSession: vi.fn(async () => session) }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
+// Ningún test de este archivo debe enviar correo de verdad (el reenvío de entradas de H-063 pasa por el SMTP si no se simula).
+vi.mock('@/lib/mailer', async (orig) => ({ ...(await orig<typeof import('@/lib/mailer')>()), sendMail: async () => ({ success: true, transport: 'smtp' as const }) }));
 vi.mock('@/lib/wallet', async (orig) => ({ ...(await orig<typeof import('@/lib/wallet')>()), buildApplePass: async () => Buffer.from('pkpass'), buildGoogleWalletSaveUrl: async () => 'https://pay.google.com/x' }));
 
 const { POST: scan } = await import('@/app/api/scan/route');
@@ -19,6 +21,7 @@ const { GET: orderGet } = await import('@/app/api/orders/[orderId]/route');
 const { GET: pdfHtml } = await import('@/app/api/tickets/[orderId]/pdf-html/route');
 const { GET: appleWallet } = await import('@/app/api/wallet/apple/[ticketId]/route');
 const { GET: eventsList } = await import('@/app/api/events/route');
+const { POST: sendTickets } = await import('@/app/api/orders/[orderId]/send-tickets/route');
 
 /* P1-03, red de seguridad EN LOS HANDLERS: aunque el middleware no llegara a aplicarse (p. ej. una variante de ruta que no normaliza), un ADMIN con un rol
  * restringido SIN Entradas no puede usar las APIs de personal ni leer los pedidos de los compradores. El personal de puerta (TAQUILLA, que trae
@@ -123,11 +126,48 @@ describe('APIs con token de comprador: el fallback de personal exige el módulo'
     expect((await call()).status).toBe(401);
   });
 
-  it.each(Object.entries(noToken))('%s: sin token, el propietario, un gestor de entradas y la taquilla SÍ', async (_n, call) => {
+  it.each(Object.entries(noToken).filter(([n]) => n !== 'wallet'))('%s: sin token, el propietario, un gestor de entradas y la taquilla SÍ', async (_n, call) => {
     for (const s of [as('ADMIN', null), as('ADMIN', ['entradas']), as('TAQUILLA', null)]) {
       session = s;
       expect((await call()).status, JSON.stringify(s?.user.modules)).toBe(200);
     }
+  });
+
+  // H-064: el `.pkpass` lleva el QR completo y la búsqueda de la puerta entrega el `ticketId`: con el fallback de «cualquier personal», el personal de
+  // puerta se llevaba el QR de cualquier entrada («nunca el QR»). Sin token del comprador, el pase solo lo abre un ADMIN con Entradas.
+  it('wallet sin token: la taquilla NO (401); el propietario y un gestor de entradas SÍ', async () => {
+    session = as('TAQUILLA', null);
+    expect((await noToken.wallet()).status).toBe(401);
+    for (const s of [as('ADMIN', null), as('ADMIN', ['entradas'])]) {
+      session = s;
+      expect((await noToken.wallet()).status, JSON.stringify(s?.user.modules)).toBe(200);
+    }
+  });
+
+  // H-063: `send-tickets` miraba solo el rol (`isStaff`), se saltó el endurecimiento de P1-03: un ADMIN restringido sin Entradas forzaba reenvíos sin el
+  // límite por pedido y, con el detalle del error SMTP, veía datos del proveedor.
+  it('send-tickets con `force`: un ADMIN restringido SIN Entradas recibe 401; con Entradas, el propietario y la taquilla no', async () => {
+    const force = () =>
+      sendTickets(new Request(`http://localhost/api/orders/${orderId}/send-tickets`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-vercel-forwarded-for': `10.${Math.floor(Math.random() * 250)}.7.7` }, body: JSON.stringify({ force: true }) }), { params: Promise.resolve({ orderId }) });
+    session = as('ADMIN', ['contabilidad']);
+    expect((await force()).status).toBe(401);
+    for (const s of [as('ADMIN', ['entradas']), as('ADMIN', null), as('TAQUILLA', null)]) {
+      session = s;
+      expect((await force()).status, JSON.stringify(s?.user.modules)).not.toBe(401);
+    }
+  });
+
+  it('send-tickets: un ADMIN restringido sin Entradas con el token del comprador cuenta como comprador (límite por pedido y sin detalle)', async () => {
+    session = as('ADMIN', ['contabilidad']);
+    const statuses: number[] = [];
+    let detail = false;
+    for (let i = 0; i < 5; i++) {
+      const res = await sendTickets(new Request(`http://localhost/api/orders/${orderId}/send-tickets`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-vercel-forwarded-for': `10.${100 + i}.7.8` }, body: JSON.stringify({ softResend: true, t: orderAccessQuery(orderId).replace(/^t=/, '') }) }), { params: Promise.resolve({ orderId }) });
+      statuses.push(res.status);
+      detail ||= 'detail' in ((await res.json()) as object);
+    }
+    expect(statuses).toContain(429);
+    expect(detail).toBe(false);
   });
 
   it('con el token del comprador funciona sin sesión (no cambia nada para el comprador)', async () => {

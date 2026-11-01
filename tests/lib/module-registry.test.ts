@@ -129,6 +129,12 @@ describe('allowlist «nunca bloqueable» (por fase y por módulo)', () => {
   it('reembolsos de pedidos existentes; el resto del admin, no', () => {
     expect(isLicenseExempt('/api/admin/orders/abc', 'PATCH')).toBe(true);
     expect(isLicenseExempt('/api/admin/orders/abc', 'GET')).toBe(false);
+    // H-066: lo mismo con los pedidos de la tienda (PUT con `status: CANCELLED | REFUNDED`); el handler rechaza los demás cambios.
+    expect(isLicenseExempt('/api/admin/shop-orders/abc', 'PUT')).toBe(true);
+    expect(isLicenseExempt('/api/admin/shop-orders/abc', 'GET')).toBe(false);
+    expect(isLicenseExempt('/api/admin/shop-orders/abc', 'DELETE')).toBe(false);
+    expect(isLicenseExempt('/api/admin/shop-orders', 'PUT')).toBe(false);
+    expect(isLicenseExempt('/api/admin/shop-orders/abc/resend-email', 'PUT')).toBe(false);
     expect(isLicenseExempt('/api/admin/events', 'POST')).toBe(false);
     expect(isLicenseExempt('/admin', 'GET')).toBe(false);
   });

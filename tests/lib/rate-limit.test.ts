@@ -62,3 +62,23 @@ describe('rateLimit', () => {
     expect(allowed.length).toBe(5);
   });
 });
+
+// H-061: un intento correcto no debe gastar cupo. `refundRateLimit` devuelve el hueco de UNA llamada anterior sin borrar el resto del cubo.
+describe('refundRateLimit', () => {
+  const scope = `test-refund-${Date.now()}`;
+
+  afterEach(async () => {
+    await prisma.rateLimitBucket.deleteMany({ where: { key: { startsWith: `${scope}:` } } });
+  });
+
+  it('devuelve un hueco: tras 5 usos y una devolución cabe uno más, y el contador no baja de cero', async () => {
+    const { refundRateLimit } = await import('@/lib/rate-limit');
+    for (let i = 0; i < 5; i++) await rateLimit(scope, 'x', 5, 60_000);
+    await refundRateLimit(scope, 'x');
+    expect((await rateLimit(scope, 'x', 5, 60_000)).ok).toBe(true);
+    expect((await rateLimit(scope, 'x', 5, 60_000)).ok).toBe(false);
+
+    await refundRateLimit(scope, 'sin-cubo'); // no existe: no falla ni crea nada
+    expect(await prisma.rateLimitBucket.count({ where: { key: `${scope}:sin-cubo` } })).toBe(0);
+  });
+});

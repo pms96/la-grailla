@@ -141,10 +141,21 @@ const nextConfig = {
       // Páginas públicas: antes se cacheaban con ISR (`revalidate = 60`), que cachea por RUTA y no por Host; con varios
       // clientes en un mismo despliegue eso mezclaría sus páginas. Ahora son dinámicas y las cachea el CDN de Vercel (cuya
       // clave de caché incluye el dominio). Solo afecta al CDN: el navegador no las guarda.
-      ...['/', '/eventos', '/eventos/:slug', '/tienda', '/sponsors', '/legal/:path*'].map((source) => ({
+      ...['/', '/eventos', '/tienda', '/sponsors', '/legal/:path*'].map((source) => ({
         source,
         headers: [{ key: 'Vercel-CDN-Cache-Control', value: 'max-age=60, stale-while-revalidate=30' }],
       })),
+      // La ficha de un evento muestra un BORRADOR a un ADMIN (vista previa) y el CDN no mira cookies al guardar: esa respuesta se serviría a cualquier visitante
+      // durante el minuto de caché. Por eso esta regla solo se aplica a quien NO trae cookie de sesión (los tres nombres de lib/tenant/session-cookie.ts, también
+      // la sesión troceada `.0` de una cookie grande). Un ADMIN con sesión recibe la ficha sin caché de CDN (H-059).
+      {
+        source: '/eventos/:slug',
+        missing: ['next-auth.session-token', '__Secure-next-auth.session-token', '__Host-next-auth.session-token'].flatMap((key) => [
+          { type: 'cookie', key },
+          { type: 'cookie', key: `${key}.0` },
+        ]),
+        headers: [{ key: 'Vercel-CDN-Cache-Control', value: 'max-age=60, stale-while-revalidate=30' }],
+      },
       // Ficheros de marca (logo, pegatinas, banda del wallet). Sin hash en el nombre y reemplazables, así que nada de
       // `immutable` ni caducidades de un año: 1 día fresco y hasta 7 días sirviendo la copia vieja mientras se revalida
       // en segundo plano. Sin esto Next los sirve con max-age=0.

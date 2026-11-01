@@ -128,7 +128,7 @@ export async function allowOrderAccess(
   return isStaffSessionFor('entradas');
 }
 
-/** Token de ticket, token del pedido padre, o staff. */
+/** Token de ticket, token del pedido padre, o un ADMIN con Entradas (la taquilla no: el pase de Wallet lleva el QR). */
 export async function allowTicketAccess(
   ticketId: string,
   orderId: string | null | undefined,
@@ -136,7 +136,9 @@ export async function allowTicketAccess(
 ): Promise<boolean> {
   if (verifyTicketAccess(ticketId, token)) return true;
   if (orderId && verifyOrderAccess(orderId, token)) return true;
-  return isStaffSessionFor('entradas');
+  // H-064: SOLO un ADMIN con Entradas, no «cualquier personal». Esto abre el pase de Wallet, que lleva el QR completo, y la búsqueda de la puerta
+  // entrega el `ticketId` de cualquier entrada: con el fallback de personal, quien está en la puerta se llevaba el QR de la entrada de otro.
+  return isAdminSessionFor('entradas');
 }
 
 /**

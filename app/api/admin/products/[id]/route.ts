@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { planSeasonMove, recordSeasonMove } from '@/lib/contabilidad/season-reassign';
 import { seasonLinkEnabled } from '@/lib/modules/season-link';
 import { StockConflictError, syncProductVariants } from '@/lib/product-stock';
 import { releaseUnusedBlobs } from '@/lib/blob-cleanup';
@@ -35,14 +36,18 @@ const updateProductSchema = z.object({
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
-  return session?.user?.role === 'ADMIN';
+  return session?.user?.role === 'ADMIN' ? session : null;
 }
 
 export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  if (!(await requireAdmin())) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const session = await requireAdmin();
+  if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   try {
     const body = updateProductSchema.parse(await request.json());
+    // H-019: mover el producto a o desde una temporada cerrada da 423; entre abiertas queda en la auditoría.
+    const seasonMove = body?.temporadaId !== undefined && seasonLinkEnabled() ? await planSeasonMove(async () => (await prisma.product.findUnique({ where: { id: params?.id }, select: { temporadaId: true } }))?.temporadaId, body.temporadaId) : null;
+    if (seasonMove?.block) return seasonMove.block;
     // Si cambian las fotos, las que sobran se borran de Blob cuando ya está guardado el cambio.
     const previous =
       body?.imageUrl !== undefined || body?.images !== undefined
@@ -79,6 +84,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       });
     });
     if (previous) await releaseUnusedBlobs([previous.imageUrl, ...previous.images], [product.imageUrl, ...product.images]);
+    await recordSeasonMove(seasonMove, { session, request, targetType: 'Product', targetId: params?.id });
     return NextResponse.json(product);
   } catch (error) {
     // La transacción ya se ha deshecho entera: ni el stock ni el resto de campos del producto se han guardado.

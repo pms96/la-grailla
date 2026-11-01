@@ -11,6 +11,7 @@ import { getBaseUrl } from '@/lib/url';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { handleApiError } from '@/lib/api-error';
 import { allowOrderAccess } from '@/lib/access-token';
+import { adminLacksModule } from '@/lib/modules/access';
 
 const sendTicketsSchema = z.object({
   force: z.boolean().optional(),
@@ -18,8 +19,11 @@ const sendTicketsSchema = z.object({
   t: z.string().optional(),
 });
 
-function isStaff(role: string | undefined): boolean {
-  return role === 'ADMIN' || role === 'TAQUILLA';
+// H-063: personal = ADMIN o TAQUILLA CON el módulo Entradas. Mirar solo el rol dejaba a un ADMIN restringido (p. ej. «Contable») forzar reenvíos sin el
+// límite por pedido y leer el detalle del error SMTP; es el mismo criterio que `isStaffSessionFor('entradas')` (P1-03).
+function isStaff(user: { role?: string | null; modules?: readonly string[] | null } | undefined): boolean {
+  if (user?.role !== 'ADMIN' && user?.role !== 'TAQUILLA') return false;
+  return !adminLacksModule(user, 'entradas');
 }
 
 /* Envío del email de entradas a petición (P0-08), SIEMPRE por el único punto de envío (concesión atómica: dos clics o un clic y el webhook no
@@ -51,7 +55,7 @@ export async function POST(request: Request, props: { params: Promise<{ orderId:
     }
 
     const session = await getServerSession(authOptions);
-    const staff = isStaff(session?.user?.role);
+    const staff = isStaff(session?.user);
 
     if (force) {
       if (!staff) {

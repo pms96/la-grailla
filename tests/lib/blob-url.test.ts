@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { isBlobUrlUnder, isDeletableBlobUrl, parseBlobUrl, sanitizeUploadFileName } from '@/lib/blob-url';
 
 const HOST = 'https://abc123.public.blob.vercel-storage.com';
@@ -64,5 +64,32 @@ describe('sanitizeUploadFileName', () => {
   it('acota la longitud y no devuelve vacío', () => {
     expect(sanitizeUploadFileName('a'.repeat(300) + '.png').length).toBeLessThanOrEqual(100);
     expect(sanitizeUploadFileName('///')).toBe('archivo');
+  });
+});
+
+// H-067: con `BLOB_PUBLIC_HOST` definida (el almacén de la plataforma) solo vale ESE host: otro almacén de Blob (de otra cuenta) también acaba en
+// `.public.blob.vercel-storage.com`, y aceptarlo permitía apuntar logos, carteles y borrados a un almacén ajeno. Sin la variable (desarrollo) vale el sufijo.
+describe('almacén de la plataforma (BLOB_PUBLIC_HOST) — H-067', () => {
+  const saved = process.env.BLOB_PUBLIC_HOST;
+  const restore = () => {
+    if (saved === undefined) delete process.env.BLOB_PUBLIC_HOST;
+    else process.env.BLOB_PUBLIC_HOST = saved;
+  };
+  afterEach(restore);
+
+  it('con la variable, solo se acepta el host exacto (sin importar mayúsculas ni espacios en la variable)', () => {
+    process.env.BLOB_PUBLIC_HOST = '  ABC123.public.blob.vercel-storage.com ';
+    expect(parseBlobUrl(`${HOST}/sponsors/s1/logo.png`)?.hostname).toBe('abc123.public.blob.vercel-storage.com');
+    expect(parseBlobUrl('https://otro999.public.blob.vercel-storage.com/sponsors/s1/logo.png')).toBeNull();
+    expect(isBlobUrlUnder('https://otro999.public.blob.vercel-storage.com/sponsors/s1/logo.png', 'sponsors/s1/')).toBe(false);
+    expect(isDeletableBlobUrl('https://otro999.public.blob.vercel-storage.com/sponsors/s1/logo.png')).toBe(false);
+    expect(isDeletableBlobUrl(`${HOST}/sponsors/s1/logo.png`)).toBe(true);
+  });
+
+  it('sin la variable (o vacía) sigue valiendo cualquier almacén de Blob, como en desarrollo', () => {
+    delete process.env.BLOB_PUBLIC_HOST;
+    expect(parseBlobUrl('https://otro999.public.blob.vercel-storage.com/x')).not.toBeNull();
+    process.env.BLOB_PUBLIC_HOST = '   ';
+    expect(parseBlobUrl('https://otro999.public.blob.vercel-storage.com/x')).not.toBeNull();
   });
 });

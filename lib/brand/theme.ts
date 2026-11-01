@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isPlatformBlobHost } from '@/lib/blob-url';
 
 /* Tema de marca de un cliente (SiteTheme). Módulo PURO (sin servidor, sin next/*): lo usan el layout, la pantalla de Apariencia y los tests.
  *
@@ -113,7 +114,6 @@ export const TEMPLATE_PRESETS: Partial<Record<TemplateKey, { mode: ModeKey; radi
 const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Color en formato #RRGGBB');
 // Una imagen de marca es un fichero propio de la instalación (/brand/…) o un fichero de Vercel Blob (https, sin query ni credenciales).
 // La comprobación de que pertenece al prefijo del cliente se hace al guardar (servidor): aquí solo la forma.
-const BLOB_HOST_SUFFIX = '.public.blob.vercel-storage.com';
 /** Ficheros fijos de la instalación de La Grailla (iconos y imagen social de siempre): solo los puede usar el cliente legacy. */
 export const LEGACY_FIXED_ASSETS = ['/icon-32.png', '/icon-512.png', '/apple-icon.png', '/og-image.png'] as const;
 export function isBrandAssetUrl(raw: string): boolean {
@@ -127,8 +127,7 @@ export function isBrandAssetUrl(raw: string): boolean {
   }
   return (
     url.protocol === 'https:' &&
-    url.hostname.endsWith(BLOB_HOST_SUFFIX) &&
-    url.hostname.length > BLOB_HOST_SUFFIX.length &&
+    isPlatformBlobHost(url.hostname) &&
     !url.search &&
     !url.hash &&
     !url.username &&

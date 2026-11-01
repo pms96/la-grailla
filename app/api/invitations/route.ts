@@ -12,8 +12,10 @@ import { generateQRCode } from '@/lib/qr';
 import { sendOrderEmail, sendResultResponse } from '@/lib/order-email';
 import { getBaseUrl } from '@/lib/url';
 import { handleApiError } from '@/lib/api-error';
+import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
 
 class InvitationRejectedError extends Error {}
+class InvitationHasEntriesError extends Error {}
 
 const createInvitationSchema = z.object({
   eventId: z.string().min(1),
@@ -44,6 +46,8 @@ export async function GET(request: Request) {
   const where: Prisma.InvitationWhereInput = {};
   if (eventId) where.eventId = eventId;
   if (listId) where.listId = listId;
+  // H-060: la taquilla (RRPP) solo ve SUS invitaciones: esta respuesta lleva el email de cada invitado.
+  if (session.user?.role !== 'ADMIN') where.createdById = session.user?.id ?? '__sin_usuario__';
 
   const invitations = await prisma.invitation.findMany({
     where,
@@ -72,6 +76,14 @@ export async function POST(request: Request) {
 
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return NextResponse.json({ error: 'Evento no encontrado' }, { status: 404 });
+    // H-060: una taquilla solo añade invitados a SUS listas.
+    if (listId) {
+      const list = await prisma.guestList.findUnique({ where: { id: listId }, select: { ownerId: true, eventId: true } });
+      if (!list || list.eventId !== eventId) return NextResponse.json({ error: 'Lista no encontrada' }, { status: 404 });
+      if (session.user?.role !== 'ADMIN' && list.ownerId !== session.user?.id) {
+        return NextResponse.json({ error: 'Solo puedes añadir invitados a tus propias listas.', code: 'not_owner' }, { status: 403 });
+      }
+    }
     // H-080: un evento cancelado o terminado no admite invitaciones (se emitía el QR y se enviaba el email). Un borrador sí: lista VIP antes de anunciarlo.
     if (event.status === 'CANCELLED' || event.status === 'FINISHED') {
       return NextResponse.json(
@@ -167,24 +179,33 @@ export async function DELETE(request: Request) {
   try {
     const invitation = await prisma.invitation.findUnique({ where: { id } });
     if (!invitation) return NextResponse.json({ error: 'No encontrada' }, { status: 404 });
+    // H-060: la taquilla solo borra las suyas; el ADMIN, cualquiera.
+    if (session.user?.role !== 'ADMIN' && invitation.createdById !== session.user?.id) {
+      return NextResponse.json({ error: 'Solo puedes borrar tus propias invitaciones.', code: 'not_owner' }, { status: 403 });
+    }
 
     await prisma.$transaction(async (tx) => {
       if (invitation.orderId) {
-        // Si alguna entrada ya había sido escaneada (USED), al anularla hay que
-        // descontarla del aforo físico (currentCount), o quedaría gente "dentro"
-        // que ya no tiene entrada válida.
-        const usedCount = await tx.ticket.count({ where: { orderId: invitation.orderId, status: 'USED' } });
-        await tx.ticket.updateMany({ where: { orderId: invitation.orderId }, data: { status: 'CANCELLED' } });
+        // H-060: una entrada ya USADA no se anula (antes se cancelaba y se descontaba del aforo: quedaba gente «dentro» sin entrada y sin rastro de quién
+        // la admitió). Se anula lo que no ha entrado y, si entretanto se escaneó alguna, se deshace todo. Para quitar una entrada usada hay que cancelarla a mano.
+        await tx.ticket.updateMany({ where: { orderId: invitation.orderId, status: { not: 'USED' } }, data: { status: 'CANCELLED' } });
+        if ((await tx.ticket.count({ where: { orderId: invitation.orderId, status: 'USED' } })) > 0) throw new InvitationHasEntriesError();
         await tx.order.update({ where: { id: invitation.orderId }, data: { status: 'CANCELLED' } });
-        if (usedCount > 0) {
-          await tx.event.update({ where: { id: invitation.eventId }, data: { currentCount: { decrement: usedCount } } });
-        }
       }
       await tx.invitation.delete({ where: { id } });
+      await recordAdminAudit(tx, actorFromSession(session), request, {
+        action: 'invitation.delete',
+        targetType: 'Invitation',
+        targetId: id,
+        meta: { eventId: invitation.eventId, listId: invitation.listId, quantity: invitation.quantity, createdById: invitation.createdById },
+      });
     });
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof InvitationHasEntriesError) {
+      return NextResponse.json({ error: 'Esta invitación tiene entradas que ya han entrado: no se puede borrar.', code: 'invitation_has_entries' }, { status: 409 });
+    }
     return handleApiError(error, 'DELETE /api/invitations');
   }
 }

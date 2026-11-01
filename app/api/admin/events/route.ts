@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { planSeasonMove, recordSeasonMove } from '@/lib/contabilidad/season-reassign';
 import { seasonLinkEnabled, withoutSeasonLink } from '@/lib/modules/season-link';
 import { parseEventDateInput } from '@/lib/event-time';
 import { parseEventNumberSettings } from '@/lib/waiting-room-settings';
@@ -128,6 +129,9 @@ export async function POST(request: Request) {
     const numbers = parseEventNumberSettings(body);
     if (!numbers.ok) return NextResponse.json({ error: numbers.error, code: 'invalid_number_setting' }, { status: 400 });
     const slug = (body?.name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    // H-019: un evento nuevo no entra ya enlazado a una temporada cerrada (cambiaría su margen).
+    const seasonMove = body?.temporadaId && seasonLinkEnabled() ? await planSeasonMove(async () => null, body.temporadaId) : null;
+    if (seasonMove?.block) return seasonMove.block;
     const event = await prisma.event.create({
       data: {
         name: body?.name ?? '',

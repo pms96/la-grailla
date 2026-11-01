@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
+import { purgeAuditLog } from '../helpers/audit';
 import { createTestEvent, createTicketType, cleanupTestEvent } from '../helpers/fixtures';
 import { gateway } from '../helpers/fake-gateway';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -65,7 +66,7 @@ describe('registro de auditoría de acciones sensibles', () => {
     await prisma.user.deleteMany({ where: { id: { in: createdUsers } } });
     await prisma.accessRole.deleteMany({ where: { id: { in: createdRoles } } });
     await cleanupTestEvent(event.id);
-    await prisma.adminAuditLog.deleteMany({ where: { actorId: ACTOR } });
+    await purgeAuditLog({ actorId: ACTOR });
   });
 
   describe('configuración', () => {

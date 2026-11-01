@@ -7,6 +7,7 @@ import { getServerSession } from 'next-auth';
 import { adminLacksModule } from '@/lib/modules/access';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
 
 const createGuestListSchema = z.object({
   eventId: z.string().min(1),
@@ -30,8 +31,10 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const eventId = searchParams.get('eventId');
 
+  // H-060: la taquilla (RRPP) solo ve SUS listas (con sus invitados, que llevan email); el ADMIN, todas.
+  const where = { ...(eventId ? { eventId } : {}), ...(session.user?.role !== 'ADMIN' ? { ownerId: session.user?.id ?? '__sin_usuario__' } : {}) };
   const lists = await prisma.guestList.findMany({
-    where: eventId ? { eventId } : undefined,
+    where,
     include: { invitations: true, event: { select: { name: true } } },
     orderBy: { createdAt: 'desc' },
   });
@@ -68,7 +71,21 @@ export async function DELETE(request: Request) {
   if (!id) return NextResponse.json({ error: 'Falta el id' }, { status: 400 });
 
   try {
-    await prisma.guestList.delete({ where: { id } });
+    const list = await prisma.guestList.findUnique({ where: { id }, include: { _count: { select: { invitations: true } } } });
+    if (!list) return NextResponse.json({ error: 'No encontrada' }, { status: 404 });
+    // H-060: la taquilla solo borra las suyas; el ADMIN, cualquiera. Las invitaciones de la lista no se borran: quedan sin lista.
+    if (session.user?.role !== 'ADMIN' && list.ownerId !== session.user?.id) {
+      return NextResponse.json({ error: 'Solo puedes borrar tus propias listas.', code: 'not_owner' }, { status: 403 });
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.guestList.delete({ where: { id } });
+      await recordAdminAudit(tx, actorFromSession(session), request, {
+        action: 'invitation.list_delete',
+        targetType: 'GuestList',
+        targetId: id,
+        meta: { eventId: list.eventId, invitations: list._count.invitations, ownerId: list.ownerId },
+      });
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     return handleApiError(error, 'DELETE /api/guest-lists');

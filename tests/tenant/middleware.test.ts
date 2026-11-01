@@ -190,3 +190,26 @@ describe('Origin y caché', () => {
     expect(res.headers.get('Vercel-Cache-Tag')).toBeNull();
   });
 });
+
+// H-065: `middleware.ts` (modo normal) decide sobre la ruta DECODIFICADA y el de plataforma sobre la cruda. Next resuelve la variante decodificada hasta
+// el handler, así que las decisiones (qué es webhook, qué es de staff, qué módulo manda) deben tomarse sobre la misma forma que usa el router.
+describe('la ruta se decide decodificada (H-065)', () => {
+  it('un webhook escrito con %XX se trata como webhook: sigue vivo con el cliente suspendido', async () => {
+    const res = await platformMiddleware(req('c.cliente.test', '/api/%77ebhooks/stripe', { method: 'POST', headers: { origin: 'http://c.cliente.test' } }));
+    expect(res.status).not.toBe(503);
+    expect(res.headers.get('x-middleware-next')).toBe('1');
+  });
+
+  it('una ruta de staff escrita con %XX exige sesión de staff igual que la normal', async () => {
+    const plainRes = await platformMiddleware(req('a.cliente.test', '/api/admin/events'));
+    const encoded = await platformMiddleware(req('a.cliente.test', '/api/%61dmin/events'));
+    expect(plainRes.status).toBe(401);
+    expect(encoded.status).toBe(401);
+    const page = await platformMiddleware(req('a.cliente.test', '/%61dmin'));
+    expect(page.status).toBe(307);
+  });
+
+  it('las barras repetidas no esquivan la regla', async () => {
+    expect((await platformMiddleware(req('a.cliente.test', '//api//admin//events'))).status).toBe(401);
+  });
+});

@@ -11,9 +11,10 @@ import { getClientIp } from '@/lib/rate-limit';
 export const AUDIT_ACTIONS = [
   'gasto.create', 'gasto.update', 'gasto.void',
   'ingreso.create', 'ingreso.update', 'ingreso.void',
-  'temporada.close', 'temporada.reopen', 'temporada.update',
+  'temporada.close', 'temporada.reopen', 'temporada.update', 'temporada.reassign',
   'order.cancel', 'order.refund', 'order.complete', 'order.verify', 'order.update_email', 'order.shop_cancel', 'order.shop_refund',
   'event.cancel',
+  'invitation.delete', 'invitation.list_delete',
   'config.update',
   'user.create', 'user.update', 'user.delete',
   'role.create', 'role.update', 'role.delete',
