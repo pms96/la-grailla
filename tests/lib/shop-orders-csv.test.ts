@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { csvMoney, csvText, formatMadridDateTime, madridDay, shopOrdersToCsv, SHOP_ORDERS_CSV_HEADERS } from '@/lib/shop-orders-csv';
+import { csvMoney, csvPhone, csvText, formatMadridDateTime, madridDay, shopOrdersToCsv, SHOP_ORDERS_CSV_HEADERS } from '@/lib/shop-orders-csv';
 
 // AUDIT P0-09 / TI-04 (y CO-05): el CSV debe abrirse bien en Excel español y no ser vector de inyección de fórmulas.
 describe('csvText — escudo de fórmulas y comillas', () => {
-  it.each(['=1+1', '+34600123456', '-5', '@SUMA(A1)', '\tX', '\rX'])('antepone un apóstrofo a %j', (v) => {
+  it.each(['=1+1', '+34600123456+1', '-5', '@SUMA(A1)', '\tX', '\rX'])('antepone un apóstrofo a %j', (v) => {
     expect(csvText(v).replace(/^"/, '').startsWith("'")).toBe(true);
   });
   it('no toca el texto normal ni los números dentro del texto', () => {
@@ -21,6 +21,26 @@ describe('csvText — escudo de fórmulas y comillas', () => {
   it('null y undefined son celda vacía', () => {
     expect(csvText(null)).toBe('');
     expect(csvText(undefined)).toBe('');
+  });
+});
+
+// H-138: el escudo anti-fórmulas anteponía «'» a todo lo que empieza por «+», así que +34600111222 salía como '+34600111222 (en CSV el apóstrofo es literal)
+// y se rompían las etiquetas de envío. Un teléfono (solo dígitos, espacios y un «+» inicial) no puede ser una fórmula peligrosa.
+describe('csvPhone', () => {
+  it('deja intacto un teléfono con prefijo internacional y le quita los espacios', () => {
+    expect(csvPhone('+34600111222')).toBe('+34600111222');
+    expect(csvPhone('+34 600 111 222')).toBe('+34600111222');
+    expect(csvPhone('600 111 222')).toBe('600111222');
+  });
+  it('sigue neutralizando lo que no es un teléfono', () => {
+    expect(csvPhone('=1+1')).toBe("'=1+1");
+    expect(csvPhone('+34 600; cmd|calc')).toBe(`"'+34 600; cmd|calc"`);
+    expect(csvPhone('-5')).toBe("'-5");
+    expect(csvPhone('+')).toBe("'+");
+  });
+  it('vacío y null son celda vacía', () => {
+    expect(csvPhone(null)).toBe('');
+    expect(csvPhone('')).toBe('');
   });
 });
 
@@ -91,13 +111,30 @@ describe('shopOrdersToCsv', () => {
     expect(col(r1, 'precio_unitario')).toBe('20,00');
     expect(col(r1, 'importe_linea')).toBe('40,00');
     expect(col(r1, 'total_pedido')).toBe('47,50');
-    expect(col(r1, 'telefono')).toBe("'+34 600 123 456"); // el + se neutraliza como fórmula
+    expect(col(r1, 'total_cobrado')).toBe('47,50');
+    expect(col(r1, 'telefono')).toBe('+34600123456'); // H-138: un teléfono no se corrompe con el escudo de fórmulas
     expect(col(r1, 'direccion')).toBe('Calle Mayor 1, 3ºA');
     expect(col(r1, 'nombre')).toMatch(/^"'=HYPERLINK/);
     expect(col(r2, 'producto')).toBe('Taza');
     expect(col(r2, 'talla')).toBe('');
     expect(col(r2, 'total_pedido')).toBe('');
+    expect(col(r2, 'total_cobrado')).toBe('');
     expect(lines[1]).toContain('"Llamar; antes de las 20h"');
+  });
+
+  // H-137: sin filtro de estado el CSV trae también pendientes, cancelados y reembolsados; «total_pedido» lleva su importe pero ya no es dinero cobrado.
+  it.each(['PENDING', 'CANCELLED', 'REFUNDED'])('un pedido %s no suma en «total_cobrado»', (status) => {
+    const lines = shopOrdersToCsv([{ ...order, status }]).slice(1).split('\r\n');
+    const h = [...SHOP_ORDERS_CSV_HEADERS];
+    const r1 = lines[1].split(';');
+    expect(r1[h.indexOf('total_pedido')]).toBe('47,50');
+    expect(r1[h.indexOf('total_cobrado')]).toBe('0,00');
+  });
+
+  it.each(['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED'])('un pedido %s sí suma en «total_cobrado»', (status) => {
+    const h = [...SHOP_ORDERS_CSV_HEADERS];
+    const r1 = shopOrdersToCsv([{ ...order, status }]).slice(1).split('\r\n')[1].split(';');
+    expect(r1[h.indexOf('total_cobrado')]).toBe('47,50');
   });
 
   it('un pedido sin líneas sale en una fila', () => {

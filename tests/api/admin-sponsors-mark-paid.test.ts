@@ -23,8 +23,10 @@ function postRequest(body: unknown): Request {
 describe('POST /api/admin/sponsors-portal/[id]/mark-paid', () => {
   let requestId: string;
   let sponsorId: string;
+  let temporadaId: string;
 
   beforeAll(async () => {
+    temporadaId = (await prisma.temporada.create({ data: { nombre: `[TEST] Temporada mark-paid ${Date.now()}`, anio: 2089 } })).id;
     // No depender de lo que ya hubiera guardado en Configuración — se fija un
     // tipo con un importe conocido para que el test no dependa del estado
     // compartido de la BD de dev.
@@ -41,6 +43,7 @@ describe('POST /api/admin/sponsors-portal/[id]/mark-paid', () => {
         email: `sponsor-mark-paid-${Date.now()}@example.com`,
         sponsorType: 'evento',
         status: 'ACCEPTED',
+        temporadaId,
       },
     });
     requestId = request.id;
@@ -52,6 +55,7 @@ describe('POST /api/admin/sponsors-portal/[id]/mark-paid', () => {
     await prisma.sponsor.deleteMany({ where: { id: sponsorId } });
     await prisma.sponsorRequest.deleteMany({ where: { id: requestId } });
     await prisma.appConfig.deleteMany({ where: { key: 'sponsor_tiers' } });
+    await prisma.temporada.delete({ where: { id: temporadaId } }).catch(() => {});
   });
 
   it('rechaza a quien no es admin', async () => {
@@ -122,5 +126,87 @@ describe('POST /api/admin/sponsors-portal/[id]/mark-paid', () => {
     const data = await res.json();
     expect(data.isPaid).toBe(false);
     expect(data.isCollaboration).toBe(false);
+  });
+
+  /* H-134: el ingreso por patrocinio era el precio de TARIFA, no lo cobrado: no se podía teclear el importe real (500 pactado, 600 de tarifa ⇒ contaba 600),
+   * «500 € + IVA» se registraba 500 aunque se cobraran 605, sin `sponsor_tiers` regían los 30/50/75 € «de fábrica» (un cliente nuevo registraba ingresos
+   * inventados), un tipo sin `priceAmount` se normalizaba a 0 y el patrocinio quedaba «Pagado» con 0 €, y sin temporada el ingreso no contaba en ninguna parte. */
+  describe('importe cobrado (H-134)', () => {
+    const ctx = () => ({ params: Promise.resolve({ id: sponsorId }) });
+    const reset = () => markPaid(postRequest({ mode: 'unpaid' }), ctx());
+    const setTiers = (value: string | null) =>
+      value === null
+        ? prisma.appConfig.deleteMany({ where: { key: 'sponsor_tiers' } })
+        : prisma.appConfig.upsert({ where: { key: 'sponsor_tiers' }, update: { value }, create: { key: 'sponsor_tiers', value } });
+    const tier30 = JSON.stringify([{ value: 'evento', label: 'Evento', priceLabel: '30€', priceAmount: 30 }]);
+
+    it('el importe tecleado manda sobre la tarifa (500 pactado con 600 de tarifa cuenta 500; 605 con IVA cuenta 605)', async () => {
+      await reset();
+      const res = await markPaid(postRequest({ mode: 'paid', amount: 605 }), ctx());
+      expect(res.status).toBe(200);
+      expect((await res.json()).paidAmount).toBe(605);
+      await reset();
+    });
+
+    it('sin importe tecleado se toma la tarifa, como hasta ahora', async () => {
+      await reset();
+      expect((await (await markPaid(postRequest({ mode: 'paid' }), ctx())).json()).paidAmount).toBe(30);
+      await reset();
+    });
+
+    it('un importe 0, negativo o por encima del tope es una petición mal formada y no marca nada (tampoco como colaboración)', async () => {
+      await reset();
+      for (const amount of [0, -5, 1e12]) {
+        expect((await markPaid(postRequest({ mode: 'paid', amount }), ctx())).status, String(amount)).toBe(400);
+        expect((await markPaid(postRequest({ mode: 'collaboration', amount }), ctx())).status, `colaboración ${amount}`).toBe(400);
+      }
+      expect((await prisma.sponsor.findUniqueOrThrow({ where: { id: sponsorId } })).isPaid).toBe(false);
+    });
+
+    it('un tipo de patrocinio sin importe (priceAmount 0) no deja el patrocinio «Pagado» con 0 €: pide el importe', async () => {
+      await setTiers(JSON.stringify([{ value: 'evento', label: 'Evento', priceLabel: 'a convenir' }]));
+      try {
+        const res = await markPaid(postRequest({ mode: 'paid' }), ctx());
+        expect(res.status).toBe(400);
+        expect((await res.json()).code).toBe('importe_requerido');
+        expect((await prisma.sponsor.findUniqueOrThrow({ where: { id: sponsorId } })).isPaid).toBe(false);
+        // con el importe tecleado sí se puede
+        expect((await markPaid(postRequest({ mode: 'paid', amount: 400 }), ctx())).status).toBe(200);
+      } finally {
+        await reset();
+        await setTiers(tier30);
+      }
+    });
+
+    it('sin tipos configurados NO se inventan los de fábrica (30/50/75 €): hay que teclear el importe', async () => {
+      await setTiers(null);
+      try {
+        const res = await markPaid(postRequest({ mode: 'paid' }), ctx());
+        expect(res.status).toBe(400);
+        expect((await res.json()).code).toBe('importe_requerido');
+        expect((await markPaid(postRequest({ mode: 'paid', amount: 250 }), ctx())).status).toBe(200);
+      } finally {
+        await reset();
+        await setTiers(tier30);
+      }
+    });
+
+    it('un patrocinio sin temporada no se marca pagado: el ingreso no contaría en ninguna parte', async () => {
+      const request = await prisma.sponsorRequest.create({ data: { companyName: 'Sin Temporada SL', contactName: 'X', email: `sin-temp-${Date.now()}@example.com`, sponsorType: 'evento', status: 'ACCEPTED' } });
+      const sponsor = await prisma.sponsor.create({ data: { sponsorRequestId: request.id } });
+      try {
+        const res = await markPaid(postRequest({ mode: 'paid' }), { params: Promise.resolve({ id: sponsor.id }) });
+        expect(res.status).toBe(400);
+        const data = await res.json();
+        expect(data.code).toBe('temporada_requerida');
+        expect(data.error).toContain('temporada');
+        expect((await prisma.sponsor.findUniqueOrThrow({ where: { id: sponsor.id } })).isPaid).toBe(false);
+        // una colaboración (en especie) no es ingreso: no necesita temporada
+        expect((await markPaid(postRequest({ mode: 'collaboration' }), { params: Promise.resolve({ id: sponsor.id }) })).status).toBe(200);
+      } finally {
+        await prisma.sponsor.deleteMany({ where: { id: sponsor.id } });
+        await prisma.sponsorRequest.deleteMany({ where: { id: request.id } });
+      }
+    });
   });
 });

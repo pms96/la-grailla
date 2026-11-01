@@ -6,6 +6,7 @@ import { rateLimit, resetRateLimit } from '@/lib/rate-limit';
 import { currentTenant } from '@/lib/tenant/context';
 import { sendPlatformAlert } from '@/lib/observability/platform-alert';
 import { toCents } from '@/lib/pricing';
+import { orderRef } from '@/lib/order-ref';
 
 /** Qué ha pasado al confirmar un pago sobre un pedido (ver completeOrder / completeShopOrder). */
 export type CompleteOutcome =
@@ -127,7 +128,7 @@ export async function paymentMatchesOrder(kind: 'entradas' | 'tienda', orderId: 
     orderId,
     reason: 'amount_mismatch',
     dedupeKey: `amount-mismatch:${orderId}`,
-    subject: `⚠️ El importe cobrado no cuadra con el pedido (${orderId.slice(0, 8)})`,
+    subject: `⚠️ El importe cobrado no cuadra con el pedido (${orderRef(orderId)})`,
     html:
       `<p>La pasarela confirma un pago de ${kind} para el pedido <strong>${esc(orderId)}</strong>, pero el importe no coincide.</p>` +
       `<p>Cobrado: <strong>${esc(String(paid.amount))} ${esc(paid.currency ?? '')}</strong> · Pedido: <strong>${esc(String(expected))} EUR</strong>.</p>` +
@@ -145,7 +146,7 @@ export async function alertPaidButInactiveOrder(kind: 'entradas' | 'tienda', ord
     reason: 'paid_but_inactive',
     details: { status },
     dedupeKey: `paid-inactive:${orderId}:${status}`,
-    subject: `⚠️ Pago confirmado sobre pedido ya anulado (${orderId.slice(0, 8)})`,
+    subject: `⚠️ Pago confirmado sobre pedido ya anulado (${orderRef(orderId)})`,
     html:
       `<p>Se ha confirmado un pago de ${kind} para el pedido <strong>${esc(orderId)}</strong>, ` +
       `pero su estado ya era <strong>${esc(status)}</strong>.</p>` +

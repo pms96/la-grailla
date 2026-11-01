@@ -36,6 +36,9 @@ const createShopOrderSchema = z.object({
   acceptedTerms: z.boolean().optional(),
   // Versión de las condiciones con la que se pintó SU pantalla: si cambiaron mientras compraba, 409 (no acepta lo que no vio).
   termsVersion: z.string().max(64).optional(),
+  // H-132: el total (en céntimos) que el comprador tiene en pantalla. Si el servidor calcula otro (cambió un precio o se desactivó un producto mientras tanto),
+  // responde 409 con las cifras nuevas en lugar de cobrar algo distinto de lo que se vio. Opcional: sin él se cobra el precio vigente, como siempre.
+  expectedTotalCents: z.number().int().nonnegative().optional(),
   items: z
     .array(
       z.object({
@@ -49,6 +52,16 @@ const createShopOrderSchema = z.object({
     .min(1)
     .max(MAX_SHOP_LINES_PER_ORDER),
 });
+
+/** El total calculado con los precios de ahora no es el que el comprador vio (H-132). Lleva las cifras nuevas para que la pantalla las enseñe. */
+class PriceChangedError extends Error {
+  constructor(
+    readonly totalAmount: number,
+    readonly prices: { productId: string; unitPrice: number }[]
+  ) {
+    super(`El precio de tu pedido ha cambiado: ahora el total es ${totalAmount.toFixed(2).replace('.', ',')} €. Revisa el carrito y vuelve a pulsar Pagar.`);
+  }
+}
 
 // Demasiados pedidos sin pagar a la vez desde la misma IP: 429, porque el cupo se libera solo al pagar o abandonar.
 class TooManyPendingOrdersError extends Error {}
@@ -88,6 +101,7 @@ export async function POST(request: Request) {
       captchaToken,
       acceptedTerms,
       termsVersion: seenTermsVersion,
+      expectedTotalCents,
     } = body;
 
     if (idempotencyKey) {
@@ -159,6 +173,13 @@ export async function POST(request: Request) {
         if (itemsData.length === 0) {
           throw new Error('NO_VALID_ITEMS');
         }
+        // H-132: antes de reservar stock ni ocupar cupo, el total de ahora tiene que ser el que el comprador tiene delante.
+        if (expectedTotalCents !== undefined && expectedTotalCents !== totalCents) {
+          throw new PriceChangedError(
+            fromCents(totalCents),
+            itemsData.map((d) => ({ productId: d.productId, unitPrice: Number(d.unitPrice) }))
+          );
+        }
         // En céntimos enteros: el total que se guarda y el que se manda a la pasarela son el mismo, sin error de coma flotante (P1-07).
         const totalAmount = fromCents(totalCents);
         if (gatewayIsLive && totalAmount > 0 && totalAmount < MIN_ONLINE_PAYMENT) {
@@ -216,6 +237,9 @@ export async function POST(request: Request) {
       ) {
         const existing = await prisma.shopOrder.findUnique({ where: { idempotencyKey } });
         if (existing) return existingOrderResponse(existing);
+      }
+      if (error instanceof PriceChangedError) {
+        return NextResponse.json({ error: error.message, code: 'price_changed', totalAmount: error.totalAmount, prices: error.prices }, { status: 409 });
       }
       if (error instanceof Error && error.message === 'NO_VALID_ITEMS') {
         return NextResponse.json({ error: 'No hay productos válidos en el pedido' }, { status: 400 });

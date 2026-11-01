@@ -22,6 +22,7 @@ export const SHOP_ORDERS_CSV_HEADERS = [
   'precio_unitario',
   'importe_linea',
   'total_pedido',
+  'total_cobrado',
   'seguimiento',
   'notas',
 ] as const;
@@ -42,6 +43,16 @@ export function csvText(value: unknown): string {
   if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   if (/[";\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
+}
+
+/**
+ * Teléfono: el escudo de fórmulas lo corrompía (`+34600111222` salía como `'+34600111222` y en CSV el apóstrofo es literal, H-138). Lo que son solo dígitos,
+ * espacios y un «+» inicial no puede ser una fórmula peligrosa (no hay funciones ni referencias): sale sin espacios, que es como lo lee una etiqueta de envío.
+ * Cualquier otra cosa pasa por `csvText`, con el escudo.
+ */
+export function csvPhone(value: unknown): string {
+  const s = String(value ?? '');
+  return /^\+?[0-9][0-9 ]*$/.test(s) ? s.replace(/ /g, '') : csvText(s);
 }
 
 /** Importe con coma decimal y dos decimales («12,50»). Va sin el escudo de fórmulas: es un número, no texto de un comprador. */
@@ -95,8 +106,12 @@ export type ShopOrderCsvInput = {
 
 /**
  * Una fila por línea de pedido (así el vendedor ve producto, talla y color de cada artículo). Los datos del pedido se repiten en cada
- * línea, salvo `total_pedido`, que solo va en la primera para que sumar la columna no cuente el pedido varias veces.
+ * línea, salvo los totales, que solo van en la primera para que sumar la columna no cuente el pedido varias veces.
+ * Sin filtro de estado salen también pendientes, cancelados y reembolsados: `total_pedido` es el importe del pedido sea cual sea su estado y
+ * `total_cobrado` solo cuenta los que ya son dinero (pagado, procesando, enviado, entregado). La columna que se puede sumar es `total_cobrado` (H-137).
  */
+const COBRADOS = new Set(['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED']);
+
 export function shopOrdersToCsv(orders: ShopOrderCsvInput[]): string {
   const lines: string[] = [SHOP_ORDERS_CSV_HEADERS.join(';')];
   for (const o of orders) {
@@ -106,7 +121,7 @@ export function shopOrdersToCsv(orders: ShopOrderCsvInput[]): string {
       csvText(STATUS_LABELS[o.status] ?? o.status),
       csvText(o.buyerName),
       csvText(o.buyerEmail),
-      csvText(o.shippingPhone),
+      csvPhone(o.shippingPhone),
       csvText(o.shippingAddress),
       csvText(o.shippingZip),
       csvText(o.shippingCity),
@@ -124,6 +139,7 @@ export function shopOrdersToCsv(orders: ShopOrderCsvInput[]): string {
           item ? csvMoney(item.unitPrice) : '',
           item ? csvMoney(Number(item.unitPrice) * item.quantity) : '',
           i === 0 ? csvMoney(o.totalAmount) : '',
+          i === 0 ? csvMoney(COBRADOS.has(o.status) ? o.totalAmount : 0) : '',
           ...tail,
         ].join(';')
       );

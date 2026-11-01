@@ -3,6 +3,7 @@ import { precioFinalUnidad } from '@/lib/compras/calculadora';
 import type { ArticuloConPrecios } from '@/lib/compras/articulos-excel';
 import { getBrand } from '@/lib/brand/brand';
 import { pdfBrandName, pdfColor } from '@/lib/brand/pdf';
+import { pdfText } from '@/lib/pdf-safe';
 
 const PAGE_SIZE: [number, number] = [841.89, 595.28]; // A4 apaisado
 const MARGIN = 36;
@@ -21,7 +22,8 @@ const COLUMNAS: Columna[] = [
   { header: 'Estado', width: 70 },
 ];
 
-function truncar(texto: string, font: PDFFont, size: number, maxWidth: number): string {
+function truncar(textoOriginal: string, font: PDFFont, size: number, maxWidth: number): string {
+  const texto = pdfText(font, textoOriginal); // H-139
   if (font.widthOfTextAtSize(texto, size) <= maxWidth) return texto;
   let out = texto;
   while (out.length > 1 && font.widthOfTextAtSize(`${out}…`, size) > maxWidth) {

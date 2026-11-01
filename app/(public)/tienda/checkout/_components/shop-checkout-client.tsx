@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FadeIn } from '@/components/ui/animate';
 import { ArrowLeft, CreditCard, Loader2, Lock, ShoppingBag } from 'lucide-react';
-import { type CartLine, cartTotals, readCart } from '@/lib/shop-cart';
+import { type CartLine, cartTotalCents, cartTotals, readCart, refreshCartPrices } from '@/lib/shop-cart';
 import { LegalAcceptance } from '@/components/legal-acceptance';
 import { CaptchaWidget, type CaptchaWidgetHandle } from '@/components/captcha-widget';
 
@@ -126,6 +126,7 @@ export default function ShopCheckoutClient({
           captchaToken: captchaToken ?? undefined,
           acceptedTerms,
           termsVersion,
+          expectedTotalCents: cartTotalCents(cart),
           items: cart.map((l) => ({
             productId: l.productId,
             quantity: l.quantity,
@@ -139,6 +140,10 @@ export default function ShopCheckoutClient({
       if (captchaSiteKey) captchaRef.current?.reset();
       if (!res.ok || !data?.success) {
         idempotencyKeyRef.current = null;
+        // H-132: cambió un precio mientras el comprador tenía el carrito: se actualiza con los precios nuevos y se le avisa antes de cobrarle nada.
+        if (data?.code === 'price_changed' && Array.isArray(data.prices)) {
+          setCart(refreshCartPrices(cart, data.prices));
+        }
         setFormError(data?.error ?? 'No se ha podido procesar el pedido. Inténtalo de nuevo.');
         return;
       }

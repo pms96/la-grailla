@@ -1,3 +1,5 @@
+import { toCents } from '@/lib/pricing';
+
 export const SHOP_CART_KEY = 'lagrailla_cart';
 
 export type CartLine = {
@@ -87,6 +89,27 @@ export function cartMatchesOrderItems(
   const a = cart.map(lineSignature).sort();
   const b = items.map(lineSignature).sort();
   return a.every((sig, i) => sig === b[i]);
+}
+
+/** El total del carrito en céntimos enteros: es lo que el cliente manda como `expectedTotalCents` para que el servidor compruebe que cobra lo que se vio (H-132). */
+export function cartTotalCents(cart: CartLine[]): number {
+  return cart.reduce((sum, l) => sum + toCents(l.price ?? 0) * (l.quantity ?? 0), 0);
+}
+
+/**
+ * Pone en el carrito los precios que dice el servidor tras un 409 `price_changed`. La línea de un producto que ya no viene en la respuesta (se desactivó)
+ * se quita: no se puede comprar. No muta el carrito original.
+ */
+export function applyServerPrices(cart: CartLine[], prices: { productId: string; unitPrice: number }[]): CartLine[] {
+  const byProduct = new Map(prices.map((p) => [p.productId, p.unitPrice]));
+  return cart.filter((l) => byProduct.has(l.productId)).map((l) => ({ ...l, price: byProduct.get(l.productId)! }));
+}
+
+/** `applyServerPrices` y guarda el resultado en el navegador. Lo llama el checkout tras un 409 `price_changed`; vive aquí para que el checkout nunca escriba el carrito por su cuenta (no se vacía antes de pagar). */
+export function refreshCartPrices(cart: CartLine[], prices: { productId: string; unitPrice: number }[]): CartLine[] {
+  const updated = applyServerPrices(cart, prices);
+  writeCart(updated);
+  return updated;
 }
 
 export function cartTotals(cart: CartLine[]) {

@@ -7,7 +7,7 @@ import { hasEventEnded } from '@/lib/active-event';
 import { getConfig } from '@/lib/config';
 import { getCaptchaSiteKey } from '@/lib/captcha';
 import { currentVatRate } from '@/lib/fiscal';
-import { computeTermsVersion } from '@/lib/legal-terms';
+import { termsVersionOrNull } from '@/lib/legal-terms';
 import { getOnlineSalesClosedLabel, getOnlineSalesClosedMessage } from '@/lib/online-sales-closed';
 import WaitingRoomGate from './_components/waiting-room-gate';
 
@@ -70,7 +70,17 @@ export default async function ComprarPage(props: { params: Promise<{ slug: strin
   const commissionPercent = parseFloat(await getConfig('commission_percentage')) || 0;
   const vatRate = await currentVatRate('entradas');
   // Versión de las condiciones con las que se pinta ESTA pantalla: el pedido la devuelve y el servidor comprueba que no han cambiado (409 si cambiaron).
-  const termsVersion = await computeTermsVersion('entradas', event.conditions ?? '').then((t) => t.hash).catch(() => undefined);
+  const termsVersion = await termsVersionOrNull('entradas', event.conditions ?? '');
+  // Sin versión no hay formulario: el servidor no podría comprobar que el comprador vio las condiciones vigentes (H-143).
+  if (!termsVersion) {
+    return (
+      <Container size="md">
+        <div className="py-8">
+          <p role="alert" className="text-muted-foreground">No podemos mostrar ahora las condiciones de venta, así que la compra no está disponible. Vuelve a intentarlo en unos minutos.</p>
+        </div>
+      </Container>
+    );
+  }
   const captchaSiteKey = await getCaptchaSiteKey();
   const serializedEvent = { ...JSON.parse(JSON.stringify(event)), commissionPercent, vatRate, termsVersion, captchaSiteKey };
 

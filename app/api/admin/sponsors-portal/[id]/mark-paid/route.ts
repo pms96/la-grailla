@@ -6,20 +6,25 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
-import { getConfig } from '@/lib/config';
+import { getConfig, hasConfigRow } from '@/lib/config';
 import { findSponsorTier, parseSponsorTiers } from '@/lib/sponsor-tiers';
 import { actorFromSession, diffFields, recordAdminAudit } from '@/lib/admin-audit';
+import { MAX_IMPORTE } from '@/lib/contabilidad/validation';
+import { seasonLinkEnabled } from '@/lib/modules/season-link';
 
 const PAYMENT_AUDIT_FIELDS = ['isPaid', 'isCollaboration', 'paidAmount'] as const;
 
-const bodySchema = z.object({ mode: z.enum(['unpaid', 'paid', 'collaboration']) });
+// `amount` = lo realmente cobrado (con IVA si lo lleva). Sin él se toma la tarifa del tipo de patrocinio, pero solo si hay tarifa configurada y mayor que 0 (H-134).
+const bodySchema = z.object({ mode: z.enum(['unpaid', 'paid', 'collaboration']), amount: z.number().finite().positive().max(MAX_IMPORTE).optional() });
 
 // Marcar/desmarcar el pago no bloquea ni exige ningún estado del pipeline —
 // el admin puede generar/aprobar el vídeo igual esté pagado o no (eso solo
 // condiciona lo que ve el SPONSOR en su portal, ver GET
 // /api/sponsors/portal/[sponsorId]). El importe se toma del precio del tipo
 // de patrocinio asignado EN ESTE MOMENTO — si el precio del tipo cambia
-// después en /admin/configuracion, el importe ya registrado no se recalcula.
+// después en /admin/configuracion, el importe ya registrado no se recalcula —
+// salvo que el admin teclee el importe realmente cobrado (`amount`), que manda
+// sobre la tarifa: lo pactado o cobrado con IVA no tiene por qué ser la tarifa.
 //
 // 'collaboration' es el mismo desbloqueo que 'paid' (isPaid: true — el
 // sponsor no tiene ningún pago pendiente) pero marcado con isCollaboration
@@ -44,15 +49,30 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     if (body.mode === 'unpaid') {
       data = { isPaid: false, isCollaboration: false, paidAmount: null, paidAt: null };
     } else {
-      const tiers = parseSponsorTiers(await getConfig('sponsor_tiers'));
-      const tier = findSponsorTier(tiers, sponsor.sponsorRequest.sponsorType);
-      if (!tier) {
+      // Sin tipos guardados en Configuración NO valen los de fábrica (30/50/75 €): son marcadores de posición, y un cliente nuevo registraría ingresos que no ha
+      // cobrado (H-134). Sin tarifa conocida, el importe hay que teclearlo.
+      const tier = (await hasConfigRow('sponsor_tiers'))
+        ? findSponsorTier(parseSponsorTiers(await getConfig('sponsor_tiers')), sponsor.sponsorRequest.sponsorType)
+        : null;
+      if (!tier && body.amount === undefined) {
         return NextResponse.json(
-          { error: 'Asigna primero el tipo de patrocinio para saber qué importe registrar' },
+          { error: 'Asigna primero el tipo de patrocinio, o indica el importe cobrado, para saber qué registrar', code: 'importe_requerido' },
           { status: 400 }
         );
       }
-      data = { isPaid: true, isCollaboration: body.mode === 'collaboration', paidAmount: tier.priceAmount, paidAt: new Date() };
+      const paidAmount = body.amount ?? tier?.priceAmount ?? 0;
+      // Un tipo sin importe (priceAmount 0) dejaba el patrocinio «Pagado» con 0 €. Una colaboración en especie sí puede no tener valor estimado.
+      if (body.mode === 'paid' && !(paidAmount > 0)) {
+        return NextResponse.json({ error: 'Este tipo de patrocinio no tiene importe: indica el importe cobrado', code: 'importe_requerido' }, { status: 400 });
+      }
+      // El ingreso de un patrocinio cuenta en la temporada de su solicitud; sin ella no cuenta en ninguna parte. (Sin Contabilidad no hay temporadas que asignar.)
+      if (body.mode === 'paid' && seasonLinkEnabled() && !sponsor.sponsorRequest.temporadaId) {
+        return NextResponse.json(
+          { error: 'Asigna el patrocinio a una temporada antes de marcarlo como pagado: sin ella el ingreso no cuenta en ninguna parte', code: 'temporada_requerida' },
+          { status: 400 }
+        );
+      }
+      data = { isPaid: true, isCollaboration: body.mode === 'collaboration', paidAmount, paidAt: new Date() };
     }
 
     // H-018/H-021: marcar (o desmarcar) un patrocinio como pagado mueve el ingreso de la temporada: queda quién, cuándo y el importe, en la misma transacción.

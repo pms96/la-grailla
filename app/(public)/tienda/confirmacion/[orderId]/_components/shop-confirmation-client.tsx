@@ -11,6 +11,7 @@ import { FiscalFootnote } from '@/components/fiscal-footnote';
 import type { FiscalView } from '@/lib/fiscal';
 import { cartMatchesOrderItems, readCart, writeCart } from '@/lib/shop-cart';
 import { confirmationView, emailNotice, shouldKeepPolling, type EmailDelivery, type PaymentCheck } from '@/lib/confirmation-state';
+import { orderRef } from '@/lib/order-ref';
 
 export type ShopOrderView = {
   id: string;
@@ -146,7 +147,7 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
 
   if (view === 'checking' || view === 'checking_gave_up') {
     const gaveUp = view === 'checking_gave_up';
-    const code = order.id.slice(0, 8).toUpperCase();
+    const code = orderRef(order.id);
     return (
       <div className="space-y-6 py-8">
         <div className="text-center">
@@ -225,7 +226,7 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
         </div>
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
-            Referencia #{order.id.slice(0, 8).toUpperCase()} · {order.totalAmount.toFixed(2)}€
+            Referencia #{orderRef(order.id)} · {order.totalAmount.toFixed(2)}€
           </CardContent>
         </Card>
       </div>
@@ -292,7 +293,7 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
 export function ShopReceiptPrinter({ order }: { order: ShopOrderView }) {
   const { name, legacy } = useBrand();
   const stage = usePrintSequence(true);
-  const shortCode = order.id.slice(0, 8).toUpperCase();
+  const shortCode = orderRef(order.id);
 
   return (
     <ReceiptPrinter.Root stage={stage}>

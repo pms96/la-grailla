@@ -8,6 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { orderRef } from '@/lib/order-ref';
 
 /* Cancelar un evento con compradores (P1-04): vista previa de lo que pasará (pedidos, dinero), opciones (reembolsar, avisar), confirmación escrita y
  * seguimiento del trabajo. El trabajo es reanudable y lo continúa el cron aunque se cierre esta ventana; mientras está abierta, la propia ventana
@@ -213,7 +214,7 @@ function ProgressView({ progress, running }: { progress: Progress; running: bool
           <p className="font-medium mb-1">A resolver a mano ({progress.manual.length})</p>
           <ul className="space-y-1 text-xs text-muted-foreground max-h-40 overflow-y-auto">
             {progress.manual.map((m) => (
-              <li key={m.orderId}><span className="font-mono">{m.orderId.slice(0, 8)}</span> — {m.reason}. Ábrelo en Ventas para reembolsarlo desde allí.</li>
+              <li key={m.orderId}><span className="font-mono">{orderRef(m.orderId)}</span> — {m.reason}. Ábrelo en Ventas para reembolsarlo desde allí.</li>
             ))}
           </ul>
         </div>

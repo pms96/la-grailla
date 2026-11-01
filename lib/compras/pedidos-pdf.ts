@@ -4,6 +4,7 @@ import { PEDIDO_STATUS_LABEL } from '@/lib/compras/constantes';
 import type { PedidosParaExport, PedidoParaExport, PedidosExportOptions } from '@/lib/compras/pedidos-data';
 import { getBrand } from '@/lib/brand/brand';
 import { pdfBrandName, pdfColor } from '@/lib/brand/pdf';
+import { pdfText } from '@/lib/pdf-safe';
 
 const PAGE_SIZE: [number, number] = [595.28, 841.89]; // A4 vertical
 const MARGIN = 48;
@@ -42,7 +43,8 @@ function tamanoFuente(nColumnas: number): number {
   return 9;
 }
 
-function truncar(texto: string, font: PDFFont, size: number, maxWidth: number): string {
+function truncar(textoOriginal: string, font: PDFFont, size: number, maxWidth: number): string {
+  const texto = pdfText(font, textoOriginal); // H-139
   if (font.widthOfTextAtSize(texto, size) <= maxWidth) return texto;
   let out = texto;
   while (out.length > 1 && font.widthOfTextAtSize(`${out}…`, size) > maxWidth) {
@@ -116,13 +118,13 @@ export async function buildPedidosPdf(data: PedidosParaExport, opts: PedidosExpo
 
     page.drawText(`${brandName} — Pedido a proveedor`, { x: MARGIN, y, size: 12, font, color: gris });
     y -= 22;
-    page.drawText(pedido.proveedor.nombre, { x: MARGIN, y, size: 20, font: fontBold, color: morado });
+    page.drawText(pdfText(fontBold, pedido.proveedor.nombre), { x: MARGIN, y, size: 20, font: fontBold, color: morado });
     y -= 24;
-    page.drawText(`${temporada.nombre} · Estado: ${PEDIDO_STATUS_LABEL[pedido.status] ?? pedido.status}`, { x: MARGIN, y, size: 10, font, color: negro });
+    page.drawText(pdfText(font, `${temporada.nombre} · Estado: ${PEDIDO_STATUS_LABEL[pedido.status] ?? pedido.status}`), { x: MARGIN, y, size: 10, font, color: negro });
     y -= 14;
     const contacto = [pedido.proveedor.contacto, pedido.proveedor.telefono, pedido.proveedor.email].filter(Boolean).join(' · ');
     if (contacto) {
-      page.drawText(contacto, { x: MARGIN, y, size: 9, font, color: gris });
+      page.drawText(pdfText(font, contacto), { x: MARGIN, y, size: 9, font, color: gris });
       y -= 14;
     }
     page.drawText(`Fecha: ${new Date(pedido.fechaPedido).toLocaleDateString('es-ES')}`, { x: MARGIN, y, size: 9, font, color: gris });

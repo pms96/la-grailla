@@ -7,11 +7,14 @@ import { shopOrderAccessQuery } from '@/lib/access-token';
 import { getFallbackBaseUrl } from '@/lib/url';
 import { buildFiscalView, RECEIPT_TITLE } from '@/lib/fiscal';
 import { fiscalEmailHtml } from '@/lib/fiscal-email';
+import { orderRef } from '@/lib/order-ref';
+import { formatMadridDateTime } from '@/lib/shop-orders-csv';
 
 /** El email de confirmación de un pedido de tienda: líneas con talla/color y enlace a la página del pedido (TI-04/TI-16). */
 export function shopOrderEmailHtml(
   order: {
     id: string;
+    createdAt?: Date;
     buyerName: string;
     totalAmount: number;
     items: { quantity: number; unitPrice: number; size: string | null; color: string | null; product: { name: string } | null }[];
@@ -46,6 +49,9 @@ export function shopOrderEmailHtml(
     itemsHtml +
     `</table>` +
     `<p style="font-size:18px;font-weight:bold;margin-top:16px;">Total: ${Number(order.totalAmount).toFixed(2)}€</p>` +
+    `<p style="color:#666;margin:4px 0;">Referencia ${esc(orderRef(order.id))}` +
+    (order.createdAt ? ` · ${esc(formatMadridDateTime(new Date(order.createdAt)))}` : '') +
+    `</p>` +
     fiscalHtml +
     `<p style="margin:20px 0;"><a href="${esc(orderUrl)}" style="background:${brand.colors.emailAccent};color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;">Ver mi pedido</a></p>` +
     `<p style="color:#666;">Te avisaremos cuando lo enviemos.</p></div>`
@@ -66,7 +72,7 @@ export async function deliverShopOrderEmail(
   const brand = await getBrand();
   const result = await sendMail({
     to: order.buyerEmail,
-    subject: `Pedido confirmado - ${brand.name} #${order.id.slice(0, 8)}`,
+    subject: `Pedido confirmado - ${brand.name} #${orderRef(order.id)}`,
     html: shopOrderEmailHtml(order, brand, baseUrl ?? getFallbackBaseUrl(), fiscalEmailHtml(await buildFiscalView(order.totalAmount, order.vatRate))),
   });
   return { success: result.success, transport: result.transport, error: result.error, errorCode: result.errorCode };

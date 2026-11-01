@@ -2,6 +2,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont } from 'pdf
 import type { Proveedor } from '@prisma/client';
 import { getBrand } from '@/lib/brand/brand';
 import { pdfBrandName, pdfColor } from '@/lib/brand/pdf';
+import { pdfText } from '@/lib/pdf-safe';
 
 const PAGE_SIZE: [number, number] = [595.28, 841.89]; // A4 vertical
 const MARGIN = 48;
@@ -17,7 +18,8 @@ const COLUMNAS: Columna[] = [
   { header: 'Estado', width: 59 },
 ];
 
-function truncar(texto: string, font: PDFFont, size: number, maxWidth: number): string {
+function truncar(textoOriginal: string, font: PDFFont, size: number, maxWidth: number): string {
+  const texto = pdfText(font, textoOriginal); // H-139
   if (font.widthOfTextAtSize(texto, size) <= maxWidth) return texto;
   let out = texto;
   while (out.length > 1 && font.widthOfTextAtSize(`${out}…`, size) > maxWidth) {

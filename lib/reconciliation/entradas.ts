@@ -10,6 +10,7 @@ import { alertOperator, alertPaidButInactiveOrder, logPaymentEvent, paymentMatch
 import { alertManuallyRefunded, confirmLatePayment, finishLateRefund, lateRefundMarker } from './late-payment';
 import { closeSessionBeforeCancel } from './close-session';
 import { releasePendingSlot } from '@/lib/rate-limit';
+import { orderRef } from '@/lib/order-ref';
 
 /* Reconciliación de pedidos de ENTRADAS (módulo Entradas): marcar pagado, liberar aforo al caducar, anular y reembolsar. Los pedidos de
  * la tienda están en ./tienda.ts: una web con solo Tienda no carga nada de entradas (PDF, wallet, aforo). */
@@ -152,7 +153,7 @@ async function handleLatePayment(order: { id: string; eventId: string; buyerName
       reason: 'unverifiable',
       details: { detail: gateway.reason },
       dedupeKey: `late-unverifiable:${order.id}`,
-      subject: `⚠️ Pago sobre un pedido anulado que no se puede comprobar (${order.id.slice(0, 8)})`,
+      subject: `⚠️ Pago sobre un pedido anulado que no se puede comprobar (${orderRef(order.id)})`,
       html:
         `<p>Ha llegado la confirmación de un pago para el pedido <strong>${esc(order.id)}</strong>, que ya estaba anulado, pero no se ha podido comprobar con la pasarela (${esc(gateway.reason)}).</p>` +
         '<p>No se ha reactivado ni reembolsado nada. Revisa el cobro en la pasarela y resuélvelo a mano.</p>',

@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
@@ -8,26 +9,7 @@ import { handleApiError } from '@/lib/api-error';
 import { madridDayKey } from '@/lib/ventas-por-dia';
 import { buildOrdersWhere } from '@/lib/order-filters';
 import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
-
-// Si una celda empieza por =, +, -, @, tab o retorno de carro, Excel/Sheets
-// la puede interpretar como fórmula al abrir el CSV — y estas celdas vienen
-// de datos escritos por compradores (nombre, etc.), no de nadie de
-// confianza. Anteponer un apóstrofo neutraliza la fórmula sin cambiar lo
-// que ve quien abre el archivo.
-function csvEscape(value: unknown): string {
-  let s = String(value ?? '');
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
-
-function toCsv(headers: string[], rows: unknown[][]): string {
-  const lines = [
-    headers.map(csvEscape).join(','),
-    ...rows.map((row) => row.map(csvEscape).join(',')),
-  ];
-  return '\uFEFF' + lines.join('\n');
-}
+import { ORDERS_CSV_MAX, TICKETS_CSV_MAX, attendeesToCsv, ordersToCsv } from '@/lib/orders-csv';
 
 function csvResponse(filename: string, body: string) {
   return new NextResponse(body, {
@@ -57,15 +39,23 @@ export async function GET(request: Request) {
       // filtrado, no todos los pedidos completados del evento.
       const filtro = {
         q: url.searchParams.get('q') ?? '',
-        status: url.searchParams.get('status') ?? 'COMPLETED',
+        // Sin estado = todos, igual que el listado en pantalla con el filtro «Todos» (H-137). Antes el servidor ponía COMPLETED y el CSV no era lo que se veía.
+        status: url.searchParams.get('status') ?? '',
         eventId,
         emailFailed: url.searchParams.get('emailFailed') === '1',
       };
       const where = buildOrdersWhere(filtro);
+      // Sin truncado silencioso (H-137): si no cabe, se avisa y se pide filtrar. Antes cortaba a 5000 por el final y se perdían los pedidos más antiguos.
+      const totalOrders = await prisma.order.count({ where });
+      if (totalOrders > ORDERS_CSV_MAX) {
+        return NextResponse.json(
+          { error: `Hay ${totalOrders} pedidos con este filtro y el máximo por exportación es ${ORDERS_CSV_MAX}. Filtra por evento, estado o búsqueda y vuelve a exportar.` },
+          { status: 413 }
+        );
+      }
       const orders = await prisma.order.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        take: 5000,
         include: {
           event: { select: { name: true } },
           _count: { select: { tickets: true } },
@@ -79,34 +69,7 @@ export async function GET(request: Request) {
         targetId: eventId || null,
         meta: { filtro, filas: orders.length },
       });
-      const csv = toCsv(
-        [
-          'id',
-          'fecha',
-          'evento',
-          'nombre',
-          'apellidos',
-          'email',
-          'canal',
-          'metodo_pago',
-          'entradas',
-          'importe',
-          'comision',
-        ],
-        orders.map((o) => [
-          o.id,
-          o.createdAt.toISOString(),
-          o.event?.name ?? '',
-          o.buyerName,
-          o.buyerLastName,
-          o.buyerEmail,
-          o.channel,
-          o.paymentMethod,
-          o._count.tickets,
-          o.totalAmount.toFixed(2),
-          o.commission.toFixed(2),
-        ])
-      );
+      const csv = ordersToCsv(orders);
       const name = eventId ? `ventas-${eventId.slice(0, 8)}-${day}.csv` : `ventas-${day}.csv`;
       return csvResponse(name, csv);
     }
@@ -115,13 +78,17 @@ export async function GET(request: Request) {
       if (!eventId) {
         return NextResponse.json({ error: 'eventId requerido para exportar asistentes' }, { status: 400 });
       }
+      const ticketsWhere = { eventId, status: { notIn: ['CANCELLED', 'REFUNDED'] } } satisfies Prisma.TicketWhereInput;
+      const totalTickets = await prisma.ticket.count({ where: ticketsWhere });
+      if (totalTickets > TICKETS_CSV_MAX) {
+        return NextResponse.json(
+          { error: `Hay ${totalTickets} entradas en este evento y el máximo por exportación es ${TICKETS_CSV_MAX}. Contacta con soporte para una exportación completa.` },
+          { status: 413 }
+        );
+      }
       const tickets = await prisma.ticket.findMany({
-        where: {
-          eventId,
-          status: { notIn: ['CANCELLED', 'REFUNDED'] },
-        },
+        where: ticketsWhere,
         orderBy: { createdAt: 'asc' },
-        take: 10000,
         include: {
           ticketType: { select: { name: true } },
           order: {
@@ -143,34 +110,7 @@ export async function GET(request: Request) {
         targetId: eventId,
         meta: { filtro: { eventId }, filas: tickets.length },
       });
-      const csv = toCsv(
-        [
-          'ticket_id',
-          'evento',
-          'titular',
-          'tipo',
-          'estado',
-          'entrada',
-          'qr',
-          'pedido_id',
-          'comprador',
-          'email',
-          'canal',
-        ],
-        tickets.map((t) => [
-          t.id,
-          t.event?.name ?? '',
-          t.holderName,
-          t.ticketType?.name ?? 'General',
-          t.status,
-          t.entryTime ? t.entryTime.toISOString() : '',
-          t.qrCode,
-          t.order?.id ?? '',
-          `${t.order?.buyerName ?? ''} ${t.order?.buyerLastName ?? ''}`.trim(),
-          t.order?.buyerEmail ?? '',
-          t.order?.channel ?? '',
-        ])
-      );
+      const csv = attendeesToCsv(tickets);
       return csvResponse(`asistentes-${eventId.slice(0, 8)}-${day}.csv`, csv);
     }
 

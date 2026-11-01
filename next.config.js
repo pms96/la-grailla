@@ -141,7 +141,9 @@ const nextConfig = {
       // Páginas públicas: antes se cacheaban con ISR (`revalidate = 60`), que cachea por RUTA y no por Host; con varios
       // clientes en un mismo despliegue eso mezclaría sus páginas. Ahora son dinámicas y las cachea el CDN de Vercel (cuya
       // clave de caché incluye el dominio). Solo afecta al CDN: el navegador no las guarda.
-      ...['/', '/eventos', '/tienda', '/sponsors', '/legal/:path*'].map((source) => ({
+      // Las condiciones de venta y la privacidad quedan FUERA del CDN: el enlace de la casilla enseñaba el texto antiguo hasta 90 s después de que el hash que se
+      // acepta ya fuera el nuevo (H-143). Son dinámicas y se leen en cada visita.
+      ...['/', '/eventos', '/tienda', '/sponsors', '/legal/aviso-legal', '/legal/cookies'].map((source) => ({
         source,
         headers: [{ key: 'Vercel-CDN-Cache-Control', value: 'max-age=60, stale-while-revalidate=30' }],
       })),

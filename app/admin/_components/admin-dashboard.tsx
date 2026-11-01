@@ -186,7 +186,7 @@ export default function AdminDashboard({ accounting = false }: { accounting?: bo
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-2">
                 <Wallet className={`h-5 w-5 ${margenTemporada.margen >= 0 ? 'text-lima' : 'text-destructive-text'}`} />
-                <span className="text-xs text-muted-foreground">Margen ({margenTemporada.nombre})</span>
+                <span className="text-xs text-muted-foreground">Cobrado − gastos, con IVA ({margenTemporada.nombre})</span>
               </div>
               <p className="font-display text-2xl font-bold">
                 {margenTemporada.margen >= 0 ? '+' : ''}{margenTemporada.margen.toFixed(2)}€

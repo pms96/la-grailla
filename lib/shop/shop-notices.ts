@@ -8,6 +8,7 @@ import { brandLogoHtml } from '@/lib/brand/email';
 import { shopOrderAccessQuery } from '@/lib/access-token';
 import { getFallbackBaseUrl } from '@/lib/url';
 import { SHOP_PAID_STATUSES } from '@/lib/email-delivery';
+import { orderRef } from '@/lib/order-ref';
 
 /* Avisos de la tienda que no son la confirmación al comprador (auditoría P1-10 / TI-06 y TI-16):
  *   · al VENDEDOR, un email por pedido nuevo pagado (líneas con talla y color, comprador, dirección de envío): antes solo se enteraba mirando el panel;
@@ -80,7 +81,7 @@ export function shopNewOrderEmailHtml(
     brand,
     baseUrl,
     'Pedido nuevo en la tienda',
-    `<p>Pedido <strong>#${esc(order.id.slice(0, 8))}</strong>, ya pagado: toca prepararlo y enviarlo.</p>` +
+    `<p>Pedido <strong>#${esc(orderRef(order.id))}</strong>, ya pagado: toca prepararlo y enviarlo.</p>` +
       itemsTable(order.items) +
       `<p style="font-size:18px;font-weight:bold;margin:16px 0;">Total: ${esc(money(order.totalAmount))}</p>` +
       `<p style="margin:0 0 4px;"><strong>Comprador:</strong> ${esc(order.buyerName)} · ${esc(order.buyerEmail)}${order.shippingPhone ? ` · ${esc(order.shippingPhone)}` : ''}</p>` +
@@ -102,7 +103,7 @@ export function shopShippedEmailHtml(
     baseUrl,
     'Tu pedido está en camino',
     `<p>Hola ${esc(order.buyerName)},</p>` +
-      `<p>Tu pedido <strong>#${esc(order.id.slice(0, 8))}</strong> ya ha salido.</p>` +
+      `<p>Tu pedido <strong>#${esc(orderRef(order.id))}</strong> ya ha salido.</p>` +
       (tracking ? `<p style="margin:12px 0;"><strong>Seguimiento:</strong> ${esc(tracking)}</p>` : '<p style="color:#666;">Todavía no tenemos un número de seguimiento: si lo hay, te lo enviaremos.</p>') +
       itemsTable(order.items) +
       button(orderUrl, 'Ver mi pedido', brand.colors.emailAccent)
@@ -146,7 +147,7 @@ export async function notifyShopNewOrder(orderId: string, opts: { capMs?: number
     const brand = await getBrand();
     const baseUrl = getFallbackBaseUrl();
     const sent = await sendCapped(
-      { to, subject: `Pedido nuevo #${order.id.slice(0, 8)} · ${money(Number(order.totalAmount))}`, html: shopNewOrderEmailHtml({ ...order, totalAmount: Number(order.totalAmount), items: order.items.map((i) => ({ ...i, unitPrice: Number(i.unitPrice) })) }, brand, baseUrl) },
+      { to, subject: `Pedido nuevo #${orderRef(order.id)} · ${money(Number(order.totalAmount))}`, html: shopNewOrderEmailHtml({ ...order, totalAmount: Number(order.totalAmount), items: order.items.map((i) => ({ ...i, unitPrice: Number(i.unitPrice) })) }, brand, baseUrl) },
       opts.capMs ?? DEFAULT_CAP_MS
     );
     if (sent.success) return 'sent';
@@ -227,7 +228,7 @@ export async function sendShopShippedEmail(orderId: string, opts: { force?: bool
     const sent = await sendCapped(
       {
         to: order.buyerEmail,
-        subject: `Tu pedido está en camino - ${brand.name} #${order.id.slice(0, 8)}`,
+        subject: `Tu pedido está en camino - ${brand.name} #${orderRef(order.id)}`,
         html: shopShippedEmailHtml({ ...order, items: order.items.map((i) => ({ ...i, unitPrice: Number(i.unitPrice) })) }, brand, getFallbackBaseUrl()),
         ...(operator ? { replyTo: operator } : {}),
       },

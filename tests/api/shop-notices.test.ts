@@ -4,6 +4,7 @@ import * as brand from '@/lib/brand/brand';
 import { syncProductVariants } from '@/lib/product-stock';
 import { completeShopOrder } from '@/lib/reconciliation/tienda';
 import { notifyShopNewOrder, sendShopShippedEmail, shopNewOrderEmailHtml, sweepShopNewOrderNotices } from '@/lib/shop/shop-notices';
+import { orderRef } from '@/lib/order-ref';
 
 const mailer = vi.hoisted(() => ({ sent: [] as { to: string; subject: string; html: string; replyTo?: string }[], fail: false, delayMs: 0 }));
 
@@ -87,7 +88,7 @@ describe('avisos de la tienda (P1-10)', () => {
       expect(await completeShopOrder(o.id, undefined, { emailInline: true })).toBe('completed');
       const mails = toSeller();
       expect(mails).toHaveLength(1);
-      expect(mails[0].subject).toContain(`#${o.id.slice(0, 8)}`);
+      expect(mails[0].subject).toContain(`#${orderRef(o.id)}`);
       expect(mails[0].subject).toContain('40,00');
       const html = mails[0].html;
       expect(html).toContain('[TEST] Camiseta P110');
@@ -148,7 +149,7 @@ describe('avisos de la tienda (P1-10)', () => {
       mailer.fail = false;
       const sweep = await sweepShopNewOrderNotices({ deadline: Date.now() + 20_000, limit: 200 });
       expect(sweep.sent).toBeGreaterThanOrEqual(1);
-      expect(toSeller().some((m) => m.subject.includes(`#${o.id.slice(0, 8)}`))).toBe(true);
+      expect(toSeller().some((m) => m.subject.includes(`#${orderRef(o.id)}`))).toBe(true);
       const after = toSeller().length;
       await sweepShopNewOrderNotices({ deadline: Date.now() + 20_000, limit: 200 });
       expect(toSeller()).toHaveLength(after); // ya consta: no se repite
@@ -162,7 +163,7 @@ describe('avisos de la tienda (P1-10)', () => {
       expect(await prisma.processedWebhookEvent.count({ where: { id: `${NOTICE_PREFIX}${o.id}` } })).toBe(0);
       const sweep = await sweepShopNewOrderNotices({ deadline: Date.now() + 20_000, limit: 200 });
       expect(sweep.sent).toBeGreaterThanOrEqual(1);
-      expect(toSeller().some((m) => m.subject.includes(`#${o.id.slice(0, 8)}`))).toBe(true);
+      expect(toSeller().some((m) => m.subject.includes(`#${orderRef(o.id)}`))).toBe(true);
     });
 
     it('revisión P1-10: si el tope de tiempo vence pero el correo sí sale, el marcador se queda y no se repite el aviso', async () => {
@@ -171,10 +172,10 @@ describe('avisos de la tienda (P1-10)', () => {
       expect(await notifyShopNewOrder(o.id, { capMs: 20 })).toBe('failed'); // venció el tope
       expect(await prisma.processedWebhookEvent.count({ where: { id: `${NOTICE_PREFIX}${o.id}` } })).toBe(1);
       await new Promise((r) => setTimeout(r, 300)); // el correo llega
-      expect(toSeller().filter((m) => m.subject.includes(`#${o.id.slice(0, 8)}`))).toHaveLength(1);
+      expect(toSeller().filter((m) => m.subject.includes(`#${orderRef(o.id)}`))).toHaveLength(1);
       mailer.delayMs = 0;
       expect(await notifyShopNewOrder(o.id)).toBe('skipped'); // y un reintento no lo duplica
-      expect(toSeller().filter((m) => m.subject.includes(`#${o.id.slice(0, 8)}`))).toHaveLength(1);
+      expect(toSeller().filter((m) => m.subject.includes(`#${orderRef(o.id)}`))).toHaveLength(1);
     });
 
     it('revisión P1-10: con menos tiempo del que cabe en un envío el barrido no lo intenta (no hay topes de 1 s que venzan siempre)', async () => {
@@ -192,7 +193,7 @@ describe('avisos de la tienda (P1-10)', () => {
       await prisma.appConfig.update({ where: { key: 'shop_new_order_notice_since' }, data: { value: String(Date.now() + 60_000) } });
       mailer.sent = [];
       await sweepShopNewOrderNotices({ deadline: Date.now() + 20_000, limit: 200 });
-      expect(toSeller().some((m) => m.subject.includes(`#${o.id.slice(0, 8)}`))).toBe(false);
+      expect(toSeller().some((m) => m.subject.includes(`#${orderRef(o.id)}`))).toBe(false);
       await prisma.appConfig.update({ where: { key: 'shop_new_order_notice_since' }, data: { value: String(Date.now() - 3600_000) } });
     });
   });

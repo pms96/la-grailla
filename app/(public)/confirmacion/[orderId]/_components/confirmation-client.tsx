@@ -28,6 +28,7 @@ import { useBrand } from '@/components/brand-provider';
 import { FiscalFootnote } from '@/components/fiscal-footnote';
 import type { FiscalView } from '@/lib/fiscal';
 import { confirmationView, emailNotice, shouldKeepPolling, type EmailDelivery, type PaymentCheck } from '@/lib/confirmation-state';
+import { orderRef } from '@/lib/order-ref';
 
 type OrderWithTickets = Prisma.OrderGetPayload<{
   include: { event: true; tickets: { include: { ticketType: true } } };
@@ -263,7 +264,7 @@ export default function ConfirmationClient({
             {gaveUp ? (
               <>
                 Todavía no hemos podido confirmar tu pago. Si has pagado y no ves tu compra, escríbenos indicando este código:{' '}
-                <strong className="font-mono">{validOrder?.id.slice(0, 8).toUpperCase()}</strong>. Si no se confirma, te devolveremos el importe. Puedes cerrar esta página.
+                <strong className="font-mono">{orderRef(validOrder?.id)}</strong>. Si no se confirma, te devolveremos el importe. Puedes cerrar esta página.
               </>
             ) : (
               'La reserva de tus entradas había caducado. Si has pagado, lo estamos comprobando: recibirás tus entradas por email o te devolveremos el importe automáticamente. No hace falta que vuelvas a pagar.'
@@ -271,7 +272,7 @@ export default function ConfirmationClient({
           </p>
           {gaveUp && contactEmail && (
             <Button variant="ghost" asChild className="gap-2">
-              <a href={`mailto:${contactEmail}?subject=${encodeURIComponent('Pedido ' + (validOrder?.id.slice(0, 8).toUpperCase() ?? ''))}`}>
+              <a href={`mailto:${contactEmail}?subject=${encodeURIComponent('Pedido ' + (orderRef(validOrder?.id) ?? ''))}`}>
                 <Mail className="h-4 w-4" /> Contactar
               </a>
             </Button>

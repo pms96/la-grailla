@@ -50,6 +50,19 @@ export async function computeTermsVersion(kind: TermsKind, extra = ''): Promise<
   return { hash: legalHash(content), content };
 }
 
+/**
+ * La versión con la que se pinta un checkout, o `null` si no se pudo calcular (y se avisa a operación). La pantalla NO debe mostrar el formulario sin versión:
+ * sin ella el servidor no tiene con qué comprobar que el comprador vio las condiciones vigentes y aceptaría algo que no vio (H-143).
+ */
+export async function termsVersionOrNull(kind: TermsKind, extra = ''): Promise<string | null> {
+  try {
+    return (await computeTermsVersion(kind, extra)).hash;
+  } catch (error) {
+    captureOpsError(error, { route: 'legal-terms-version', kind, reason: 'terms_version_unavailable' });
+    return null;
+  }
+}
+
 /** Las condiciones cambiaron entre que el comprador abrió el checkout y envió el pedido: tiene que recargar y ver las nuevas antes de aceptar. */
 export class TermsChangedError extends Error {
   constructor() {

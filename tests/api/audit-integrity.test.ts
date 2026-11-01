@@ -202,7 +202,9 @@ describe('rastro de auditoría: cobertura e integridad (lote 4)', () => {
     });
 
     it('marcar un patrocinio como pagado (y desmarcarlo) deja rastro con el importe; sin rastro no queda marcado', async () => {
-      const request = await prisma.sponsorRequest.create({ data: { companyName: '[TEST] Rastro pago patrocinio', contactName: 'Test', status: 'ACCEPTED', sponsorType: 'oro-test' } });
+      const temporada = await prisma.temporada.create({ data: { nombre: '[TEST] Temporada patrocinio', anio: 2088 } });
+      createdTemporadas.push(temporada.id);
+      const request = await prisma.sponsorRequest.create({ data: { companyName: '[TEST] Rastro pago patrocinio', contactName: 'Test', status: 'ACCEPTED', sponsorType: 'oro-test', temporadaId: temporada.id } });
       createdSponsors.push(request.id);
       const sponsor = await prisma.sponsor.create({ data: { sponsorRequestId: request.id } });
 
@@ -393,7 +395,7 @@ describe('rastro de auditoría: cobertura e integridad (lote 4)', () => {
       expect(await res.text()).toContain('rastro-exporta@example.com');
       const [fila] = await rastro({ action: 'export.orders' });
       expect(fila).toMatchObject({ targetType: 'Event', targetId: event.id });
-      expect(fila.meta).toMatchObject({ filas: expect.any(Number), filtro: { eventId: event.id, status: 'COMPLETED' } });
+      expect(fila.meta).toMatchObject({ filas: expect.any(Number), filtro: { eventId: event.id, status: '' } }); // sin estado = todos (H-137)
       expect((fila.meta as { filas: number }).filas).toBeGreaterThanOrEqual(1);
       expect(JSON.stringify(fila)).not.toMatch(/rastro-exporta@example\.com|Rastro/);
     });

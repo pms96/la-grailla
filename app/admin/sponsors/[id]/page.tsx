@@ -8,6 +8,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { parseFormNumber } from '@/lib/contabilidad/form-numbers';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Loader2, Sparkles, Check, X as XIcon, Mail, ExternalLink, ArrowLeft, Search, Handshake, Upload, Trash2, Film, Wallet,
@@ -99,6 +101,8 @@ export default function SponsorDetailPage() {
   const [uploadingFinalVideo, setUploadingFinalVideo] = useState(false);
   const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
   const [tiers, setTiers] = useState<SponsorTier[]>([]);
+  // Lo realmente cobrado (con IVA si lo lleva), no la tarifa (H-134). Se precarga con la tarifa del tipo si la hay, y se puede corregir.
+  const [payAmount, setPayAmount] = useState('');
   const finalVideoInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDetail = () => {
@@ -117,6 +121,11 @@ export default function SponsorDetailPage() {
     fetchDetail();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
+
+  useEffect(() => {
+    const tier = findSponsorTier(tiers, detail?.sponsorType);
+    setPayAmount(tier && tier.priceAmount > 0 ? String(tier.priceAmount).replace('.', ',') : '');
+  }, [tiers, detail?.sponsorType]);
 
   useEffect(() => {
     fetch('/api/sponsors/tiers')
@@ -198,8 +207,16 @@ export default function SponsorDetailPage() {
   const markReady = async () => { if (await sponsorAction('ready', 'POST')) { toast.success('Marcado como listo para generar'); fetchDetail(); } };
   const generate = async () => { const r = await sponsorAction('generate', 'POST'); if (r?.success) { toast.success('Prompt generado'); fetchDetail(); } else fetchDetail(); };
   const approveWithVideo = async () => { if (await sponsorAction('approve-with-video', 'POST')) { toast.success('Aprobado con el vídeo del sponsor'); fetchDetail(); } };
-  const markPaid = async () => { if (await sponsorAction('mark-paid', 'POST', { mode: 'paid' })) { toast.success('Marcado como pagado'); fetchDetail(); } };
-  const markCollaboration = async () => { if (await sponsorAction('mark-paid', 'POST', { mode: 'collaboration' })) { toast.success('Marcado como colaboración'); fetchDetail(); } };
+  const payAmountValue = parseFormNumber(payAmount);
+  const payAmountOk = payAmountValue !== null && payAmountValue > 0;
+  const markPaid = async () => {
+    if (!payAmountOk) { toast.error('Indica el importe cobrado, con IVA si lo lleva'); return; }
+    if (await sponsorAction('mark-paid', 'POST', { mode: 'paid', amount: payAmountValue })) { toast.success('Marcado como pagado'); fetchDetail(); }
+  };
+  const markCollaboration = async () => {
+    // En una colaboración el importe es el valor estimado de lo aportado: opcional.
+    if (await sponsorAction('mark-paid', 'POST', payAmountOk ? { mode: 'collaboration', amount: payAmountValue } : { mode: 'collaboration' })) { toast.success('Marcado como colaboración'); fetchDetail(); }
+  };
   const unmarkPaid = async () => { if (await sponsorAction('mark-paid', 'POST', { mode: 'unpaid' })) { toast.success('Marca de pago retirada'); fetchDetail(); } };
   const saveBrandContext = async () => { if (await sponsorAction('brand-context', 'PUT', { brandContext: brandContextDraft })) toast.success('Contexto de marca guardado'); };
   const savePrompt = async () => { if (await sponsorAction('prompt', 'PUT', promptDraft)) toast.success('Prompt guardado'); };
@@ -419,8 +436,8 @@ export default function SponsorDetailPage() {
                     {sponsor.isPaid
                       ? `${sponsor.isCollaboration ? 'Valor estimado ' : ''}${(sponsor.paidAmount ?? 0).toFixed(2)}€ · ${sponsor.paidAt ? new Date(sponsor.paidAt).toLocaleDateString('es-ES') : ''}${sponsor.isCollaboration ? ' · no se contabiliza en ingresos' : ''}`
                       : sponsorTierForPayment
-                        ? `Importe según su tipo: ${sponsorTierForPayment.priceLabel}`
-                        : 'Asigna el tipo de patrocinio para poder marcarlo como pagado'}
+                        ? `Tarifa de su tipo: ${sponsorTierForPayment.priceLabel}. Registra lo que has cobrado de verdad.`
+                        : 'Indica el importe cobrado para poder marcarlo como pagado'}
                   </p>
                 </div>
               </div>
@@ -429,11 +446,22 @@ export default function SponsorDetailPage() {
                   {busy === 'mark-paid' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Desmarcar'}
                 </Button>
               ) : (
-                <div className="flex gap-2">
-                  <Button size="sm" disabled={busyGlobal || !sponsorTierForPayment} onClick={markPaid} className="gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    Importe cobrado (€, con IVA si lo lleva)
+                    <Input
+                      inputMode="decimal"
+                      value={payAmount}
+                      onChange={(e) => setPayAmount(e.target.value)}
+                      aria-invalid={payAmount.trim() !== '' && !payAmountOk}
+                      className="h-8 w-28 text-right tabular-nums"
+                      placeholder="0,00"
+                    />
+                  </label>
+                  <Button size="sm" disabled={busyGlobal || !payAmountOk} onClick={markPaid} className="gap-2">
                     {busy === 'mark-paid' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Marcar como pagado
                   </Button>
-                  <Button size="sm" variant="outline" disabled={busyGlobal || !sponsorTierForPayment} onClick={markCollaboration} className="gap-2">
+                  <Button size="sm" variant="outline" disabled={busyGlobal || (!sponsorTierForPayment && !payAmountOk)} onClick={markCollaboration} className="gap-2">
                     <Handshake className="h-3.5 w-3.5" /> Marcar como colaboración
                   </Button>
                 </div>

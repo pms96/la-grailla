@@ -7,6 +7,7 @@ import { getFallbackBaseUrl } from '@/lib/url';
 import { refundReturnsStock } from '@/lib/shop-order-status';
 import { effectiveStatus, getPaymentProviderByName, type PaymentScope } from '@/lib/payment-adapter';
 import { alertOperator, logPaymentEvent } from './shared';
+import { orderRef } from '@/lib/order-ref';
 
 /* Dinero devuelto FUERA de la app (auditoría P1-01 / EN-08, CO-02, TI-08/09). Hasta ahora solo existía el reembolso desde el admin: uno hecho en el panel de la
  * pasarela (lo más natural en soporte) o un contracargo perdido dejaban el pedido COMPLETED, el QR entrando y la venta sumando. Aquí está lo que el webhook
@@ -52,7 +53,7 @@ export async function sendRefundEmail(
           `<p>Hola ${esc(order.buyerName)},</p>` +
           `<p>Se ha reembolsado <strong>${money(amount)}</strong> de tu pedido a tu método de pago original. ${what}</p>` +
           '<p>La devolución puede tardar unos días en aparecer, según tu banco.</p>' +
-          `<p style="color:#666;">Referencia: ${esc(order.id.slice(0, 8).toUpperCase())}.</p>` +
+          `<p style="color:#666;">Referencia: ${esc(orderRef(order.id))}.</p>` +
           '</div>',
       });
       if (!result.success) throw new Error(result.error ?? 'envío fallido');
@@ -86,7 +87,7 @@ async function partialAlert(kind: Kind, orderId: string, r: GatewayRefund, statu
     kind,
     orderId,
     'partial_refund_in_gateway',
-    `⚠️ Reembolso parcial hecho en la pasarela (${orderId.slice(0, 8)})`,
+    `⚠️ Reembolso parcial hecho en la pasarela (${orderRef(orderId)})`,
     `<p>La pasarela ha devuelto <strong>${money(r.refunded)}</strong> de <strong>${money(r.total)}</strong> del pedido${kind === 'tienda' ? ' de tienda' : ''} <strong>${esc(orderId)}</strong> (estado: ${esc(status)}).</p>` +
       '<p>No se ha cambiado nada en la plataforma: un reembolso parcial no se puede repartir entre entradas o líneas. Si hay que anular algo, hazlo a mano; las ventas y los ingresos de este pedido siguen contando por el importe completo.</p>',
     { refunded: r.refunded, total: r.total, status },
@@ -104,7 +105,7 @@ async function applyToOrder(
   }
   if (order.status === 'REFUNDED' || order.status === 'CANCELLED') return 'already'; // lo hizo la app (o ya estaba anulado): el webhook solo confirma
   if (order.status !== 'COMPLETED') {
-    await notifyOperator('entradas', order.id, 'refund_on_unpaid_order', `⚠️ Reembolso en la pasarela de un pedido sin pagar (${order.id.slice(0, 8)})`,
+    await notifyOperator('entradas', order.id, 'refund_on_unpaid_order', `⚠️ Reembolso en la pasarela de un pedido sin pagar (${orderRef(order.id)})`,
       `<p>La pasarela informa de ${esc(originText(r))} sobre el pedido <strong>${esc(order.id)}</strong>, que está en estado <strong>${esc(order.status)}</strong>. No se ha cambiado nada: revísalo a mano.</p>`);
     return 'inactive';
   }
@@ -124,7 +125,7 @@ async function applyToOrder(
   const used = order.tickets.filter((t) => t.status === 'USED').length;
   logPaymentEvent('[gateway-refund]', { kind: 'entradas', orderId: order.id, reason: 'applied', source: r.source, cancelled: applied.cancelled, used }, 'warn');
   if (r.source === 'refund') await sendRefundEmail('entradas', order, r.refunded);
-  await notifyOperator('entradas', order.id, 'refunded_in_gateway_applied', `Pedido reembolsado en la pasarela: entradas anuladas (${order.id.slice(0, 8)})`,
+  await notifyOperator('entradas', order.id, 'refunded_in_gateway_applied', `Pedido reembolsado en la pasarela: entradas anuladas (${orderRef(order.id)})`,
     `<p>La pasarela informa de ${esc(originText(r))} por <strong>${money(r.refunded)}</strong> sobre el pedido <strong>${esc(order.id)}</strong>.</p>` +
       `<p>El pedido se ha marcado como reembolsado y se han anulado <strong>${applied.cancelled}</strong> entrada(s)${used > 0 ? `; <strong>${used}</strong> ya había(n) entrado y no se puede deshacer` : ''}. ${r.source === 'refund' ? 'Se ha avisado al comprador.' : 'No se ha avisado al comprador (disputa).'}</p>`,
     { cancelled: applied.cancelled, used, source: r.source });
@@ -141,7 +142,7 @@ async function applyToShopOrder(
   }
   if (order.status === 'REFUNDED' || order.status === 'CANCELLED') return 'already';
   if (!(SHOP_ACTIVE as readonly string[]).includes(order.status)) {
-    await notifyOperator('tienda', order.id, 'refund_on_unpaid_order', `⚠️ Reembolso en la pasarela de un pedido sin pagar (${order.id.slice(0, 8)})`,
+    await notifyOperator('tienda', order.id, 'refund_on_unpaid_order', `⚠️ Reembolso en la pasarela de un pedido sin pagar (${orderRef(order.id)})`,
       `<p>La pasarela informa de ${esc(originText(r))} sobre el pedido de tienda <strong>${esc(order.id)}</strong>, que está en estado <strong>${esc(order.status)}</strong>. No se ha cambiado nada: revísalo a mano.</p>`);
     return 'inactive';
   }
@@ -170,7 +171,7 @@ async function applyToShopOrder(
 
   logPaymentEvent('[gateway-refund]', { kind: 'tienda', orderId: order.id, reason: 'applied', source: r.source, restocked: returnsStock }, 'warn');
   if (r.source === 'refund') await sendRefundEmail('tienda', order, r.refunded);
-  await notifyOperator('tienda', order.id, 'refunded_in_gateway_applied', `Pedido de tienda reembolsado en la pasarela (${order.id.slice(0, 8)})`,
+  await notifyOperator('tienda', order.id, 'refunded_in_gateway_applied', `Pedido de tienda reembolsado en la pasarela (${orderRef(order.id)})`,
     `<p>La pasarela informa de ${esc(originText(r))} por <strong>${money(r.refunded)}</strong> sobre el pedido de tienda <strong>${esc(order.id)}</strong>.</p>` +
       `<p>El pedido se ha marcado como reembolsado${returnsStock ? ' y se ha repuesto el stock' : '; el stock NO se ha repuesto porque la mercancía ya se había enviado'}. ${r.source === 'refund' ? 'Se ha avisado al comprador.' : 'No se ha avisado al comprador (disputa).'}</p>`,
     { restocked: returnsStock, source: r.source });
@@ -187,7 +188,7 @@ export async function alertDisputeOpened(orderId: string, amount: number, reason
     isShop ? 'tienda' : 'entradas',
     orderId,
     'dispute_opened',
-    `🚨 El comprador ha abierto una disputa de ${money(amount)} (${orderId.slice(0, 8)})`,
+    `🚨 El comprador ha abierto una disputa de ${money(amount)} (${orderRef(orderId)})`,
     `<p>El comprador del pedido${isShop ? ' de tienda' : ''} <strong>${esc(orderId)}</strong> ha abierto una disputa (contracargo) de <strong>${money(amount)}</strong>${reason ? ` (motivo: ${esc(reason)})` : ''}.</p>` +
       '<p>Todavía no se ha perdido el dinero y la disputa se puede ganar, así que NO se ha anulado nada. Responde con tus pruebas en el panel de la pasarela dentro del plazo que te dé. ' +
       'Si la pierdes, el pedido se marcará solo como reembolsado y se anularán sus entradas.</p>',
@@ -255,7 +256,7 @@ export async function repairRefundedOrders(opts: { now?: number; limit?: number 
             const back = await prisma.order.updateMany({ where: { id, status: 'REFUNDED' }, data: { status: 'COMPLETED' } });
             if (back.count > 0) {
               reverted += 1;
-              await notifyOperator('entradas', id, 'refund_incomplete_reverted', `⚠️ Reembolso que no llegó a hacerse: pedido devuelto a vigente (${id.slice(0, 8)})`,
+              await notifyOperator('entradas', id, 'refund_incomplete_reverted', `⚠️ Reembolso que no llegó a hacerse: pedido devuelto a vigente (${orderRef(id)})`,
                 `<p>El pedido <strong>${esc(id)}</strong> estaba marcado como reembolsado pero la pasarela sigue dando el cobro por PAGADO: el reembolso se interrumpió antes de llegar a hacerse.</p>` +
                   '<p>El pedido ha vuelto a estar vigente (sus entradas siguen válidas). Vuelve a pulsar «Reembolsar» si quieres devolver el dinero.</p>');
             }

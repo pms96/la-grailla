@@ -144,7 +144,7 @@ export default function IngresosPage() {
             </Card>
             <Card>
               <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Balance — lo que queda al final</p>
+                <p className="text-xs text-muted-foreground">Cobrado con IVA − gastos con IVA</p>
                 <p className={`text-2xl font-bold ${(resumen?.balance ?? 0) >= 0 ? 'text-green-500' : 'text-destructive-text'}`}>
                   {(resumen?.balance ?? 0) >= 0 ? '+' : ''}{(resumen?.balance ?? 0).toFixed(2)}€
                 </p>

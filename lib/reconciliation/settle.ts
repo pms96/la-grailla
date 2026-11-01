@@ -5,6 +5,7 @@ import { completeOrder, releaseExpiredOrder } from './entradas';
 import { completeShopOrder, releaseExpiredShopOrder } from './tienda';
 import { alertOperator, logPaymentEvent } from './shared';
 import { escapeHtml as esc } from '@/lib/html-escape';
+import { orderRef } from '@/lib/order-ref';
 
 /* Qué hacer con un pedido PENDING cuyo pago no ha llegado (P0-06 + P0-05 + P0-04). Lo usan el cron de reconciliación y la ruta de abandono
  * del comprador, para que la regla sea UNA y esté probada una vez.
@@ -83,7 +84,7 @@ export async function settleUnpaidOrder(params: {
       reason,
       details: { provider: order.paymentProvider ?? null, status: result.status ?? null, detail: result.reason ?? null, ageHours: Math.floor((now - order.createdAt.getTime()) / 3_600_000) },
       dedupeKey: `stuck:${order.id}`,
-      subject: `⚠️ Pedido con el pago sin resolver desde hace más de 24 h (${order.id.slice(0, 8)})`,
+      subject: `⚠️ Pedido con el pago sin resolver desde hace más de 24 h (${orderRef(order.id)})`,
       html:
         `<p>El pedido de ${kind} <strong>${esc(order.id)}</strong> lleva más de 24 h pendiente y la pasarela (${esc(order.paymentProvider ?? '-')}) ` +
         (result.outcome === 'unknown'
@@ -118,7 +119,7 @@ async function decideUnpaidOrder(params: {
       reason: 'payment_refunded_on_pending_order',
       details: { provider: order.paymentProvider ?? null, status },
       dedupeKey: `refunded-pending:${order.id}`,
-      subject: `⚠️ Pedido pendiente cuyo cobro consta reembolsado (${order.id.slice(0, 8)})`,
+      subject: `⚠️ Pedido pendiente cuyo cobro consta reembolsado (${orderRef(order.id)})`,
       html:
         `<p>El pedido de ${kind} <strong>${esc(order.id)}</strong> sigue pendiente, pero la pasarela dice que su cobro está reembolsado (total o parcialmente).</p>` +
         '<p>No se ha completado ni entregado nada. Si el reembolso fue intencionado, anula el pedido desde el admin.</p>',

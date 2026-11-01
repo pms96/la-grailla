@@ -11,6 +11,8 @@ import { getBrand, type Brand } from '@/lib/brand/brand';
 import { brandLogoHtml } from '@/lib/brand/email';
 import { buildFiscalView, isOnlineSale, RECEIPT_TITLE } from '@/lib/fiscal';
 import { fiscalEmailHtml } from '@/lib/fiscal-email';
+import { orderRef } from '@/lib/order-ref';
+import { formatMadridDateTime } from '@/lib/shop-orders-csv';
 
 // DATA-01: derivado del propio `prisma` (extendido — totalAmount/commission
 // son number, no Decimal), no de `Prisma.OrderGetPayload<...>` (que describe
@@ -119,7 +121,7 @@ function buildWalletLinksHtml(
   );
 }
 
-function buildEmailHtml(
+export function buildEmailHtml(
   order: OrderWithTickets,
   printUrl: string,
   brand: Brand,
@@ -164,7 +166,8 @@ function buildEmailHtml(
     '<p style="margin:4px 0;"><strong>Lugar:</strong> ' + esc(order.event?.venue) + ' - ' + esc(order.event?.city) + '</p>' +
     '<p style="margin:4px 0;"><strong>Entradas:</strong> ' + count + '</p>' +
     '<p style="margin:4px 0;"><strong>Total:</strong> ' + Number(order.totalAmount ?? 0).toFixed(2) + ' EUR</p>' +
-    '<p style="margin:4px 0;"><strong>Referencia:</strong> ' + esc(order.id?.slice(0, 8)?.toUpperCase()) + '</p>' +
+    '<p style="margin:4px 0;"><strong>Referencia:</strong> ' + esc(orderRef(order.id)) + '</p>' +
+    (order.createdAt ? '<p style="margin:4px 0;"><strong>Fecha de compra:</strong> ' + esc(formatMadridDateTime(new Date(order.createdAt))) + '</p>' : '') +
     (fiscalHtml ?? '') +
     '</div>' +
     minorAuthNotice +
@@ -265,7 +268,7 @@ export async function deliverTicketsEmail(
 
   const attachments = [
     ...(pdfBytes
-      ? [{ filename: `entradas-${order.id.slice(0, 8)}.pdf`, content: Buffer.from(pdfBytes), contentType: 'application/pdf' }]
+      ? [{ filename: `entradas-${orderRef(order.id)}.pdf`, content: Buffer.from(pdfBytes), contentType: 'application/pdf' }]
       : []),
     ...(minorAuthPdfBytes
       ? [

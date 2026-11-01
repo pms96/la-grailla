@@ -20,8 +20,18 @@ describe('caché del CDN de la ficha de evento (H-059)', () => {
 
   it('el resto de páginas públicas conserva su caché de siempre', async () => {
     const rules = await nextConfig.headers();
-    for (const source of ['/', '/eventos', '/tienda', '/sponsors', '/legal/:path*']) {
+    for (const source of ['/', '/eventos', '/tienda', '/sponsors', '/legal/aviso-legal', '/legal/cookies']) {
       expect(rules.some((r) => r.source === source && r.headers.some((h) => h.key === 'Vercel-CDN-Cache-Control')), source).toBe(true);
+    }
+  });
+
+  // H-143: el enlace de la casilla («he leído las condiciones») enseñaba el texto antiguo hasta 90 s después de que el hash ya fuera el nuevo.
+  it('las condiciones de venta y la privacidad NO se guardan en el CDN: el texto mostrado y el hash que se acepta no pueden desfasarse', async () => {
+    const rules = await nextConfig.headers();
+    const cached = (path: string) =>
+      rules.some((r) => r.headers.some((h) => h.key === 'Vercel-CDN-Cache-Control') && new RegExp(`^${r.source.replace(/:path\*/g, '.*')}$`).test(path));
+    for (const path of ['/legal/condiciones-entradas', '/legal/condiciones-tienda', '/legal/privacidad']) {
+      expect(cached(path), path).toBe(false);
     }
   });
 });

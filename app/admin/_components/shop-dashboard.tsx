@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { SkeletonPulse } from '@/components/ui/animate';
 import { useBrand } from '@/components/brand-provider';
 import type { ShopStats } from '@/lib/shop-stats';
+import { orderRef } from '@/lib/order-ref';
 
 /* Dashboard de la tienda. Es el panel de inicio cuando el cliente no tiene Entradas; con Entradas, va debajo del suyo (`embedded`). */
 
@@ -166,7 +167,7 @@ export default function ShopDashboard({ embedded = false }: { embedded?: boolean
           <ul className="divide-y divide-border">
             {stats.recent.map((o) => (
               <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
-                <span className="min-w-0"><span className="font-medium">{o.buyerName}</span> <span className="font-mono text-xs text-muted-foreground">#{o.id.slice(0, 8)}</span></span>
+                <span className="min-w-0"><span className="font-medium">{o.buyerName}</span> <span className="font-mono text-xs text-muted-foreground">#{orderRef(o.id)}</span></span>
                 <span className="flex items-center gap-3">
                   <span className="font-mono">{eur.format(o.totalAmount)}</span>
                   <Badge variant="secondary">{STATUS_LABELS[o.status] ?? o.status}</Badge>

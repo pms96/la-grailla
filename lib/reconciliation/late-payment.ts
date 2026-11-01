@@ -6,6 +6,7 @@ import { brandLogoHtml } from '@/lib/brand/email';
 import { getFallbackBaseUrl } from '@/lib/url';
 import { prisma } from '@/lib/prisma';
 import { alertOperator, logPaymentEvent, paymentMatchesOrder, type CompleteOutcome } from './shared';
+import { orderRef } from '@/lib/order-ref';
 
 /** Marca «para este pedido se ha decidido devolver el dinero»: una vez puesta, ya no se intenta reactivar (así un reintento nunca cobra Y entrega). */
 export const lateRefundMarker = (orderId: string) => `late-refund:${orderId}`;
@@ -94,7 +95,7 @@ export async function sendLateRefundEmail(
         `<p>Tu pago de <strong>${Number(order.totalAmount).toFixed(2)} EUR</strong> nos llegó cuando la reserva de ${what} ya había caducado ` +
         `y ${why}. No hemos podido completar la compra, así que <strong>te hemos devuelto el importe íntegro</strong> a tu método de pago original.</p>` +
         '<p>La devolución puede tardar unos días en aparecer, según tu banco.</p>' +
-        `<p style="color:#666;">Referencia: ${esc(order.id.slice(0, 8).toUpperCase())}. Sentimos las molestias.</p>` +
+        `<p style="color:#666;">Referencia: ${esc(orderRef(order.id))}. Sentimos las molestias.</p>` +
         '</div>',
     });
     if (!result.success) logPaymentEvent('[late-payment]', { orderId: order.id, reason: 'buyer_email_failed', error: result.error });
@@ -163,7 +164,7 @@ async function finishLateRefundLocked(params: {
           reason: 'refund_failed',
           details: { detail: refund.error },
           dedupeKey: `late-refund-failed:${order.id}`,
-          subject: `🚨 Pago tardío sin ${stock} y reembolso FALLIDO (${order.id.slice(0, 8)})`,
+          subject: `🚨 Pago tardío sin ${stock} y reembolso FALLIDO (${orderRef(order.id)})`,
           html:
             `<p>El pedido${kind === 'tienda' ? ' de tienda' : ''} <strong>${esc(order.id)}</strong> estaba anulado y su pago ha llegado después; ya no hay ${stock}, así que se intentó devolver el dinero, pero la pasarela ha respondido: <em>${esc(refund.error)}</em>.</p>` +
             `<p><strong>El comprador ha pagado ${Number(order.totalAmount).toFixed(2)} EUR y no ${kind === 'entradas' ? 'tiene entrada' : 'recibirá su pedido'}.</strong> Reembólsalo desde la pasarela y contacta con él (${esc(order.buyerEmail)}). El sistema volverá a intentarlo cuando llegue otro aviso del pago.</p>`,
@@ -181,7 +182,7 @@ async function finishLateRefundLocked(params: {
     orderId: order.id,
     reason: 'refunded_no_capacity',
     dedupeKey: `late-refunded:${order.id}`,
-    subject: `Pago tardío reembolsado automáticamente (${order.id.slice(0, 8)})`,
+    subject: `Pago tardío reembolsado automáticamente (${orderRef(order.id)})`,
     html: `<p>El pedido${kind === 'tienda' ? ' de tienda' : ''} <strong>${esc(order.id)}</strong> estaba anulado y su pago llegó después; ya no quedaban ${stock}. Se han devuelto ${Number(order.totalAmount).toFixed(2)} EUR al comprador y se le ha avisado por correo. No hace falta hacer nada.</p>`,
   });
   return 'refunded_late';
@@ -196,7 +197,7 @@ export async function alertManuallyRefunded(kind: 'entradas' | 'tienda', orderId
     reason: 'refunded_in_gateway',
     details: { status },
     dedupeKey: `late-refunded-gateway:${orderId}`,
-    subject: `⚠️ Pago reembolsado en la pasarela sobre un pedido anulado (${orderId.slice(0, 8)})`,
+    subject: `⚠️ Pago reembolsado en la pasarela sobre un pedido anulado (${orderRef(orderId)})`,
     html:
       `<p>Ha llegado la confirmación de un pago para el pedido${kind === 'tienda' ? ' de tienda' : ''} <strong>${esc(orderId)}</strong>, que ya estaba anulado, pero la pasarela dice que ese cobro YA está reembolsado (total o parcialmente).</p>` +
       '<p>Por eso no se ha reactivado ni entregado nada (se entregaría sin cobrar). El pedido sigue anulado; no hace falta hacer nada más salvo contactar con el comprador si procede.</p>',

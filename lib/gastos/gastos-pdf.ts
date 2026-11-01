@@ -2,6 +2,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont } from 'pdf
 import type { GastosExportData } from '@/lib/gastos/gastos-data';
 import { getBrand } from '@/lib/brand/brand';
 import { pdfBrandName, pdfColor } from '@/lib/brand/pdf';
+import { pdfText } from '@/lib/pdf-safe';
 
 const PAGE_SIZE: [number, number] = [841.89, 595.28]; // A4 apaisado — más columnas que en un listado simple
 const MARGIN = 40;
@@ -21,7 +22,8 @@ const COLUMNAS: Columna[] = [
   { header: 'Importe c/IVA', width: 75 },
 ];
 
-function truncar(texto: string, font: PDFFont, size: number, maxWidth: number): string {
+function truncar(textoOriginal: string, font: PDFFont, size: number, maxWidth: number): string {
+  const texto = pdfText(font, textoOriginal); // H-139: un emoji o un salto de línea en un concepto no puede tumbar el PDF
   if (font.widthOfTextAtSize(texto, size) <= maxWidth) return texto;
   let out = texto;
   while (out.length > 1 && font.widthOfTextAtSize(`${out}…`, size) > maxWidth) {
@@ -58,7 +60,7 @@ export async function buildGastosPdf(data: GastosExportData): Promise<Uint8Array
     page = pdf.addPage(PAGE_SIZE);
     y = page.getSize().height - MARGIN;
     if (withTitle) {
-      page.drawText(`${brandName} — Gastos (${data.temporada.nombre})`, { x: MARGIN, y, size: 16, font: fontBold, color: morado });
+      page.drawText(pdfText(fontBold, `${brandName} — Gastos (${data.temporada.nombre})`), { x: MARGIN, y, size: 16, font: fontBold, color: morado });
       y -= 22;
       page.drawText(`Generado el ${new Date().toLocaleDateString('es-ES')}`, { x: MARGIN, y, size: 9, font, color: gris });
       y -= 18;

@@ -3,6 +3,7 @@ import type { Temporada } from '@prisma/client';
 import type { FilaPlanificador } from '@/lib/compras/planificador-data';
 import { getBrand } from '@/lib/brand/brand';
 import { pdfBrandName, pdfColor } from '@/lib/brand/pdf';
+import { pdfText } from '@/lib/pdf-safe';
 
 const PAGE_SIZE: [number, number] = [841.89, 595.28]; // A4 apaisado
 const MARGIN = 36;
@@ -21,7 +22,8 @@ const COLUMNAS: Columna[] = [
   { header: 'Observaciones', width: 130 },
 ];
 
-function truncar(texto: string, font: PDFFont, size: number, maxWidth: number): string {
+function truncar(textoOriginal: string, font: PDFFont, size: number, maxWidth: number): string {
+  const texto = pdfText(font, textoOriginal); // H-139
   if (font.widthOfTextAtSize(texto, size) <= maxWidth) return texto;
   let out = texto;
   while (out.length > 1 && font.widthOfTextAtSize(`${out}…`, size) > maxWidth) {
@@ -67,10 +69,10 @@ export async function buildPlanificadorPdf(
     if (withTitle) {
       page.drawText(`${brandName} — Planificador de compras`, { x: MARGIN, y, size: 16, font: fontBold, color: morado });
       y -= 22;
-      page.drawText(`Temporada: ${temporada.nombre} (${temporada.anio})`, { x: MARGIN, y, size: 10, font, color: negro });
+      page.drawText(pdfText(font, `Temporada: ${temporada.nombre} (${temporada.anio})`), { x: MARGIN, y, size: 10, font, color: negro });
       y -= 14;
       if (temporadaAnterior) {
-        page.drawText(`Consumo de referencia: ${temporadaAnterior.nombre}`, { x: MARGIN, y, size: 9, font, color: gris });
+        page.drawText(pdfText(font, `Consumo de referencia: ${temporadaAnterior.nombre}`), { x: MARGIN, y, size: 9, font, color: gris });
         y -= 14;
       }
       page.drawText(`Generado el ${new Date().toLocaleDateString('es-ES')}`, { x: MARGIN, y, size: 8, font, color: gris });
