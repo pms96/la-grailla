@@ -1,6 +1,7 @@
 'use client';
 
 import { madridDayKey } from '@/lib/ventas-por-dia';
+import { parseFormNumber, parseIvaPercent } from '@/lib/contabilidad/form-numbers';
 import { useEffect, useState } from 'react';
 import type { Gasto, Proveedor } from '@prisma/client';
 import type { WithNumberFields } from '@/lib/prisma';
@@ -72,6 +73,11 @@ export function GastoDialog({ open, onOpenChange, editing, temporadaId, proveedo
 
   const handleSave = async () => {
     if (!form.concepto.trim() || !temporadaId) { toast.error('El gasto necesita un concepto'); return; }
+    // H-140: un importe o un IVA vacío ya no se guarda como 0 sin avisar.
+    const importeSinIva = parseFormNumber(form.importeSinIva);
+    const ivaPercent = parseIvaPercent(form.ivaPercent);
+    if (importeSinIva === null) { toast.error('Indica el importe sin IVA'); return; }
+    if (ivaPercent === null) { toast.error('Indica el IVA entre 0 y 100 (escribe 0 si el gasto no lleva)'); return; }
     setSaving(true);
     try {
       const payload = {
@@ -79,8 +85,8 @@ export function GastoDialog({ open, onOpenChange, editing, temporadaId, proveedo
         categoria: form.categoria,
         concepto: form.concepto.trim(),
         proveedorId: form.proveedorId || null,
-        importeSinIva: Number(form.importeSinIva) || 0,
-        ivaPercent: Number(form.ivaPercent) || 0,
+        importeSinIva,
+        ivaPercent,
         fecha: form.fecha,
         numDocumento: form.numDocumento || null,
         tipoDocumento: form.tipoDocumento,

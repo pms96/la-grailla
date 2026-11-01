@@ -8,12 +8,16 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { actorFromSession, diffFields, recordAdminAudit } from '@/lib/admin-audit';
 import { planSeasonMove, recordSeasonMove } from '@/lib/contabilidad/season-reassign';
 import { seasonLinkEnabled } from '@/lib/modules/season-link';
 import { parseEventNumberSettings } from '@/lib/waiting-room-settings';
 import { releaseUnusedBlobs } from '@/lib/blob-cleanup';
 import { parseEventDateInput } from '@/lib/event-time';
 import { countDateChangeRecipients, hasCancellationJob, processDateChange, startDateChangeNotice } from '@/lib/event-cancellation';
+
+/** Campos del evento cuyo cambio queda en el rastro (H-018): lo que mueve dinero, aforo, fecha o visibilidad. La temporada ya la anota `temporada.reassign`. */
+const EVENT_AUDIT_FIELDS = ['name', 'venue', 'city', 'date', 'status', 'maxCapacity', 'minAge', 'maxTicketsPerEmail', 'onlineSalesClosed', 'waitingRoomEnabled'] as const;
 
 const updateEventSchema = z.object({
   name: z.string().min(1).optional(),
@@ -105,7 +109,10 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
     }
     // Si cambia el cartel, el anterior se borra de Blob cuando ya está guardado el nuevo.
     const previous = body?.imageUrl !== undefined ? await prisma.event.findUnique({ where: { id: params?.id }, select: { imageUrl: true } }) : null;
-    const event = await prisma.event.update({
+    const snapshot = await prisma.event.findUnique({ where: { id: params?.id } });
+    // El cambio y su rastro van en la misma transacción (H-021): sin rastro no queda cambio.
+    const event = await prisma.$transaction(async (tx) => {
+      const updated = await tx.event.update({
       where: { id: params?.id },
       data: {
         name: body?.name,
@@ -138,6 +145,12 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
         longitude: body?.longitude === '' || body?.longitude == null ? null : Number(body.longitude),
         temporadaId: body?.temporadaId === undefined || !seasonLinkEnabled() ? undefined : body.temporadaId || null,
       },
+      });
+      const cambios = snapshot ? diffFields(snapshot, updated, EVENT_AUDIT_FIELDS) : {};
+      if (Object.keys(cambios).length > 0) {
+        await recordAdminAudit(tx, actorFromSession(session), request, { action: 'event.update', targetType: 'Event', targetId: updated.id, meta: { name: updated.name, cambios } });
+      }
+      return updated;
     });
     await recordSeasonMove(seasonMove, { session, request, targetType: 'Event', targetId: params?.id });
     // Aviso del cambio de fecha: se anota el trabajo y se envía un primer lote ya; el resto sigue en el cron. Un fallo aquí no deshace el cambio.
@@ -208,8 +221,16 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
   try {
-    const previous = await prisma.event.findUnique({ where: { id: params?.id }, select: { imageUrl: true } });
-    await prisma.event.delete({ where: { id: params?.id } });
+    const previous = await prisma.event.findUnique({ where: { id: params?.id }, select: { imageUrl: true, name: true, status: true, date: true } });
+    await prisma.$transaction(async (tx) => {
+      await tx.event.delete({ where: { id: params?.id } });
+      await recordAdminAudit(tx, actorFromSession(session), request, {
+        action: 'event.delete',
+        targetType: 'Event',
+        targetId: params?.id,
+        meta: { name: previous?.name ?? null, status: previous?.status ?? null, date: previous?.date ?? null },
+      });
+    });
     // El cartel de un evento borrado ya no lo usa nadie (solo se llega aquí si el borrado ha salido bien).
     await releaseUnusedBlobs([previous?.imageUrl], []);
     return NextResponse.json({ success: true });

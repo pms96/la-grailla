@@ -103,11 +103,11 @@ describe('GET /api/admin/stats/ventas-por-dia con hora de corte de la jornada (P
       });
       await prisma.ticket.create({ data: { orderId: order.id, eventId, qrCode: `qr-jornada-${tag}-${order.id}`, holderName: 'T' } });
     };
-    // Sábado 31/10/2026 (Madrid en horario de invierno, UTC+1): 22:30, 00:30 de la madrugada y 06:30 (ya es la jornada siguiente con corte a las 06:00).
-    await mk('2026-10-31T21:30:00Z', 400, 'a');
-    await mk('2026-10-31T23:30:00Z', 200, 'b');
-    await mk('2026-11-01T05:30:00Z', 50, 'c');
-    await prisma.ingreso.create({ data: { temporadaId, concepto: 'Entradas', importe: 600, fecha: new Date('2026-10-31') } });
+    // Noche del 12/12/2093 (Madrid en horario de invierno, UTC+1; una fecha lejana: así ningún ingreso real de la BD compartida entra en la caja que se compara, H-007): 22:30, 00:30 de la madrugada y 06:30 (ya es la jornada siguiente con corte a las 06:00).
+    await mk('2093-12-12T21:30:00Z', 400, 'a');
+    await mk('2093-12-12T23:30:00Z', 200, 'b');
+    await mk('2093-12-13T05:30:00Z', 50, 'c');
+    await prisma.ingreso.create({ data: { temporadaId, concepto: 'Entradas', importe: 600, fecha: new Date('2093-12-12') } });
   });
   afterAll(async () => {
     await prisma.ingreso.deleteMany({ where: { temporadaId } });
@@ -127,22 +127,22 @@ describe('GET /api/admin/stats/ventas-por-dia con hora de corte de la jornada (P
 
   it('sin corte (por defecto): el día natural de siempre; el sábado solo trae lo anterior a la medianoche', async () => {
     await withCorte('0', async () => {
-      const sabado = await day('from=2026-10-31&to=2026-10-31');
+      const sabado = await day('from=2093-12-12&to=2093-12-12');
       expect(sabado.corteHora).toBe(0);
-      expect(sabado.dias.map((d) => [d.fecha, d.taquillaEfectivo.importe])).toEqual([['2026-10-31', 400]]);
+      expect(sabado.dias.map((d) => [d.fecha, d.taquillaEfectivo.importe])).toEqual([['2093-12-12', 400]]);
     });
   });
 
   it('con corte a las 06:00: la noche entera (22:30 y 00:30) es la jornada del sábado; las 06:30 ya son la del domingo', async () => {
     await withCorte('6', async () => {
-      const sabado = await day('from=2026-10-31&to=2026-10-31');
+      const sabado = await day('from=2093-12-12&to=2093-12-12');
       expect(sabado.corteHora).toBe(6);
-      expect(sabado.dias.map((d) => [d.fecha, d.taquillaEfectivo.importe])).toEqual([['2026-10-31', 600]]);
-      const domingo = await day('from=2026-11-01&to=2026-11-01');
-      expect(domingo.dias.map((d) => [d.fecha, d.taquillaEfectivo.importe])).toEqual([['2026-11-01', 50]]);
+      expect(sabado.dias.map((d) => [d.fecha, d.taquillaEfectivo.importe])).toEqual([['2093-12-12', 600]]);
+      const domingo = await day('from=2093-12-13&to=2093-12-13');
+      expect(domingo.dias.map((d) => [d.fecha, d.taquillaEfectivo.importe])).toEqual([['2093-12-13', 50]]);
       // Sin filtro, cada pedido en su jornada y ninguno repetido ni perdido: los mismos 650 € que sin corte.
       const todo = await day('');
-      expect(todo.dias.map((d) => [d.fecha, d.taquillaEfectivo.importe])).toEqual([['2026-10-31', 600], ['2026-11-01', 50]]);
+      expect(todo.dias.map((d) => [d.fecha, d.taquillaEfectivo.importe])).toEqual([['2093-12-12', 600], ['2093-12-13', 50]]);
       expect(todo.totales.taquillaEfectivo.importe).toBe(650);
     });
   });
@@ -154,13 +154,13 @@ describe('GET /api/admin/stats/ventas-por-dia con hora de corte de la jornada (P
       const others = await prisma.order.aggregate({
         where: {
           status: 'COMPLETED', channel: 'TAQUILLA', paymentMethod: 'CASH', eventId: { not: eventId },
-          createdAt: { gte: businessDayStart('2026-10-31', 6), lt: businessDayStart('2026-11-01', 6) },
+          createdAt: { gte: businessDayStart('2093-12-12', 6), lt: businessDayStart('2093-12-13', 6) },
         },
         _sum: { totalAmount: true },
       });
       const otros = Number(others._sum.totalAmount ?? 0);
-      const res = await (await get('from=2026-10-31&to=2026-10-31')).json();
-      const sabado = res.dias.find((d: { fecha: string }) => d.fecha === '2026-10-31');
+      const res = await (await get('from=2093-12-12&to=2093-12-12')).json();
+      const sabado = res.dias.find((d: { fecha: string }) => d.fecha === '2093-12-12');
       expect(sabado.taquillaEfectivo.importe).toBe(Math.round((600 + otros) * 100) / 100);
       expect(sabado.cajaEntradas).toBe(600);
       expect(sabado.diferenciaCaja).toBe(Math.round((600 - (600 + otros)) * 100) / 100); // 0 cuando solo están los pedidos de esta prueba

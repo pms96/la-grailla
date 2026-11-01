@@ -1,5 +1,18 @@
 const MADRID_TZ = 'Europe/Madrid';
 
+// H-006: construir un `Intl.DateTimeFormat` es caro y `stats` agrupa todos los pedidos: se crean una sola vez, al cargar el módulo.
+const DAY_KEY_FORMAT = new Intl.DateTimeFormat('en-CA', { timeZone: MADRID_TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+const OFFSET_FORMAT = new Intl.DateTimeFormat('en-US', {
+  timeZone: MADRID_TZ,
+  hourCycle: 'h23',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+});
+
 export type VentasBucketKey = 'online' | 'taquillaTarjeta' | 'taquillaEfectivo' | 'gratis';
 
 export const VENTAS_BUCKET_KEYS: VentasBucketKey[] = ['online', 'taquillaTarjeta', 'taquillaEfectivo', 'gratis'];
@@ -41,7 +54,7 @@ export function classifyOrder(order: Pick<OrderForVentas, 'channel' | 'paymentMe
 // Día natural en hora de Madrid ("YYYY-MM-DD"). Agrupar por UTC cortaba mal
 // las ventas de madrugada: un pedido a las 00:30 en Madrid caía en el día anterior.
 export function madridDayKey(date: Date): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: MADRID_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  return DAY_KEY_FORMAT.format(date);
 }
 
 /** Hora de corte máxima de la jornada de negocio (de 0 a 12 h, hora de Madrid). */
@@ -67,16 +80,7 @@ export function businessDayKey(date: Date, cutoffHour = 0): string {
 }
 
 function madridOffsetMinutes(date: Date): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: MADRID_TZ,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(date);
+  const parts = OFFSET_FORMAT.formatToParts(date);
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
   const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
   return Math.round((asUtc - Math.floor(date.getTime() / 1000) * 1000) / 60000);

@@ -58,3 +58,25 @@ Estimación **calculada, no medida**: con N esperando y un sondeo medio de ~15 s
 - **«Han entrado» es un acumulado de admitidos**, no el aforo real dentro del recinto: quien sale y vuelve no resta ni suma. La interfaz lo rotula así («han entrado · aforo N»).
 - **Reentrada:** si alguien ya admitido sale y vuelve, la puerta le da el rojo «YA ENTRÓ». Un **ADMIN** puede autorizar la reentrada desde ese veredicto («Permitir reentrada»): queda en el historial de escaneos como `REENTRY` con quién la autorizó, no sube «han entrado» y no cuenta como rechazo. La taquilla (TAQUILLA) no puede.
 - **Sin conexión no hay puerta:** el escáner necesita la red para validar (no hay modo sin conexión; decisión del dueño, límite aceptado). Llevar datos móviles de respaldo en la puerta y un ADMIN presente.
+
+## 6. Auditoría y contabilidad: lo que cambia y los límites (lote 4)
+
+**Lo que notará quien administra**
+
+- **El rastro de auditoría ya no es «mejor esfuerzo».** Usuarios, roles, configuración, eventos, precios de entrada, temporadas, patrocinios y cambios de estado de pedidos de tienda se anotan en la MISMA transacción que el cambio: si no se puede anotar, no queda cambiado (error 500, se repite). Las acciones que mueven dinero fuera de nuestra base de datos (reembolsos) se anotan justo después de hacerse y ANTES de enviar el correo al comprador.
+- **Exportar compradores deja rastro** (`export.orders`, `export.attendees`, `export.shop_orders`: quién, cuándo, con qué filtro y cuántas filas, sin los datos). Si no se puede anotar, no se entrega el fichero.
+- **Un usuario que registró gastos o ingresos no se puede borrar** (409): su firma desaparecería de esos apuntes. Para quitarle el acceso, cambiarle el rol.
+- **Fechas e importes de Contabilidad**, ahora validados: la fecha es `AAAA-MM-DD` (nada de horas ni texto), el importe no puede ir vacío y el IVA va de 0 a 100. Un gasto de un pedido debe ir en la temporada de ese pedido, y un pedido solo se registra una vez.
+- **Cerrar una temporada mientras alguien escribe en ella** ya no puede dejar un apunte nuevo en unos libros cerrados: la escritura espera al cierre y recibe 423.
+- **«Generar pedidos»** ignora los artículos desactivados (igual que el planificador).
+
+**Límites aceptados (con su motivo)**
+
+- **Cambio horario (H-004).** La jornada se calcula restando el corte en milisegundos reales: en las dos noches de cambio horario del año, el corte efectivo se desplaza 1 h respecto de la hora de pared. Dos noches al año y solo afecta a ventas pegadas a la hora de corte; no cambia ningún importe.
+- **Roles restringidos con Contabilidad (H-024).** Pueden editar importes (incluso a 0 o negativos: los abonos son legítimos). El control es el rastro (cada edición guarda el importe anterior), que anular exige propietario y motivo, y el cierre de temporada.
+- **Fecha de un ingreso (H-025).** No se acota a las fechas de la temporada (puede haber noches de fin de año que pasan al año siguiente). El control es el cierre de temporada y el rastro de → a.
+- **IP de los clientes (H-027).** `getClientIp` confía en cabeceras que solo son fiables detrás de Vercel. Hay que revisarlo en la fase de autoalojado (proxy de confianza configurable).
+- **Conservación (H-028).** La auditoría guarda emails de usuarios e IP sin plazo. Como la tabla es de solo inserción (trigger, §3.4), una política de retención solo puede aplicarse con `TRUNCATE` o con la salida de emergencia, y el plazo lo decide el abogado (se añade a los pendientes externos, junto a H-133, H-135, H-142 y H-144). Hoy no hay ninguna.
+- **IVA mixto de un pedido a proveedor (H-140, parte).** Si un pedido junta líneas con IVA distinto, el gasto sale con un IVA «efectivo» medio (p. ej. 14,29 %), que aparece así en el Excel y el PDF. Desglosar por tipo exige un gasto por tipo de IVA: decisión de contabilidad con la gestoría (CO-10), no se improvisa aquí.
+- **Sin interfaz de navegador verificada:** los diálogos de gastos, ingresos y «gasto desde pedido» (mensajes de importe e IVA vacíos, botón «Registrar como gasto» oculto con la temporada cerrada) están cubiertos por tests de la lógica y de la API; la comprobación en navegador es de la fase 4 (necesita sesión de administrador).
+

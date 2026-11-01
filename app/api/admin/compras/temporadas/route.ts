@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
 
 const createTemporadaSchema = z.object({
   nombre: z.string().min(1),
@@ -40,14 +41,19 @@ export async function POST(request: Request) {
   }
   try {
     const body = createTemporadaSchema.parse(await request.json());
-    const temporada = await prisma.temporada.create({
-      data: {
-        nombre: body.nombre,
-        anio: body.anio,
-        fechaInicio: body.fechaInicio ? new Date(body.fechaInicio) : null,
-        fechaFin: body.fechaFin ? new Date(body.fechaFin) : null,
-        notas: body.notas || null,
-      },
+    // H-018/H-021: la temporada y su rastro se escriben juntos.
+    const temporada = await prisma.$transaction(async (tx) => {
+      const created = await tx.temporada.create({
+        data: {
+          nombre: body.nombre,
+          anio: body.anio,
+          fechaInicio: body.fechaInicio ? new Date(body.fechaInicio) : null,
+          fechaFin: body.fechaFin ? new Date(body.fechaFin) : null,
+          notas: body.notas || null,
+        },
+      });
+      await recordAdminAudit(tx, actorFromSession(session), request, { action: 'temporada.create', targetType: 'Temporada', targetId: created.id, meta: { nombre: created.nombre, anio: created.anio } });
+      return created;
     });
     return NextResponse.json(temporada);
   } catch (error) {

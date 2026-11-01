@@ -7,6 +7,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { MIN_ONLINE_PAYMENT } from '@/lib/pricing';
+import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
 
 const createTicketTypeSchema = z.object({
   eventId: z.string().min(1),
@@ -28,18 +29,28 @@ export async function POST(request: Request) {
   }
   try {
     const body = createTicketTypeSchema.parse(await request.json());
-    const tt = await prisma.ticketType.create({
-      data: {
-        eventId: body?.eventId,
-        name: body?.name ?? '',
-        description: body?.description ?? '',
-        price: body?.price ?? 0,
-        phase: body?.phase ?? 1,
-        phaseName: body?.phaseName ?? 'General',
-        maxQuantity: body?.maxQuantity ?? 100,
-        sortOrder: body?.sortOrder ?? 0,
-        isActive: body?.isActive ?? true,
-      },
+    // H-018/H-021: el precio de una entrada y su rastro se escriben juntos.
+    const tt = await prisma.$transaction(async (tx) => {
+      const created = await tx.ticketType.create({
+        data: {
+          eventId: body?.eventId,
+          name: body?.name ?? '',
+          description: body?.description ?? '',
+          price: body?.price ?? 0,
+          phase: body?.phase ?? 1,
+          phaseName: body?.phaseName ?? 'General',
+          maxQuantity: body?.maxQuantity ?? 100,
+          sortOrder: body?.sortOrder ?? 0,
+          isActive: body?.isActive ?? true,
+        },
+      });
+      await recordAdminAudit(tx, actorFromSession(session), request, {
+        action: 'event.ticket_type_create',
+        targetType: 'TicketType',
+        targetId: created.id,
+        meta: { eventId: created.eventId, name: created.name, price: created.price, maxQuantity: created.maxQuantity, isActive: created.isActive },
+      });
+      return created;
     });
     return NextResponse.json(tt);
   } catch (error) {

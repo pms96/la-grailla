@@ -7,6 +7,7 @@ import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { madridDayKey } from '@/lib/ventas-por-dia';
 import { buildOrdersWhere } from '@/lib/order-filters';
+import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
 
 // Si una celda empieza por =, +, -, @, tab o retorno de carro, Excel/Sheets
 // la puede interpretar como fórmula al abrir el CSV — y estas celdas vienen
@@ -54,12 +55,13 @@ export async function GET(request: Request) {
       // Mismos filtros que /api/admin/orders (lista en pantalla) para que
       // el CSV descargado sea exactamente lo que el admin está viendo
       // filtrado, no todos los pedidos completados del evento.
-      const where = buildOrdersWhere({
+      const filtro = {
         q: url.searchParams.get('q') ?? '',
         status: url.searchParams.get('status') ?? 'COMPLETED',
         eventId,
         emailFailed: url.searchParams.get('emailFailed') === '1',
-      });
+      };
+      const where = buildOrdersWhere(filtro);
       const orders = await prisma.order.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -68,6 +70,14 @@ export async function GET(request: Request) {
           event: { select: { name: true } },
           _count: { select: { tickets: true } },
         },
+      });
+      // H-145: sale una lista de compradores con nombre y email: queda quién, cuándo, con qué filtro y cuántas filas, SIN los datos. Va ANTES de entregar el
+      // fichero y sin «mejor esfuerzo»: si el rastro no se puede escribir, no se exporta.
+      await recordAdminAudit(prisma, actorFromSession(session), request, {
+        action: 'export.orders',
+        targetType: eventId ? 'Event' : 'Order',
+        targetId: eventId || null,
+        meta: { filtro, filas: orders.length },
       });
       const csv = toCsv(
         [
@@ -126,6 +136,12 @@ export async function GET(request: Request) {
           },
           event: { select: { name: true } },
         },
+      });
+      await recordAdminAudit(prisma, actorFromSession(session), request, {
+        action: 'export.attendees',
+        targetType: 'Event',
+        targetId: eventId,
+        meta: { filtro: { eventId }, filas: tickets.length },
       });
       const csv = toCsv(
         [

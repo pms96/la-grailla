@@ -298,10 +298,14 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
                       {selected.status === 'BORRADOR' ? 'Confirmar envío (registro interno)' : 'Marcar como recibido'}
                     </Button>
                   )}
-                  {selected.status === 'RECIBIDO' && !selected.gasto && (
+                  {/* H-016: con la temporada cerrada el servidor da 423: no se ofrece el botón y se explica cómo seguir. */}
+                  {selected.status === 'RECIBIDO' && !selected.gasto && selected.temporada.status !== 'CERRADA' && (
                     <Button size="sm" variant="outline" className="gap-2" onClick={() => setRegistrarGastoPedido(selected)}>
                       <Wallet className="h-4 w-4" /> Registrar como gasto
                     </Button>
+                  )}
+                  {selected.status === 'RECIBIDO' && !selected.gasto && selected.temporada.status === 'CERRADA' && (
+                    <p className="text-xs text-muted-foreground">La temporada está cerrada: el propietario debe reabrirla (con motivo) para registrar este pedido como gasto.</p>
                   )}
                   {selected.gasto && (
                     <p className="text-xs text-muted-foreground">Ya registrado como gasto ({selected.gasto.importeSinIva.toFixed(2)}€ s/IVA).</p>

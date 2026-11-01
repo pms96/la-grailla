@@ -9,7 +9,7 @@ import bcrypt from 'bcryptjs';
 import { handleApiError } from '@/lib/api-error';
 import { isModuleEnabled } from '@/lib/modules/runtime';
 import { accessRoleProblem, isOwnerAdmin } from '@/lib/access-roles';
-import { actorFromSession, recordAdminAuditSafe } from '@/lib/admin-audit';
+import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
 
 const createUserSchema = z.object({
   email: z.string().min(1, 'email_is_required').email('invalid_email'),
@@ -61,14 +61,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'El email ya está registrado' }, { status: 409 });
     }
     const hashed = await bcrypt.hash(password, 12);
-    const user = await prisma.user.create({
-      data: { email, name: name ?? '', hashedPassword: hashed, role: role ?? 'USER', accessRole: accessRole ?? null },
-    });
-    await recordAdminAuditSafe(actorFromSession(session), request, {
-      action: 'user.create',
-      targetType: 'User',
-      targetId: user.id,
-      meta: { email: user.email, role: user.role, accessRole: user.accessRole },
+    // H-021: el usuario y su rastro se escriben juntos (antes el rastro era «mejor esfuerzo» y un fallo de BD lo perdía sin avisar).
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: { email, name: name ?? '', hashedPassword: hashed, role: role ?? 'USER', accessRole: accessRole ?? null },
+      });
+      await recordAdminAudit(tx, actorFromSession(session), request, {
+        action: 'user.create',
+        targetType: 'User',
+        targetId: created.id,
+        meta: { email: created.email, role: created.role, accessRole: created.accessRole },
+      });
+      return created;
     });
     return NextResponse.json({ id: user.id, email: user.email, name: user.name, role: user.role, accessRole: user.accessRole });
   } catch (error) {

@@ -19,6 +19,7 @@ const ACTION_LABELS: Record<string, string> = {
   'ingreso.create': 'Ingreso creado',
   'ingreso.update': 'Ingreso modificado',
   'ingreso.void': 'Ingreso anulado',
+  'temporada.create': 'Temporada creada',
   'temporada.close': 'Temporada cerrada',
   'temporada.reopen': 'Temporada reabierta',
   'temporada.update': 'Temporada modificada',
@@ -30,7 +31,19 @@ const ACTION_LABELS: Record<string, string> = {
   'order.update_email': 'Email de pedido cambiado',
   'order.shop_cancel': 'Pedido de tienda cancelado',
   'order.shop_refund': 'Pedido de tienda reembolsado',
+  'order.shop_status': 'Estado de pedido de tienda cambiado',
+  'event.create': 'Evento creado',
+  'event.update': 'Evento modificado',
+  'event.delete': 'Evento borrado',
   'event.cancel': 'Evento cancelado',
+  'event.ticket_type_create': 'Tipo de entrada creado',
+  'event.ticket_type_update': 'Tipo de entrada modificado',
+  'event.ticket_type_delete': 'Tipo de entrada borrado',
+  'sponsor.update': 'Patrocinio modificado',
+  'sponsor.mark_paid': 'Pago de patrocinio marcado',
+  'export.orders': 'Exportados pedidos de entradas',
+  'export.attendees': 'Exportados asistentes',
+  'export.shop_orders': 'Exportados pedidos de tienda',
   'invitation.delete': 'Invitación borrada',
   'invitation.list_delete': 'Lista de invitados borrada',
   'config.update': 'Configuración modificada',
@@ -50,6 +63,8 @@ const FILTERS: { key: string; label: string }[] = [
   { key: 'order', label: 'Pedidos' },
   { key: 'event', label: 'Eventos' },
   { key: 'invitation', label: 'Invitaciones' },
+  { key: 'sponsor', label: 'Patrocinios' },
+  { key: 'export', label: 'Exportaciones' },
   { key: 'config', label: 'Configuración' },
   { key: 'user', label: 'Usuarios' },
   { key: 'role', label: 'Roles' },
@@ -73,6 +88,12 @@ function summarize(meta: Row['meta']): string {
     for (const [campo, c] of Object.entries(cambios)) parts.push(`${campo}: ${show(c?.from)} → ${show(c?.to)}`);
   }
   if (Array.isArray(meta.claves)) parts.push(`Claves: ${meta.claves.join(', ')}${Array.isArray(meta.sensibles) && meta.sensibles.length ? ' (con claves secretas; el valor no se guarda)' : ''}`);
+  if (typeof meta.filas === 'number') parts.push(`${meta.filas} fila${meta.filas === 1 ? '' : 's'}`);
+  if (meta.filtro && typeof meta.filtro === 'object') {
+    const f = Object.entries(meta.filtro as Record<string, unknown>).filter(([, v]) => v !== '' && v !== false && v !== null && v !== undefined);
+    if (f.length) parts.push(`Filtro: ${f.map(([k, v]) => `${k}=${show(v)}`).join(', ')}`);
+  }
+  if (typeof meta.desde === 'string' || typeof meta.hacia === 'string') parts.push(`${show(meta.desde)} → ${show(meta.hacia)}`);
   if (meta.contrasenaCambiada) parts.push('Contraseña cambiada');
   if (meta.email && typeof meta.email === 'string') parts.push(meta.email);
   return parts.join(' · ');

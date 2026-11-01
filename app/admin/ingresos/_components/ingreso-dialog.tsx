@@ -1,6 +1,7 @@
 'use client';
 
 import { madridDayKey } from '@/lib/ventas-por-dia';
+import { parseFormNumber } from '@/lib/contabilidad/form-numbers';
 import { useEffect, useState } from 'react';
 import type { Ingreso } from '@prisma/client';
 import type { WithNumberFields } from '@/lib/prisma';
@@ -71,13 +72,15 @@ export function IngresoDialog({ open, onOpenChange, editing, temporadaId, onSave
   }, [open, editing, fechaPorDefecto]);
 
   const handleSave = async () => {
-    if (!form.importe || !temporadaId) { toast.error('El ingreso necesita un importe'); return; }
+    // H-140: un importe ilegible ya no se guarda como 0 sin avisar.
+    const importe = parseFormNumber(form.importe);
+    if (importe === null || !temporadaId) { toast.error('El ingreso necesita un importe'); return; }
     setSaving(true);
     try {
       const payload = {
         temporadaId,
         concepto: form.concepto,
-        importe: Number(form.importe) || 0,
+        importe,
         fecha: form.fecha,
         notas: form.notas || null,
       };

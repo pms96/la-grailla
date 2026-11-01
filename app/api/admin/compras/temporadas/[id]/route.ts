@@ -79,11 +79,14 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
 
     const temporada = await prisma.$transaction(async (tx) => {
       const updated = await tx.temporada.update({ where: { id: params?.id }, data });
+      const cambios = diffFields(before, updated, TEMPORADA_AUDIT_FIELDS);
+      // H-015: guardar sin cambiar nada (mismo estado, mismo nombre…) no escribe una fila vacía. Cerrar y reabrir sí: son el hecho, aunque no cambie otro campo.
+      if (!closing && !reopening && Object.keys(cambios).length === 0) return updated;
       await recordAdminAudit(tx, actorFromSession(session), request, {
         action: closing ? 'temporada.close' : reopening ? 'temporada.reopen' : 'temporada.update',
         targetType: 'Temporada',
         targetId: updated.id,
-        meta: { nombre: updated.nombre, ...(motivo ? { motivo } : {}), cambios: diffFields(before, updated, TEMPORADA_AUDIT_FIELDS) },
+        meta: { nombre: updated.nombre, ...(motivo ? { motivo } : {}), cambios },
       });
       return updated;
     });

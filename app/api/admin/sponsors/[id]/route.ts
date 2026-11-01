@@ -10,6 +10,7 @@ import { getBaseUrl } from '@/lib/url';
 import { planSeasonMove, recordSeasonMove } from '@/lib/contabilidad/season-reassign';
 import { seasonLinkEnabled, withoutSeasonLink } from '@/lib/modules/season-link';
 import { ensureSponsorPortalInvite, buildSponsorPortalUrl } from '@/lib/sponsor-portal';
+import { actorFromSession, diffFields, recordAdminAudit } from '@/lib/admin-audit';
 
 const updateSponsorSchema = z.object({
   status: z.enum(['PENDING', 'CONTACTED', 'ACCEPTED', 'REJECTED']).optional(),
@@ -73,14 +74,23 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
     // H-019: mover el patrocinio a o desde una temporada cerrada da 423; entre abiertas queda en la auditoría.
     const seasonMove = body?.temporadaId !== undefined && seasonLinkEnabled() ? await planSeasonMove(async () => (await prisma.sponsorRequest.findUnique({ where: { id: params?.id }, select: { temporadaId: true } }))?.temporadaId, body.temporadaId) : null;
     if (seasonMove?.block) return seasonMove.block;
-    const sponsor = await prisma.sponsorRequest.update({
-      where: { id: params?.id },
-      data: {
-        status: body?.status,
-        adminNotes: body?.adminNotes,
-        temporadaId: body?.temporadaId === undefined || !seasonLinkEnabled() ? undefined : body.temporadaId || null,
-        sponsorType: body?.sponsorType === undefined ? undefined : body.sponsorType || null,
-      },
+    const before = await prisma.sponsorRequest.findUnique({ where: { id: params?.id }, select: { status: true, sponsorType: true } });
+    // H-018/H-021: aceptar el patrocinio o asignarle tipo (que fija su precio) deja rastro de → a, en la misma transacción que el cambio.
+    const sponsor = await prisma.$transaction(async (tx) => {
+      const updated = await tx.sponsorRequest.update({
+        where: { id: params?.id },
+        data: {
+          status: body?.status,
+          adminNotes: body?.adminNotes,
+          temporadaId: body?.temporadaId === undefined || !seasonLinkEnabled() ? undefined : body.temporadaId || null,
+          sponsorType: body?.sponsorType === undefined ? undefined : body.sponsorType || null,
+        },
+      });
+      const cambios = before ? diffFields(before, updated, ['status', 'sponsorType'] as const) : {};
+      if (Object.keys(cambios).length > 0) {
+        await recordAdminAudit(tx, actorFromSession(session), request, { action: 'sponsor.update', targetType: 'SponsorRequest', targetId: updated.id, meta: { companyName: updated.companyName, cambios } });
+      }
+      return updated;
     });
 
     await recordSeasonMove(seasonMove, { session, request, targetType: 'SponsorRequest', targetId: params?.id });

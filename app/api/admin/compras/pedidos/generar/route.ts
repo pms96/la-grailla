@@ -20,7 +20,8 @@ export async function POST(request: Request) {
     const { temporadaId } = generarPedidosSchema.parse(await request.json());
 
     const planes = await prisma.planCompra.findMany({
-      where: { temporadaId, cantidadPlanificada: { gt: 0 } },
+      // H-141: solo artículos activos, igual que el planificador: uno desactivado después de planificarlo no debe generar línea de pedido.
+      where: { temporadaId, cantidadPlanificada: { gt: 0 }, articulo: { activo: true } },
       include: { articulo: { include: { precios: { include: { proveedor: true } } } } },
     });
 

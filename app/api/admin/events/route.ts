@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
 import { planSeasonMove, recordSeasonMove } from '@/lib/contabilidad/season-reassign';
 import { seasonLinkEnabled, withoutSeasonLink } from '@/lib/modules/season-link';
 import { parseEventDateInput } from '@/lib/event-time';
@@ -132,7 +133,9 @@ export async function POST(request: Request) {
     // H-019: un evento nuevo no entra ya enlazado a una temporada cerrada (cambiaría su margen).
     const seasonMove = body?.temporadaId && seasonLinkEnabled() ? await planSeasonMove(async () => null, body.temporadaId) : null;
     if (seasonMove?.block) return seasonMove.block;
-    const event = await prisma.event.create({
+    // H-018/H-021: el evento y su rastro se escriben juntos.
+    const event = await prisma.$transaction(async (tx) => {
+      const created = await tx.event.create({
       data: {
         name: body?.name ?? '',
         slug,
@@ -166,6 +169,14 @@ export async function POST(request: Request) {
         alertThresholds: body?.alertThresholds ?? '80,95,100',
         temporadaId: seasonLinkEnabled() ? body?.temporadaId || null : null,
       },
+      });
+      await recordAdminAudit(tx, actorFromSession(session), request, {
+        action: 'event.create',
+        targetType: 'Event',
+        targetId: created.id,
+        meta: { name: created.name, date: created.date, status: created.status, maxCapacity: created.maxCapacity },
+      });
+      return created;
     });
     return NextResponse.json(event);
   } catch (error) {

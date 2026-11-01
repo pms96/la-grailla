@@ -9,7 +9,7 @@ import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { isModuleEnabled } from '@/lib/modules/runtime';
 import { accessRoleProblem, countOwners, isOwnerAdmin } from '@/lib/access-roles';
-import { actorFromSession, recordAdminAuditSafe } from '@/lib/admin-audit';
+import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
 
 const updateUserSchema = z.object({
   role: z.enum(['ADMIN', 'TAQUILLA', 'USER']).optional(),
@@ -77,30 +77,34 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
     // Cambiar la contraseña, el rol de cuenta o el rol por módulos cierra las sesiones que esa persona tenga abiertas.
     const revokeSessions = Boolean(body?.password) || accessRoleChanges || Boolean(body?.role && body.role !== target?.role);
 
-    const user = await prisma.user.update({
-      where: { id: params?.id },
-      data: {
-        role: body?.role,
-        name: body?.name,
-        ...(accessRole !== undefined ? { accessRole } : {}),
-        ...(body?.password ? { hashedPassword: await bcrypt.hash(body.password, 12) } : {}),
-        ...(revokeSessions ? { sessionsValidAfter: new Date() } : {}),
-      },
-      select: { id: true, name: true, email: true, role: true, accessRole: true },
-    });
-    // Nunca la contraseña: solo que se cambió. Rol de cuenta y rol por módulos, de → a.
-    await recordAdminAuditSafe(actorFromSession(session), request, {
-      action: 'user.update',
-      targetType: 'User',
-      targetId: user.id,
-      meta: {
-        email: user.email,
-        // Sin la palabra «password» en la clave: el saneado del registro tapa cualquier clave con ese nombre y perdería el dato.
-        contrasenaCambiada: Boolean(body?.password),
-        role: { from: target?.role ?? null, to: user.role },
-        accessRole: { from: target?.accessRole ?? null, to: user.accessRole },
-        sessionsRevoked: revokeSessions,
-      },
+    const hashedPassword = body?.password ? await bcrypt.hash(body.password, 12) : undefined;
+    // H-021: el cambio y su rastro se escriben juntos. Nunca la contraseña: solo que se cambió. Rol de cuenta y rol por módulos, de → a.
+    const user = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: params?.id },
+        data: {
+          role: body?.role,
+          name: body?.name,
+          ...(accessRole !== undefined ? { accessRole } : {}),
+          ...(hashedPassword ? { hashedPassword } : {}),
+          ...(revokeSessions ? { sessionsValidAfter: new Date() } : {}),
+        },
+        select: { id: true, name: true, email: true, role: true, accessRole: true },
+      });
+      await recordAdminAudit(tx, actorFromSession(session), request, {
+        action: 'user.update',
+        targetType: 'User',
+        targetId: updated.id,
+        meta: {
+          email: updated.email,
+          // Sin la palabra «password» en la clave: el saneado del registro tapa cualquier clave con ese nombre y perdería el dato.
+          contrasenaCambiada: Boolean(body?.password),
+          role: { from: target?.role ?? null, to: updated.role },
+          accessRole: { from: target?.accessRole ?? null, to: updated.accessRole },
+          sessionsRevoked: revokeSessions,
+        },
+      });
+      return updated;
     });
     return NextResponse.json(user);
   } catch (error) {
@@ -131,13 +135,27 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
         return NextResponse.json({ error: 'No puedes eliminar al último propietario' }, { status: 400 });
       }
     }
-    // Al borrarlo, su sesión deja de valer al instante: cada lectura de sesión contrasta con la BD (lib/auth.ts).
-    await prisma.user.delete({ where: { id: params?.id } });
-    await recordAdminAuditSafe(actorFromSession(session), request, {
-      action: 'user.delete',
-      targetType: 'User',
-      targetId: params?.id,
-      meta: { email: target?.email ?? null, role: target?.role ?? null, accessRole: target?.accessRole ?? null },
+    // H-053: quien registró gastos o ingresos (también anulados) no se borra: la clave foránea pasaría su autoría a null y el dinero quedaría sin firma.
+    // El rastro conserva su email, pero la fila contable no. Para quitarle el acceso basta cambiarle el rol.
+    const registros = (await prisma.gasto.count({ where: { createdById: params?.id } })) + (await prisma.ingreso.count({ where: { createdById: params?.id } }));
+    if (registros > 0) {
+      return NextResponse.json(
+        {
+          error: `Este usuario registró ${registros} gasto${registros === 1 ? '' : 's'} o ingreso${registros === 1 ? '' : 's'}: borrarlo dejaría esos apuntes sin autor. Quítale el acceso cambiándole el rol.`,
+          code: 'user_has_accounting_records',
+        },
+        { status: 409 }
+      );
+    }
+    // Al borrarlo, su sesión deja de valer al instante: cada lectura de sesión contrasta con la BD (lib/auth.ts). H-021: el borrado y su rastro van juntos.
+    await prisma.$transaction(async (tx) => {
+      await tx.user.delete({ where: { id: params?.id } });
+      await recordAdminAudit(tx, actorFromSession(session), request, {
+        action: 'user.delete',
+        targetType: 'User',
+        targetId: params?.id,
+        meta: { email: target?.email ?? null, role: target?.role ?? null, accessRole: target?.accessRole ?? null },
+      });
     });
     return NextResponse.json({ success: true });
   } catch (error) {

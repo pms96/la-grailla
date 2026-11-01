@@ -11,6 +11,7 @@ import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { precioFinalUnidad, precioTrasDescuento } from '@/lib/compras/calculadora';
 import { ivaEfectivo } from '@/lib/gasto-calc';
+import { parseFormNumber, parseIvaPercent } from '@/lib/contabilidad/form-numbers';
 
 type PedidoConDetalle = Pedido & {
   proveedor: Proveedor;
@@ -48,6 +49,11 @@ export function GastoDesdePedidoDialog({ pedido, onClose, onSaved }: Props) {
   const totalConIva = pedido.lineas.reduce((sum, l) => sum + precioFinalUnidad(l.precioSinIva, l.descuentoPercent, l.ivaPercent) * l.cantidad, 0);
 
   const handleSave = async () => {
+    // H-140: un importe o un IVA vacío ya no se guarda como 0 sin avisar.
+    const importe = parseFormNumber(importeSinIva);
+    const iva = parseIvaPercent(ivaPercent);
+    if (importe === null) { toast.error('Indica el importe sin IVA de la factura'); return; }
+    if (iva === null) { toast.error('Indica el IVA entre 0 y 100 (escribe 0 si la factura no lleva)'); return; }
     setSaving(true);
     try {
       const res = await fetch('/api/admin/gastos', {
@@ -59,13 +65,14 @@ export function GastoDesdePedidoDialog({ pedido, onClose, onSaved }: Props) {
           concepto: `Pedido a ${pedido.proveedor.nombre}`,
           proveedorId: pedido.proveedorId,
           pedidoId: pedido.id,
-          importeSinIva: Number(importeSinIva) || 0,
-          ivaPercent: Number(ivaPercent),
+          importeSinIva: importe,
+          ivaPercent: iva,
           numDocumento: numDocumento || null,
           tipoDocumento: 'Factura',
         }),
       });
-      if (!res.ok) { toast.error('No se pudo registrar el gasto'); return; }
+      // H-016: el motivo real (temporada cerrada, pedido ya registrado…) en lugar de un aviso genérico.
+      if (!res.ok) { toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo registrar el gasto'); return; }
       toast.success('Gasto registrado');
       onSaved();
     } catch {

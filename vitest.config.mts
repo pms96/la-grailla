@@ -11,6 +11,8 @@ export default defineConfig({
     environment: 'node',
     // dotenv primero (carga el .env) y después la guardia: la suite se niega a arrancar contra una base de datos que no sea local.
     setupFiles: ['dotenv/config', './tests/setup/require-local-db.ts'],
+    // Al terminar la ejecución borra la auditoría que dejaron los tests de rutas (H-013); solo filas de actores de prueba y solo en una base local.
+    globalSetup: ['./tests/setup/purge-test-audit.ts'],
     testTimeout: 15000,
     // Nunca se manda nada a un Sentry ni a un ntfy reales desde la suite, aunque el .env del desarrollador tenga estas variables (P0-07):
     // vacías, el código las trata como «no configurado». Los tests que prueban esos canales inyectan su propio `fetch`/transporte.

@@ -8,7 +8,7 @@ import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
 import { isOwnerAdmin } from '@/lib/access-roles';
 import { CUSTOM_ROLE_PREFIX, validateCustomRole } from '@/lib/modules/access';
-import { actorFromSession, recordAdminAuditSafe } from '@/lib/admin-audit';
+import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
 
 const roleSchema = z.object({ name: z.string(), modules: z.array(z.string()) });
 
@@ -33,12 +33,17 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
     const name = body.name.trim();
     const clash = await prisma.accessRole.findFirst({ where: { name: { equals: name, mode: 'insensitive' }, NOT: { id: params.id } }, select: { id: true } });
     if (clash) return NextResponse.json({ error: 'Ya existe un rol con ese nombre' }, { status: 409 });
-    const role = await prisma.accessRole.update({ where: { id: params.id }, data: { name, modules: body.modules } });
-    await recordAdminAuditSafe(actorFromSession(await getServerSession(authOptions)), request, {
-      action: 'role.update',
-      targetType: 'AccessRole',
-      targetId: role.id,
-      meta: { name: { from: current.name, to: role.name }, modules: { from: current.modules, to: role.modules } },
+    const actor = actorFromSession(await getServerSession(authOptions));
+    // H-021: el cambio y su rastro se escriben juntos.
+    const role = await prisma.$transaction(async (tx) => {
+      const updated = await tx.accessRole.update({ where: { id: params.id }, data: { name, modules: body.modules } });
+      await recordAdminAudit(tx, actor, request, {
+        action: 'role.update',
+        targetType: 'AccessRole',
+        targetId: updated.id,
+        meta: { name: { from: current.name, to: updated.name }, modules: { from: current.modules, to: updated.modules } },
+      });
+      return updated;
     });
     return NextResponse.json({ id: role.id, name: role.name, modules: role.modules });
   } catch (error) {
@@ -58,12 +63,10 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
     if (inUse > 0) {
       return NextResponse.json({ error: `Este rol lo tienen ${inUse} usuario${inUse === 1 ? '' : 's'}: cámbiales el rol antes de borrarlo` }, { status: 409 });
     }
-    await prisma.accessRole.delete({ where: { id: params.id } });
-    await recordAdminAuditSafe(actorFromSession(await getServerSession(authOptions)), request, {
-      action: 'role.delete',
-      targetType: 'AccessRole',
-      targetId: current.id,
-      meta: { name: current.name, modules: current.modules },
+    const actor = actorFromSession(await getServerSession(authOptions));
+    await prisma.$transaction(async (tx) => {
+      await tx.accessRole.delete({ where: { id: params.id } });
+      await recordAdminAudit(tx, actor, request, { action: 'role.delete', targetType: 'AccessRole', targetId: current.id, meta: { name: current.name, modules: current.modules } });
     });
     return NextResponse.json({ success: true });
   } catch (error) {

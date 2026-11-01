@@ -11,9 +11,12 @@ import { getClientIp } from '@/lib/rate-limit';
 export const AUDIT_ACTIONS = [
   'gasto.create', 'gasto.update', 'gasto.void',
   'ingreso.create', 'ingreso.update', 'ingreso.void',
-  'temporada.close', 'temporada.reopen', 'temporada.update', 'temporada.reassign',
-  'order.cancel', 'order.refund', 'order.complete', 'order.verify', 'order.update_email', 'order.shop_cancel', 'order.shop_refund',
-  'event.cancel',
+  'temporada.create', 'temporada.close', 'temporada.reopen', 'temporada.update', 'temporada.reassign',
+  'order.cancel', 'order.refund', 'order.complete', 'order.verify', 'order.update_email', 'order.shop_cancel', 'order.shop_refund', 'order.shop_status',
+  'event.create', 'event.update', 'event.delete', 'event.cancel',
+  'event.ticket_type_create', 'event.ticket_type_update', 'event.ticket_type_delete',
+  'sponsor.update', 'sponsor.mark_paid',
+  'export.orders', 'export.attendees', 'export.shop_orders',
   'invitation.delete', 'invitation.list_delete',
   'config.update',
   'user.create', 'user.update', 'user.delete',
@@ -82,6 +85,13 @@ export function diffFields<T extends Record<string, unknown>>(before: T, after: 
   const out: Record<string, { from: unknown; to: unknown }> = {};
   for (const k of keys) if (comparable(before[k]) !== comparable(after[k])) out[k] = { from: before[k], to: after[k] };
   return out;
+}
+
+/** `a***@dominio`: lo bastante para reconocer el cambio sin guardar el correo entero (dato personal, H-022). Pura. */
+export function maskEmail(email: string | null | undefined): string | null {
+  if (!email) return null;
+  const at = email.lastIndexOf('@');
+  return at < 1 ? '***' : `${email[0]}***${email.slice(at)}`;
 }
 
 export function actorFromSession(session: { user?: { id?: string | null; email?: string | null } } | null | undefined): AuditActor {

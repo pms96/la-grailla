@@ -58,6 +58,8 @@ describe('Validación del valor de cada clave', () => {
   it('la hora de corte de la jornada es un entero de 0 a 12 (P1-15)', () => {
     for (const ok of ['0', '6', '12']) expect(invalidConfigValue('jornada_corte_hora', ok), ok).toBeNull();
     for (const bad of ['-1', '13', '6.5', 'seis']) expect(invalidConfigValue('jornada_corte_hora', bad), bad).not.toBeNull();
+    // H-003: `Number('6.0')`, `Number('1e1')` y `Number('+6')` son enteros válidos, pero el lector solo entiende dígitos: guardaba «6.0» y la caja seguía en 0.
+    for (const bad of ['6.0', '1e1', '+6', '06', '006', '0x6', '6 0']) expect(invalidConfigValue('jornada_corte_hora', bad), bad).not.toBeNull();
     expect(invalidConfigValue('jornada_corte_hora', '')).toBeNull(); // vacío = valor por defecto (0), como en el resto de claves
   });
 

@@ -7,6 +7,7 @@ import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { buildShopOrdersWhere } from '@/lib/shop-order-filters';
 import { SHOP_ORDERS_CSV_MAX, madridDay, shopOrdersToCsv } from '@/lib/shop-orders-csv';
+import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
 
 // Cuelga de /api/admin/shop-orders: mismo módulo (tienda) y por tanto el mismo permiso por rol que el listado de pedidos.
 export async function GET(request: Request) {
@@ -17,10 +18,8 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     // Mismos filtros que el listado en pantalla: el CSV es lo que el admin está viendo.
-    const where = buildShopOrdersWhere({
-      q: searchParams.get('q') ?? '',
-      status: searchParams.get('status') ?? '',
-    });
+    const filtro = { q: searchParams.get('q') ?? '', status: searchParams.get('status') ?? '' };
+    const where = buildShopOrdersWhere(filtro);
     // Sin truncado silencioso: si no cabe, se avisa y se pide filtrar.
     const total = await prisma.shopOrder.count({ where });
     if (total > SHOP_ORDERS_CSV_MAX) {
@@ -34,6 +33,9 @@ export async function GET(request: Request) {
       orderBy: { createdAt: 'desc' },
       include: { items: { orderBy: { id: 'asc' }, include: { product: { select: { name: true } } } } },
     });
+    // H-145: el CSV lleva dirección y teléfono de los compradores: queda quién, cuándo, el filtro y cuántas filas, SIN los datos. Antes de entregarlo y sin
+    // «mejor esfuerzo»: si el rastro no se puede escribir, no se exporta.
+    await recordAdminAudit(prisma, actorFromSession(session), request, { action: 'export.shop_orders', targetType: 'ShopOrder', meta: { filtro, filas: orders.length } });
     return new NextResponse(shopOrdersToCsv(orders), {
       status: 200,
       headers: {

@@ -13,7 +13,7 @@ import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
 import { getEmailState } from '@/lib/email-delivery';
 import { adminEmailView } from '@/lib/order-email';
-import { actorFromSession, recordAdminAuditSafe, type AuditAction } from '@/lib/admin-audit';
+import { actorFromSession, maskEmail, recordAdminAuditSafe, type AuditAction } from '@/lib/admin-audit';
 
 const ORDER_AUDIT_ACTION: Record<'cancel' | 'refund' | 'verify' | 'complete' | 'update-email', AuditAction> = {
   cancel: 'order.cancel',
@@ -22,6 +22,9 @@ const ORDER_AUDIT_ACTION: Record<'cancel' | 'refund' | 'verify' | 'complete' | '
   complete: 'order.complete',
   'update-email': 'order.update_email',
 };
+
+const recordOrderAudit = (session: Parameters<typeof actorFromSession>[0], request: Request, action: keyof typeof ORDER_AUDIT_ACTION, orderId: string, meta: Record<string, unknown>) =>
+  recordAdminAuditSafe(actorFromSession(session), request, { action: ORDER_AUDIT_ACTION[action], targetType: 'Order', targetId: orderId, meta });
 
 const updateOrderSchema = z.object({
   action: z.enum(['cancel', 'refund', 'verify', 'complete', 'update-email']),
@@ -67,6 +70,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     const body = updateOrderSchema.parse(await request.json());
     // Lo que queda en el registro de auditoría si la acción sale bien (sin datos personales: ni emails ni nombres).
     let auditMeta: Record<string, unknown> = {};
+    let auditDone = false;
 
     // El middleware deja pasar este PATCH aunque la licencia esté vencida o falte el módulo, para no frenar un reembolso. Cancelar y
     // reembolsar es dinero ya cobrado; completar un pedido, emitir entradas o cambiar el email del comprador no lo es.
@@ -76,14 +80,17 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
 
     if (body.action === 'cancel' || body.action === 'refund') {
       const mode = body.action === 'refund' ? 'REFUNDED' : 'CANCELLED';
-      const before = mode === 'REFUNDED' ? await prisma.order.findUnique({ where: { id: params?.id }, select: { id: true, buyerName: true, buyerEmail: true, totalAmount: true, paymentMethod: true, paymentProvider: true, paymentId: true } }) : null;
+      const before = await prisma.order.findUnique({ where: { id: params?.id }, select: { id: true, status: true, buyerName: true, buyerEmail: true, totalAmount: true, paymentMethod: true, paymentProvider: true, paymentId: true } });
       const result = await invalidateOrder(params?.id, mode);
       if (!result.success) {
         return NextResponse.json({ error: result.error }, { status: 422 });
       }
-      if (before) auditMeta = { totalAmount: Number(before.totalAmount), paymentMethod: before.paymentMethod, paymentProvider: before.paymentProvider };
+      if (before) auditMeta = { totalAmount: Number(before.totalAmount), paymentMethod: before.paymentMethod, paymentProvider: before.paymentProvider, estadoAnterior: before.status };
+      // H-020: el rastro se escribe ANTES del correo. El dinero ya se movió; si el SMTP se cuelga y la función muere, no puede quedar un reembolso sin fila.
+      await recordOrderAudit(session, request, body.action, params?.id, auditMeta);
+      auditDone = true;
       // EN-08.6: el comprador no se enteraba del reembolso. Solo si de verdad se le devolvió dinero por la pasarela (no en efectivo, datáfono ni simulado).
-      if (before && before.paymentMethod === 'CARD' && before.paymentProvider && before.paymentProvider !== 'mock' && before.paymentId) {
+      if (before && mode === 'REFUNDED' && before.paymentMethod === 'CARD' && before.paymentProvider && before.paymentProvider !== 'mock' && before.paymentId) {
         await sendRefundEmail('entradas', before, Number(before.totalAmount));
       }
     } else if (body.action === 'verify') {
@@ -141,15 +148,12 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
         return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
       }
       await prisma.order.update({ where: { id: params?.id }, data: { buyerEmail: body.email } });
+      // El correo es un dato personal: se anota enmascarado (de → a), no entero (H-022).
+      auditMeta = { campo: 'buyerEmail', desde: maskEmail(existing.buyerEmail), hacia: maskEmail(body.email) };
     }
 
     // Solo se llega aquí si la acción salió bien (los fallos devuelven antes). Sin lanzar: el dinero o el estado ya se movió.
-    await recordAdminAuditSafe(actorFromSession(session), request, {
-      action: ORDER_AUDIT_ACTION[body.action],
-      targetType: 'Order',
-      targetId: params?.id,
-      meta: body.action === 'update-email' ? { campo: 'buyerEmail' } : auditMeta,
-    });
+    if (!auditDone) await recordOrderAudit(session, request, body.action, params?.id, auditMeta);
     const order = await prisma.order.findUnique({
       where: { id: params?.id },
       include: orderInclude,

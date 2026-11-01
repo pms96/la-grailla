@@ -8,7 +8,7 @@ import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
 import { isOwnerAdmin } from '@/lib/access-roles';
 import { PRESET_ROLES, validateCustomRole } from '@/lib/modules/access';
-import { actorFromSession, recordAdminAuditSafe } from '@/lib/admin-audit';
+import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
 
 const roleSchema = z.object({ name: z.string(), modules: z.array(z.string()) });
 
@@ -44,12 +44,12 @@ export async function POST(request: Request) {
     if (await prisma.accessRole.findFirst({ where: { name: { equals: name, mode: 'insensitive' } }, select: { id: true } })) {
       return NextResponse.json({ error: 'Ya existe un rol con ese nombre' }, { status: 409 });
     }
-    const role = await prisma.accessRole.create({ data: { name, modules: body.modules } });
-    await recordAdminAuditSafe(actorFromSession(await getServerSession(authOptions)), request, {
-      action: 'role.create',
-      targetType: 'AccessRole',
-      targetId: role.id,
-      meta: { name: role.name, modules: role.modules },
+    const actor = actorFromSession(await getServerSession(authOptions));
+    // H-021: el rol y su rastro se escriben juntos.
+    const role = await prisma.$transaction(async (tx) => {
+      const created = await tx.accessRole.create({ data: { name, modules: body.modules } });
+      await recordAdminAudit(tx, actor, request, { action: 'role.create', targetType: 'AccessRole', targetId: created.id, meta: { name: created.name, modules: created.modules } });
+      return created;
     });
     return NextResponse.json({ id: role.id, name: role.name, modules: role.modules }, { status: 201 });
   } catch (error) {

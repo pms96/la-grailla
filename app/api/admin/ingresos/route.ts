@@ -7,14 +7,16 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { jornadaHoy } from '@/lib/jornada';
-import { checkTemporadaAbierta } from '@/lib/contabilidad/control';
+import { checkTemporadaAbiertaTx } from '@/lib/contabilidad/control';
+import { fechaDiaSchema, importeSchema, parseFechaDia } from '@/lib/contabilidad/validation';
 import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
 
 const createIngresoSchema = z.object({
   temporadaId: z.string().min(1),
   concepto: z.string().min(1),
-  importe: z.coerce.number(),
-  fecha: z.string().optional(),
+  // H-140/H-055: un importe vacío ya no es un 0 silencioso y la fecha no es texto libre. `fecha: ""` sigue siendo «sin fecha» (H-001).
+  importe: importeSchema,
+  fecha: z.union([z.literal(''), fechaDiaSchema]).optional(),
   notas: z.string().optional().nullable(),
 });
 
@@ -48,11 +50,11 @@ export async function POST(request: Request) {
   }
   try {
     const body = createIngresoSchema.parse(await request.json());
-    const open = await checkTemporadaAbierta(body.temporadaId);
-    if (!open.ok) return NextResponse.json({ error: open.error, code: open.code }, { status: open.status });
-    const fecha = new Date(body.fecha || (await jornadaHoy())); // `||`: una fecha vacía ("") también es «sin fecha» (H-001)
-    // El ingreso y su rastro de auditoría se escriben juntos.
-    const ingreso = await prisma.$transaction(async (tx) => {
+    const fecha = (body.fecha ? parseFechaDia(body.fecha) : null) ?? new Date(await jornadaHoy()); // una fecha vacía ("") también es «sin fecha» (H-001)
+    // El ingreso y su rastro de auditoría se escriben juntos. La temporada se comprueba DENTRO de la transacción y con la fila bloqueada (H-014).
+    const outcome = await prisma.$transaction(async (tx) => {
+      const open = await checkTemporadaAbiertaTx(tx, body.temporadaId);
+      if (!open.ok) return NextResponse.json({ error: open.error, code: open.code }, { status: open.status });
       const created = await tx.ingreso.create({
         data: {
           temporadaId: body.temporadaId,
@@ -72,7 +74,7 @@ export async function POST(request: Request) {
       });
       return created;
     });
-    return NextResponse.json(ingreso);
+    return outcome instanceof NextResponse ? outcome : NextResponse.json(outcome);
   } catch (error) {
     return handleApiError(error, 'POST /api/admin/ingresos');
   }

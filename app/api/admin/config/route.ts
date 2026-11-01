@@ -12,7 +12,7 @@ import { isConfigKeyAllowed, invalidConfigValue } from '@/lib/config-ownership';
 import { getActiveModules, isModuleEnabled } from '@/lib/modules/runtime';
 import { SECTION_CONFIG_KEYS, SECTION_KINDS, sectionImageUrls } from '@/lib/content/sections';
 import { releaseUnusedBlobs } from '@/lib/blob-cleanup';
-import { actorFromSession, recordAdminAuditSafe } from '@/lib/admin-audit';
+import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
 
 /** Claves cuyo valor NO es secreto y sí interesa ver en el registro de auditoría (de → a): pasarela, SMTP no sensible, comisión, IVA y corte de caja. */
 const AUDIT_VISIBLE_VALUE_KEYS = [
@@ -109,7 +109,8 @@ export async function PUT(request: Request) {
     // sensible que llega aquí (no es la máscara) es una escritura; su valor no se compara ni se registra, solo su nombre.
     const storedRows = await prisma.appConfig.findMany({ where: { key: { in: accepted.map((c) => c.key) } }, select: { key: true, value: true } });
     const stored = new Map(storedRows.map((r) => [r.key, r.value]));
-    const changedKeys = accepted.filter((c) => isSensitiveConfigKey(c.key) || (stored.get(c.key) ?? null) !== c.value).map((c) => c.key);
+    // H-023: «de solo escritura» (también `smtp_password`, aún sin cifrar), no solo las cifradas.
+    const changedKeys = accepted.filter((c) => isWriteOnlyConfigKey(c.key) || (stored.get(c.key) ?? null) !== c.value).map((c) => c.key);
     const prepared = accepted.map((cfg) => ({ cfg, value: isSensitiveConfigKey(cfg.key) ? encryptSecret(cfg.value, cfg.key) : cfg.value }));
     await prisma.$transaction(async (tx) => {
       if (markAccountChange) {
@@ -126,19 +127,19 @@ export async function PUT(request: Request) {
           create: { key: cfg.key, value, label: cfg.label ?? cfg.key, group: cfg.group ?? 'general' },
         });
       }
-    });
-
-    if (changedKeys.length > 0) {
-      const valores: Record<string, { from: string | null; to: string }> = {};
-      for (const c of accepted) {
-        if (changedKeys.includes(c.key) && AUDIT_VISIBLE_VALUE_KEYS.includes(c.key)) valores[c.key] = { from: stored.get(c.key) ?? null, to: c.value };
+      // H-021: el rastro va en la MISMA transacción que el guardado: si no se puede anotar, no queda cambiada ninguna clave.
+      if (changedKeys.length > 0) {
+        const valores: Record<string, { from: string | null; to: string }> = {};
+        for (const c of accepted) {
+          if (changedKeys.includes(c.key) && AUDIT_VISIBLE_VALUE_KEYS.includes(c.key)) valores[c.key] = { from: stored.get(c.key) ?? null, to: c.value };
+        }
+        await recordAdminAudit(tx, actorFromSession(session), request, {
+          action: 'config.update',
+          targetType: 'AppConfig',
+          meta: { claves: changedKeys, sensibles: changedKeys.filter((k) => isWriteOnlyConfigKey(k)), valores },
+        });
       }
-      await recordAdminAuditSafe(actorFromSession(session), request, {
-        action: 'config.update',
-        targetType: 'AppConfig',
-        meta: { claves: changedKeys, sensibles: changedKeys.filter((k) => isSensitiveConfigKey(k)), valores },
-      });
-    }
+    });
 
     const imagesBefore = sectionsBefore.flatMap((row) => sectionImageUrls(row.value, sectionKind(row.key)!));
     const imagesAfter = accepted.flatMap((c) => {

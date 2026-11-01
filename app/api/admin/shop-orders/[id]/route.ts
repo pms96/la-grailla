@@ -15,7 +15,7 @@ import { isFullAccessRestricted } from '@/lib/modules/runtime';
 import { canChangeShopOrderStatus } from '@/lib/shop-order-status';
 import { sendShopShippedEmail } from '@/lib/shop/shop-notices';
 import { sendRefundEmail } from '@/lib/reconciliation/gateway-refund';
-import { actorFromSession, recordAdminAuditSafe } from '@/lib/admin-audit';
+import { actorFromSession, recordAdminAudit, recordAdminAuditSafe } from '@/lib/admin-audit';
 
 const updateShopOrderSchema = z.object({
   status: z.enum(['PENDING', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED']).optional(),
@@ -77,14 +77,28 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
       return NextResponse.json({ error: `Un pedido ${current.status} no puede pasar a ${body.status}.` }, { status: 422 });
     }
 
-    const order = await prisma.shopOrder.update({
-      where: { id: params?.id },
-      data: {
-        status: body?.status,
-        trackingNumber: body?.trackingNumber,
-        notes: body?.notes,
-        temporadaId: body?.temporadaId === undefined || !seasonLinkEnabled() ? undefined : body.temporadaId || null,
-      },
+    // H-018: un cambio de estado «plano» (sobre todo PENDING→PAID a mano, sin pasar por la pasarela) es dinero declarado por una persona: queda quién y
+    // cuándo, en la MISMA transacción que el cambio (H-021). Solo el estado: el seguimiento y las notas no son dinero.
+    const statusChange = body?.status !== undefined && current && body.status !== current.status ? { from: current.status, to: body.status } : null;
+    const order = await prisma.$transaction(async (tx) => {
+      const updated = await tx.shopOrder.update({
+        where: { id: params?.id },
+        data: {
+          status: body?.status,
+          trackingNumber: body?.trackingNumber,
+          notes: body?.notes,
+          temporadaId: body?.temporadaId === undefined || !seasonLinkEnabled() ? undefined : body.temporadaId || null,
+        },
+      });
+      if (statusChange) {
+        await recordAdminAudit(tx, actorFromSession(session), request, {
+          action: 'order.shop_status',
+          targetType: 'ShopOrder',
+          targetId: updated.id,
+          meta: { totalAmount: Number(updated.totalAmount), cambios: { status: statusChange } },
+        });
+      }
+      return updated;
     });
 
     await recordSeasonMove(seasonMove, { session, request, targetType: 'ShopOrder', targetId: params?.id });

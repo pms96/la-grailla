@@ -114,12 +114,12 @@ describe('registro de auditoría de acciones sensibles', () => {
       expect(fila).toMatchObject({ targetType: 'Order', actorEmail: ACTOR_EMAIL });
     });
 
-    it('cambiar el email del comprador se anota sin guardar el email (dato personal)', async () => {
+    it('cambiar el email del comprador se anota enmascarado, sin guardar el email entero (dato personal, H-022)', async () => {
       const order = await crearPedido('COMPLETED', 'rastro-antes@example.com');
       const res = await patchOrder(json('PATCH', { action: 'update-email', email: 'rastro-despues@example.com' }), ctx(order.id));
       expect(res.status).toBe(200);
       const [fila] = await rastro({ action: 'order.update_email', targetId: order.id });
-      expect(fila.meta).toEqual({ campo: 'buyerEmail' });
+      expect(fila.meta).toEqual({ campo: 'buyerEmail', desde: 'r***@example.com', hacia: 'r***@example.com' });
       expect(JSON.stringify(fila)).not.toMatch(/rastro-(antes|despues)@example\.com/);
     });
 

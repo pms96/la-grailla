@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { addDays, buildVentasPorDia, businessDayKey, businessDayStart, classifyOrder, madridDayKey, madridDayStart, parseJornadaCorte } from '@/lib/ventas-por-dia';
 
 describe('classifyOrder', () => {
@@ -23,6 +23,22 @@ describe('día en hora de Madrid', () => {
     expect(madridDayStart('2026-12-15').toISOString()).toBe('2026-12-14T23:00:00.000Z');
     // Día del cambio a horario de invierno (25 de octubre de 2026): 25 horas.
     expect(madridDayStart('2026-10-26').getTime() - madridDayStart('2026-10-25').getTime()).toBe(25 * 3600 * 1000);
+  });
+
+  // H-006: `stats` recorre todos los pedidos y cada llamada construía un `Intl.DateTimeFormat` (caro). Se crean una sola vez, al cargar el módulo.
+  it('madridDayKey, businessDayKey y madridDayStart no crean un Intl.DateTimeFormat por llamada', () => {
+    const spy = vi.spyOn(Intl, 'DateTimeFormat');
+    try {
+      for (let i = 0; i < 300; i++) {
+        const t = new Date(1_800_000_000_000 + i * 3_600_000);
+        madridDayKey(t);
+        businessDayKey(t, 6);
+        madridDayStart(madridDayKey(t));
+      }
+      expect(spy.mock.calls.length).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('addDays suma días naturales', () => {

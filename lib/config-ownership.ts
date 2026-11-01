@@ -154,7 +154,9 @@ export function invalidConfigValue(key: string, value: string): string | null {
       return Number.isFinite(n) && n >= 0 && n <= 100 ? null : 'debe ser un porcentaje entre 0 y 100';
     }
     case 'int': {
-      const n = Number(v);
+      // H-003: solo el texto canónico de un entero (`6`, no `6.0`, `1e1`, `+6` ni `06`): `Number()` los daba por buenos y los lectores (que solo entienden
+      // dígitos) los tomaban como 0, así que se guardaba un valor que luego no tenía efecto.
+      const n = /^(0|-?[1-9]\d*)$/.test(v) ? Number(v) : NaN;
       return Number.isInteger(n) && n >= rule.min && n <= rule.max ? null : `debe ser un número entero entre ${rule.min} y ${rule.max}`;
     }
     case 'enum':

@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 
 /* Controles de contabilidad (P1-16): temporada cerrada y motivo obligatorio para anular, cerrar o reabrir.
@@ -24,9 +25,7 @@ export function temporadaCerrada(t: { status: string } | null | undefined): bool
 
 export type TemporadaCheck = { ok: true } | { ok: false; status: 404 | 423; error: string; code: 'temporada_no_encontrada' | 'temporada_cerrada' };
 
-/** ¿Se puede escribir en los libros de esta temporada? 404 si no existe, 423 si está cerrada. */
-export async function checkTemporadaAbierta(temporadaId: string): Promise<TemporadaCheck> {
-  const t = await prisma.temporada.findUnique({ where: { id: temporadaId }, select: { nombre: true, status: true } });
+function checkOf(t: { nombre: string; status: string } | null | undefined): TemporadaCheck {
   if (!t) return { ok: false, status: 404, error: 'Temporada no encontrada', code: 'temporada_no_encontrada' };
   if (temporadaCerrada(t)) {
     return {
@@ -37,4 +36,19 @@ export async function checkTemporadaAbierta(temporadaId: string): Promise<Tempor
     };
   }
   return { ok: true };
+}
+
+/** ¿Se puede escribir en los libros de esta temporada? 404 si no existe, 423 si está cerrada. Lectura suelta: para decidir antes de abrir la transacción. */
+export async function checkTemporadaAbierta(temporadaId: string): Promise<TemporadaCheck> {
+  return checkOf(await prisma.temporada.findUnique({ where: { id: temporadaId }, select: { nombre: true, status: true } }));
+}
+
+/**
+ * La misma comprobación DENTRO de la transacción de la escritura y con la fila de la temporada bloqueada (`FOR SHARE`) hasta que ésta termine (H-014).
+ * Con la lectura suelta de arriba, un cierre que llegaba entre la comprobación y el INSERT dejaba un apunte nuevo en unos libros ya cerrados:
+ * ahora un cierre en curso hace esperar a la escritura (y ésta ve la temporada cerrada → 423), y una escritura en curso hace esperar al cierre.
+ */
+export async function checkTemporadaAbiertaTx(tx: Pick<Prisma.TransactionClient, '$queryRaw'>, temporadaId: string): Promise<TemporadaCheck> {
+  const rows = await tx.$queryRaw<{ nombre: string; status: string }[]>`SELECT "nombre", "status"::text AS "status" FROM "Temporada" WHERE "id" = ${temporadaId} FOR SHARE`;
+  return checkOf(rows[0]);
 }
