@@ -65,6 +65,19 @@ describe('createTokenStore (H-102)', () => {
     expect(store.get('e1')).toBeNull();
   });
 
+  // H-167: la pantalla decía «Tu turno está guardado en este dispositivo» aunque el almacenamiento estuviera bloqueado y el turno solo viviera en la pestaña.
+  it('persistent(): true si el navegador guarda de verdad, false si está bloqueado o no hay almacenamiento', () => {
+    expect(createTokenStore(() => memoryStorage()).persistent()).toBe(true);
+    expect(createTokenStore(() => blocked()).persistent()).toBe(false);
+    expect(createTokenStore(() => null).persistent()).toBe(false);
+  });
+
+  it('persistent() no deja rastro en el almacenamiento (la prueba de escritura se borra)', () => {
+    const s = memoryStorage();
+    createTokenStore(() => s).persistent();
+    expect(s.getItem('queue_probe')).toBeNull();
+  });
+
   it('si el propio acceso al almacenamiento lanza, también cae a memoria', () => {
     const store = createTokenStore(() => { throw new Error('denegado'); });
     store.set('e2', 'x');

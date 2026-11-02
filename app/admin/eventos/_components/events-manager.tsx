@@ -231,9 +231,9 @@ export default function EventsManager() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <PageHeader title="Eventos" description="Gestiona todos los eventos" />
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Switch
               checked={verArchivados}
@@ -502,10 +502,11 @@ export default function EventsManager() {
           const dateStr = event?.date ? new Date(event.date).toLocaleString('es-ES', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: EVENT_TIMEZONE }) : '';
           return (
             <Card key={event?.id} id={event?.id} className={event?.archivado ? 'opacity-60' : undefined}>
-              <CardContent className="p-4 flex items-center justify-between">
-                <div className="flex items-center gap-4">
+              {/* H-166: a 375 px la fila (datos + estado + 4 iconos) medía 471 px: en móvil las acciones pasan debajo y se parten en líneas. */}
+              <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-4">
                   <div className="p-2 rounded-lg bg-primary/10"><Calendar className="h-5 w-5 text-primary" /></div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-medium">{event?.name ?? ''}</p>
                     <p className="text-xs text-muted-foreground">{dateStr} · {event?.venue ?? ''}, {event?.city ?? ''} · {event?._count?.tickets ?? 0} entradas</p>
                     {event?.temporada && (
@@ -515,7 +516,7 @@ export default function EventsManager() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {event?.archivado && (
                     <Badge variant="outline" className="text-xs gap-1"><Archive className="h-3 w-3" /> Archivado</Badge>
                   )}

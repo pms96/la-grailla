@@ -73,6 +73,18 @@ export function createTokenStore(storageOf: () => Storage | null = () => (typeof
         /* bloqueado: queda en memoria */
       }
     },
+    /** ¿El navegador guarda de verdad el turno entre recargas? (H-167: con el almacenamiento bloqueado vive solo en la pestaña). Prueba de escritura que no deja rastro. */
+    persistent(): boolean {
+      try {
+        const storage = storageOf();
+        if (!storage) return false;
+        storage.setItem('queue_probe', '1');
+        storage.removeItem('queue_probe');
+        return true;
+      } catch {
+        return false;
+      }
+    },
     remove(eventId: string): void {
       memory.delete(eventId);
       try {

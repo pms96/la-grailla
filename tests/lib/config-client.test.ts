@@ -27,8 +27,11 @@ describe('readConfigPayload (H-096)', () => {
   });
 
   it('sin texto de error usa uno genérico en español', () => {
-    expect(readConfigPayload(false, null)).toEqual({ error: 'No se ha podido cargar la configuración.' });
-    expect(readConfigPayload(false, { error: 5 })).toEqual({ error: 'No se ha podido cargar la configuración.' });
+    // H-167: la pantalla ya pone «No se ha podido cargar la configuración.» de título: el texto de debajo no puede repetirlo.
+    const generic = 'El servidor no ha devuelto la configuración. Prueba de nuevo en un momento.';
+    expect(readConfigPayload(false, null)).toEqual({ error: generic });
+    expect(readConfigPayload(false, { error: 5 })).toEqual({ error: generic });
+    expect(generic).not.toBe('No se ha podido cargar la configuración.');
   });
 
   it('descarta filas sin clave y normaliza valores que no son texto', () => {

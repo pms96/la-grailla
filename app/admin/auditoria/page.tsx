@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/layouts/page-header';
 import { cn } from '@/lib/utils';
 import { createLatestOnly } from '@/lib/latest-only';
+import { userMessage } from '@/lib/error-text';
 
 /* Registro de auditoría (P1-16): quién hizo qué, en dinero, cuentas y accesos. Solo lo ve el propietario (el middleware y la API lo comprueban).
  * Los reembolsos, las anulaciones de gastos e ingresos, los cierres de temporada, los cambios de pasarela, correo y claves, y los de usuarios y roles. */
@@ -143,7 +144,7 @@ export default function AuditoriaPage() {
       })
       .catch((e: Error) => {
         if (!latest.isCurrent(token) || e.name === 'AbortError') return;
-        setError(e.message && e.message !== 'Error' ? e.message : 'No se ha podido cargar el registro.');
+        setError(userMessage(e, 'No se ha podido cargar el registro.'));
       })
       .finally(() => {
         if (latest.isCurrent(token)) setLoading(false);
@@ -167,7 +168,7 @@ export default function AuditoriaPage() {
       setCursor(d.nextCursor);
     } catch (e) {
       if (!latest.isCurrent(token) || (e instanceof Error && e.name === 'AbortError')) return;
-      toast.error(e instanceof Error && e.message && e.message !== 'Error' ? e.message : 'No se han podido cargar más');
+      toast.error(userMessage(e, 'No se han podido cargar más'));
     } finally {
       if (latest.isCurrent(token)) setLoadingMore(false);
     }

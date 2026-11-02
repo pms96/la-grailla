@@ -65,7 +65,8 @@ export default function ComprasPage() {
       </div>
 
       <Tabs defaultValue="articulos">
-        <TabsList>
+        {/* H-166: a 375 px las cuatro pestañas en una línea medían 499 px: en móvil se parten en filas. */}
+        <TabsList className="h-auto max-w-full flex-wrap justify-start">
           <TabsTrigger value="proveedores">Proveedores</TabsTrigger>
           <TabsTrigger value="articulos">Artículos</TabsTrigger>
           <TabsTrigger value="planificador">Planificador</TabsTrigger>

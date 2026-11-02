@@ -35,8 +35,31 @@ describe('colores del veredicto', () => {
   });
 });
 
+/* H-163 (fase 4): `/api/scan/reentry` responde `REENTRY` en verde y el overlay lo pintaba como «❌ Entrada no válida» sobre «REENTRADA PERMITIDA». */
+describe('H-163: la reentrada permitida no se presenta como una entrada no válida', () => {
+  const reentry = { result: 'REENTRY', message: 'REENTRADA PERMITIDA — Ana', color: 'green' };
+
+  it('la reentrada tiene su palabra', () => {
+    expect(verdictWord('REENTRY')).toBe('Reentrada permitida');
+  });
+
+  it('el overlay de una reentrada dice «Reentrada permitida», sin «no válida» ni el ❌', () => {
+    const html = render(<VerdictOverlay result={reentry} onDismiss={noop} />);
+    expect(html).toContain('Reentrada permitida');
+    expect(html).toContain('REENTRADA PERMITIDA — Ana');
+    expect(html).not.toMatch(/no válida/i);
+    expect(html).not.toContain('❌');
+  });
+
+  it('un resultado desconocido sigue pintándose como no válido con ❌ (ante la duda, que no parezca un «pasa»)', () => {
+    const html = render(<VerdictOverlay result={{ result: 'RARO', message: 'x', color: 'red' }} onDismiss={noop} />);
+    expect(html).toContain('Entrada no válida');
+    expect(html).toContain('❌');
+  });
+});
+
 describe('VerdictOverlay', () => {
-  const result = { result: 'DUPLICATE', message: 'Ya entró a las 22:10', color: 'yellow', ticketType: 'General', ticketId: 't1' };
+  const result ={ result: 'DUPLICATE', message: 'Ya entró a las 22:10', color: 'yellow', ticketType: 'General', ticketId: 't1' };
 
   it('se anuncia solo (role alert, aria-live) y dice el veredicto con palabras, no solo con emoji y color', () => {
     const html = render(<VerdictOverlay result={result} onDismiss={noop} />);

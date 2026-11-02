@@ -204,17 +204,18 @@ export default function UsuariosPage() {
       <div className="space-y-3">
         {(users ?? []).map((user) => (
           <Card key={user?.id}>
-            <CardContent className="p-4 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
+            {/* H-166: a 375 px la fila (datos + rol + 3 iconos) medía 417 px: en móvil las acciones pasan debajo. */}
+            <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-4">
+                <div className="w-10 h-10 shrink-0 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
                   {(user?.name ?? 'U')?.[0]?.toUpperCase?.() ?? 'U'}
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="font-medium">{user?.name ?? ''}</p>
-                  <p className="text-xs text-muted-foreground">{user?.email ?? ''}</p>
+                  <p className="text-xs text-muted-foreground break-all">{user?.email ?? ''}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={user?.role === 'ADMIN' ? 'default' : 'secondary'}>
                   {user?.role === 'ADMIN' && user?.accessRole ? accessRoleLabel(user.accessRole) : roleLabel(user?.role ?? '')}
                 </Badge>

@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useBrand } from '@/components/brand-provider';
 import { HERO_VIDEO_TYPES, heroVideoBlobPrefix, heroVideoFileProblem } from '@/lib/brand/hero-video';
+import { userMessage } from '@/lib/error-text';
 
 type Props = {
   value: string;
@@ -39,7 +40,7 @@ export function VideoUploadField({ value, onChange, label }: Props) {
       });
       onChange(blob.url);
     } catch (e) {
-      toast.error(e instanceof Error && e.message ? e.message : 'No se ha podido subir el vídeo');
+      toast.error(userMessage(e, 'No se ha podido subir el vídeo'));
     } finally {
       setProgress(null);
       if (inputRef.current) inputRef.current.value = '';

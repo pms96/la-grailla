@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { createDriveGuard, manualAdvice, manualWho } from '@/lib/cancel-dialog';
 import type { ManualItem } from '@/lib/event-cancellation';
+import { userMessage } from '@/lib/error-text';
 
 /* Cancelar un evento con compradores (P1-04): vista previa de lo que pasará (pedidos, dinero), opciones (reembolsar, avisar), confirmación escrita y
  * seguimiento del trabajo. El trabajo es reanudable y lo continúa el cron aunque se cierre esta ventana; mientras está abierta, la propia ventana
@@ -73,7 +74,7 @@ export function CancelEventDialog({ event, onClose, onChanged }: { event: { id: 
       setNotify(data.preview.notifiable > 0);
     } catch (error) {
       // H-088: antes solo un aviso que desaparece y «Cargando pedidos…» para siempre. Ahora el error se queda en la ventana, con «Reintentar».
-      if (alive.current) setLoadError(error instanceof Error && error.message ? error.message : 'No se pudo cargar la información del evento');
+      if (alive.current) setLoadError(userMessage(error, 'No se pudo cargar la información del evento'));
     } finally {
       if (alive.current) setLoading(false);
     }
@@ -110,7 +111,7 @@ export function CancelEventDialog({ event, onClose, onChanged }: { event: { id: 
           res = await fetch(`/api/admin/events/${id}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'continue' }) });
         }
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Error al procesar la cancelación');
+        toast.error(userMessage(error, 'Error al procesar la cancelación'));
         // H-087: si falló la red tras haber arrancado el servidor, el formulario seguiría diciendo «no se puede deshacer» sobre un evento ya cancelado: se vuelve a leer el estado real.
         if (isStart && alive.current && guard.valid(id, token)) void load(id);
       } finally {

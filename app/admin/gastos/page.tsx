@@ -20,6 +20,7 @@ import { GastoPieChart } from '@/app/admin/gastos/_components/gasto-pie-chart';
 import { ComparativoBarChart } from '@/app/admin/gastos/_components/comparativo-bar-chart';
 import { CATEGORIAS_GASTO, descripcionContabilidad } from '@/lib/compras/constantes';
 import { downloadGastosExport } from '@/lib/gastos/gastos-export';
+import { userMessage } from '@/lib/error-text';
 
 type GastoConRelaciones = WithNumberFields<Gasto, 'importeSinIva' | 'ivaPercent'> & { proveedor: Proveedor | null; createdBy: { id: string; name: string | null; email: string } | null };
 
@@ -117,7 +118,7 @@ export default function GastosPage() {
       await downloadGastosExport(temporadaId, format);
       toast.success(format === 'excel' ? 'Excel de gastos descargado' : 'PDF de gastos descargado');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error al exportar');
+      toast.error(userMessage(e, 'Error al exportar'));
     } finally {
       setExportando(null);
     }

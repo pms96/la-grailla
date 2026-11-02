@@ -5,7 +5,8 @@ import { verdictStyle, verdictWord } from '@/lib/door-verdict-style';
 
 export type VerdictOverlayResult = { result: string; message: string; color: string; ticketType?: string; ticketId?: string };
 
-const ICON: Record<string, string> = { VALID: '✅', DUPLICATE: '🔁', WRONG_EVENT: '⚠️', ERROR: '⚠️' };
+// H-163: la reentrada autorizada (`REENTRY`, en verde) tiene su icono: sin él caía en el ❌ de «no válida». Lo desconocido sigue siendo ❌.
+const ICON: Record<string, string> = { VALID: '✅', REENTRY: '✅', DUPLICATE: '🔁', WRONG_EVENT: '⚠️', ERROR: '⚠️' };
 
 /**
  * Veredicto a pantalla completa (H-085). Antes: texto blanco sobre amarillo/verde (contraste ~2:1), subtexto a 60-80 % de opacidad, y un `div onClick` sin rol,

@@ -16,6 +16,7 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { CONSOLIDATED_STATUS_LABELS, CONSOLIDATED_STATUS_VARIANT, consolidatedSponsorStatus, type ConsolidatedSponsorStatus } from '@/lib/sponsor-status';
 import { findSponsorTier, type SponsorTier } from '@/lib/sponsor-tiers';
 import { CreateSponsorDialog } from './_components/create-sponsor-dialog';
+import { userMessage } from '@/lib/error-text';
 
 type SponsorRow = {
   id: string;
@@ -67,7 +68,7 @@ export default function SponsorsAdminPage() {
       toast.success(mode === 'collaboration' ? 'Marcado como colaboración' : 'Marcado como pagado');
       fetchSponsors();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error');
+      toast.error(userMessage(e, 'Error'));
     } finally {
       setPayingId(null);
     }

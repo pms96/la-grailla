@@ -12,6 +12,7 @@ import { Loader2, ClipboardList, FileSpreadsheet, FileText } from 'lucide-react'
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { downloadPlanificadorExport } from '@/lib/compras/planificador-export';
+import { userMessage } from '@/lib/error-text';
 
 type PrecioFila = {
   proveedorId: string;
@@ -117,7 +118,7 @@ export function TabPlanificador({ temporada }: { temporada: Temporada | null }) 
       await downloadPlanificadorExport(temporada.id, format);
       toast.success(format === 'excel' ? 'Excel del planificador descargado' : 'PDF del planificador descargado');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error al exportar');
+      toast.error(userMessage(e, 'Error al exportar'));
     } finally {
       setExportando(null);
     }

@@ -41,6 +41,8 @@ export function verdictWord(result: string | null | undefined): string {
       return 'Otro evento';
     case 'ERROR':
       return 'No se pudo comprobar';
+    case 'REENTRY':
+      return 'Reentrada permitida';
     default:
       return 'Entrada no válida';
   }

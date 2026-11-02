@@ -14,6 +14,7 @@ import { SkeletonPulse } from '@/components/ui/animate';
 import { downloadAdminCsv } from '@/lib/admin-export';
 import SalesChart from './_components/sales-chart';
 import VentasPorDia from './_components/ventas-por-dia';
+import { userMessage } from '@/lib/error-text';
 
 type StatsEvent = Pick<Event, 'id' | 'name' | 'maxCapacity' | 'currentCount' | 'alertThresholds' | 'alertsSent'> & { soldCount: number };
 
@@ -99,7 +100,7 @@ export default function EstadisticasPage() {
       });
       toast.success('CSV descargado');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error al exportar');
+      toast.error(userMessage(e, 'Error al exportar'));
     } finally {
       setExporting(null);
     }

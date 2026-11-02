@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { downloadAdminCsv } from '@/lib/admin-export';
 import { displayBuyerEmail, isPlaceholderEmail } from '@/lib/placeholder-email';
+import { userMessage } from '@/lib/error-text';
 
 const statusLabels: Record<OrderStatus, string> = {
   PENDING: 'Pendiente',
@@ -150,7 +151,7 @@ export default function VentasPage() {
       if (!res.ok) throw new Error(data?.error ?? 'Error');
       setDetail(data);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'No se pudo cargar el detalle');
+      toast.error(userMessage(e, 'No se pudo cargar el detalle'));
       setSelectedId(null);
       setDetail(null);
     } finally {
@@ -181,7 +182,7 @@ export default function VentasPage() {
       if (selectedId === orderId) await openDetail(orderId);
       fetchOrders();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'No se pudo reenviar');
+      toast.error(userMessage(e, 'No se pudo reenviar'));
       if (selectedId === orderId) await openDetail(orderId);
     } finally {
       setActionLoading(null);
@@ -215,7 +216,7 @@ export default function VentasPage() {
       toast.success('Email actualizado — usa "Reenviar email" para mandarlas a la nueva dirección');
       fetchOrders();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'No se pudo actualizar el email');
+      toast.error(userMessage(e, 'No se pudo actualizar el email'));
     } finally {
       setSavingEmail(false);
     }
@@ -255,7 +256,7 @@ export default function VentasPage() {
       toast.success(successLabel);
       fetchOrders();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'No se pudo completar la acción');
+      toast.error(userMessage(e, 'No se pudo completar la acción'));
     } finally {
       setActionLoading(null);
     }
@@ -278,7 +279,7 @@ export default function VentasPage() {
       });
       toast.success('CSV de ventas descargado');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error al exportar');
+      toast.error(userMessage(e, 'Error al exportar'));
     } finally {
       setExporting(false);
     }

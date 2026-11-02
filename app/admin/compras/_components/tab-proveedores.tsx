@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Loader2, Plus, Pencil, Trash2, Truck, FileSpreadsheet, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { downloadProveedoresExport } from '@/lib/compras/proveedores-export';
+import { userMessage } from '@/lib/error-text';
 
 type FormState = { nombre: string; contacto: string; telefono: string; email: string; notas: string };
 const EMPTY: FormState = { nombre: '', contacto: '', telefono: '', email: '', notas: '' };
@@ -75,7 +76,7 @@ export function TabProveedores() {
       await downloadProveedoresExport(format);
       toast.success(format === 'excel' ? 'Excel de proveedores descargado' : 'PDF de proveedores descargado');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error al exportar');
+      toast.error(userMessage(e, 'Error al exportar'));
     } finally {
       setExportando(null);
     }

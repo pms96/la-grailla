@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { CapacityBar } from '@/components/admin/capacity-bar';
 import { isEventTonight } from '@/lib/active-event';
 import { useBrand } from '@/components/brand-provider';
+import { userMessage } from '@/lib/error-text';
 
 type DashboardEvent = Pick<Event, 'id' | 'name' | 'maxCapacity' | 'currentCount' | 'date' | 'endTime' | 'status'> & {
   soldCount: number;
@@ -51,7 +52,7 @@ export default function AdminDashboard({ accounting = false }: { accounting?: bo
       if (!res.ok || data?.error) throw new Error(data?.error ?? 'Error');
       toast.success('Entradas reenviadas por email');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'No se pudieron reenviar las entradas');
+      toast.error(userMessage(e, 'No se pudieron reenviar las entradas'));
     } finally {
       setSending(null);
     }

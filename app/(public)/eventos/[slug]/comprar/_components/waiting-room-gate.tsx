@@ -439,7 +439,12 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
           {busy && <BusyNotice />}
 
           <div className="relative space-y-2 text-xs text-muted-foreground max-w-sm mx-auto">
-            <p>Tu turno está guardado en este dispositivo. Si sales y vuelves a esta página, recuperas tu sitio.</p>
+            {/* H-167: con el almacenamiento bloqueado (modo privado) el turno solo vive en esta pestaña: no se promete lo que no se cumple. */}
+            {tokens.persistent() ? (
+              <p>Tu turno está guardado en este dispositivo. Si sales y vuelves a esta página, recuperas tu sitio.</p>
+            ) : (
+              <p>Tu navegador no deja guardar el turno: no cierres ni recargues esta pestaña o perderás tu sitio.</p>
+            )}
             <p>No hace falta refrescar: la cola avanza sola.</p>
           </div>
 
@@ -546,9 +551,10 @@ function AdmittedCountdown({
       const message = countdownAnnouncement(previousSecondsRef.current, seconds);
       previousSecondsRef.current = seconds;
       if (message) {
-        setAnnouncement(message);
-        // Aviso visible al llegar al último minuto: antes el formulario desaparecía a los 0 s sin más aviso que el rojo del contador (H-091).
+        // Aviso visible al llegar al último minuto: antes el formulario desaparecía a los 0 s sin más aviso que el rojo del contador (H-091). El toast ya lo anuncia a los
+        // lectores de pantalla: a 60 s NO se repite a mano (H-167: salía dos veces); a 10 s no hay toast y sí el aviso `sr-only`.
         if (seconds > 10) toast.warning('Te queda 1 minuto para completar la compra.');
+        else setAnnouncement(message);
       }
       // Con un envío en curso no se desmonta el formulario a mitad de la compra: se espera a que termine (el servidor decide si el turno aún valía).
       if (remaining <= 0 && !submittingRef.current) onExpire();

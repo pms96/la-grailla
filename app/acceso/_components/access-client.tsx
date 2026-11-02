@@ -283,12 +283,13 @@ export default function AccessClient() {
 
       {/* Header */}
       <div className="border-b border-border bg-background/95 backdrop-blur">
-        <div className="max-w-[1200px] mx-auto px-4 py-3 flex items-center justify-between">
+        {/* H-166: a 375 px el título, «Modo noche», el rol y «Salir» no caben en una línea (la página se salía 7 px): se parte en dos filas en vez de desbordar. */}
+        <div className="max-w-[1200px] mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <div className="flex items-center gap-3">
             <QrCode className="h-6 w-6 text-primary" />
-            <h1 className="font-display font-bold text-lg">Control de Acceso</h1>
+            <h1 className="font-display font-bold text-lg whitespace-nowrap">Control de Acceso</h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-2">
             {session?.user?.role === 'ADMIN' && (
               <Button variant="outline" size="sm" className="gap-1.5" asChild>
                 <Link href={`/admin/noche?eventId=${encodeURIComponent(selectedEvent)}`}>

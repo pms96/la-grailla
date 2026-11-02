@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
 import { downloadShopOrdersCsv } from '@/lib/admin-export';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
+import { userMessage } from '@/lib/error-text';
 
 const statusLabels: Record<string, string> = {
   PENDING: 'Pendiente', PAID: 'Pagado', PROCESSING: 'Procesando',
@@ -107,7 +108,7 @@ export default function PedidosPage() {
       else toast.success('Actualizado');
       fetchOrders();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error');
+      toast.error(userMessage(e, 'Error'));
     }
   };
 
@@ -134,7 +135,7 @@ export default function PedidosPage() {
       }
       toast.success('Email reenviado');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'No se pudo reenviar');
+      toast.error(userMessage(e, 'No se pudo reenviar'));
     } finally {
       setResending(null);
       fetchOrders();
@@ -148,7 +149,7 @@ export default function PedidosPage() {
       await downloadShopOrdersCsv({ q: q.trim() || undefined, status: status !== 'all' ? status : undefined });
       toast.success('CSV de pedidos descargado');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error al exportar');
+      toast.error(userMessage(e, 'Error al exportar'));
     } finally {
       setExporting(false);
     }
@@ -198,10 +199,11 @@ export default function PedidosPage() {
           {orders.map((order) => (
             <Card key={order?.id}>
               <CardContent className="p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
+                {/* H-166: a 375 px el correo largo + estado + importe medían 452 px: el bloque de datos encoge y parte el texto. */}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
                     <p className="font-medium">{order?.buyerName ?? ''}</p>
-                    <p className="text-xs text-muted-foreground">{order?.buyerEmail ?? ''} · {order?.createdAt ? new Date(order.createdAt).toLocaleDateString('es-ES') : ''}</p>
+                    <p className="text-xs text-muted-foreground break-words">{order?.buyerEmail ?? ''} · {order?.createdAt ? new Date(order.createdAt).toLocaleDateString('es-ES') : ''}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge>{statusLabels[order?.status ?? ''] ?? order?.status}</Badge>
@@ -262,7 +264,7 @@ export default function PedidosPage() {
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Select value={order?.status ?? ''} onValueChange={(v: ShopOrderStatus) => updateOrder(order?.id, { status: v })}>
                     <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
                     <SelectContent>

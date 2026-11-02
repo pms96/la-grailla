@@ -9,5 +9,6 @@ export function readConfigPayload(ok: boolean, data: unknown): { configs: Config
     return { configs: data.filter((c): c is ConfigRow => !!c && typeof c === 'object' && typeof (c as ConfigRow).key === 'string').map((c) => ({ ...c, value: typeof c.value === 'string' ? c.value : '' })) };
   }
   const message = data && typeof data === 'object' && typeof (data as { error?: unknown }).error === 'string' ? (data as { error: string }).error : '';
-  return { error: message || 'No se ha podido cargar la configuración.' };
+  // La pantalla ya pone «No se ha podido cargar la configuración.» de título (H-167): este texto lo completa, no lo repite.
+  return { error: message || 'El servidor no ha devuelto la configuración. Prueba de nuevo en un momento.' };
 }

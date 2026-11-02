@@ -11,6 +11,7 @@ import { Loader2, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { DEFAULT_SPONSOR_TIERS, type SponsorTier } from '@/lib/sponsor-tiers';
 import { SponsorInviteDelivery } from './sponsor-invite-delivery';
+import { userMessage } from '@/lib/error-text';
 
 type FormState = {
   companyName: string;
@@ -95,7 +96,7 @@ export function CreateSponsorDialog({ open, onOpenChange, onCreated }: Props) {
         close(false);
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error al crear el sponsor');
+      toast.error(userMessage(e, 'Error al crear el sponsor'));
     } finally {
       setSaving(false);
     }

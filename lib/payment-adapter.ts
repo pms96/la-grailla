@@ -830,7 +830,17 @@ export async function getPaymentProviderByName(gateway: string, scope: PaymentSc
     return new SumUpAdapter(trimmedApiKey, trimmedMerchantCode);
   }
 
-  return new MockPaymentAdapter();
+  // H-164: solo `mock` (desarrollo y tests) llega al adaptador mock, que da cualquier pago por bueno. Un nombre que no se reconoce NO puede resolverse a «pago
+  // verificado» (antes `getPaymentProviderByName('f4')` devolvía el mock y un pedido con ese nombre pasaba a PAID solo con abrir su confirmación), y en
+  // producción el mock se rechaza también por nombre: el freno de `getPaymentProvider` no cubría las llamadas por nombre (rutas de pedido, reconciliación,
+  // cierre de sesión, reembolso, webhook).
+  if (gateway === 'mock') {
+    if (process.env.NODE_ENV === 'production') {
+      throw new ProviderNotConfiguredError('La pasarela "mock" no se puede usar en producción: configura Stripe o SumUp en /admin/configuracion.', gateway);
+    }
+    return new MockPaymentAdapter();
+  }
+  throw new ProviderNotConfiguredError(`Pasarela de pago desconocida: «${gateway}». Solo se admiten stripe y sumup.`, gateway);
 }
 
 /** A qué cuenta de cobro pertenece un pedido: cada módulo con venta tiene la suya. */

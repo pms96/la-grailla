@@ -26,6 +26,7 @@ import { safeJsonLd } from '@/lib/seo/json-ld';
 import { EVENT_TIMEZONE } from '@/lib/event-time';
 import { isEventPageVisible } from '@/lib/public-event';
 import { isAdminSessionFor } from '@/lib/access-token';
+import { DraftPreviewNotice } from '@/components/draft-preview-notice';
 
 // Dinámica (no ISR): la caché por ruta mezclaría clientes; la de 60 s la hace el CDN por dominio (ver next.config.js).
 export const dynamic = 'force-dynamic';
@@ -202,6 +203,8 @@ export default async function EventoDetailPage(props: { params: Promise<{ slug: 
   return (
     <>
       {eventLd && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(eventLd) }} />}
+      {/* H-167: solo llega aquí un ADMIN con Entradas (H-059); que sepa que es un borrador y que el público ve un 404. */}
+      {event.status === 'DRAFT' && <DraftPreviewNotice />}
       {banner ?? (
       /* Cartel full-bleed — mismo lenguaje visual que el hero de home */
       <div className="relative overflow-hidden min-h-[42vh] md:min-h-[48vh] flex items-end">

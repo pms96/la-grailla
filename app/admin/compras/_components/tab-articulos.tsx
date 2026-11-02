@@ -17,6 +17,7 @@ import { precioFinalUnidad } from '@/lib/compras/calculadora';
 import { downloadArticulosExport } from '@/lib/compras/articulos-export';
 import { ImportarArticulosDialog } from '@/app/admin/compras/_components/importar-articulos-dialog';
 import { parsePercentOr } from '@/lib/pricing';
+import { userMessage } from '@/lib/error-text';
 
 type ArticuloConPrecios = WithNumberFields<Articulo, 'ivaPercent'> & {
   precios: (WithNumberFields<PrecioArticulo, 'precioSinIva' | 'descuentoPercent'> & { proveedor: Proveedor })[];
@@ -151,7 +152,7 @@ export function TabArticulos() {
       await downloadArticulosExport(format);
       toast.success(format === 'excel' ? 'Excel de artículos descargado' : 'PDF de artículos descargado');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error al exportar');
+      toast.error(userMessage(e, 'Error al exportar'));
     } finally {
       setExportando(null);
     }

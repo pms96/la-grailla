@@ -12,6 +12,7 @@ import { precioFinalUnidad } from '@/lib/compras/calculadora';
 import { PEDIDO_STATUS_LABEL as STATUS_LABEL } from '@/lib/compras/constantes';
 import { GastoDesdePedidoDialog } from '@/app/admin/gastos/_components/gasto-desde-pedido-dialog';
 import { downloadPedidosExport } from '@/lib/compras/pedidos-export';
+import { userMessage } from '@/lib/error-text';
 
 type PedidoConDetalle = Pedido & {
   proveedor: Proveedor;
@@ -122,7 +123,7 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
       });
       toast.success(format === 'excel' ? 'Excel de pedidos descargado' : 'PDF de pedidos descargado');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error al exportar');
+      toast.error(userMessage(e, 'Error al exportar'));
     } finally {
       setExportando(null);
     }

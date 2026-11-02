@@ -26,6 +26,7 @@ import { SponsorAssetList } from '@/components/sponsor-asset-list';
 import { parseJsonSafe } from '@/lib/utils';
 import { findSponsorTier, type SponsorTier } from '@/lib/sponsor-tiers';
 import { useBrand } from '@/components/brand-provider';
+import { userMessage } from '@/lib/error-text';
 
 const LEAD_STATUS_LABELS: Record<string, string> = {
   PENDING: 'Pendiente', CONTACTED: 'Contactado', ACCEPTED: 'Aceptado', REJECTED: 'Rechazado',
@@ -197,7 +198,7 @@ export default function SponsorDetailPage() {
       if (!res.ok || data?.error) throw new Error(data?.error ?? 'Error');
       return data;
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error');
+      toast.error(userMessage(e, 'Error'));
       return null;
     } finally {
       setBusy(null);
@@ -264,7 +265,7 @@ export default function SponsorDetailPage() {
       toast.success('Vídeo final subido');
       fetchDetail();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'No se pudo subir el vídeo');
+      toast.error(userMessage(e, 'No se pudo subir el vídeo'));
     } finally {
       setUploadingFinalVideo(false);
     }
