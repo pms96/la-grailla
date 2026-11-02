@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Event } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, BarChart3, DollarSign, Ticket, Calendar, Wallet, Download } from 'lucide-react';
@@ -17,6 +17,7 @@ import VentasPorDia from './_components/ventas-por-dia';
 import { userMessage } from '@/lib/error-text';
 import { fetchAdminJson } from '@/lib/admin-fetch';
 import { LoadError } from '@/components/admin/load-error';
+import { createLatest } from '@/lib/latest-request';
 
 type StatsEvent = Pick<Event, 'id' | 'name' | 'maxCapacity' | 'currentCount' | 'alertThresholds' | 'alertsSent'> & { soldCount: number };
 
@@ -63,26 +64,38 @@ const RANGE_OPTIONS = [
 
 export default function EstadisticasPage() {
   const [stats, setStats] = useState<Stats | null>(null);
+  // H-237: la última lista de eventos conocida: tras un fallo `stats` pasa a null y el selector se quedaba sin opciones (mostrando el valor vacío con el evento aún elegido).
+  const [lastEvents, setLastEvents] = useState<StatsEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [eventId, setEventId] = useState('all');
   const [range, setRange] = useState('all');
   const [exporting, setExporting] = useState<string | null>(null);
 
+  // H-225: solo vale la respuesta de la última petición (cambiar de evento o de periodo relanza la carga).
+  const latest = useRef(createLatest());
   const fetchStats = useCallback(() => {
+    const id = latest.current.next();
     setLoading(true);
     const params = new URLSearchParams();
     if (eventId !== 'all') params.set('eventId', eventId);
-    if (range !== 'all') {
-      const from = new Date();
-      from.setDate(from.getDate() - (Number(range) - 1));
-      from.setHours(0, 0, 0, 0);
-      params.set('from', from.toISOString());
-    }
+    // H-246: el servidor calcula el inicio con la jornada de negocio de Madrid (el navegador usaba su propia medianoche, que puede no ser la de Madrid ni la de la jornada).
+    if (range !== 'all') params.set('range', range);
     fetchAdminJson<Stats>(`/api/admin/stats?${params.toString()}`, 'No se pudieron cargar las estadísticas')
-      .then((d) => { setStats(d); setLoadError(null); })
-      .catch((e) => { setStats(null); setLoadError(userMessage(e, 'No se pudieron cargar las estadísticas')); }) // sin datos, nada de cifras a cero (H-176)
-      .finally(() => setLoading(false));
+      .then((d) => {
+        if (!latest.current.isCurrent(id)) return;
+        setStats(d);
+        if (Array.isArray(d?.events)) setLastEvents(d.events);
+        setLoadError(null);
+      })
+      .catch((e) => {
+        if (!latest.current.isCurrent(id)) return;
+        setStats(null);
+        setLoadError(userMessage(e, 'No se pudieron cargar las estadísticas')); // sin datos, nada de cifras a cero (H-176)
+      })
+      .finally(() => {
+        if (latest.current.isCurrent(id)) setLoading(false);
+      });
   }, [eventId, range]);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
@@ -119,7 +132,7 @@ export default function EstadisticasPage() {
               <SelectTrigger className="w-[180px]"><SelectValue placeholder="Evento" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos los eventos</SelectItem>
-                {(stats?.events ?? []).map((ev) => (
+                {(stats?.events ?? lastEvents).map((ev) => (
                   <SelectItem key={ev?.id} value={ev?.id ?? ''}>{ev?.name ?? ''}</SelectItem>
                 ))}
               </SelectContent>

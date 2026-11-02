@@ -8,6 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, RefreshCw, Search, ScanLine } from 'lucide-react';
+import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 import { PageHeader } from '@/components/layouts/page-header';
 import {
   getStoredActiveEventId,
@@ -71,16 +74,19 @@ export default function EscaneosPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingEvents, setLoadingEvents] = useState(true);
+  // H-222: un fallo ya no deja la lista vacía y el total a 0 «sin aviso» (ni una respuesta vieja de otra selección tapa la actual).
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/admin/events')
-      .then((r) => r.json())
-      .then((list: Event[]) => {
-        const published = (list ?? []).filter((e) => e.status === 'PUBLISHED' || e.status === 'FINISHED');
+    // H-222: un error HTTP (`{ error }` no es una lista) rompía el filtro o dejaba la pantalla sin eventos y sin avisar.
+    fetchAdminJson<Event[]>('/api/admin/events', 'No se pudieron cargar los eventos')
+      .then((raw) => {
+        const list = Array.isArray(raw) ? raw : [];
+        const published = list.filter((e) => e.status === 'PUBLISHED' || e.status === 'FINISHED');
         setEvents(published);
         const fromUrl = new URLSearchParams(window.location.search).get('eventId');
         const stored = getStoredActiveEventId();
-        if (fromUrl && (list ?? []).some((e) => e.id === fromUrl)) {
+        if (fromUrl && list.some((e) => e.id === fromUrl)) {
           setEventId(fromUrl);
         } else if (stored && published.some((e) => e.id === stored)) {
           setEventId(stored);
@@ -100,16 +106,13 @@ export default function EscaneosPage() {
     if (result !== 'all') params.set('result', result);
     if (q.trim()) params.set('q', q.trim());
     params.set('take', '80');
-    fetch(`/api/admin/scans?${params.toString()}`)
-      .then((r) => r.json())
+    fetchAdminJson<{ scans?: ScanRow[]; total?: number }>(`/api/admin/scans?${params.toString()}`, 'No se pudo cargar el historial de escaneos')
       .then((d) => {
         setScans(Array.isArray(d?.scans) ? d.scans : []);
         setTotal(d?.total ?? 0);
+        setLoadError(null);
       })
-      .catch(() => {
-        setScans([]);
-        setTotal(0);
-      })
+      .catch((e) => setLoadError(userMessage(e, 'No se pudo cargar el historial de escaneos')))
       .finally(() => setLoading(false));
   }, [eventId, result, q]);
 
@@ -144,6 +147,7 @@ export default function EscaneosPage() {
 
   return (
     <div className="space-y-6">
+      {loadError && <LoadError title="No se ha podido cargar el historial." message={loadError} onRetry={() => { setLoadError(null); fetchScans(); }} />}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <PageHeader
           title="Historial de escaneos"

@@ -158,7 +158,7 @@ export default function WaitingRoomGate({ event }: { event: WaitingRoomEvent }) 
         // avisando: sin esto, el comprador ve que le meten otra vez en la cola
         // sin explicación y puede pensar que su compra anterior no se guardó.
         if (data.status === 'COMPLETED') {
-          toast.info('Ya completaste una compra para este evento. Te llevamos de nuevo a la cola por si quieres más entradas.');
+          toast.info('Tu turno anterior ya se ha usado. Te llevamos de nuevo a la cola por si quieres entradas.');
         }
         tokens.remove(event.id);
         setState({ status: 'CHECKING' });

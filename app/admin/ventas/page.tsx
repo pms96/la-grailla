@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { OrderStatus, Prisma } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
@@ -19,6 +19,9 @@ import { displayBuyerEmail, isPlaceholderEmail } from '@/lib/placeholder-email';
 import { userMessage } from '@/lib/error-text';
 import { fetchAdminJson } from '@/lib/admin-fetch';
 import { LoadError } from '@/components/admin/load-error';
+import { ListTruncatedNotice } from '@/components/admin/list-truncated-notice';
+import { ADMIN_ORDERS_PAGE_SIZE } from '@/lib/admin-orders-page';
+import { createLatest } from '@/lib/latest-request';
 
 const statusLabels: Record<OrderStatus, string> = {
   PENDING: 'Pendiente',
@@ -113,7 +116,10 @@ export default function VentasPage() {
   const [emailDraft, setEmailDraft] = useState('');
   const [savingEmail, setSavingEmail] = useState(false);
 
+  // H-225: solo vale la respuesta de la última petición (el buscador relanza la carga con cada tecla y `?eventId=` provoca dos cargas al abrir).
+  const latest = useRef(createLatest());
   const fetchOrders = useCallback(() => {
+    const id = latest.current.next();
     setLoading(true);
     const params = new URLSearchParams();
     if (q.trim()) params.set('q', q.trim());
@@ -121,13 +127,20 @@ export default function VentasPage() {
     if (emailFailedOnly) params.set('emailFailed', '1');
     if (eventFilter !== 'all') params.set('eventId', eventFilter);
     fetchAdminJson<unknown>(`/api/admin/orders?${params.toString()}`, 'No se pudieron cargar las ventas')
-      .then((d) => { setOrders(Array.isArray(d) ? d : []); setLoadError(null); })
+      .then((d) => {
+        if (!latest.current.isCurrent(id)) return;
+        setOrders(Array.isArray(d) ? d : []);
+        setLoadError(null);
+      })
       .catch((e) => {
+        if (!latest.current.isCurrent(id)) return;
         // Una lista vacía por un error no es «no hay ventas» (H-176): se enseña el motivo con «Reintentar».
         setOrders([]);
         setLoadError(userMessage(e, 'No se pudieron cargar las ventas'));
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (latest.current.isCurrent(id)) setLoading(false);
+      });
   }, [q, status, eventFilter, emailFailedOnly]);
 
   useEffect(() => {
@@ -346,6 +359,9 @@ export default function VentasPage() {
           Sin email
         </Button>
       </div>
+
+      {/* H-223: el listado llega cortado en un tope sin paginar; si lo alcanza, se dice. */}
+      {!loadError && <ListTruncatedNotice shown={orders.length} limit={ADMIN_ORDERS_PAGE_SIZE} what="ventas" />}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <div className="space-y-3 min-w-0">

@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import type { Event } from '@prisma/client';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2 } from 'lucide-react';
+import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 import { PageHeader } from '@/components/layouts/page-header';
 import InvitationsManager from '@/components/admin/invitations-manager';
 import {
@@ -16,16 +19,19 @@ export default function InvitacionesPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [eventId, setEventId] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null); // H-222
 
   useEffect(() => {
-    fetch('/api/admin/events')
-      .then((r) => r.json())
-      .then((list: Event[]) => {
-        const published = (list ?? []).filter((e) => e.status === 'PUBLISHED' || e.status === 'DRAFT');
+    // H-222: un error HTTP (`{ error }` no es una lista) dejaba la pantalla sin eventos y sin avisar.
+    fetchAdminJson<Event[]>('/api/admin/events', 'No se pudieron cargar los eventos')
+      .then((raw) => {
+        const list = Array.isArray(raw) ? raw : [];
+        setLoadError(null);
+        const published = list.filter((e) => e.status === 'PUBLISHED' || e.status === 'DRAFT');
         // Preferir publicados; si no hay, mostrar todos no cancelados
         const pool = published.length
           ? published
-          : (list ?? []).filter((e) => e.status !== 'CANCELLED');
+          : list.filter((e) => e.status !== 'CANCELLED');
         setEvents(pool);
         const fromUrl = new URLSearchParams(window.location.search).get('eventId');
         const stored = getStoredActiveEventId();
@@ -40,7 +46,7 @@ export default function InvitacionesPage() {
         }
         if (initial) setEventId(initial);
       })
-      .catch(() => {})
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar los eventos')))
       .finally(() => setLoading(false));
   }, []);
 
@@ -62,6 +68,7 @@ export default function InvitacionesPage() {
 
   return (
     <div className="space-y-6">
+      {loadError && <LoadError title="No se han podido cargar los eventos." message={loadError} onRetry={() => { setLoadError(null); setLoading(true); window.location.reload(); }} />}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <PageHeader
           title="Invitaciones"

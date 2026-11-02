@@ -72,6 +72,15 @@ describe('GET /api/admin/stats — coherencia de fechas entre entradas e ingreso
     expect(data.totalTickets).toBe(1);
     expect(data.totalRevenue).toBe(10);
   });
+
+  // H-246: «Hoy / 7 / 30 días» llega como `range` y el servidor calcula el inicio con la jornada de Madrid (antes lo calculaba el navegador con su propia medianoche).
+  it('H-246: con range=7 entra el pedido reciente y no el de hace 30 días; un range que no es 1, 7 ni 30 no filtra', async () => {
+    const siete = await (await getStats(statsRequest(`?eventId=${event.id}&range=7`))).json();
+    expect(siete.totalOrders).toBe(1);
+    expect(siete.totalRevenue).toBe(10);
+    const raro = await (await getStats(statsRequest(`?eventId=${event.id}&range=5`))).json();
+    expect(raro.totalOrders).toBe(2); // sin filtro: ambos pedidos
+  });
 });
 
 /* P1-15: la gráfica «ventas por día» del dashboard agrupaba por día UTC: una venta de las 00:30 de Madrid caía en el día anterior. Ahora usa la jornada de

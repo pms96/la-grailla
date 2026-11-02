@@ -18,6 +18,18 @@ describe('confirmationView', () => {
     expect(v('REFUNDED')).toBe('refunded');
   });
 
+  // H-227: un pedido COMPLETED de un evento CANCELADO (efectivo o con entradas usadas, sin reembolso aún) pintaba «Compra confirmada · Tus entradas están listas» con QR,
+  // mientras el PDF y el wallet daban 410. Las entradas de un evento cancelado no valen: la pantalla lo dice.
+  it('H-227: un pedido pagado de un evento CANCELADO → event_cancelled (no «confirmed»); en un evento vigente sigue siendo confirmed', () => {
+    for (const status of ['COMPLETED', 'PAID', 'PROCESSING']) {
+      expect(v(status, { eventCancelled: true })).toBe('event_cancelled');
+      expect(v(status, { eventCancelled: false })).toBe('confirmed');
+    }
+    expect(v('REFUNDED', { eventCancelled: true })).toBe('refunded');
+    expect(v('PENDING', { eventCancelled: true })).toBe('pending');
+    expect(shouldKeepPolling('event_cancelled')).toBe(false);
+  });
+
   describe('CANCELLED', () => {
     it('sin pago asociado: nunca hubo cargo que comprobar → not_charged', () => {
       expect(v('CANCELLED', { paymentId: null })).toBe('not_charged');

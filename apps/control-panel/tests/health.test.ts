@@ -77,8 +77,13 @@ describe('probeTenantHealth', () => {
     it('la BD por detrás del registro (tras un PITR)', async () => {
       expect(await severeOf({ schema: { applied: '20261008213000_contact_inbox', expected: '20261009090000_reconcile_queue', minRequired: '20261008213000_contact_inbox', upToDate: true } })).toBe(true);
     });
-    it('la BD por DELANTE del registro (registro sin actualizar) no es grave: el front se pone en mantenimiento y se corrige el registro', async () => {
-      expect(await severeOf({}, { ...target, declaredSchema: '20261008213000_contact_inbox' })).toBe(false);
+    // H-248: este caso se modelaba con `serving: true`, pero en producción el registro por debajo del mínimo del front HACE que el front ponga al cliente en mantenimiento (`serving: false`,
+    // `gateBySchema` mira lo que declara el registro): el cliente no sirve hasta corregir el registro, y eso SÍ es grave.
+    it('la BD por DELANTE del registro con el registro por debajo del mínimo del front: el front entra en mantenimiento (serving false) y es grave', async () => {
+      expect(await severeOf({ serving: false }, { ...target, declaredSchema: '20261008213000_contact_inbox' })).toBe(true);
+    });
+    it('la BD por delante del registro pero con el front sirviendo con normalidad (registro algo atrasado, suficiente) no es grave', async () => {
+      expect(await severeOf({ serving: true }, { ...target, declaredSchema: '20261008213000_contact_inbox' })).toBe(false);
     });
   });
 

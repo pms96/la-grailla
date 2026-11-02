@@ -11,7 +11,8 @@ export type ConfirmationView =
   | 'checking' // anulado pero con un pago que se está comprobando
   | 'checking_gave_up' // se agotó el sondeo sin resolverse: se pide al comprador que escriba con su código
   | 'not_charged' // anulado y la pasarela confirma que NO se cobró (o nunca hubo pago)
-  | 'refunded'; // el cobro consta devuelto
+  | 'refunded' // el cobro consta devuelto
+  | 'event_cancelled'; // pagado, pero el evento se ha cancelado: las entradas ya no valen (H-227)
 
 export function confirmationView(input: {
   status: string;
@@ -19,8 +20,10 @@ export function confirmationView(input: {
   paymentCheck?: PaymentCheck | null;
   /** El cliente ya hizo todos los sondeos que iba a hacer. */
   pollsExhausted: boolean;
+  /** El evento del pedido está CANCELADO (solo entradas). */
+  eventCancelled?: boolean;
 }): ConfirmationView {
-  const { status, paymentId, paymentCheck, pollsExhausted } = input;
+  const { status, paymentId, paymentCheck, pollsExhausted, eventCancelled } = input;
   if (status === 'PENDING') return 'pending';
   if (status === 'REFUNDED') return 'refunded';
   if (status === 'CANCELLED') {
@@ -29,6 +32,7 @@ export function confirmationView(input: {
     if (paymentCheck === 'not_paid' || !paymentId) return 'not_charged';
     return pollsExhausted ? 'checking_gave_up' : 'checking';
   }
+  if (eventCancelled) return 'event_cancelled';
   return 'confirmed'; // COMPLETED / PAID / PROCESSING / SHIPPED / DELIVERED
 }
 

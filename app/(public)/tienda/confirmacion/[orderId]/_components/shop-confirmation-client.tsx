@@ -12,6 +12,7 @@ import type { FiscalView } from '@/lib/fiscal';
 import { cartMatchesOrderItems, clearUnconfirmedOrder, readCart, rememberUnconfirmedOrder, writeCart } from '@/lib/shop-cart';
 import { confirmationView, emailNotice, pendingNotice, shouldKeepPolling, type EmailDelivery, type PaymentCheck } from '@/lib/confirmation-state';
 import { orderRef } from '@/lib/order-ref';
+import { orderLoadOutcome } from '@/lib/order-load';
 import { REFUNDED_TITLE, refundedMessage } from '@/lib/refund-copy';
 
 export type ShopOrderView = {
@@ -62,17 +63,27 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
   const [resend, setResend] = useState<'idle' | 'sending' | 'queued' | 'error' | 'limited'>('idle');
   const tokenQs = accessToken ? `?t=${encodeURIComponent(accessToken)}` : '';
 
+  // H-220: un 429 o un 5xx transitorio no es «pedido no encontrado» (quien acaba de pagar creía haberlo perdido): se conserva el pedido ya cargado o se ofrece reintentar.
+  const [loadFailed, setLoadFailed] = useState(false);
+
   const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/shop/orders/${orderId}${tokenQs}`);
-      if (!res.ok) {
+      const outcome = orderLoadOutcome(res.status);
+      if (outcome === 'not_found') {
+        setLoadFailed(false);
         setOrder(null);
         return;
       }
+      if (outcome === 'transient') {
+        setLoadFailed(true);
+        return;
+      }
       const data = await res.json();
+      setLoadFailed(false);
       setOrder(data);
     } catch {
-      // keep previous
+      setLoadFailed(true); // sin red: se conserva el pedido anterior, si lo hay
     } finally {
       setLoading(false);
     }
@@ -151,6 +162,29 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
       <div className="flex flex-col items-center justify-center gap-3 py-20" role="status">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
         <p className="text-sm text-muted-foreground">Cargando pedido…</p>
+      </div>
+    );
+  }
+
+  if (!order && loadFailed) {
+    return (
+      <div className="text-center py-16 space-y-4 max-w-md mx-auto" role="alert">
+        <XCircle className="h-12 w-12 text-destructive-text mx-auto" />
+        <h1 className="font-display text-2xl font-bold">No hemos podido cargar tu pedido</h1>
+        <p className="text-sm text-muted-foreground">Fallo de conexión o del servidor. Reintenta: si ya pagaste, el cobro no se duplica y recibirás la confirmación por email.</p>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+          <Button
+            onClick={() => {
+              setLoading(true);
+              void load();
+            }}
+          >
+            Reintentar
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/tienda">Volver a la tienda</Link>
+          </Button>
+        </div>
       </div>
     );
   }

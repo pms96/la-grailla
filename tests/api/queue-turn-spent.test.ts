@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import { POST as createOrder } from '@/app/api/orders/route';
+import { GET as abandonOrder } from '@/app/api/orders/[orderId]/abandon/route';
 import { createTestEvent, createTicketType, cleanupTestEvent, getAndSetConfig, restoreConfig } from '../helpers/fixtures';
-import { gateway } from '../helpers/fake-gateway';
+import { gateway, state } from '../helpers/fake-gateway';
 
 vi.mock('@/lib/payment-adapter', async (orig) => {
   const actual = await orig<typeof import('@/lib/payment-adapter')>();
@@ -85,6 +86,16 @@ describe('turno de la sala de espera de un solo uso (H-035)', () => {
     expect((await post(t.token, 'turno-d@example.com', tt.id, event.id)).status).toBe(403);
   });
 
+  // H-230: la cola se puede activar DESPUÉS de que el comprador cargara /comprar (props viejas: sin cola). El 403 lleva un código para que el formulario recargue y entre en la sala.
+  it('H-230: sin turno (o con uno inválido) el 403 lleva `code: queue_required`', async () => {
+    const none = await post('', 'turno-n@example.com', tt.id, event.id);
+    expect(none.status).toBe(403);
+    expect((await none.json()).code).toBe('queue_required');
+    const bogus = await post('token-inventado', 'turno-n2@example.com', tt.id, event.id);
+    expect(bogus.status).toBe(403);
+    expect((await bogus.json()).code).toBe('queue_required');
+  });
+
   it('un turno caducado sigue sin servir', async () => {
     const t = await turn({ expiresInMs: -1000 });
     expect((await post(t.token, 'turno-e@example.com', tt.id, event.id)).status).toBe(403);
@@ -112,6 +123,53 @@ describe('turno de la sala de espera de un solo uso (H-035)', () => {
     expect(await status(t.id)).toBe('ADMITTED');
     gateway.failCreate = false;
     expect((await post(t.token, 'turno-g2@example.com', tt.id, event.id)).status).toBe(200);
+  });
+
+  // H-219: el turno se gasta (COMPLETED) al crear el pedido y solo se restauraba si fallaba la pasarela. Quien pulsa «volver» en la pasarela sin pagar perdía su sitio y le decían
+  // «ya completaste una compra». Ahora la `cancelUrl` lleva su turno y el abandono, si libera el pedido, se lo devuelve (mientras no haya caducado).
+  describe('H-219: «volver» desde la pasarela devuelve el turno', () => {
+    const buyWithGateway = async (email: string, t: { token: string }) => {
+      gateway.active = true;
+      const res = await post(t.token, email, tt.id, event.id);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      // La pasarela dice que la sesión sigue abierta y, al cerrarla, que expiró (como en el abandono real): el pedido se libera.
+      const { paymentId } = await prisma.order.findUniqueOrThrow({ where: { id: json.orderId }, select: { paymentId: true } });
+      gateway.script(paymentId!, state(paymentId!, 'PENDING'), state(paymentId!, 'EXPIRED'));
+      return { orderId: json.orderId as string, cancelUrl: gateway.sessions.at(-1)!.cancelUrl };
+    };
+    const goBack = (cancelUrl: string) => {
+      const url = new URL(cancelUrl);
+      const orderId = url.pathname.split('/')[3];
+      return abandonOrder(new Request(`http://localhost${url.pathname}${url.search}`, { headers: { 'x-forwarded-for': freshIp() } }), { params: Promise.resolve({ orderId }) });
+    };
+
+    it('sin pagar: el pedido se libera y el turno vuelve a ADMITTED', async () => {
+      const t = await turn();
+      const { cancelUrl } = await buyWithGateway('turno-i@example.com', t);
+      expect(await status(t.id)).toBe('COMPLETED');
+      const res = await goBack(cancelUrl);
+      expect(res.status).toBe(303);
+      expect(res.headers.get('location')).toMatch(/\/comprar$/); // el pedido se liberó: vuelve a la compra
+      expect(await status(t.id)).toBe('ADMITTED');
+    });
+
+    it('un turno ya caducado no se resucita', async () => {
+      const t = await turn({ expiresInMs: 600_000 });
+      const { cancelUrl } = await buyWithGateway('turno-j@example.com', t);
+      await prisma.waitingRoomEntry.update({ where: { id: t.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+      await goBack(cancelUrl);
+      expect(await status(t.id)).toBe('COMPLETED');
+    });
+
+    it('un turno de OTRO evento o un token inventado en `q` no restaura nada', async () => {
+      const t = await turn();
+      const { cancelUrl } = await buyWithGateway('turno-k@example.com', t);
+      const forged = new URL(cancelUrl);
+      forged.searchParams.set('q', 'token-que-no-existe');
+      await goBack(forged.toString());
+      expect(await status(t.id)).toBe('COMPLETED');
+    });
   });
 
   it('un turno que caduca mientras la compra espera el cerrojo del evento ya no sirve al reclamarlo (403)', async () => {

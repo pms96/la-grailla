@@ -76,10 +76,11 @@ export default function EntradasPage() {
       const method = editing ? 'PUT' : 'POST';
       const payload = editing ? form : { ...form, eventId: selectedEvent };
       const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      const data = await res.json();
-      if (data?.error) toast.error(data.error);
+      const data = await res.json().catch(() => ({}));
+      // H-222: se decidía solo por `data.error`: una respuesta de error sin ese campo (un 500 con otro cuerpo) caía en «Creado».
+      if (!res.ok || data?.error) toast.error(data?.error ?? 'No se pudo guardar el tipo de entrada');
       else { toast.success(editing ? 'Actualizado' : 'Creado'); setDialogOpen(false); fetchEvents(); }
-    } catch { toast.error('Error'); }
+    } catch (e) { toast.error(userMessage(e, 'No se pudo guardar el tipo de entrada')); }
     finally { setSaving(false); }
   };
 

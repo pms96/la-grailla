@@ -14,7 +14,8 @@ import { Switch } from '@/components/ui/switch';
 import { Plus, Pencil, Trash2, Loader2, Calendar, Hourglass, ShoppingCart, Archive, ArchiveRestore, ShieldCheck, MonitorOff, Ban } from 'lucide-react';
 import { toast } from 'sonner';
 import { userMessage } from '@/lib/error-text';
-import { responseError } from '@/lib/admin-fetch';
+import { fetchAdminJson, responseError } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 import { PageHeader } from '@/components/layouts/page-header';
 import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
 import { ConfirmDeleteDialog } from '@/app/admin/_components/confirm-delete-dialog';
@@ -80,12 +81,17 @@ export default function EventsManager() {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<EventWithCount | null>(null);
 
+  // H-221: antes se pintaba el cuerpo sin mirar el estado: ante un 401, 423 o 500 el cuerpo es `{ error }` (un objeto) y el `.map` del render lanzaba, con lo que la
+  // pantalla caía al error boundary en lugar de enseñar el aviso con «Reintentar».
+  const [loadError, setLoadError] = useState<string | null>(null);
   const fetchEvents = (verArchivadosParam?: boolean) => {
     const params = (verArchivadosParam ?? verArchivados) ? '?incluirArchivados=1' : '';
-    fetch(`/api/admin/events${params}`)
-      .then((r) => r.json())
-      .then((d) => setEvents(d ?? []))
-      .catch(() => {})
+    fetchAdminJson<EventWithCount[]>(`/api/admin/events${params}`, 'No se pudieron cargar los eventos')
+      .then((d) => {
+        setEvents(Array.isArray(d) ? d : []);
+        setLoadError(null);
+      })
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar los eventos')))
       .finally(() => setLoading(false));
   };
 
@@ -171,15 +177,16 @@ export default function EventsManager() {
         toast.info('Este evento ya tiene pedidos: cancélalo desde aquí para reembolsar y avisar a los compradores.');
         setDialogOpen(false);
         setCancelTarget({ id: editingEvent.id, name: editingEvent.name, status: editingEvent.status });
-      } else if (data?.error) {
-        toast.error(data.error);
+      } else if (!res.ok || data?.error) {
+        // H-222: antes solo se miraba `data.error`: una respuesta de error sin ese campo (un 500 con otro cuerpo) caía en «Evento creado».
+        toast.error(data?.error ?? 'No se pudo guardar el evento');
       } else {
         toast.success(editingEvent ? 'Evento actualizado' : 'Evento creado');
         setDialogOpen(false);
         fetchEvents();
       }
-    } catch {
-      toast.error('Error');
+    } catch (e) {
+      toast.error(userMessage(e, 'No se pudo guardar el evento'));
     } finally {
       setSaving(false);
     }
@@ -205,26 +212,36 @@ export default function EventsManager() {
 
   // Archivar es reversible y de bajo riesgo (Fase 4) — deshacer con un toast
   // en vez de pedir confirmación con un confirm().
-  const setArchivado = async (id: string, archivado: boolean) => {
-    const res = await fetch(`/api/admin/events/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ archivado }),
-    });
-    if (!res.ok) { toast.error('No se pudo actualizar el evento'); return; }
+  // H-222: devuelve si se hizo de verdad; archivar/restaurar solo anuncian el éxito cuando lo fue (antes salían los dos avisos, el de éxito y el de error).
+  const setArchivado = async (id: string, archivado: boolean): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/admin/events/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archivado }),
+      });
+      if (!res.ok) {
+        toast.error(await responseError(res, 'No se pudo actualizar el evento'));
+        return false;
+      }
+    } catch (e) {
+      toast.error(userMessage(e, 'No se pudo actualizar el evento'));
+      return false;
+    }
     fetchEvents();
+    return true;
   };
 
-  const handleArchive = (event: EventWithCount) => {
-    setArchivado(event.id, true);
+  const handleArchive = async (event: EventWithCount) => {
+    if (!(await setArchivado(event.id, true))) return;
     toast.success(`"${event.name}" archivado`, {
       duration: 5000,
-      action: { label: 'Deshacer', onClick: () => setArchivado(event.id, false) },
+      action: { label: 'Deshacer', onClick: () => void setArchivado(event.id, false) },
     });
   };
 
-  const handleRestore = (event: EventWithCount) => {
-    setArchivado(event.id, false);
+  const handleRestore = async (event: EventWithCount) => {
+    if (!(await setArchivado(event.id, false))) return;
     toast.success(`"${event.name}" restaurado`);
   };
 
@@ -503,6 +520,8 @@ export default function EventsManager() {
           </Dialog>
         </div>
       </div>
+
+      {loadError && <LoadError title="No se han podido cargar los eventos." message={loadError} onRetry={() => { setLoadError(null); setLoading(true); fetchEvents(); }} />}
 
       <div className="space-y-3">
         {(events ?? []).map((event) => {

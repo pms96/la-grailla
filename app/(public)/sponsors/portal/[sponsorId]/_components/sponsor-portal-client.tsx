@@ -169,7 +169,8 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
   const [freeText, setFreeText] = useState('');
   const [tiers, setTiers] = useState<SponsorTier[]>([]);
   const [paymentPendingMessage, setPaymentPendingMessage] = useState('');
-  const [datosForm, setDatosForm] = useState({ companyName: '', contactName: '', email: '', phone: '', website: '', message: '' });
+  // Sin `website`: el portal no edita la web (H-216), así que tampoco la reenvía.
+  const [datosForm, setDatosForm] = useState({ companyName: '', contactName: '', email: '', phone: '', message: '' });
   const [datosConsent, setDatosConsent] = useState(false);
   const [editingDatos, setEditingDatos] = useState(false);
   const [savingDatos, setSavingDatos] = useState(false);
@@ -203,7 +204,6 @@ export default function SponsorPortalClient({ sponsorId, accessToken }: { sponso
           contactName: data?.sponsorRequest?.contactName ?? '',
           email: data?.sponsorRequest?.email ?? '',
           phone: data?.sponsorRequest?.phone ?? '',
-          website: data?.sponsorRequest?.website ?? '',
           message: data?.sponsorRequest?.message ?? '',
         });
         if (!hasInitialized) {

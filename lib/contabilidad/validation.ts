@@ -33,3 +33,9 @@ export const importeSchema = z.preprocess(blankToNaN, z.coerce.number().finite()
 
 /** Tipo de IVA en %: de 0 a 100. */
 export const ivaPercentSchema = z.preprocess(blankToNaN, z.coerce.number().finite().min(0).max(100));
+
+/** Precio de un artículo de Compras (H-233): como `importeSchema` pero sin negativos (un precio no es un abono). Vacío o nulo no es 0. */
+export const precioSchema = z.preprocess(blankToNaN, z.coerce.number().finite().min(0).max(MAX_IMPORTE));
+
+/** Cantidad planificada de Compras (H-233): finita, de 0 a un millón de unidades; vacío o nulo no es 0. */
+export const cantidadSchema = z.preprocess(blankToNaN, z.coerce.number().finite().min(0).max(1_000_000));

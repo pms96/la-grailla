@@ -21,6 +21,9 @@ export default function robots(): MetadataRoute.Robots {
           '/auth/',
           '/api/',
           '/confirmacion/',
+          // H-244: la página transaccional de compra (arranca la cola al renderizar) y el portal privado del sponsor.
+          '/eventos/*/comprar',
+          '/sponsors/portal/',
           '/tienda/checkout',
           '/tienda/confirmacion/',
         ],

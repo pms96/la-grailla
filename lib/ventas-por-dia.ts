@@ -111,6 +111,14 @@ export function addDays(day: string, days: number): string {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
+/**
+ * Instante en que empieza el rango «hoy y los `days - 1` anteriores» (H-246): la jornada de negocio de Madrid (con su hora de corte) en la que cae `now`, retrocediendo `days - 1` jornadas.
+ * Es el mismo cálculo que agrupa las ventas por día, así el filtro de «Hoy / 7 / 30 días» y «ventas por día» nunca discrepan; antes el navegador calculaba su propia medianoche.
+ */
+export function rangeStartForDays(days: number, now: Date, cutoffHour = 0): Date {
+  return businessDayStart(addDays(businessDayKey(now, cutoffHour), -(Math.max(1, Math.floor(days)) - 1)), cutoffHour);
+}
+
 function emptyDia(fecha: string): VentasDia {
   return {
     fecha,

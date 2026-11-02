@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import { POST as createOrder } from '@/app/api/orders/route';
 import { createTestEvent, createTicketType, cleanupTestEvent, getAndSetConfig, restoreConfig } from '../helpers/fixtures';
@@ -267,6 +267,96 @@ describe('POST /api/orders', () => {
 
     const orders = await prisma.order.count({ where: { idempotencyKey } });
     expect(orders).toBe(1);
+  });
+
+  // H-214: el comprador va a la pasarela, vuelve atrás (la clave del navegador sigue viva), cambia la selección y paga de nuevo: el servidor devolvía el pedido ANTIGUO
+  // «sin comprobar más campos» y se pagaba lo que ya no quería. Ahora una clave reutilizada con otra selección es un 409 y no toca nada.
+  it('H-214: la misma idempotencyKey con OTRA selección (cantidad, tipo o email) da 409 y no devuelve el pedido antiguo', async () => {
+    const ticketType = await createTicketType(event.id, { maxQuantity: 8 });
+    const idempotencyKey = `idem-cambio-${Date.now()}`;
+    const base = { eventId: event.id, buyerName: 'Ana', buyerLastName: 'García', buyerEmail: 'ana-cambio@example.com', idempotencyKey };
+
+    const first = await createOrder(orderRequest({ ...base, items: [{ ticketTypeId: ticketType.id, quantity: 2 }] }, '203.0.113.30'));
+    const firstJson = await first.json();
+    expect(first.status).toBe(200);
+
+    const masCantidad = await createOrder(orderRequest({ ...base, items: [{ ticketTypeId: ticketType.id, quantity: 4 }] }, '203.0.113.30'));
+    expect(masCantidad.status).toBe(409);
+    const masCantidadJson = await masCantidad.json();
+    expect(masCantidadJson.code).toBe('idempotency_mismatch');
+    expect(masCantidadJson.orderId).toBeUndefined();
+    expect(masCantidadJson.checkoutUrl).toBeUndefined();
+
+    const otroEmail = await createOrder(orderRequest({ ...base, buyerEmail: 'otra-persona@example.com', items: [{ ticketTypeId: ticketType.id, quantity: 2 }] }, '203.0.113.30'));
+    expect(otroEmail.status).toBe(409);
+
+    // El pedido original sigue intacto y no se creó ninguno nuevo.
+    expect(await prisma.order.count({ where: { idempotencyKey } })).toBe(1);
+    expect((await prisma.ticketType.findUnique({ where: { id: ticketType.id } }))?.soldCount).toBe(2);
+
+    // El mismo intento exacto (reintento de red) sigue reconociéndose.
+    const mismo = await createOrder(orderRequest({ ...base, items: [{ ticketTypeId: ticketType.id, quantity: 2 }] }, '203.0.113.30'));
+    expect(mismo.status).toBe(200);
+    expect((await mismo.json()).orderId).toBe(firstJson.orderId);
+  });
+
+  // H-215: tras 20 min en la sala de espera, la pantalla pintaba el precio de cuando cargó. Ahora manda el total que ve y, si el servidor (con los precios frescos y el cerrojo
+  // tomado) saca otro, responde 409 con las cifras nuevas y NO crea pedido ni toca el stock. Igual que en la tienda (H-132).
+  describe('H-215: el total que se cobra es el que se vio', () => {
+    it('con el total esperado correcto crea el pedido; sin total esperado (cliente antiguo) cobra el precio vigente', async () => {
+      const ticketType = await createTicketType(event.id, { maxQuantity: 8, price: 10 });
+      const ok = await createOrder(orderRequest({ eventId: event.id, buyerName: 'Ana', buyerLastName: 'García', buyerEmail: 'ana-total@example.com', items: [{ ticketTypeId: ticketType.id, quantity: 2 }], expectedTotalCents: 2000 }, '203.0.113.40'));
+      expect(ok.status).toBe(200);
+      const sin = await createOrder(orderRequest({ eventId: event.id, buyerName: 'Ana', buyerLastName: 'García', buyerEmail: 'ana-total2@example.com', items: [{ ticketTypeId: ticketType.id, quantity: 1 }] }, '203.0.113.40'));
+      expect(sin.status).toBe(200);
+    });
+
+    it('si el precio cambió entre medias: 409 `price_changed` con el total y los precios nuevos, sin pedido y sin tocar el stock', async () => {
+      const ticketType = await createTicketType(event.id, { maxQuantity: 8, price: 10 });
+      await prisma.ticketType.update({ where: { id: ticketType.id }, data: { price: 12 } });
+      const res = await createOrder(orderRequest({ eventId: event.id, buyerName: 'Ana', buyerLastName: 'García', buyerEmail: 'ana-sube@example.com', items: [{ ticketTypeId: ticketType.id, quantity: 2 }], expectedTotalCents: 2000 }, '203.0.113.41'));
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data.code).toBe('price_changed');
+      expect(data.totalAmount).toBe(24);
+      expect(data.error).toContain('24,00');
+      expect(data.orderId).toBeUndefined();
+      expect(await prisma.order.count({ where: { buyerEmail: 'ana-sube@example.com' } })).toBe(0);
+      expect((await prisma.ticketType.findUnique({ where: { id: ticketType.id } }))?.soldCount).toBe(0);
+    });
+
+    it('también si bajó: el comprador ve la cifra nueva antes de pagar', async () => {
+      const ticketType = await createTicketType(event.id, { maxQuantity: 8, price: 10 });
+      await prisma.ticketType.update({ where: { id: ticketType.id }, data: { price: 8 } });
+      const res = await createOrder(orderRequest({ eventId: event.id, buyerName: 'Ana', buyerLastName: 'García', buyerEmail: 'ana-baja@example.com', items: [{ ticketTypeId: ticketType.id, quantity: 2 }], expectedTotalCents: 2000 }, '203.0.113.42'));
+      expect(res.status).toBe(409);
+      expect((await res.json()).totalAmount).toBe(16);
+    });
+
+    it('un total esperado negativo o no entero es una petición mal formada (400)', async () => {
+      const ticketType = await createTicketType(event.id, { maxQuantity: 8, price: 10 });
+      for (const bad of [-1, 20.5]) {
+        const res = await createOrder(orderRequest({ eventId: event.id, buyerName: 'Ana', buyerLastName: 'García', buyerEmail: 'ana-mal@example.com', items: [{ ticketTypeId: ticketType.id, quantity: 1 }], expectedTotalCents: bad }, '203.0.113.43'));
+        expect(res.status).toBe(400);
+      }
+    });
+  });
+
+  // H-232: `getConfig` traga el error de BD y devolvía el defecto '0': un fallo puntual de lectura creaba el pedido con comisión 0 en vez de fallar (ingreso perdido en silencio).
+  it('H-232: si falla la lectura de la comisión, NO se crea el pedido con comisión 0', async () => {
+    const ticketType = await createTicketType(event.id, { maxQuantity: 8, price: 10 });
+    const real = prisma.appConfig.findUnique.bind(prisma.appConfig) as (args: { where: { key: string } }) => Promise<unknown>;
+    const spy = vi.spyOn(prisma.appConfig, 'findUnique').mockImplementation(((args: { where: { key: string } }) => {
+      if (args.where.key === 'commission_percentage') return Promise.reject(new Error('Connection terminated unexpectedly'));
+      return real(args);
+    }) as never);
+    try {
+      const res = await createOrder(orderRequest({ eventId: event.id, buyerName: 'Ana', buyerLastName: 'García', buyerEmail: 'ana-comision@example.com', items: [{ ticketTypeId: ticketType.id, quantity: 1 }] }, '203.0.113.44'));
+      expect(res.status).toBeGreaterThanOrEqual(500);
+      expect(await prisma.order.count({ where: { buyerEmail: 'ana-comision@example.com' } })).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('libera la idempotencyKey si el pedido se cancela, permitiendo un reintento real', async () => {

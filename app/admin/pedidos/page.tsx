@@ -13,6 +13,8 @@ import { PageHeader } from '@/components/layouts/page-header';
 import { downloadShopOrdersCsv } from '@/lib/admin-export';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 
 const statusLabels: Record<string, string> = {
   PENDING: 'Pendiente', PAID: 'Pagado', PROCESSING: 'Procesando',
@@ -53,6 +55,7 @@ function emailLine(d: NonNullable<EmailDelivery>): string {
 export default function PedidosPage() {
   const [orders, setOrders] = useState<ShopOrderWithItems[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null); // H-222
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<string>('all');
   const [exporting, setExporting] = useState(false);
@@ -74,10 +77,13 @@ export default function PedidosPage() {
     const params = new URLSearchParams();
     if (q.trim()) params.set('q', q.trim());
     if (status !== 'all') params.set('status', status);
-    fetch(`/api/admin/shop-orders?${params.toString()}`)
-      .then((r) => r.json())
-      .then((d) => setOrders(d ?? []))
-      .catch(() => {})
+    // H-222: un 401, 423 o 500 devolvía `{ error }` y `{error}.length` es undefined: la pantalla decía «No hay pedidos aún».
+    fetchAdminJson<ShopOrderWithItems[]>(`/api/admin/shop-orders?${params.toString()}`, 'No se pudieron cargar los pedidos')
+      .then((d) => {
+        setOrders(Array.isArray(d) ? d : []);
+        setLoadError(null);
+      })
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar los pedidos')))
       .finally(() => setLoading(false));
   }, [q, status]);
 
@@ -157,6 +163,7 @@ export default function PedidosPage() {
 
   return (
     <div className="space-y-6">
+      {loadError && <LoadError title="No se han podido cargar los pedidos." message={loadError} onRetry={() => { setLoadError(null); setLoading(true); fetchOrders(); }} />}
       <div className="flex items-center justify-between gap-3">
         <PageHeader title="Pedidos de Tienda" description="Gestiona los pedidos de merchandising" />
         <Button variant="outline" size="sm" className="gap-2 shrink-0" disabled={exporting} onClick={handleExport}>

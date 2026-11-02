@@ -13,6 +13,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Badge } from '@/components/ui/badge';
 import { Plus, Pencil, Trash2, Loader2, Users, KeyRound, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
+import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 import { PageHeader } from '@/components/layouts/page-header';
 import { RolesDialog, type CustomRole, type PresetRole } from './_components/roles-dialog';
 
@@ -46,18 +49,21 @@ export default function UsuariosPage() {
   const [rolesOpen, setRolesOpen] = useState(false);
   const [roleData, setRoleData] = useState<{ presets: PresetRole[]; custom: CustomRole[] }>({ presets: [], custom: [] });
 
+  // H-222: un error HTTP pintaba «sin usuarios» (y los roles como «Rol borrado») en lugar de avisar.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const fetchUsers = () => {
-    fetch('/api/admin/users')
-      .then((r) => r.json())
-      .then((d) => setUsers(Array.isArray(d) ? d : []))
-      .catch(() => {})
+    fetchAdminJson<User[]>('/api/admin/users', 'No se pudieron cargar los usuarios')
+      .then((d) => {
+        setUsers(Array.isArray(d) ? d : []);
+        setLoadError(null);
+      })
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar los usuarios')))
       .finally(() => setLoading(false));
   };
   const fetchRoles = () => {
-    fetch('/api/admin/roles')
-      .then((r) => r.json())
+    fetchAdminJson<{ presets?: PresetRole[]; custom?: CustomRole[] }>('/api/admin/roles', 'No se pudieron cargar los roles')
       .then((d) => setRoleData({ presets: d?.presets ?? [], custom: d?.custom ?? [] }))
-      .catch(() => {});
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar los roles')));
   };
 
   useEffect(() => { fetchUsers(); fetchRoles(); }, []);
@@ -141,6 +147,7 @@ export default function UsuariosPage() {
 
   return (
     <div className="space-y-6">
+      {loadError && <LoadError title="No se han podido cargar los usuarios." message={loadError} onRetry={() => { setLoadError(null); setLoading(true); fetchUsers(); fetchRoles(); }} />}
       <div className="flex items-center justify-between">
         <PageHeader title="Usuarios" description="Gestiona roles y accesos" />
         <div className="flex items-center gap-2">

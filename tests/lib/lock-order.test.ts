@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { sortedByKey } from '@/lib/lock-order';
 import type { PrismaTransactionClient } from '@/lib/prisma';
-import { releaseShopStock, reserveShopStock } from '@/lib/product-stock';
+import { releaseShopStock, reserveShopStock, syncProductVariants } from '@/lib/product-stock';
 
 /* H-181 (fase 5): `reserveShopStock` y `releaseShopStock` recorrían las líneas en el orden de la petición y cada `updateMany` bloquea una fila de `ProductVariant` hasta
  * el final de la transacción: dos pedidos con las mismas variantes en orden inverso (A,B y B,A) se interbloquean y Postgres aborta uno con 40P01 (un 500 en pleno
@@ -58,6 +58,41 @@ describe('H-181: reserva y liberación de stock bloquean las variantes en un ord
     touched.length = 0;
     await releaseShopStock(fakeTx, [...lines].reverse());
     expect(touched).toEqual(expected);
+  });
+});
+
+/* H-243: el editor de producto también escribe filas de `ProductVariant` (borra y actualiza stock) en una transacción; si lo hacía en el orden del CSV de tallas, un guardado a
+ * la vez que un carrito con las mismas variantes (que las toma ordenadas) podía interbloquearse. Mismo orden que la reserva: por (talla, color). */
+describe('H-243: syncProductVariants escribe las variantes en orden fijo', () => {
+  it('borra y actualiza ordenado por talla y color, venga el CSV como venga', async () => {
+    const writes: string[] = [];
+    const existing = [
+      { id: 'vS', productId: 'p', size: 'S', color: '', stock: 1 },
+      { id: 'vZ', productId: 'p', size: 'Z', color: '', stock: 1 },
+      { id: 'vL', productId: 'p', size: 'L', color: '', stock: 1 },
+      { id: 'vA', productId: 'p', size: 'A', color: '', stock: 1 },
+      { id: 'vM', productId: 'p', size: 'M', color: '', stock: 1 },
+    ];
+    const tx = {
+      productVariant: {
+        findMany: async () => existing,
+        delete: async (args: { where: { id: string } }) => void writes.push(`del:${args.where.id}`),
+        update: async (args: { where: { id: string } }) => void writes.push(`upd:${args.where.id}`),
+        updateMany: async (args: { where: { id: string } }) => {
+          writes.push(`upd:${args.where.id}`);
+          return { count: 1 };
+        },
+        create: async () => undefined,
+      },
+      product: { findUnique: async () => ({ name: 'P' }) },
+    } as unknown as PrismaTransactionClient;
+
+    await syncProductVariants(tx, 'p', 'S,M,L', '', [
+      { size: 'S', color: '', stock: 5 },
+      { size: 'M', color: '', stock: 5 },
+      { size: 'L', color: '', stock: 5 },
+    ]);
+    expect(writes).toEqual(['del:vA', 'del:vZ', 'upd:vL', 'upd:vM', 'upd:vS']);
   });
 });
 

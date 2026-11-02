@@ -142,7 +142,11 @@ export function fakeProvider(): PaymentProvider {
       try {
         if (gateway.refundDelayMs > 0) await new Promise((r) => setTimeout(r, gateway.refundDelayMs));
         if (gateway.refundResult instanceof Error) throw gateway.refundResult;
-        if (gateway.refundResult.success) gateway.refunded.add(paymentId);
+        if (gateway.refundResult.success) {
+          gateway.refunded.add(paymentId);
+          // H-248: lo devuelto con una devolución parcial previa se acumula (como Stripe): un segundo reembolso por más de lo que queda falla, y los tests pueden detectar un doble reembolso.
+          if (part) part.refunded = amount === undefined ? part.charged : Math.min(part.charged, part.refunded + amount);
+        }
         return gateway.refundResult;
       } finally {
         gateway.inFlight.delete(key);

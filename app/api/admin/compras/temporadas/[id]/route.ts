@@ -10,14 +10,16 @@ import { handleApiError } from '@/lib/api-error';
 import { isOwnerAdmin } from '@/lib/access-roles';
 import { parseMotivo, temporadaCerrada } from '@/lib/contabilidad/control';
 import { actorFromSession, diffFields, recordAdminAudit } from '@/lib/admin-audit';
+import { fechaDiaSchema, parseFechaDia } from '@/lib/contabilidad/validation';
 
 const TEMPORADA_AUDIT_FIELDS = ['nombre', 'anio', 'fechaInicio', 'fechaFin', 'status', 'notas', 'archivado'] as const;
 
 const updateTemporadaSchema = z.object({
   nombre: z.string().min(1).optional(),
   anio: z.coerce.number().int().optional(),
-  fechaInicio: z.string().optional().nullable(),
-  fechaFin: z.string().optional().nullable(),
+  // H-246: días contables (`YYYY-MM-DD`) validados como en gastos e ingresos (antes `new Date(texto)` sin mirar: «abc» daba un 500).
+  fechaInicio: z.union([z.literal(''), fechaDiaSchema]).optional().nullable(),
+  fechaFin: z.union([z.literal(''), fechaDiaSchema]).optional().nullable(),
   status: z.enum(['ABIERTA', 'CERRADA']).optional(),
   notas: z.string().optional().nullable(),
   archivado: z.boolean().optional(),
@@ -71,8 +73,8 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     }
     if (body.nombre !== undefined) data.nombre = body.nombre;
     if (body.anio !== undefined) data.anio = body.anio;
-    if (body.fechaInicio !== undefined) data.fechaInicio = body.fechaInicio ? new Date(body.fechaInicio) : null;
-    if (body.fechaFin !== undefined) data.fechaFin = body.fechaFin ? new Date(body.fechaFin) : null;
+    if (body.fechaInicio !== undefined) data.fechaInicio = body.fechaInicio ? parseFechaDia(body.fechaInicio) : null;
+    if (body.fechaFin !== undefined) data.fechaFin = body.fechaFin ? parseFechaDia(body.fechaFin) : null;
     if (body.status !== undefined) data.status = body.status;
     if (body.notas !== undefined) data.notas = body.notas || null;
     if (body.archivado !== undefined) data.archivado = body.archivado;

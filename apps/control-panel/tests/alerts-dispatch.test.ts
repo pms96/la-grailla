@@ -248,6 +248,21 @@ describe('un fallo técnico grave de la web no se queda en un solo warning (H-17
     expect(alerts.map((a) => a.severity)).toEqual(['critical']);
   });
 
+  // H-226: con `severe` el primer sondeo malo no avisa (el crítico llega al 2.º). Si el cliente se recuperaba tras UN solo fallo, salía «la web vuelve a estar sana» de un incidente que nunca
+  // se avisó. «Recuperado» solo si hubo aviso: o el crítico del umbral (lo da la tarea) o el warning de un problema NO grave (estado previo sin fallos de tarea).
+  for (const [name, probe] of [['la BD no responde', DB_DOWN], ['la BD es de otro cliente', WRONG_DB]] as const) {
+    it(`${name}: un solo mal sondeo y vuelta a la normalidad NO manda ningún «recuperado» (nunca hubo aviso)`, async () => {
+      await publishedTenant('Cliente Parpadeo');
+      const c = clock();
+      for (const p of [HEALTHY, probe, HEALTHY, HEALTHY]) {
+        vi.mocked(probeTenantHealth).mockResolvedValue(p);
+        await dispatchTenantJobs({ jobs: ['health'], notify: spy, now: c.now });
+        c.next();
+      }
+      expect(alerts).toHaveLength(0);
+    });
+  }
+
   it('un problema NO grave (datos sin completar) sigue siendo un warning único en el cambio, no un fallo de la tarea', async () => {
     await publishedTenant('Cliente Leve');
     const c = clock();

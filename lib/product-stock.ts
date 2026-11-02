@@ -77,13 +77,15 @@ export async function syncProductVariants(
   const existing = await tx.productVariant.findMany({ where: { productId } });
   const keep = new Set(keys.map((k) => `${k.size}|${k.color}`));
 
-  for (const v of existing) {
+  // H-243: en el mismo orden que la reserva (talla, color): cada escritura bloquea su fila y un carrito que toma las mismas variantes a la vez no debe poder cruzarse con este guardado.
+  const partsKey = (v: { size: string | null; color: string | null }) => `${normalizeVariantPart(v.size)}\u0000${normalizeVariantPart(v.color)}`;
+  for (const v of sortedByKey(existing, partsKey)) {
     if (!keep.has(`${v.size}|${v.color}`)) {
       await tx.productVariant.delete({ where: { id: v.id } });
     }
   }
 
-  for (const key of keys) {
+  for (const key of sortedByKey(keys, partsKey)) {
     const mapKey = `${key.size}|${key.color}`;
     const current = existing.find((v) => v.size === key.size && v.color === key.color);
     const nextStock = stockMap.has(mapKey) ? stockMap.get(mapKey)! : (current?.stock ?? 0);

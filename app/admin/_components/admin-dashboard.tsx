@@ -13,6 +13,7 @@ import { CapacityBar } from '@/components/admin/capacity-bar';
 import { isEventTonight } from '@/lib/active-event';
 import { useBrand } from '@/components/brand-provider';
 import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson } from '@/lib/admin-fetch';
 
 type DashboardEvent = Pick<Event, 'id' | 'name' | 'maxCapacity' | 'currentCount' | 'date' | 'endTime' | 'status'> & {
   soldCount: number;
@@ -71,14 +72,14 @@ export default function AdminDashboard({ accounting = false }: { accounting?: bo
 
   useEffect(() => {
     if (!accounting) return;
-    fetch('/api/admin/compras/temporadas')
-      .then((r) => r.json())
-      .then((temporadas: { id: string; nombre: string; status: string }[]) => {
+    // H-222: ante un error HTTP el resumen era `{ error }` y el widget pintaba un margen de 0 €: ahora, sin datos válidos, no se pinta el widget (es un extra del panel).
+    fetchAdminJson<{ id: string; nombre: string; status: string }[]>('/api/admin/compras/temporadas', 'No se pudieron cargar las temporadas')
+      .then((temporadas) => {
         const activa = (Array.isArray(temporadas) ? temporadas : []).find((t) => t.status === 'ABIERTA');
         if (!activa) return;
-        return fetch(`/api/admin/gastos/resumen?temporadaId=${activa.id}`)
-          .then((r) => r.json())
-          .then((resumen) => setMargenTemporada({ nombre: activa.nombre, margen: resumen?.margen ?? 0, nEventosEnlazados: resumen?.nEventosEnlazados ?? 0 }));
+        return fetchAdminJson<{ margen?: number; nEventosEnlazados?: number }>(`/api/admin/gastos/resumen?temporadaId=${activa.id}`, 'No se pudo cargar el resumen').then((resumen) =>
+          setMargenTemporada({ nombre: activa.nombre, margen: resumen?.margen ?? 0, nEventosEnlazados: resumen?.nEventosEnlazados ?? 0 })
+        );
       })
       .catch(() => {});
   }, [accounting]);

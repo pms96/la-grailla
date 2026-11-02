@@ -7,6 +7,9 @@ import { useBrand } from '@/components/brand-provider';
 import { descripcionContabilidad } from '@/lib/compras/constantes';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Loader2 } from 'lucide-react';
+import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 import { EventosEnlazados } from '@/app/admin/compras/_components/eventos-enlazados';
 import { TabProveedores } from '@/app/admin/compras/_components/tab-proveedores';
@@ -21,19 +24,21 @@ export default function ComprasPage() {
   const [incluirArchivadas, setIncluirArchivadas] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // H-222: un 401, 423 o 500 devolvía `{ error }` y la pantalla decía «Crea una temporada…» como si no hubiera ninguna.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const fetchTemporadas = useCallback((preferId?: string, incluirArchivadasParam?: boolean) => {
     const params = (incluirArchivadasParam ?? incluirArchivadas) ? '?incluirArchivados=1' : '';
-    fetch(`/api/admin/compras/temporadas${params}`)
-      .then((r) => r.json())
-      .then((d: Temporada[]) => {
+    fetchAdminJson<Temporada[]>(`/api/admin/compras/temporadas${params}`, 'No se pudieron cargar las temporadas')
+      .then((d) => {
         const list = Array.isArray(d) ? d : [];
         setTemporadas(list);
+        setLoadError(null);
         setTemporadaId((prev) => {
           const prevSigueDisponible = prev && list.some((t) => t.id === prev);
           return preferId ?? (prevSigueDisponible ? prev : list[0]?.id ?? null);
         });
       })
-      .catch(() => {})
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar las temporadas')))
       .finally(() => setLoading(false));
   }, [incluirArchivadas]);
 
@@ -43,6 +48,11 @@ export default function ComprasPage() {
 
   if (loading) {
     return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  }
+
+  // H-222: sin temporadas por un error de carga no se enseña «Crea una temporada…».
+  if (loadError && temporadas.length === 0) {
+    return <LoadError title="No se han podido cargar las temporadas." message={loadError} onRetry={() => { setLoadError(null); setLoading(true); fetchTemporadas(); }} />;
   }
 
   return (

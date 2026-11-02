@@ -29,7 +29,10 @@ import { FiscalFootnote } from '@/components/fiscal-footnote';
 import type { FiscalView } from '@/lib/fiscal';
 import { confirmationView, emailNotice, shouldKeepPolling, type EmailDelivery, type PaymentCheck } from '@/lib/confirmation-state';
 import { orderRef } from '@/lib/order-ref';
+import { orderLoadOutcome } from '@/lib/order-load';
+import { clearUnconfirmedTicketOrder, rememberUnconfirmedTicketOrder } from '@/lib/unconfirmed-ticket-order';
 import { REFUNDED_TITLE, refundedMessage } from '@/lib/refund-copy';
+import { EVENT_CANCELLED_ORDER_NOTICE, EVENT_CANCELLED_TITLE } from '@/lib/event-cancelled-copy';
 
 type OrderWithTickets = Prisma.OrderGetPayload<{
   include: { event: true; tickets: { include: { ticketType: true } } };
@@ -71,27 +74,41 @@ export default function ConfirmationClient({
   const validOrder = order && !('error' in order) ? order : null;
   // Qué debe decir la pantalla (decisión pura, compartida con la tienda): «no se ha cobrado nada» solo si la pasarela lo confirma.
   const view = validOrder
-    ? confirmationView({ status: validOrder.status, paymentId: validOrder.paymentId, paymentCheck: validOrder.paymentCheck, pollsExhausted: pollCount >= MAX_POLLS })
+    ? confirmationView({ status: validOrder.status, paymentId: validOrder.paymentId, paymentCheck: validOrder.paymentCheck, pollsExhausted: pollCount >= MAX_POLLS, eventCancelled: validOrder.event?.status === 'CANCELLED' })
     : null;
   const isPending = view === 'pending';
   const isCheckingPayment = view === 'checking' || view === 'checking_gave_up';
   const isCancelled = view === 'not_charged';
   const isRefunded = view === 'refunded';
+  const isEventCancelled = view === 'event_cancelled'; // H-227
   const tokenQs = accessToken ? `?t=${encodeURIComponent(accessToken)}` : '';
+
+  // H-229: mientras el pedido no conste pagado se recuerda en el navegador (el formulario de compra avisa si el comprador vuelve a empezar); al constar, o si ya no es un pedido vivo, se olvida.
+  const loadedId = validOrder?.id;
+  const loadedStatus = validOrder?.status;
+  const loadedEventId = validOrder?.eventId;
+  useEffect(() => {
+    if (!loadedId) return;
+    if (loadedStatus === 'PENDING') rememberUnconfirmedTicketOrder(loadedId, accessToken || undefined, loadedEventId);
+    else clearUnconfirmedTicketOrder();
+  }, [loadedId, loadedStatus, loadedEventId, accessToken]);
 
   const fetchOrder = () => {
     if (!orderId) return;
     setFetchFailed(false);
+    // H-220: un fallo transitorio (429, 5xx, sin red) NO sustituye una confirmación ya cargada por el error: el pedido que se ve se conserva y el aviso solo sale si no hay ninguno.
+    // «No encontrado» es solo un 4xx de «no existe o no es tuyo».
     fetch(`/api/orders/${orderId}${tokenQs}`)
       .then(async (r) => {
-        if (!r.ok) throw new Error('order_failed');
-        return r.json();
+        const outcome = orderLoadOutcome(r.status);
+        if (outcome === 'not_found') {
+          setOrder(null);
+          return;
+        }
+        if (outcome === 'transient') throw new Error('order_failed');
+        setOrder(await r.json());
       })
-      .then((data) => setOrder(data))
-      .catch(() => {
-        setFetchFailed(true);
-        setOrder(null);
-      })
+      .catch(() => setFetchFailed(true))
       .finally(() => setLoading(false));
   };
 
@@ -231,7 +248,7 @@ export default function ConfirmationClient({
           <p className="text-muted-foreground max-w-sm mx-auto">
             {stillPolling
               ? 'Estamos esperando la confirmación de la pasarela. Esta página se actualiza sola — no se cobrará dos veces.'
-              : 'La confirmación tarda más de lo normal. Si completaste el pago, recibirás el QR por email cuando se confirme. Puedes cerrar esta página.'}
+              : 'La confirmación tarda más de lo normal. Si completaste el pago, recibirás el QR por email cuando se confirme: no repitas la compra, se confirmará sola.'}
           </p>
           {!stillPolling && (
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
@@ -283,20 +300,27 @@ export default function ConfirmationClient({
     );
   }
 
-  if (isCancelled || isRefunded) {
+  if (isCancelled || isRefunded || isEventCancelled) {
     return (
       <FadeIn>
         <div className="text-center py-20 space-y-5 max-w-md mx-auto" role="status">
           <SearchX className="h-12 w-12 text-muted-foreground mx-auto" aria-hidden />
           <div className="space-y-2">
             <h1 className="font-display text-2xl font-bold tracking-tight">
-              {isRefunded ? REFUNDED_TITLE : 'Pedido no completado'}
+              {isRefunded ? REFUNDED_TITLE : isEventCancelled ? EVENT_CANCELLED_TITLE : 'Pedido no completado'}
             </h1>
             <p className="text-sm text-muted-foreground">
               {isRefunded
                 ? refundedMessage(Number(validOrder?.totalAmount ?? 0))
-                : 'Este pedido se ha cancelado o no se ha podido cobrar. No se ha realizado ningún cargo.'}
+                : isEventCancelled
+                  ? EVENT_CANCELLED_ORDER_NOTICE
+                  : 'Este pedido se ha cancelado o no se ha podido cobrar. No se ha realizado ningún cargo.'}
             </p>
+            {isEventCancelled && validOrder && (
+              <p className="text-sm text-muted-foreground">
+                Referencia del pedido: <strong className="font-mono">{orderRef(validOrder.id)}</strong>
+              </p>
+            )}
           </div>
           <Button asChild className="gap-2">
             <Link href="/eventos">

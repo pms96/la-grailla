@@ -62,4 +62,24 @@ describe('errores de BD al decidir la cuenta de cobro (H-177, H-178)', () => {
     failRead('shop_payment_gateway');
     await expect(paymentAccountFingerprint('tienda')).rejects.toThrow(/Connection terminated/);
   });
+
+  // H-232: el mismo defecto en el camino del COBRO. Un corte de BD de un instante daba «pasarela en modo mock» (un mensaje falso, y en desarrollo el pedido se marcaba pagado)
+  // o «falta la clave de Stripe» (el webhook respondía 400, que Stripe no reintenta como un 500). Ahora el error de BD llega tal cual.
+  it('H-232: si falla la lectura de la pasarela activa, `getPaymentProvider` propaga el error de BD (no dice «modo mock»)', async () => {
+    const { getPaymentProvider } = await import('@/lib/payment-adapter');
+    failRead('payment_gateway');
+    await expect(getPaymentProvider('entradas')).rejects.toThrow(/Connection terminated/);
+  });
+
+  it('H-232: si falla la lectura de la clave de Stripe o de SumUp, el error de BD llega tal cual (no «falta la clave»)', async () => {
+    failRead('stripe_secret_key');
+    await expect(getPaymentProviderByName('stripe', 'entradas')).rejects.toThrow(/Connection terminated/);
+    vi.restoreAllMocks();
+    failRead('sumup_api_key');
+    await expect(getPaymentProviderByName('sumup', 'entradas')).rejects.toThrow(/Connection terminated/);
+    vi.restoreAllMocks();
+    failRead('sumup_merchant_code');
+    await prisma.appConfig.upsert({ where: { key: 'sumup_api_key' }, update: { value: 'sup_sk_test' }, create: { key: 'sumup_api_key', value: 'sup_sk_test' } });
+    await expect(getPaymentProviderByName('sumup', 'entradas')).rejects.toThrow(/Connection terminated/);
+  });
 });

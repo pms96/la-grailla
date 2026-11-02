@@ -72,4 +72,35 @@ describe('Tienda — límites de precio y cantidad', () => {
     );
     expect(res.status).toBe(400);
   });
+
+  // H-244: el código postal de 5 dígitos solo se validaba en el navegador y los textos de envío no tenían tope (el pedido de entradas sí limita nombre a 100): una petición directa
+  // guardaba un CP o un texto cualquiera, que luego se imprime en el recibo y el albarán.
+  describe('datos de envío (H-244)', () => {
+    const base = { buyerName: 'Luis', buyerEmail: 'luis-envio@example.com', shippingAddress: 'Calle Test 1', shippingCity: 'Madrid', shippingZip: '28001' };
+    // Una IP distinta por petición: el límite por IP (10/min) no debe falsear el resultado entre ejecuciones seguidas.
+    let ipN = Math.floor(Math.random() * 100);
+    const pedido = (over: Record<string, unknown>) => createShopOrder(json('POST', { ...base, items: [{ productId, quantity: 1 }], ...over }, `203.0.113.${100 + (ipN++ % 150)}`));
+    // Los pedidos de prueba (con la validación vieja se creaban) no deben quedar en la BD de desarrollo: las líneas caen en cascada.
+    afterAll(async () => {
+      await prisma.shopOrder.deleteMany({ where: { buyerEmail: base.buyerEmail } });
+    });
+
+    it.each([
+      ['un CP que no son 5 dígitos', { shippingZip: '28A01' }],
+      ['un CP largo', { shippingZip: '280010' }],
+      ['un CP corto', { shippingZip: '2800' }],
+      ['un nombre de 101 caracteres', { buyerName: 'x'.repeat(101) }],
+      ['una dirección de 301 caracteres', { shippingAddress: 'x'.repeat(301) }],
+      ['una ciudad de 101 caracteres', { shippingCity: 'x'.repeat(101) }],
+      ['un teléfono de 31 caracteres', { shippingPhone: '6'.repeat(31) }],
+    ])('rechaza %s con 400', async (_label, over) => {
+      const res = await pedido(over);
+      expect(res.status).toBe(400);
+    });
+
+    it('un envío normal (CP con espacios alrededor, teléfono, textos largos pero dentro del tope) sigue funcionando', async () => {
+      const res = await pedido({ shippingZip: ' 28001 ', shippingPhone: '+34 600 000 000', buyerName: 'x'.repeat(100), shippingAddress: 'y'.repeat(300) });
+      expect(res.status).toBe(200);
+    });
+  });
 });

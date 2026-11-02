@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, Save, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
+import { userMessage } from '@/lib/error-text';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -33,11 +36,13 @@ export default function SeccionesPage() {
   const [drafts, setDrafts] = useState<Drafts>(blankDrafts);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Si la carga falla NO se enseña el editor en blanco: al guardar se pisarían las secciones reales con las vacías.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/admin/config')
-      .then((r) => r.json())
-      .then((rows: { key: string; value: string }[]) => {
+    // H-222: un error HTTP devolvía `{ error }` y se pintaban las secciones vacías como si no hubiera ninguna (y al guardar se habrían pisado).
+    fetchAdminJson<{ key: string; value: string }[]>('/api/admin/config', 'No se han podido cargar las secciones')
+      .then((rows) => {
         const next = blankDrafts();
         for (const kind of SECTION_KINDS) {
           const row = Array.isArray(rows) ? rows.find((c) => c.key === SECTION_CONFIG_KEYS[kind]) : undefined;
@@ -45,7 +50,7 @@ export default function SeccionesPage() {
         }
         setDrafts(next);
       })
-      .catch(() => toast.error('No se han podido cargar las secciones'))
+      .catch((e) => setLoadError(userMessage(e, 'No se han podido cargar las secciones')))
       .finally(() => setLoading(false));
   }, []);
 
@@ -93,6 +98,7 @@ export default function SeccionesPage() {
   };
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  if (loadError) return <LoadError title="No se han podido cargar las secciones." message={loadError} onRetry={() => window.location.reload()} />;
 
   return (
     <div className="space-y-6">

@@ -4,8 +4,8 @@
  *
  *   npm run operator:unlock -- --email tu@correo.es
  */
-import { appendAudit } from '../lib/audit';
 import { prisma } from '../lib/db';
+import { unlockOperator } from '../lib/services/auth';
 
 async function main() {
   const i = process.argv.indexOf('--email');
@@ -13,10 +13,8 @@ async function main() {
   if (!email) throw new Error('Falta --email');
   const op = await prisma.operator.findUnique({ where: { email } });
   if (!op) throw new Error('No existe ese operador');
-  await prisma.$transaction(async (tx) => {
-    await tx.operator.update({ where: { id: op.id }, data: { failedLogins: 0, lockedUntil: null } });
-    await appendAudit(tx, { actor: { id: null, email: 'cli@servidor' }, action: 'operator.unlock', targetType: 'operator', targetId: op.id, meta: { email, via: 'cli' } });
-  });
+  // H-170: levanta el bloqueo de la cuenta y también los cupos por IP.
+  await unlockOperator(op.id, { id: null, email: 'cli@servidor' }, { email, via: 'cli' });
   console.log(`Cuenta desbloqueada: ${email}`);
 }
 

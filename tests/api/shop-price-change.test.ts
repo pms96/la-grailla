@@ -114,6 +114,31 @@ describe('H-132: el precio que se cobra es el que se vio', () => {
     expect(await pedidos()).toBe(0);
   });
 
+  // H-214: igual que en entradas, una clave reutilizada con OTRO carrito no puede devolver el pedido antiguo.
+  it('H-214: la misma idempotencyKey con otro carrito o email da 409 `idempotency_mismatch` y no devuelve el pedido antiguo', async () => {
+    const idempotencyKey = `idem-shop-${Date.now()}`;
+    const email = `luis-idem-${Math.random().toString(36).slice(2, 7)}@example.com`;
+    const first = await createShopOrder(post(body({ idempotencyKey, buyerEmail: email })));
+    expect(first.status).toBe(200);
+    const firstJson = await first.json();
+
+    const masUnidades = await createShopOrder(post(body({ idempotencyKey, buyerEmail: email, items: [{ productId, quantity: 4, size: 'M', color: 'Negro' }] })));
+    expect(masUnidades.status).toBe(409);
+    const data = await masUnidades.json();
+    expect(data.code).toBe('idempotency_mismatch');
+    expect(data.orderId).toBeUndefined();
+
+    const otroEmail = await createShopOrder(post(body({ idempotencyKey, buyerEmail: `otro-${email}` })));
+    expect(otroEmail.status).toBe(409);
+
+    expect(await pedidos()).toBe(1);
+    expect(await stock()).toBe(3);
+
+    const mismo = await createShopOrder(post(body({ idempotencyKey, buyerEmail: email })));
+    expect(mismo.status).toBe(200);
+    expect((await mismo.json()).orderId).toBe(firstJson.orderId);
+  });
+
   it('sin expectedTotalCents (cliente antiguo o API directa) se sigue cobrando el precio vigente', async () => {
     await prisma.product.update({ where: { id: productId }, data: { price: 30 } });
     const res = await createShopOrder(post(body()));

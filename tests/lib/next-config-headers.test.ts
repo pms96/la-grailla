@@ -1,5 +1,7 @@
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
-import { describe, expect, it } from 'vitest';
+import path from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
 import { SESSION_COOKIE_DEFAULT, SESSION_COOKIE_HOST, SESSION_COOKIE_SECURE } from '@/lib/tenant/session-cookie';
 
 type HeaderRule = { source: string; headers: { key: string; value: string }[]; missing?: { type: string; key: string }[] };
@@ -89,5 +91,30 @@ describe('BLOB_PUBLIC_HOST e IMAGES_UNOPTIMIZED (H-171)', () => {
     expect(await csp(cfg)).toContain(WILDCARD);
     expect(cfg.images).toEqual({ unoptimized: true });
     expect(cfg.env.BLOB_PUBLIC_HOST).toBe('');
+  });
+
+  // H-240: con una variable mal formada (un `https://` delante, una barra) el aviso del build solo decía «imágenes sin optimizar», cuando tampoco se restringe la CSP ni el host de Blob.
+  it('con la variable mal formada el aviso del build dice TODO lo que pasa (sin optimizar, CSP y lista de URLs sin restringir)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const cfg = load({ BLOB_PUBLIC_HOST: `https://${HOST}/`, IMAGES_UNOPTIMIZED: undefined });
+      expect(cfg.env.BLOB_PUBLIC_HOST).toBe('');
+      expect(await csp(cfg)).toContain(WILDCARD);
+      const mensaje = warn.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(mensaje).toContain('BLOB_PUBLIC_HOST');
+      expect(mensaje).toMatch(/sin optimizar/);
+      expect(mensaje).toMatch(/CSP/);
+      expect(mensaje).toMatch(/Blob/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('el doc de vuelta atrás de las imágenes no recomienda borrar BLOB_PUBLIC_HOST (en la plataforma el preflight lo exige y reabriría el comodín)', () => {
+    const doc = fs.readFileSync(path.resolve(__dirname, '../../docs/platform/optimizacion-imagenes.md'), 'utf8');
+    const rollback = doc.slice(doc.indexOf('## Volver atrás'), doc.indexOf('## Coste estimado'));
+    expect(rollback).not.toMatch(/borra `?BLOB_PUBLIC_HOST/i);
+    expect(rollback).toContain('IMAGES_UNOPTIMIZED=1');
+    expect(rollback).toMatch(/no borres/i);
   });
 });

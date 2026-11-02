@@ -20,7 +20,7 @@ import { prisma } from '@/lib/db';
 import { provisionTenant, type ProvisionInput } from '@/lib/services/provision';
 import { seedExistingTenant } from '@/lib/services/tenant-setup';
 import { retireTenant } from '@/lib/services/retire';
-import { describeDomainSetup, ensureVercelDomain, vercelConfig } from '@/lib/services/vercel-domains';
+import { describeDomainSetup, ensureVercelDomain, recordVercelDomainAdded, vercelConfig } from '@/lib/services/vercel-domains';
 import type { ActionState } from '../_components/action-form';
 import { str, toState } from './util';
 
@@ -49,14 +49,16 @@ export async function createTenantAction(_prev: ActionState, fd: FormData): Prom
 }
 
 /** Qué hacer con el dominio en Vercel tras un alta: añadirlo por API si el panel tiene el token, o decir cómo hacerlo a mano. */
-async function vercelDomainLines(host: string): Promise<string[]> {
+async function vercelDomainLines(host: string, actor: ActingOperator, tenantId: string): Promise<string[]> {
   if (host.endsWith('.vercel.app')) return ['Dominio de Vercel (*.vercel.app): no hace falta añadirlo ni crear DNS.'];
   const cfg = vercelConfig();
   if (!cfg) {
     return ['Dominio en Vercel: añádelo a mano en el proyecto grailla-platform (Settings → Domains), o configura VERCEL_API_TOKEN y VERCEL_PLATFORM_PROJECT_ID en el panel para hacerlo desde aquí.'];
   }
   try {
-    return describeDomainSetup(await ensureVercelDomain(host, cfg));
+    const setup = await ensureVercelDomain(host, cfg);
+    await recordVercelDomainAdded(actor, tenantId, host, setup); // H-235: añadir un dominio al proyecto cambia infraestructura: queda en la auditoría
+    return describeDomainSetup(setup);
   } catch (err) {
     return [`✗ Vercel: ${err instanceof ServiceError ? err.message : 'error inesperado, mira los registros del servidor'}`];
   }
@@ -107,7 +109,7 @@ export async function provisionAction(_prev: ActionState, fd: FormData): Promise
     };
     // Sin comprobar la salud: en un alta el dominio todavía no apunta a la plataforma. Se comprueba desde la ficha cuando el DNS esté.
     const result = await provisionTenant(input, actor);
-    const extra = result.tenantId ? await vercelDomainLines(result.host) : [];
+    const extra = result.tenantId ? await vercelDomainLines(result.host, actor, result.tenantId) : [];
     revalidatePath('/');
     // Con «invitar», la contraseña temporal no se enseña: el administrador fija la suya. La invitación solo sale si el dominio ya está verificado.
     const invite = str(fd, 'invite') === 'on';
@@ -172,12 +174,13 @@ export async function inviteAdminAction(tenantId: string, subscriptionId: string
 
 /** Añade el dominio al proyecto de Vercel de la plataforma (si el panel tiene el token) y dice qué registro DNS crear. */
 export async function vercelDomainAction(tenantId: string, domainId: string, _p: ActionState) {
-  return run('tenants:write', tenantId, async (): Promise<Outcome> => {
+  return run('tenants:write', tenantId, async (actor): Promise<Outcome> => {
     const cfg = vercelConfig();
     if (!cfg) throw new ServiceError('vercel_not_configured', 'Falta configurar VERCEL_API_TOKEN y VERCEL_PLATFORM_PROJECT_ID en el panel.');
     const domain = await prisma.domain.findUnique({ where: { id: domainId }, include: { subscription: { select: { tenantId: true } } } });
     if (!domain || domain.subscription.tenantId !== tenantId || domain.status === 'RELEASED') throw new ServiceError('not_found', 'Dominio no encontrado');
     const setup = await ensureVercelDomain(domain.host, cfg);
+    await recordVercelDomainAdded(actor, tenantId, domain.host, setup); // H-235: queda en la auditoría si se añadió
     return { ok: setup.misconfigured === false && setup.records.length === 0 ? 'El dominio está en Vercel y el DNS ya apunta bien.' : 'El dominio está en Vercel. Falta lo que se indica abajo.', details: describeDomainSetup(setup) };
   });
 }

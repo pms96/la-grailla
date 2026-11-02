@@ -13,7 +13,7 @@ import { normalizePhone } from '@/lib/phone';
 import { getBrand } from '@/lib/brand/brand';
 import { brandLogoHtml } from '@/lib/brand/email';
 import { escapeHtml as esc } from '@/lib/html-escape';
-import { optionalPublicUrl } from '@/lib/safe-url';
+import { optionalPublicUrl } from '@/lib/optional-public-url';
 import { captchaRejection, verifyCaptcha } from '@/lib/captcha';
 
 // Los campos del formulario van directos al HTML de dos emails reales (a administrador y al remitente): todos pasan por `esc` (que escapa también las

@@ -6,11 +6,12 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { cantidadSchema } from '@/lib/contabilidad/validation';
 
 const putPlanSchema = z.object({
   temporadaId: z.string().min(1),
   proveedorElegidoId: z.string().optional().nullable(),
-  cantidadPlanificada: z.coerce.number().optional(),
+  cantidadPlanificada: cantidadSchema.optional(), // H-233: no negativa ni desproporcionada; vacío no es 0
   observaciones: z.string().optional().nullable(),
 });
 

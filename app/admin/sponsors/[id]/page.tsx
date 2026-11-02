@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { normalizePublicUrl } from '@/lib/safe-url';
 import { toast } from 'sonner';
+import { fetchAdminJson } from '@/lib/admin-fetch';
 import { upload } from '@vercel/blob/client';
 import { PageHeader } from '@/components/layouts/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -108,14 +109,14 @@ export default function SponsorDetailPage() {
   const finalVideoInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDetail = () => {
-    fetch(`/api/admin/sponsors/${params.id}`)
-      .then((r) => r.json())
-      .then((d: Detail) => {
+    // H-222: un error HTTP devolvía `{ error }` y se guardaba como si fuera el sponsor.
+    fetchAdminJson<Detail>(`/api/admin/sponsors/${params.id}`, 'No se pudo cargar el sponsor')
+      .then((d) => {
         setDetail(d);
         setPromptDraft({ promptEs: d?.sponsor?.videoPrompt?.promptEs ?? '', promptEn: d?.sponsor?.videoPrompt?.promptEn ?? '' });
         setBrandContextDraft(d?.sponsor?.brandContext ?? '');
       })
-      .catch(() => toast.error('No se pudo cargar el sponsor'))
+      .catch((e) => toast.error(userMessage(e, 'No se pudo cargar el sponsor')))
       .finally(() => setLoading(false));
   };
 
@@ -130,8 +131,8 @@ export default function SponsorDetailPage() {
   }, [tiers, detail?.sponsorType]);
 
   useEffect(() => {
-    fetch('/api/sponsors/tiers')
-      .then((r) => r.json())
+    // Solo precarga el importe: sin tarifas la ficha sigue siendo útil (no es un aviso).
+    fetchAdminJson<{ tiers?: SponsorTier[] }>('/api/sponsors/tiers', 'No se pudieron cargar las tarifas')
       .then((d) => { if (Array.isArray(d?.tiers)) setTiers(d.tiers); })
       .catch(() => {});
   }, []);
@@ -233,6 +234,8 @@ export default function SponsorDetailPage() {
             ? 'Rechazado — el aviso por email falló'
             : 'Rechazado — sin email guardado, avísale por otra vía'
       );
+      // H-239: rechazar no desmarca el cobro: si estaba cobrado sigue sumando como ingreso de la temporada hasta que se desmarque.
+      if (r.stillCountsAsIncome) toast.warning('Este patrocinio estaba marcado como pagado y sigue contando como ingreso. Si lo has devuelto, desmárcalo en «Marcar pago».', { duration: 10000 });
       fetchDetail();
     }
   };

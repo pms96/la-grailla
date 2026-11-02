@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Temporada, Gasto, Proveedor } from '@prisma/client';
 import type { WithNumberFields } from '@/lib/prisma';
 import { PageHeader } from '@/components/layouts/page-header';
@@ -23,6 +23,8 @@ import { downloadGastosExport } from '@/lib/gastos/gastos-export';
 import { userMessage } from '@/lib/error-text';
 import { fetchAdminJson, responseError } from '@/lib/admin-fetch';
 import { LoadError } from '@/components/admin/load-error';
+import { createLatest } from '@/lib/latest-request';
+import { importeGastoConIva } from '@/lib/gasto-calc';
 
 type GastoConRelaciones = WithNumberFields<Gasto, 'importeSinIva' | 'ivaPercent'> & { proveedor: Proveedor | null; createdBy: { id: string; name: string | null; email: string } | null };
 
@@ -66,18 +68,29 @@ export default function GastosPage() {
       .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar las temporadas')));
   }, [incluirArchivadas]);
 
-  useEffect(() => {
-    Promise.all([
+  // H-224: la carga inicial (temporadas y proveedores) es una función: «Reintentar» la repite entera (antes solo repetía las temporadas y dejaba el desplegable de proveedores vacío sin avisar).
+  const loadBase = useCallback(() => {
+    setLoading(true);
+    return Promise.all([
       fetchTemporadas(),
       fetchAdminJson<Proveedor[]>('/api/admin/compras/proveedores', 'No se pudieron cargar los proveedores').then((p) => setProveedores(Array.isArray(p) ? p : [])),
     ])
       .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar los proveedores')))
       .finally(() => setLoading(false));
+  }, [fetchTemporadas]);
+
+  useEffect(() => {
+    void loadBase();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // H-225: solo vale la respuesta de la última petición (cambiar de temporada o de categoría relanza la carga).
+  const latest = useRef(createLatest());
+  const [datosLoading, setDatosLoading] = useState(false);
   const fetchDatos = useCallback(() => {
     if (!temporadaId) { setGastos([]); setResumen(null); return; }
+    const id = latest.current.next();
+    setDatosLoading(true);
     const params = new URLSearchParams({ temporadaId });
     if (categoriaFiltro !== '__all__') params.set('categoria', categoriaFiltro);
     Promise.all([
@@ -85,15 +98,20 @@ export default function GastosPage() {
       fetchAdminJson<Resumen>(`/api/admin/gastos/resumen?temporadaId=${temporadaId}`, 'No se pudo cargar el resumen de gastos'),
     ])
       .then(([g, r]) => {
+        if (!latest.current.isCurrent(id)) return;
         setGastos(Array.isArray(g) ? g : []);
         setResumen(r);
         setLoadError(null);
       })
       .catch((e) => {
+        if (!latest.current.isCurrent(id)) return;
         // Sin datos, nada de totales a cero: se vacía y se enseña el error.
         setGastos([]);
         setResumen(null);
         setLoadError(userMessage(e, 'No se pudieron cargar los gastos'));
+      })
+      .finally(() => {
+        if (latest.current.isCurrent(id)) setDatosLoading(false);
       });
   }, [temporadaId, categoriaFiltro]);
 
@@ -137,7 +155,8 @@ export default function GastosPage() {
     }
   };
 
-  if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  // H-224: mientras llegan los datos de un reintento (sin resumen todavía) se enseña la carga, no «0,00 €» ni «Sin gastos».
+  if (loading || (datosLoading && !resumen)) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
 
   return (
     <div className="space-y-6">
@@ -159,7 +178,7 @@ export default function GastosPage() {
       </div>
 
       {loadError ? (
-        <LoadError title="No se han podido cargar los gastos." message={loadError} onRetry={() => { setLoadError(null); void fetchTemporadas(); fetchDatos(); }} />
+        <LoadError title="No se han podido cargar los gastos." message={loadError} onRetry={() => { setLoadError(null); setLoading(true); void loadBase(); fetchDatos(); }} />
       ) : !temporada ? (
         <p className="text-sm text-muted-foreground py-10 text-center">Crea una temporada para empezar a registrar gastos.</p>
       ) : (
@@ -245,7 +264,7 @@ export default function GastosPage() {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className={`font-bold ${g.importeSinIva < 0 ? 'text-destructive-text' : ''}`}>
-                        {(g.importeSinIva * (1 + g.ivaPercent / 100)).toFixed(2)}€
+                        {importeGastoConIva(g.importeSinIva, g.ivaPercent).toFixed(2)}€
                       </span>
                       <Button variant="ghost" size="icon-sm" onClick={() => openEdit(g)}><Pencil className="h-4 w-4" /></Button>
                       {/* Anular es solo del propietario y con la temporada abierta: a nadie más se le ofrece un botón que acabaría en 403 o 423 (H-011). */}
@@ -276,7 +295,7 @@ export default function GastosPage() {
         title="Anular gasto"
         description={
           deleteTarget
-            ? `Se anulará "${deleteTarget.concepto}" por ${(deleteTarget.importeSinIva * (1 + deleteTarget.ivaPercent / 100)).toFixed(2)}€ del ${new Date(deleteTarget.fecha).toLocaleDateString('es-ES')}. Dejará de contar en las cifras; queda registrado quién lo anuló y por qué.`
+            ? `Se anulará "${deleteTarget.concepto}" por ${importeGastoConIva(deleteTarget.importeSinIva, deleteTarget.ivaPercent).toFixed(2)}€ del ${new Date(deleteTarget.fecha).toLocaleDateString('es-ES')}. Dejará de contar en las cifras; queda registrado quién lo anuló y por qué.`
             : ''
         }
         confirmLabel="Anular gasto"

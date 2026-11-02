@@ -13,6 +13,8 @@ import { PEDIDO_STATUS_LABEL as STATUS_LABEL } from '@/lib/compras/constantes';
 import { GastoDesdePedidoDialog } from '@/app/admin/gastos/_components/gasto-desde-pedido-dialog';
 import { downloadPedidosExport } from '@/lib/compras/pedidos-export';
 import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 
 type PedidoConDetalle = Pedido & {
   proveedor: Proveedor;
@@ -41,6 +43,7 @@ function diasEnEstado(updatedAt: Date | string): number {
 
 export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
   const [pedidos, setPedidos] = useState<PedidoConDetalle[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null); // H-222
   const [loading, setLoading] = useState(true);
   const [generando, setGenerando] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -59,10 +62,13 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
   const fetchPedidos = useCallback(() => {
     if (!temporada) { setPedidos([]); setLoading(false); return; }
     setLoading(true);
-    fetch(`/api/admin/compras/pedidos?temporadaId=${temporada.id}`)
-      .then((r) => r.json())
-      .then((d) => setPedidos(Array.isArray(d) ? d : []))
-      .catch(() => {})
+    // H-222: un error HTTP pintaba «sin pedidos» en lugar de avisar.
+    fetchAdminJson<PedidoConDetalle[]>(`/api/admin/compras/pedidos?temporadaId=${temporada.id}`, 'No se pudieron cargar los pedidos')
+      .then((d) => {
+        setPedidos(Array.isArray(d) ? d : []);
+        setLoadError(null);
+      })
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar los pedidos')))
       .finally(() => setLoading(false));
   }, [temporada]);
 
@@ -138,6 +144,7 @@ export function TabPedidos({ temporada }: { temporada: Temporada | null }) {
 
   return (
     <div className="space-y-4">
+      {loadError && <LoadError title="No se han podido cargar los pedidos." message={loadError} onRetry={() => { setLoadError(null); setLoading(true); fetchPedidos(); }} />}
       <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
         <Info className="h-4 w-4 shrink-0 mt-0.5" />
         <p>

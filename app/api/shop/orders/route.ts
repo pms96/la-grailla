@@ -8,6 +8,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getPaymentProvider } from '@/lib/payment-adapter';
 import { getBaseUrl } from '@/lib/url';
+import { IDEMPOTENCY_MISMATCH, sameShopOrderRequest } from '@/lib/idempotency-match';
 import { getConfig } from '@/lib/config';
 import { rateLimit, getClientIp, countPendingSlots, takePendingSlot } from '@/lib/rate-limit';
 import { captchaRejection, verifyCaptcha } from '@/lib/captcha';
@@ -26,12 +27,14 @@ import { currentVatRate } from '@/lib/fiscal';
 import { TermsChangedError, recordTermsVersion } from '@/lib/legal-terms';
 
 const createShopOrderSchema = z.object({
-  buyerName: z.string().min(1),
+  // H-244: topes de longitud (el pedido de entradas ya limita el nombre a 100) y el CP de 5 dígitos que el formulario ya exige, repetido aquí: la API se puede llamar a mano y estos
+  // textos acaban impresos en el recibo y el albarán.
+  buyerName: z.string().min(1).max(100),
   buyerEmail: z.string().email(),
-  shippingAddress: z.string().min(1),
-  shippingCity: z.string().min(1),
-  shippingZip: z.string().min(1),
-  shippingPhone: z.string().optional().nullable(),
+  shippingAddress: z.string().min(1).max(300),
+  shippingCity: z.string().min(1).max(100),
+  shippingZip: z.string().trim().regex(/^[0-9]{5}$/, 'Usa un código postal de 5 dígitos'),
+  shippingPhone: z.string().max(30).optional().nullable(),
   idempotencyKey: z.string().optional(),
   // Token del captcha (Turnstile) si el cliente lo tiene activado; ver lib/captcha.ts.
   captchaToken: z.string().max(2100).optional(),
@@ -117,9 +120,13 @@ export async function POST(request: Request) {
       expectedTotalCents,
     } = body;
 
+    // Solo si es de verdad el MISMO carrito (H-214): quien vuelve atrás, lo edita y paga de nuevo conserva la clave.
     if (idempotencyKey) {
-      const existing = await prisma.shopOrder.findUnique({ where: { idempotencyKey } });
-      if (existing) return existingOrderResponse(existing);
+      const existing = await prisma.shopOrder.findUnique({ where: { idempotencyKey }, include: { items: { select: { productId: true, size: true, color: true, quantity: true } } } });
+      if (existing) {
+        if (!sameShopOrderRequest(existing, { buyerEmail, items })) return NextResponse.json(IDEMPOTENCY_MISMATCH, { status: 409 });
+        return existingOrderResponse(existing);
+      }
     }
 
     if (acceptedTerms !== true) {
@@ -249,8 +256,11 @@ export async function POST(request: Request) {
         'code' in error &&
         (error as { code?: string }).code === 'P2002'
       ) {
-        const existing = await prisma.shopOrder.findUnique({ where: { idempotencyKey } });
-        if (existing) return existingOrderResponse(existing);
+        const existing = await prisma.shopOrder.findUnique({ where: { idempotencyKey }, include: { items: { select: { productId: true, size: true, color: true, quantity: true } } } });
+        if (existing) {
+          if (!sameShopOrderRequest(existing, { buyerEmail: body.buyerEmail, items: body.items })) return NextResponse.json(IDEMPOTENCY_MISMATCH, { status: 409 });
+          return existingOrderResponse(existing);
+        }
       }
       if (error instanceof ProductUnavailableError) {
         return NextResponse.json({ error: error.message, code: 'product_unavailable', productId: error.productId }, { status: 409 });

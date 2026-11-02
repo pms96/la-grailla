@@ -14,6 +14,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Plus, Pencil, Trash2, ShoppingBag, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 import { PageHeader } from '@/components/layouts/page-header';
 import { useBrand } from '@/components/brand-provider';
 import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
@@ -55,6 +58,7 @@ export default function ProductosPage() {
   const { legacy } = useBrand();
   const [products, setProducts] = useState<ProductWithVariants[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null); // H-222
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<ProductWithVariants | null>(null);
   const [form, setForm] = useState<ProductFormState>(EMPTY);
@@ -69,10 +73,13 @@ export default function ProductosPage() {
   const [temporadasDisponibles, setTemporadasDisponibles] = useState(false);
 
   const fetchProducts = useCallback(() => {
-    fetch('/api/admin/products')
-      .then((r) => r.json())
-      .then((d) => setProducts(Array.isArray(d) ? d : []))
-      .catch(() => {})
+    // H-222: un error HTTP pintaba «sin productos» en lugar de avisar.
+    fetchAdminJson<ProductWithVariants[]>('/api/admin/products', 'No se pudieron cargar los productos')
+      .then((d) => {
+        setProducts(Array.isArray(d) ? d : []);
+        setLoadError(null);
+      })
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar los productos')))
       .finally(() => setLoading(false));
   }, []);
 
@@ -233,6 +240,7 @@ export default function ProductosPage() {
 
   return (
     <div className="space-y-6">
+      {loadError && <LoadError title="No se han podido cargar los productos." message={loadError} onRetry={() => { setLoadError(null); setLoading(true); fetchProducts(); }} />}
       <div className="flex items-center justify-between gap-3">
         <PageHeader title="Productos" description="Merchandising de la tienda" />
         <Button onClick={openCreate} className="gap-2">

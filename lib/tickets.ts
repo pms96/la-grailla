@@ -128,7 +128,9 @@ export function buildEmailHtml(
   appUrl: string,
   minorAuthUrl?: string,
   walletLinksHtml?: string,
-  fiscalHtml?: string
+  fiscalHtml?: string,
+  // H-231: qué PDF van realmente adjuntos (la generación puede fallar sin tumbar el envío): el texto no afirma un adjunto que no va.
+  attached: { tickets: boolean; minorAuth: boolean } = { tickets: true, minorAuth: true }
 ): string {
   const eventDate = order.event?.date
     ? new Date(order.event.date).toLocaleDateString('es-ES', {
@@ -149,17 +151,17 @@ export function buildEmailHtml(
   const minorAuthNotice =
     order.event?.minorAuthorizationEnabled && minorAuthUrl
       ? '<div style="background:#fff8e6;border-radius:8px;padding:14px;margin:18px 0;border:1px solid #f0d98c;">' +
-        '<p style="margin:0;font-size:13px;color:#7a5c00;"><strong>Asistentes de 16 y 17 anos:</strong> deben presentar en taquilla la autorizacion firmada por su padre/madre/tutor. Va adjunta en PDF.</p>' +
-        '<p style="margin:6px 0 0;"><a href="' + minorAuthUrl + '" style="color:' + brand.colors.emailAccent + ';">Descargar autorizacion de menores (PDF)</a></p>' +
+        '<p style="margin:0;font-size:13px;color:#7a5c00;"><strong>Asistentes de 16 y 17 años:</strong> deben presentar en taquilla la autorización firmada por su padre/madre/tutor.' + (attached.minorAuth ? ' Va adjunta en PDF.' : '') + '</p>' +
+        '<p style="margin:6px 0 0;"><a href="' + minorAuthUrl + '" style="color:' + brand.colors.emailAccent + ';">Descargar autorización de menores (PDF)</a></p>' +
         '</div>'
       : '';
 
   return (
     '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;">' +
     brandLogoHtml(brand, appUrl, 32, 'margin:0 0 4px;') +
-    '<p style="color:#888;margin:0 0 24px;">' + (isOnlineSale(order) ? RECEIPT_TITLE + ' (no es factura)' : 'Confirmacion de compra') + '</p>' +
+    '<p style="color:#888;margin:0 0 24px;">' + (isOnlineSale(order) ? RECEIPT_TITLE + ' (no es factura)' : 'Confirmación de compra') + '</p>' +
     '<p>Hola ' + esc(order.buyerName) + ',</p>' +
-    '<p>Tu compra se ha completado correctamente. Aqui tienes los detalles:</p>' +
+    '<p>Tu compra se ha completado correctamente. Aquí tienes los detalles:</p>' +
     '<div style="background:' + brand.colors.emailTint + ';border-radius:10px;padding:18px;margin:18px 0;">' +
     '<p style="margin:4px 0;"><strong>Evento:</strong> ' + esc(order.event?.name) + '</p>' +
     '<p style="margin:4px 0;"><strong>Fecha:</strong> ' + esc(eventDate) + '</p>' +
@@ -173,7 +175,11 @@ export function buildEmailHtml(
     minorAuthNotice +
     (walletLinksHtml ?? '') +
     cta +
-    '<p style="font-size:12px;color:#999;">Adjuntamos un PDF con tus entradas. Tambien puedes abrir el enlace de arriba para verlas e imprimirlas. No compartas tus codigos con nadie.</p>' +
+    '<p style="font-size:12px;color:#999;">' +
+    (attached.tickets
+      ? 'Adjuntamos un PDF con tus entradas. También puedes abrir el enlace de arriba para verlas e imprimirlas.'
+      : 'No hemos podido adjuntar el PDF con tus entradas: abre el enlace de arriba para verlas e imprimirlas.') +
+    ' No compartas tus códigos con nadie.</p>' +
     '</div>'
   );
 }
@@ -285,7 +291,7 @@ export async function deliverTicketsEmail(
   const result = await sendMail({
     to: order.buyerEmail,
     subject: 'Tus entradas para ' + (order.event?.name ?? brand.name),
-    html: buildEmailHtml(order, printUrl, brand, appUrl, minorAuthUrl, walletLinksHtml, isOnlineSale(order) ? fiscalEmailHtml(await buildFiscalView(order.totalAmount, order.vatRate)) : ''),
+    html: buildEmailHtml(order, printUrl, brand, appUrl, minorAuthUrl, walletLinksHtml, isOnlineSale(order) ? fiscalEmailHtml(await buildFiscalView(order.totalAmount, order.vatRate)) : '', { tickets: Boolean(pdfBytes), minorAuth: Boolean(minorAuthPdfBytes) }),
     attachments: attachments.length ? attachments : undefined,
   });
 

@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { errorForLog } from '@/lib/api-error';
+import { loadOrFail } from '@/lib/public-load';
+import { toPublicEvent } from '@/lib/public-event';
 import { prisma, type EventWithTicketTypes } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import { Container } from '@/components/layouts/container';
@@ -15,19 +16,20 @@ import WaitingRoomGate from './_components/waiting-room-gate';
 
 export const dynamic = 'force-dynamic';
 
+// H-244: página transaccional (arranca la cola al renderizar): no se indexa. El `robots.txt` solo pide no rastrear; esto impide que una URL enlazada acabe en el índice.
+export const metadata = { title: 'Comprar entradas', robots: { index: false, follow: false } };
+
 export default async function ComprarPage(props: { params: Promise<{ slug: string }> }) {
   const params = await props.params;
-  let event: EventWithTicketTypes | null = null;
-  try {
-    event = await prisma.event.findUnique({
+  // H-228: un fallo de BD LANZA (la web pinta su error con reintento) en vez de acabar en `notFound()`: en el pico de un lanzamiento el comprador veía un 404 «este evento no existe».
+  const event: EventWithTicketTypes | null = await loadOrFail('ComprarPage', () =>
+    prisma.event.findUnique({
       where: { slug: params?.slug },
       include: {
         ticketTypes: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } },
       },
-    });
-  } catch (error) {
-    console.error('[ComprarPage] Error al cargar el evento:', errorForLog(error));
-  }
+    })
+  );
 
   // H-099: un evento CANCELADO existe: se dice que está cancelado y qué hacer, en lugar de un 404 genérico. Un borrador o un evento inexistente siguen dando 404.
   if (event?.status === 'CANCELLED') {
@@ -99,7 +101,8 @@ export default async function ComprarPage(props: { params: Promise<{ slug: strin
     );
   }
   const captchaSiteKey = await getCaptchaSiteKey();
-  const serializedEvent = { ...JSON.parse(JSON.stringify(event)), commissionPercent, vatRate, termsVersion, captchaSiteKey };
+  // H-244: sin los campos internos (umbrales y avisos de aforo, temporada): `toPublicEvent` es lo que ya hace la API pública del evento.
+  const serializedEvent = { ...JSON.parse(JSON.stringify(toPublicEvent(event))), commissionPercent, vatRate, termsVersion, captchaSiteKey };
 
   return (
     <Container size="md">

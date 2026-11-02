@@ -43,6 +43,7 @@ const ACTION_LABELS: Record<string, string> = {
   'event.ticket_type_delete': 'Tipo de entrada borrado',
   'sponsor.update': 'Patrocinio modificado',
   'sponsor.mark_paid': 'Pago de patrocinio marcado',
+  'sponsor.reject': 'Patrocinio rechazado',
   'export.orders': 'Exportados pedidos de entradas',
   'export.attendees': 'Exportados asistentes',
   'export.shop_orders': 'Exportados pedidos de tienda',

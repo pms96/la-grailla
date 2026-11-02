@@ -3,6 +3,9 @@ import SponsorPortalClient from './_components/sponsor-portal-client';
 
 export const dynamic = 'force-dynamic';
 
+// H-244: portal privado (el enlace lleva un token): no se indexa.
+export const metadata = { title: 'Portal de patrocinio', robots: { index: false, follow: false } };
+
 export default async function SponsorPortalPage(
   props: {
     params: Promise<{ sponsorId: string }>;

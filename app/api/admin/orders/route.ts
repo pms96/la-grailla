@@ -6,6 +6,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { buildOrdersWhere } from '@/lib/order-filters';
+import { ADMIN_ORDERS_PAGE_SIZE } from '@/lib/admin-orders-page';
 import { getEmailStates } from '@/lib/email-delivery';
 import { adminEmailView } from '@/lib/order-email';
 
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
   }
   try {
     const url = new URL(request.url);
-    const take = Math.min(Number(url.searchParams.get('take') ?? 100) || 100, 200);
+    const take = Math.min(Number(url.searchParams.get('take') ?? ADMIN_ORDERS_PAGE_SIZE) || ADMIN_ORDERS_PAGE_SIZE, 200);
 
     const where = buildOrdersWhere({
       q: url.searchParams.get('q') ?? '',

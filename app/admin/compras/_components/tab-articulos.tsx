@@ -18,6 +18,8 @@ import { downloadArticulosExport } from '@/lib/compras/articulos-export';
 import { ImportarArticulosDialog } from '@/app/admin/compras/_components/importar-articulos-dialog';
 import { parsePercentOr } from '@/lib/pricing';
 import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 
 type ArticuloConPrecios = WithNumberFields<Articulo, 'ivaPercent'> & {
   precios: (WithNumberFields<PrecioArticulo, 'precioSinIva' | 'descuentoPercent'> & { proveedor: Proveedor })[];
@@ -54,16 +56,19 @@ export function TabArticulos() {
   const [exportando, setExportando] = useState<'excel' | 'pdf' | null>(null);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
 
+  // H-222: un error HTTP pintaba «sin artículos» (y proveedores vacíos en el diálogo) sin avisar.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const fetchAll = useCallback(() => {
     Promise.all([
-      fetch('/api/admin/compras/articulos').then((r) => r.json()),
-      fetch('/api/admin/compras/proveedores').then((r) => r.json()),
+      fetchAdminJson<ArticuloConPrecios[]>('/api/admin/compras/articulos', 'No se pudieron cargar los artículos'),
+      fetchAdminJson<Proveedor[]>('/api/admin/compras/proveedores', 'No se pudieron cargar los proveedores'),
     ])
       .then(([a, p]) => {
         setArticulos(Array.isArray(a) ? a : []);
-        setProveedores(Array.isArray(p) ? p.filter((x: Proveedor) => x.activo) : []);
+        setProveedores(Array.isArray(p) ? p.filter((x) => x.activo) : []);
+        setLoadError(null);
       })
-      .catch(() => {})
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar los artículos')))
       .finally(() => setLoading(false));
   }, []);
 
@@ -162,6 +167,7 @@ export function TabArticulos() {
 
   return (
     <div className="space-y-4">
+      {loadError && <LoadError title="No se han podido cargar los artículos." message={loadError} onRetry={() => { setLoadError(null); setLoading(true); fetchAll(); }} />}
       <div className="flex flex-wrap justify-end gap-2">
         <Button variant="outline" size="sm" className="gap-2" disabled={exportando !== null || articulos.length === 0} onClick={() => handleExport('excel')}>
           {exportando === 'excel' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}

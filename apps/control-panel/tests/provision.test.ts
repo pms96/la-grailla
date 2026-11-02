@@ -36,6 +36,29 @@ afterAll(async () => {
   for (const name of created) await dropScratchDb(name);
 }, 60_000);
 
+// H-235: el alta por asistente creaba un ADMIN con contraseña conocida y escribía la configuración del cliente SIN auditoría (`tenant.seed` solo existía en el otro camino, `tenant-setup`):
+// la cadena mostraba `tenant.create` y `publish`, pero no quién sembró ni qué.
+describe('el alta por asistente deja rastro de la siembra (H-235)', () => {
+  it('escribe `tenant.seed` con las claves escritas y si se creó el administrador, y NUNCA la contraseña ni los textos', async () => {
+    freshStore();
+    const { actor } = await makeOperator('SUPERADMIN');
+    const inp = input();
+    const result = await provisionTenant(inp, actor);
+    expect(result.ok).toBe(true);
+    const rows = await prisma.auditLog.findMany({ where: { tenantId: result.tenantId!, action: 'tenant.seed' } });
+    expect(rows).toHaveLength(1);
+    const meta = rows[0].meta as { written: string[]; adminCreated: boolean };
+    expect(meta.adminCreated).toBe(true);
+    expect(meta.written).toContain('legal_notice');
+    const serialized = JSON.stringify(rows[0].meta);
+    expect(serialized).not.toContain(result.adminPassword!);
+    expect(serialized).not.toContain('Aviso legal del cliente');
+    // Repetir el MISMO alta (reanudar) no vuelve a sembrar nada: no hay una segunda fila.
+    await provisionTenant(inp, actor);
+    expect(await prisma.auditLog.count({ where: { tenantId: result.tenantId!, action: 'tenant.seed' } })).toBe(1);
+  });
+});
+
 describe('alta de cliente de punta a punta', () => {
   it('crea BD, registra, migra, siembra, verifica y publica; y repetirla no cambia nada', async () => {
     const store = freshStore();

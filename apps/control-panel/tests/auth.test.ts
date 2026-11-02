@@ -5,6 +5,8 @@ import { ABSOLUTE_TIMEOUT_MS, IDLE_TIMEOUT_MS, getSession, hashToken } from '@/l
 import {
   LOCK_MS,
   MAX_FAILED_LOGINS,
+  MAX_FAILED_LOGINS_ACCOUNT,
+  unlockOperator,
   changePassword,
   completeTotpSetup,
   createOperator,
@@ -21,6 +23,12 @@ import { makeOperator, resetControlDb, uniq } from './helpers';
 beforeEach(resetControlDb);
 
 const ctx = { ip: '203.0.113.7', userAgent: 'vitest' };
+
+/** Hasta cuándo está bloqueada ESA IP para esa cuenta (H-170: el bloqueo es por cuenta Y por IP); null si no lo está. */
+async function bucketLockedUntil(operatorId: string, ip: string): Promise<Date | null> {
+  const row = await prisma.operatorLoginBucket.findUnique({ where: { operatorId_ip: { operatorId, ip } } });
+  return row?.lockedUntil ?? null;
+}
 const NEW_PASSWORD = 'caballo-bateria-grapa-91';
 let clock = 1_800_000_000_000;
 const tick = (ms = 31_000) => (clock += ms); // cada paso avanza más de un intervalo TOTP
@@ -154,8 +162,9 @@ describe('bloqueo por intentos', () => {
     for (let i = 0; i < MAX_FAILED_LOGINS; i++) expect(await loginWithPassword(email, 'mala-mala-mala-1', ctx, tick(1000))).toEqual({ status: 'invalid' });
     expect(await loginWithPassword(email, NEW_PASSWORD, ctx, tick(1000))).toEqual({ status: 'invalid' }); // bloqueada
 
+    // H-170: el bloqueo es por (cuenta, IP): la de esta IP queda bloqueada; la cuenta en sí no (otra IP puede entrar).
     const op = await prisma.operator.findUniqueOrThrow({ where: { email } });
-    expect(op.lockedUntil).not.toBeNull();
+    expect(await bucketLockedUntil(op.id, ctx.ip)).not.toBeNull();
     expect(await prisma.auditLog.count({ where: { operatorId: op.id, action: 'auth.locked' } })).toBe(1);
 
     const later = clock + LOCK_MS + 1000;
@@ -172,6 +181,86 @@ describe('bloqueo por intentos', () => {
     for (let i = 0; i < MAX_FAILED_LOGINS; i++) last = await verifyMfa(login.token, '000000', ctx, clock);
     expect(last).toEqual({ status: 'locked' });
     expect((await verifyMfa(login.token, '000000', ctx, clock)).status).toBe('locked');
+  });
+});
+
+/* H-170 (fase 5): el bloqueo del login era POR CUENTA (5 fallos, 15 min) sin componente de IP: quien conociera el email de un operador, SUPERADMIN incluido, lo bloqueaba cada 15 min con
+ * 5 peticiones y solo había `operator:unlock` por script. Ahora el cupo de 5 fallos es por (cuenta, IP): quien conoce el email solo se bloquea a SÍ MISMO. Para no perder la defensa contra
+ * una fuerza bruta repartida entre muchas IPs, la cuenta tiene además un tope mayor (30 fallos en total) que sí la bloquea y se levanta con `unlockOperator` (script y panel). */
+describe('bloqueo por cuenta y por IP (H-170)', () => {
+  const attacker = { ip: '198.51.100.9', userAgent: 'atacante' };
+  const owner = { ip: '203.0.113.50', userAgent: 'operador' };
+
+  it('quien conoce el email NO bloquea al operador: sigue pudiendo entrar (contraseña y MFA) desde su IP', async () => {
+    const { email, secret } = await onboardedOperator();
+    for (let i = 0; i < MAX_FAILED_LOGINS * 4; i++) expect(await loginWithPassword(email, 'mala-mala-mala-1', attacker, tick(1000))).toEqual({ status: 'invalid' });
+    const now = tick(); // un intervalo TOTP nuevo: el código del alta ya está usado
+    const login = await loginWithPassword(email, NEW_PASSWORD, owner, now);
+    if (login.status !== 'mfa_required') throw new Error('el operador debería poder entrar desde su IP');
+    expect((await verifyMfa(login.token, totpCode(secret, totpStep(now)), owner, now)).status).toBe('ok');
+  });
+
+  it('desde la IP bloqueada ni la contraseña correcta entra hasta pasado el tiempo', async () => {
+    const { email } = await onboardedOperator();
+    for (let i = 0; i < MAX_FAILED_LOGINS; i++) await loginWithPassword(email, 'mala-mala-mala-1', attacker, tick(1000));
+    expect(await loginWithPassword(email, NEW_PASSWORD, attacker, tick(1000))).toEqual({ status: 'invalid' });
+    const later = clock + LOCK_MS + 1000;
+    expect((await loginWithPassword(email, NEW_PASSWORD, attacker, later)).status).toBe('mfa_required');
+  });
+
+  it('martillear desde una IP ya bloqueada NO gasta el contador de la cuenta (no se llega al bloqueo de cuenta con una sola IP)', async () => {
+    const { email } = await onboardedOperator();
+    for (let i = 0; i < 200; i++) await loginWithPassword(email, 'mala-mala-mala-1', attacker, tick(10));
+    const op = await prisma.operator.findUniqueOrThrow({ where: { email } });
+    expect(op.lockedUntil).toBeNull();
+    expect(op.failedLogins).toBeLessThanOrEqual(MAX_FAILED_LOGINS);
+  });
+
+  it('una fuerza bruta repartida entre muchas IPs SÍ bloquea la cuenta (defensa distribuida) y `unlockOperator` la levanta', async () => {
+    const { email } = await onboardedOperator();
+    const ips = Math.ceil(MAX_FAILED_LOGINS_ACCOUNT / MAX_FAILED_LOGINS) + 1;
+    for (let n = 0; n < ips; n++) {
+      for (let i = 0; i < MAX_FAILED_LOGINS; i++) await loginWithPassword(email, 'mala-mala-mala-1', { ip: `198.51.100.${100 + n}`, userAgent: 'botnet' }, tick(1000));
+    }
+    const op = await prisma.operator.findUniqueOrThrow({ where: { email } });
+    expect(op.lockedUntil).not.toBeNull();
+    expect(await loginWithPassword(email, NEW_PASSWORD, owner, tick(1000))).toEqual({ status: 'invalid' }); // la cuenta está bloqueada para todos
+    await unlockOperator(op.id, { id: null, email: 'cli@servidor' });
+    expect((await loginWithPassword(email, NEW_PASSWORD, owner, tick(1000))).status).toBe('mfa_required');
+    expect(await prisma.operatorLoginBucket.count({ where: { operatorId: op.id } })).toBeLessThanOrEqual(1); // los cupos por IP también se limpian (queda el del acceso correcto, si acaso)
+  });
+
+  it('una contraseña correcta devuelve su intento al cupo de la IP (3 fallos + acceso + 1 fallo más no bloquean; el MFA sigue contando el suyo)', async () => {
+    const { email } = await onboardedOperator();
+    for (let i = 0; i < MAX_FAILED_LOGINS - 2; i++) await loginWithPassword(email, 'mala-mala-mala-1', owner, tick(1000));
+    expect((await loginWithPassword(email, NEW_PASSWORD, owner, tick(1000))).status).toBe('mfa_required'); // no completa el MFA
+    await loginWithPassword(email, 'mala-mala-mala-1', owner, tick(1000));
+    expect((await loginWithPassword(email, NEW_PASSWORD, owner, tick(1000))).status).toBe('mfa_required'); // 4 fallos en el cupo, no 5
+  });
+
+  it('un acceso correcto limpia el cupo de esa IP y el contador de la cuenta', async () => {
+    const { email, secret } = await onboardedOperator();
+    for (let i = 0; i < MAX_FAILED_LOGINS - 2; i++) await loginWithPassword(email, 'mala-mala-mala-1', owner, tick(1000));
+    const now = tick();
+    const login = await loginWithPassword(email, NEW_PASSWORD, owner, now);
+    if (login.status !== 'mfa_required') throw new Error();
+    expect((await verifyMfa(login.token, totpCode(secret, totpStep(now)), owner, now)).status).toBe('ok');
+    const op = await prisma.operator.findUniqueOrThrow({ where: { email } });
+    expect(op.failedLogins).toBe(0);
+    expect(await prisma.operatorLoginBucket.findUnique({ where: { operatorId_ip: { operatorId: op.id, ip: owner.ip } } })).toBeNull();
+  });
+
+  it('el MFA tiene su cupo por IP: quien tiene la contraseña pero no el código se bloquea él, no al operador', async () => {
+    const { email, secret } = await onboardedOperator();
+    const stolen = await loginWithPassword(email, NEW_PASSWORD, attacker, tick(1000)); // contraseña robada, sin el segundo factor
+    if (stolen.status !== 'mfa_required') throw new Error();
+    let last;
+    for (let i = 0; i < MAX_FAILED_LOGINS; i++) last = await verifyMfa(stolen.token, '000000', attacker, clock);
+    expect(last).toEqual({ status: 'locked' });
+    const now = tick();
+    const login = await loginWithPassword(email, NEW_PASSWORD, owner, now);
+    if (login.status !== 'mfa_required') throw new Error('el operador debería poder entrar');
+    expect((await verifyMfa(login.token, totpCode(secret, totpStep(now)), owner, now)).status).toBe('ok');
   });
 });
 
@@ -294,14 +383,14 @@ describe('fuerza bruta en paralelo', () => {
     expect(burst.filter((r) => r.status === 'invalid').length + burst.filter((r) => r.status === 'locked').length).toBe(40);
     expect(burst.filter((r) => r.status === 'invalid').length).toBeLessThan(MAX_FAILED_LOGINS);
     const op = await prisma.operator.findUniqueOrThrow({ where: { email } });
-    expect(op.lockedUntil).not.toBeNull();
+    expect(await bucketLockedUntil(op.id, ctx.ip)).not.toBeNull(); // H-170: bloqueo por (cuenta, IP)
   });
 
   it('una ráfaga de contraseñas simultáneas tampoco evita el bloqueo', async () => {
     const { email } = await onboardedOperator();
     await Promise.all(Array.from({ length: 30 }, () => loginWithPassword(email, 'mala-mala-mala-1', ctx, clock)));
     const op = await prisma.operator.findUniqueOrThrow({ where: { email } });
-    expect(op.lockedUntil).not.toBeNull();
+    expect(await bucketLockedUntil(op.id, ctx.ip)).not.toBeNull(); // H-170: bloqueo por (cuenta, IP)
     // Y la auditoría no se infla: solo se anotan los intentos que llegaron a verificarse.
     const entries = await prisma.auditLog.count({ where: { operatorId: op.id, action: { in: ['auth.login_failed', 'auth.locked'] } } });
     expect(entries).toBeLessThanOrEqual(MAX_FAILED_LOGINS);

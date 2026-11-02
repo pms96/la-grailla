@@ -252,20 +252,23 @@ describe('topes de compra (P0-04)', () => {
     });
 
     it('un reintento con la misma clave devuelve la URL de la sesión VIVA (antes: checkoutUrl null y el comprador sin salida)', async () => {
+      // Un reintento real conserva el email del formulario (H-214: con otro email o selección el servidor responde 409).
       const key = crypto.randomUUID();
-      const first = await (await post(createOrder, body([{ ticketTypeId: tt.id, quantity: 1 }], { idempotencyKey: key }), freshIp())).json();
+      const buyerEmail = `ana-reintento-${Math.random()}@example.com`;
+      const first = await (await post(createOrder, body([{ ticketTypeId: tt.id, quantity: 1 }], { idempotencyKey: key, buyerEmail }), freshIp())).json();
       expect(first.checkoutUrl).toContain('https://pay.example/');
       gateway.resumeUrl = 'https://pay.example/viva';
-      const retry = await (await post(createOrder, body([{ ticketTypeId: tt.id, quantity: 1 }], { idempotencyKey: key }), freshIp())).json();
+      const retry = await (await post(createOrder, body([{ ticketTypeId: tt.id, quantity: 1 }], { idempotencyKey: key, buyerEmail }), freshIp())).json();
       expect(retry).toMatchObject({ success: true, orderId: first.orderId, checkoutUrl: 'https://pay.example/viva' });
       expect(await prisma.order.count({ where: { eventId: event.id } })).toBe(1);
     });
 
     it('si la sesión ya no está abierta, el reintento sigue devolviendo checkoutUrl null (la confirmación lo explica)', async () => {
       const key = crypto.randomUUID();
-      await post(createOrder, body([{ ticketTypeId: tt.id, quantity: 1 }], { idempotencyKey: key }), freshIp());
+      const buyerEmail = `ana-reintento-${Math.random()}@example.com`;
+      await post(createOrder, body([{ ticketTypeId: tt.id, quantity: 1 }], { idempotencyKey: key, buyerEmail }), freshIp());
       gateway.resumeUrl = null;
-      const retry = await (await post(createOrder, body([{ ticketTypeId: tt.id, quantity: 1 }], { idempotencyKey: key }), freshIp())).json();
+      const retry = await (await post(createOrder, body([{ ticketTypeId: tt.id, quantity: 1 }], { idempotencyKey: key, buyerEmail }), freshIp())).json();
       expect(retry.checkoutUrl).toBeNull();
     });
   });

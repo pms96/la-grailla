@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Temporada, Ingreso } from '@prisma/client';
 import type { WithNumberFields } from '@/lib/prisma';
 import { PageHeader } from '@/components/layouts/page-header';
@@ -18,6 +18,7 @@ import { IngresoDialog } from '@/app/admin/ingresos/_components/ingreso-dialog';
 import { userMessage } from '@/lib/error-text';
 import { fetchAdminJson, responseError } from '@/lib/admin-fetch';
 import { LoadError } from '@/components/admin/load-error';
+import { createLatest } from '@/lib/latest-request';
 
 type IngresoConRelaciones = WithNumberFields<Ingreso, 'importe'> & { createdBy: { id: string; name: string | null; email: string } | null };
 
@@ -59,27 +60,43 @@ export default function IngresosPage() {
       .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar las temporadas')));
   }, [incluirArchivadas]);
 
+  // H-224: la carga inicial es una función: «Reintentar» la repite poniendo el estado de carga.
+  const loadBase = useCallback(() => {
+    setLoading(true);
+    return fetchTemporadas().finally(() => setLoading(false));
+  }, [fetchTemporadas]);
+
   useEffect(() => {
-    fetchTemporadas().finally(() => setLoading(false));
+    void loadBase();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // H-225: solo vale la respuesta de la última petición (cambiar de temporada relanza la carga).
+  const latest = useRef(createLatest());
+  const [datosLoading, setDatosLoading] = useState(false);
   const fetchDatos = useCallback(() => {
     if (!temporadaId) { setIngresos([]); setResumen(null); return; }
+    const id = latest.current.next();
+    setDatosLoading(true);
     Promise.all([
       fetchAdminJson<IngresoConRelaciones[]>(`/api/admin/ingresos?temporadaId=${temporadaId}`, 'No se pudieron cargar los ingresos'),
       fetchAdminJson<Resumen>(`/api/admin/ingresos/resumen?temporadaId=${temporadaId}`, 'No se pudo cargar el resumen de ingresos'),
     ])
       .then(([i, r]) => {
+        if (!latest.current.isCurrent(id)) return;
         setIngresos(Array.isArray(i) ? i : []);
         setResumen(r);
         setLoadError(null);
       })
       .catch((e) => {
+        if (!latest.current.isCurrent(id)) return;
         // Sin datos, nada de totales a cero: se vacía y se enseña el error.
         setIngresos([]);
         setResumen(null);
         setLoadError(userMessage(e, 'No se pudieron cargar los ingresos'));
+      })
+      .finally(() => {
+        if (latest.current.isCurrent(id)) setDatosLoading(false);
       });
   }, [temporadaId]);
 
@@ -121,7 +138,8 @@ export default function IngresosPage() {
   }
   const dias = Array.from(porDia.keys()).sort();
 
-  if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  // H-224: mientras llegan los datos de un reintento (sin resumen todavía) se enseña la carga, no «0,00 €» ni «Sin gastos».
+  if (loading || (datosLoading && !resumen)) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
 
   return (
     <div className="space-y-6">
@@ -140,7 +158,7 @@ export default function IngresosPage() {
       </div>
 
       {loadError ? (
-        <LoadError title="No se han podido cargar los ingresos." message={loadError} onRetry={() => { setLoadError(null); void fetchTemporadas(); fetchDatos(); }} />
+        <LoadError title="No se han podido cargar los ingresos." message={loadError} onRetry={() => { setLoadError(null); setLoading(true); void loadBase(); fetchDatos(); }} />
       ) : !temporada ? (
         <p className="text-sm text-muted-foreground py-10 text-center">Crea una temporada para empezar a registrar ingresos.</p>
       ) : (

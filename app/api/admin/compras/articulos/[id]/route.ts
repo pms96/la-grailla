@@ -7,11 +7,12 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
+import { ivaPercentSchema, precioSchema as importePrecioSchema } from '@/lib/contabilidad/validation';
 import { syncPreciosArticulo } from '@/lib/compras/precios-articulo';
 
 const precioSchema = z.object({
   proveedorId: z.string().min(1),
-  precioSinIva: z.coerce.number(),
+  precioSinIva: importePrecioSchema, // H-233: sin negativos ni vacío-como-0, con el tope de Decimal(10,2)
   descuentoPercent: z.coerce.number().min(0).max(100).default(0),
   formatoVenta: z.string().min(1),
   unidadMinPedido: z.coerce.number().int().min(1).default(1),
@@ -23,7 +24,7 @@ const updateArticuloSchema = z.object({
   categoria: z.string().min(1).optional(),
   formato: z.string().min(1).optional(),
   unidadesPorCaja: z.coerce.number().int().min(1).optional(),
-  ivaPercent: z.coerce.number().optional(),
+  ivaPercent: ivaPercentSchema.optional(), // H-233: 0–100; vacío no es 0
   activo: z.boolean().optional(),
   precios: z.array(precioSchema).optional(),
 });

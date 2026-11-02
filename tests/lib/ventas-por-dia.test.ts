@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { addDays, buildVentasPorDia, businessDayKey, businessDayStart, classifyOrder, madridDayKey, madridDayStart, parseJornadaCorte } from '@/lib/ventas-por-dia';
+import { addDays, buildVentasPorDia, businessDayKey, businessDayStart, classifyOrder, madridDayKey, madridDayStart, parseJornadaCorte, rangeStartForDays } from '@/lib/ventas-por-dia';
 
 describe('classifyOrder', () => {
   it('separa online, taquilla tarjeta, taquilla efectivo y gratis', () => {
@@ -182,5 +182,34 @@ describe('jornada de negocio (P1-15)', () => {
       const jornada = buildVentasPorDia(orders, caja, { cutoffHour: 6 }).totales.total;
       expect(jornada).toEqual(natural);
     });
+  });
+});
+
+/* H-246: «Hoy / 7 / 30 días» de Estadísticas calculaba `from` con `setHours(0,0,0,0)` en la hora del NAVEGADOR mientras `salesByDay` agrupa por jornada de Madrid con su hora de corte: con corte
+ * a las 6 y un evento que acaba de madrugada, «Hoy» a la 01:00 excluía la noche anterior que «ventas por día» sí cuenta, y con el navegador fuera de la hora de Madrid el día se desplazaba.
+ * El inicio del rango sale ahora del MISMO cálculo que la agrupación (`businessDayStart`). */
+describe('rangeStartForDays (H-246)', () => {
+  const at = (iso: string) => new Date(iso);
+
+  it('sin corte: «hoy» empieza a medianoche de Madrid, no del navegador (verano: medianoche = 22:00Z del día anterior)', () => {
+    expect(rangeStartForDays(1, at('2026-09-25T10:00:00Z'), 0).toISOString()).toBe('2026-09-24T22:00:00.000Z');
+  });
+
+  it('con corte a las 6: a la 01:00 de Madrid del 26 la jornada de «hoy» sigue siendo la del 25 (empieza el 25 a las 06:00 de Madrid)', () => {
+    const now = at('2026-09-25T23:00:00Z'); // 01:00 del 26 en Madrid
+    expect(rangeStartForDays(1, now, 6).toISOString()).toBe('2026-09-25T04:00:00.000Z');
+    // y después de las 06:00 ya es la jornada del 26
+    expect(rangeStartForDays(1, at('2026-09-26T05:00:00Z'), 6).toISOString()).toBe('2026-09-26T04:00:00.000Z');
+  });
+
+  it('7 días = la jornada de hoy y las 6 anteriores', () => {
+    expect(rangeStartForDays(7, at('2026-09-25T10:00:00Z'), 0).toISOString()).toBe('2026-09-18T22:00:00.000Z');
+  });
+
+  it('el instante de inicio pertenece a la jornada que abre (la agrupación y el filtro nunca discrepan)', () => {
+    const now = at('2026-09-25T23:00:00Z');
+    const start = rangeStartForDays(7, now, 6);
+    expect(businessDayKey(start, 6)).toBe('2026-09-19');
+    expect(businessDayKey(new Date(start.getTime() - 1), 6)).toBe('2026-09-18');
   });
 });

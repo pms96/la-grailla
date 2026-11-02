@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { prisma } from '@/lib/db';
+import { makeOperator, resetControlDb, uniq } from './helpers';
 import { ServiceError } from '@/lib/services/errors';
 import { describeDomainSetup, dnsRecordsFor, ensureVercelDomain, vercelConfig, type VercelConfig } from '@/lib/services/vercel-domains';
 
@@ -127,5 +129,33 @@ describe('errores', () => {
     await expect(ensureVercelDomain('no es un dominio/../x', CFG, fetchImpl)).rejects.toMatchObject({ code: 'invalid_host' });
     await expect(ensureVercelDomain('localhost', CFG, fetchImpl)).rejects.toMatchObject({ code: 'invalid_host' });
     expect(calls).toHaveLength(0);
+  });
+});
+
+// H-235: añadir un dominio al proyecto de Vercel con el token del equipo cambia infraestructura y no dejaba rastro. Ahora, si se AÑADE de verdad (no si ya estaba), queda `domain.vercel_add`
+// con el dominio y quién lo hizo (nunca el token).
+describe('el alta de un dominio en Vercel deja auditoría (H-235)', () => {
+  const setup = (created: boolean) => ({ host: 'demo.cliente.es', inProject: !created, created, verified: true, misconfigured: false, records: [] });
+
+  it('si se añadió: una fila `domain.vercel_add` con el dominio y el actor, sin el token', async () => {
+    await resetControlDb();
+    const { actor } = await makeOperator('OPERATOR');
+    const { recordVercelDomainAdded } = await import('@/lib/services/vercel-domains');
+    const tenantId = `tenant-demo-${uniq()}`; // la auditoría es inmutable: un id distinto por ejecución
+    await recordVercelDomainAdded(actor, tenantId, 'demo.cliente.es', setup(true));
+    const rows = await prisma.auditLog.findMany({ where: { action: 'domain.vercel_add', tenantId } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].operatorEmail).toBe(actor.email);
+    expect(JSON.stringify(rows[0].meta)).toContain('demo.cliente.es');
+    expect(JSON.stringify({ ...rows[0], id: String(rows[0].id) })).not.toContain(CFG.token); // `id` es BigInt: no se serializa tal cual
+  });
+
+  it('si el dominio YA estaba en el proyecto no se anota nada (nada cambió)', async () => {
+    await resetControlDb();
+    const { actor } = await makeOperator('OPERATOR');
+    const { recordVercelDomainAdded } = await import('@/lib/services/vercel-domains');
+    const tenantId = `tenant-demo-${uniq()}`;
+    await recordVercelDomainAdded(actor, tenantId, 'demo.cliente.es', setup(false));
+    expect(await prisma.auditLog.count({ where: { action: 'domain.vercel_add', tenantId } })).toBe(0);
   });
 });

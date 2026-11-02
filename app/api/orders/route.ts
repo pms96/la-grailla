@@ -8,8 +8,9 @@ import { Prisma } from '@prisma/client';
 import type { TicketStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { sortedByKey } from '@/lib/lock-order';
+import { IDEMPOTENCY_MISMATCH, sameTicketOrderRequest } from '@/lib/idempotency-match';
 import { generateQRCode } from '@/lib/qr';
-import { getConfig } from '@/lib/config';
+import { getConfig, getConfigExact } from '@/lib/config';
 import { rateLimit, getClientIp, countPendingSlots, takePendingSlot } from '@/lib/rate-limit';
 import { CHECKOUT_RELEASE_AFTER_MS } from '@/lib/checkout-hold';
 import { MAX_TICKETS_PER_TYPE, MAX_TICKET_LINES_PER_ORDER, PENDING_LIMIT_CONFIG_KEY, normalizeEmailForLimit, parsePendingLimit } from '@/lib/checkout-limits';
@@ -51,6 +52,17 @@ class TurnSpentError extends Error {}
 // Demasiados pedidos sin pagar a la vez desde la misma IP para este evento: se responde 429, no 400, porque se libera sola al pagar o abandonar.
 class TooManyPendingOrdersError extends Error {}
 
+// H-215: el total que el comprador veía en pantalla ya no es el vigente (precio, tipo o comisión cambiados mientras esperaba en la cola). Se lanza dentro de la transacción: se
+// deshace, no se crea nada y el turno de la sala de espera sigue siendo suyo.
+class PriceChangedError extends Error {
+  constructor(
+    readonly totalCents: number,
+    readonly prices: { ticketTypeId: string; price: number }[]
+  ) {
+    super('price_changed');
+  }
+}
+
 /**
  * Respuesta de un reintento con la misma `idempotencyKey` de un pedido que ya existe. Si sigue PENDING con su sesión de pago abierta se
  * devuelve la URL para reanudarla (antes `checkoutUrl: null` dejaba al comprador en «Confirmando…» sin salida: EN-07).
@@ -86,6 +98,8 @@ const createOrderSchema = z.object({
   // P0-11: el servidor exige la aceptación (la casilla del formulario no es la barrera: se puede llamar a la API directamente).
   acceptedTerms: z.boolean().optional(),
   ageConfirmed: z.boolean().optional(),
+  // H-215: el total (en céntimos, con la comisión) que el comprador tiene en pantalla; si no coincide con el vigente, 409. Opcional: un cliente antiguo cobra el precio vigente.
+  expectedTotalCents: z.number().int().nonnegative().optional(),
   // Versión de las condiciones con la que se pintó SU pantalla: si cambiaron mientras compraba, 409 (no acepta lo que no vio).
   termsVersion: z.string().max(64).optional(),
 });
@@ -113,17 +127,20 @@ export async function POST(request: Request) {
     }
 
     const body = createOrderSchema.parse(await readJsonLimited(request));
-    const { eventId, buyerName, buyerLastName, buyerEmail, items, queueToken, captchaToken, idempotencyKey, acceptedTerms, ageConfirmed, termsVersion: seenTermsVersion } = body;
+    const { eventId, buyerName, buyerLastName, buyerEmail, items, queueToken, captchaToken, idempotencyKey, acceptedTerms, ageConfirmed, termsVersion: seenTermsVersion, expectedTotalCents } = body;
 
     // Un reintento (red, doble clic, "atrás" + reenviar) con la misma clave
     // que un pedido que ya existe no debe crear un segundo pedido/cobro —
     // se devuelve el mismo resultado de éxito y el frontend manda al
     // comprador a /confirmacion, que ya sabe reconciliar el estado real del
-    // pago. No hace falta comprobar más campos: la clave la genera el propio
-    // navegador y solo tiene sentido comparada consigo misma.
+    // pago. Solo si es de verdad el MISMO intento (H-214): quien vuelve atrás desde la pasarela, cambia la selección y paga de nuevo conserva la clave, y devolverle el
+    // pedido antiguo era cobrarle lo que ya no quería.
     if (idempotencyKey) {
-      const existingOrder = await prisma.order.findUnique({ where: { idempotencyKey } });
-      if (existingOrder) return existingOrderResponse(existingOrder);
+      const existingOrder = await prisma.order.findUnique({ where: { idempotencyKey }, include: { tickets: { select: { ticketTypeId: true } } } });
+      if (existingOrder) {
+        if (!sameTicketOrderRequest(existingOrder, { eventId, buyerEmail, items })) return NextResponse.json(IDEMPOTENCY_MISMATCH, { status: 409 });
+        return existingOrderResponse(existingOrder);
+      }
     }
 
     // Validate event
@@ -174,8 +191,9 @@ export async function POST(request: Request) {
         !queueEntry.expiresAt ||
         queueEntry.expiresAt < new Date()
       ) {
+        // `code`: si la cola se activó con la página ya abierta, el formulario recarga y entra en la sala (H-230).
         return NextResponse.json(
-          { error: 'Tu turno ha expirado o no es válido. Vuelve a la sala de espera.' },
+          { error: 'Tu turno ha expirado o no es válido. Vuelve a la sala de espera.', code: 'queue_required' },
           { status: 403 }
         );
       }
@@ -208,7 +226,8 @@ export async function POST(request: Request) {
     }
     const totalTickets = Array.from(requestedQuantities.values()).reduce((sum, q) => sum + q, 0);
 
-    const commissionStr = await getConfig('commission_percentage');
+    // H-232: lectura EXACTA: un fallo de BD al leer la comisión no puede crear el pedido con comisión 0 (ingreso perdido en silencio): falla y el comprador reintenta.
+    const commissionStr = await getConfigExact('commission_percentage');
     const commissionPct = parseFloat(commissionStr) || 0;
 
     // P0-11: versión de las condiciones que acepta (copia en LegalSnapshot) y tipo de IVA vigente, ambos al pedido. Fuera de la transacción: no
@@ -260,6 +279,7 @@ export async function POST(request: Request) {
         });
 
         const ticketData: { ticketTypeId: string; quantity: number; name: string }[] = [];
+        const currentPrices: { ticketTypeId: string; price: number }[] = [];
         let subtotalCents = 0;
         for (const [ticketTypeId, quantity] of requestedQuantities) {
           const tt = freshTicketTypes.find((t) => t.id === ticketTypeId);
@@ -270,11 +290,13 @@ export async function POST(request: Request) {
           }
           subtotalCents += toCents(tt.price) * quantity;
           ticketData.push({ ticketTypeId: tt.id, quantity, name: tt.name });
+          currentPrices.push({ ticketTypeId: tt.id, price: tt.price });
         }
         // Todo en céntimos enteros y redondeado UNA vez: el mismo importe va a la BD y a la pasarela (P1-07).
         const commissionCents = calculateCommissionCents(subtotalCents, commissionPct);
         commissionAmount = fromCents(commissionCents);
         totalAmount = fromCents(subtotalCents + commissionCents);
+        if (expectedTotalCents !== undefined && expectedTotalCents !== subtotalCents + commissionCents) throw new PriceChangedError(subtotalCents + commissionCents, currentPrices);
         payNow = isGatewayLive && totalAmount > 0;
         if (payNow && totalAmount < MIN_ONLINE_PAYMENT) {
           throw new OrderRejectedError(`El importe mínimo para pagar online es ${MIN_ONLINE_PAYMENT.toFixed(2).replace('.', ',')} €. Añade otra entrada o consulta con el organizador.`);
@@ -400,11 +422,20 @@ export async function POST(request: Request) {
         if (error instanceof DuplicateOrderError) return error;
         if (error instanceof TooManyPendingOrdersError) return error;
         if (error instanceof TurnSpentError) return error;
+        if (error instanceof PriceChangedError) return error;
         throw error;
       });
 
+    if (order instanceof PriceChangedError) {
+      const total = fromCents(order.totalCents);
+      return NextResponse.json(
+        { error: `Los precios han cambiado: el total ahora es ${total.toFixed(2).replace('.', ',')} €. Revisa tu selección antes de pagar.`, code: 'price_changed', totalAmount: total, prices: order.prices },
+        { status: 409 }
+      );
+    }
+
     if (order instanceof TurnSpentError) {
-      return NextResponse.json({ error: 'Tu turno ha expirado o no es válido. Vuelve a la sala de espera.' }, { status: 403 });
+      return NextResponse.json({ error: 'Tu turno ha expirado o no es válido. Vuelve a la sala de espera.', code: 'queue_required' }, { status: 403 });
     }
 
     if (order instanceof TooManyPendingOrdersError) {
@@ -425,11 +456,12 @@ export async function POST(request: Request) {
       // que reconcilia el estado real del pago sin arriesgarse a abrir una
       // segunda sesión de cobro.
       const existingOrder = idempotencyKey
-        ? await prisma.order.findUnique({ where: { idempotencyKey } })
+        ? await prisma.order.findUnique({ where: { idempotencyKey }, include: { tickets: { select: { ticketTypeId: true } } } })
         : null;
       if (!existingOrder) {
         return NextResponse.json({ error: 'No se ha podido procesar el pedido. Inténtalo de nuevo.' }, { status: 409 });
       }
+      if (!sameTicketOrderRequest(existingOrder, { eventId, buyerEmail, items })) return NextResponse.json(IDEMPOTENCY_MISMATCH, { status: 409 });
       return existingOrderResponse(existingOrder);
     }
 
@@ -463,7 +495,8 @@ export async function POST(request: Request) {
         orderId: order.id,
         successUrl: baseUrl + '/confirmacion/' + order.id + '?' + orderAccessQuery(order.id),
         // Volver atrás desde la pasarela pasa por aquí: libera el aforo del pedido si no se ha pagado (con el token firmado del pedido).
-        cancelUrl: baseUrl + '/api/orders/' + order.id + '/abandon?' + orderAccessQuery(order.id),
+        // Con sala de espera, el turno viaja en `q`: si el comprador vuelve sin pagar, el abandono se lo devuelve (H-219).
+        cancelUrl: baseUrl + '/api/orders/' + order.id + '/abandon?' + orderAccessQuery(order.id) + (queueEntry ? '&q=' + encodeURIComponent(queueEntry.token) : ''),
         customerEmail: buyerEmail,
         metadata: { orderType: 'ticket' },
       });

@@ -1,6 +1,6 @@
 /* Payment Adapter Pattern — extensible payment gateway abstraction */
 import type Stripe from 'stripe';
-import { getConfig, getConfigExact, getConfigOrThrow, getShopAccountSince, hasConfigRowExact } from '@/lib/config';
+import { getConfigExact, getShopAccountSince, hasConfigRowExact } from '@/lib/config';
 import { isModuleEnabled } from '@/lib/modules/runtime';
 import { stripeExpiresAt, sumUpValidUntil } from '@/lib/checkout-hold';
 import { roundMoney, toCents } from '@/lib/pricing';
@@ -382,7 +382,9 @@ export class StripeAdapter implements PaymentProvider {
   }): Promise<PaymentSession> {
     // Dynamic import so Stripe is only loaded when used
     const Stripe = (await import('stripe')).default;
-    const stripe = new Stripe(this.secretKey, { apiVersion: '2024-04-10' as Stripe.LatestApiVersion });
+    // H-217: esto corre DESPUÉS del commit del pedido, dentro del `maxDuration` de la ruta (cerrojo 20 s + transacción 20 s + esto). Con el timeout por defecto del SDK (80 s) la función
+    // podía morir antes de guardar `paymentId`. Sin reintentos automáticos: un reintento nuestro con la misma `idempotencyKey` ya devuelve la sesión creada.
+    const stripe = new Stripe(this.secretKey, { apiVersion: '2024-04-10' as Stripe.LatestApiVersion, timeout: STRIPE_CREATE_TIMEOUT_MS, maxNetworkRetries: 0 });
     const session = await stripe.checkout.sessions.create(
       {
         payment_method_types: ['card'],
@@ -559,6 +561,8 @@ export function mapSumUpStatus(status: unknown): PaymentStatus {
 
 /** Tope de la llamada que crea el checkout de SumUp (la compra espera esa respuesta; las consultas de la conciliación tienen 15 s). */
 const SUMUP_CREATE_TIMEOUT_MS = 12_000;
+/** Crear la sesión de Stripe (misma cota que SumUp: forma parte del presupuesto de `maxDuration` de las rutas de pedido, H-180 y H-217). */
+const STRIPE_CREATE_TIMEOUT_MS = 12_000;
 /** Tope de la prueba de conexión del admin (una pasarela que no contesta no debe colgar la pantalla de configuración). */
 const SUMUP_TEST_TIMEOUT_MS = 10_000;
 
@@ -812,15 +816,16 @@ export async function getPaymentProviderByName(gateway: string, scope: PaymentSc
     // .trim(): una key guardada con un espacio/salto de línea invisible (copia
     // y pega desde el dashboard de la pasarela) rompe el header Authorization
     // y la pasarela responde 401 sin más contexto — nunca es un valor válido.
-    const secretKey = (await getConfigOrThrow(keys.stripeSecret)).trim();
+    // H-232: lecturas EXACTAS (como la huella de la cuenta): un corte de BD no puede pasar por «falta la clave» (el webhook respondía 400, que Stripe no reintenta como un 500).
+    const secretKey = (await getConfigExact(keys.stripeSecret)).trim();
     if (!secretKey) throw new ProviderNotConfiguredError(`Stripe está activo pero falta ${keys.stripeSecret} en /admin/configuracion`, 'stripe');
-    return new StripeAdapter(secretKey, async () => (await getConfigOrThrow(keys.stripeWebhook)).trim());
+    return new StripeAdapter(secretKey, async () => (await getConfigExact(keys.stripeWebhook)).trim());
   }
 
   if (gateway === 'sumup') {
     const [apiKey, merchantCode] = await Promise.all([
-      getConfigOrThrow(keys.sumupKey),
-      getConfig(keys.sumupMerchant),
+      getConfigExact(keys.sumupKey),
+      getConfigExact(keys.sumupMerchant),
     ]);
     const trimmedApiKey = apiKey.trim();
     const trimmedMerchantCode = merchantCode.trim();
@@ -894,7 +899,8 @@ export async function accountScopeForOrder(kind: PaymentScope, order: { createdA
  * lo contrario simula un pago aceptado sin cobrar nada real, y el fallo de
  * configuración nunca se detectaría hasta producción. */
 export async function getPaymentProvider(scope: PaymentScope = 'entradas'): Promise<PaymentProvider> {
-  const activeGateway = await getConfig((await paymentKeys(scope)).gateway);
+  // H-232: lectura EXACTA: con la BD caída, `getConfig` devolvía «mock» y el comprador veía «pasarela en modo mock» (un mensaje falso; en desarrollo el pedido se marcaba pagado).
+  const activeGateway = await getConfigExact((await paymentKeys(scope)).gateway);
   const resolvedGateway = activeGateway || 'mock';
 
   // En producción, "mock" completa pedidos como pagados sin cobrar nada real

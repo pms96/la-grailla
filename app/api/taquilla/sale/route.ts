@@ -1,4 +1,6 @@
 export const dynamic = 'force-dynamic';
+// H-218: toma el mismo cerrojo por evento que el checkout y espera lo mismo (cerrojo 20 s + transacción 20 s): con el límite por defecto de la plataforma la venta podía morir a medias.
+export const maxDuration = 60;
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -181,7 +183,9 @@ export async function POST(request: Request) {
       }
 
       return { order: newOrder, totalAmount, totalTickets };
-    }).catch((error) => {
+      // H-218: lo mismo que `app/api/orders/route.ts`: la espera del cerrojo cuenta dentro del `timeout` de la transacción y, detrás de una cola de compras online, los 5 s por
+      // defecto de Prisma dan P2028 (la venta física devolvía 500 o el cobro con datáfono quedaba sin registrar).
+    }, { maxWait: 20_000, timeout: 20_000 }).catch((error) => {
       if (error instanceof TaquillaSaleRejectedError) return error;
       throw error;
     });

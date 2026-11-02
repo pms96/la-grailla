@@ -266,3 +266,67 @@ describe('alta manual sin email', () => {
     expect(logs).toHaveLength(0);
   });
 });
+
+// H-239: rechazar solo cambiaba `status` y mandaba el email: no dejaba rastro y, si el patrocinio estaba cobrado, seguía contando como ingreso de la temporada
+// (`gastos/resumen` suma todo `isPaid && !isCollaboration`) sin que nadie lo supiera. Rechazar no desmarca el cobro por su cuenta (el dinero se devuelve a mano y la decisión es del
+// administrador), pero ahora lo DICE (`stillCountsAsIncome`) y deja la auditoría `sponsor.reject`.
+describe('rechazar un patrocinio: rastro y aviso de cobro (H-239)', () => {
+  const nuevo = async (paid: boolean) => {
+    const res = await createSponsor(
+      adminRequest({ companyName: `Rechazo ${paid ? 'cobrado' : 'sin cobrar'} SL`, contactName: 'Eva', email: `rechazo-${paid}-${Date.now()}@example.com`, sponsorType: 'evento', status: 'ACCEPTED' })
+    );
+    const data = await res.json();
+    if (paid) await prisma.sponsor.update({ where: { id: data.sponsor.id }, data: { isPaid: true, paidAmount: 150, paidAt: new Date() } });
+    return { requestId: data.sponsorRequest.id as string, sponsorId: data.sponsor.id as string };
+  };
+  const rastro = (sponsorId: string) => prisma.adminAuditLog.findMany({ where: { action: 'sponsor.reject', targetId: sponsorId }, orderBy: { createdAt: 'asc' } });
+
+  it('un patrocinio COBRADO: se rechaza, avisa de que sigue contando como ingreso y deja auditoría con el cobro', async () => {
+    const s = await nuevo(true);
+    try {
+      const res = await reject(adminRequest(), { params: Promise.resolve({ id: s.sponsorId }) });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.stillCountsAsIncome).toBe(true);
+      expect((await prisma.sponsor.findUniqueOrThrow({ where: { id: s.sponsorId } })).isPaid).toBe(true); // no se desmarca solo
+      const filas = await rastro(s.sponsorId);
+      expect(filas).toHaveLength(1);
+      expect(JSON.stringify(filas[0].meta)).toContain('"wasPaid":true');
+    } finally {
+      await cleanup(s.requestId, s.sponsorId);
+    }
+  });
+
+  it('un patrocinio sin cobrar: no avisa de ingreso, pero también deja auditoría', async () => {
+    const s = await nuevo(false);
+    try {
+      const res = await reject(adminRequest(), { params: Promise.resolve({ id: s.sponsorId }) });
+      expect((await res.json()).stillCountsAsIncome).toBe(false);
+      expect(await rastro(s.sponsorId)).toHaveLength(1);
+    } finally {
+      await cleanup(s.requestId, s.sponsorId);
+    }
+  });
+
+  it('una colaboración (en especie) no cuenta como ingreso: no avisa', async () => {
+    const s = await nuevo(true);
+    try {
+      await prisma.sponsor.update({ where: { id: s.sponsorId }, data: { isCollaboration: true } });
+      const res = await reject(adminRequest(), { params: Promise.resolve({ id: s.sponsorId }) });
+      expect((await res.json()).stillCountsAsIncome).toBe(false);
+    } finally {
+      await cleanup(s.requestId, s.sponsorId);
+    }
+  });
+
+  it('un rechazo que no procede (ya rechazado) responde 409 y NO deja otra fila de auditoría', async () => {
+    const s = await nuevo(false);
+    try {
+      await reject(adminRequest(), { params: Promise.resolve({ id: s.sponsorId }) });
+      expect((await reject(adminRequest(), { params: Promise.resolve({ id: s.sponsorId }) })).status).toBe(409);
+      expect(await rastro(s.sponsorId)).toHaveLength(1);
+    } finally {
+      await cleanup(s.requestId, s.sponsorId);
+    }
+  });
+});

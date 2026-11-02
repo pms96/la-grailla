@@ -1,3 +1,6 @@
+import type { ActingOperator } from '../actor';
+import { appendAudit } from '../audit';
+import { prisma } from '../db';
 import { ServiceError } from './errors';
 import type { FetchLike } from './tenant-calls';
 
@@ -102,6 +105,17 @@ export function dnsRecordsFor(host: string, apex: string | undefined, verificati
     records.push({ type: 'CNAME', name: host, value: (cname ?? DEFAULT_CNAME).replace(/\.$/, '') });
   }
   return records;
+}
+
+/**
+ * Anota en la auditoría que se AÑADIÓ un dominio al proyecto de Vercel con el token del equipo (H-235): cambia infraestructura. Solo si se añadió (`created`); si ya estaba no cambió nada.
+ * Lleva el dominio y quién lo hizo; nunca el token.
+ */
+export async function recordVercelDomainAdded(actor: ActingOperator, tenantId: string, host: string, setup: DomainSetup): Promise<void> {
+  if (!setup.created) return;
+  await prisma.$transaction((tx) =>
+    appendAudit(tx, { actor, action: 'domain.vercel_add', targetType: 'domain', targetId: host, tenantId, meta: { host, verified: setup.verified, misconfigured: setup.misconfigured } })
+  );
 }
 
 /** Añade el dominio al proyecto (si no estaba), y dice si el DNS ya apunta a Vercel y qué registros faltan. Repetible. */

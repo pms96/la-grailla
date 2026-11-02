@@ -20,7 +20,8 @@ Configuración de `images` cuando está activa: `formats: ['image/webp']`, `devi
 
 ## Volver atrás
 
-- Rápido: pon `IMAGES_UNOPTIMIZED=1` (o borra `BLOB_PUBLIC_HOST`) y redespliega, o «Instant Rollback» al despliegue anterior. Las páginas vuelven a servir el `src` original de Blob; no queda nada que deshacer en datos.
+- Rápido: pon `IMAGES_UNOPTIMIZED=1` y redespliega, o «Instant Rollback» al despliegue anterior. Las páginas vuelven a servir el `src` original de Blob; no queda nada que deshacer en datos.
+- **No borres `BLOB_PUBLIC_HOST` para volver atrás** (H-240): `IMAGES_UNOPTIMIZED=1` ya apaga la optimización y deja la variable donde está. En el proyecto de plataforma el preflight la exige, y sin ella (o con una forma incorrecta) vuelve el comodín `*.public.blob.vercel-storage.com` a la CSP y a la lista de URLs de Blob: se reabre el endurecimiento de H-067 y H-112.
 
 ## Coste estimado
 

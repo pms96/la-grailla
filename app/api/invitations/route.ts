@@ -148,7 +148,8 @@ export async function POST(request: Request) {
       });
 
       return { order, invitation };
-    }).catch((error) => {
+      // H-218: mismo cerrojo por evento que el checkout, misma espera (ver `app/api/orders/route.ts`).
+    }, { maxWait: 20_000, timeout: 20_000 }).catch((error) => {
       if (error instanceof InvitationRejectedError) return error;
       throw error;
     });

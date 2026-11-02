@@ -35,7 +35,7 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
     // Un pedido anulado, reembolsado o sin pagar, o un evento cancelado, no emite QR (P1-02): se explica en vez de imprimir una entrada que no vale.
     const unusable = ticketUnusable(order, order.event);
     if (unusable) {
-      const page = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Entradas no disponibles</title></head><body style="font-family: Arial, sans-serif; max-width: 480px; margin: 80px auto; padding: 0 20px; text-align: center; color: #1a1a1a;"><h1 style="font-size: 20px;">Entradas no disponibles</h1><p style="color: #555;">${esc(unusable.buyerMessage)}</p></body></html>`;
+      const page = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Entradas no disponibles</title></head><body style="font-family: Arial, sans-serif; max-width: 480px; margin: 80px auto; padding: 0 20px; text-align: center; color: #1a1a1a;"><h1 style="font-size: 20px;">Entradas no disponibles</h1><p style="color: #555;">${esc(unusable.buyerMessage)}</p></body></html>`;
       return new NextResponse(page, { status: 410, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     }
 
@@ -74,7 +74,7 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
       `);
     }
 
-    const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Entradas - ${esc(order.event?.name)}</title></head><body style="margin:0;padding:0;">${ticketHtmls.join('')}</body></html>`;
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Entradas - ${esc(order.event?.name)}</title></head><body style="margin:0;padding:0;">${ticketHtmls.join('')}</body></html>`;
 
     return new NextResponse(fullHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   } catch (error) {

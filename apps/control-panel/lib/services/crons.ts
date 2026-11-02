@@ -185,7 +185,9 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
           // Un fallo técnico GRAVE (`severe`) no es un cambio de estado de un solo aviso: cuenta como fallo de la tarea (crítico a los 2 seguidos, con reintento, H-175) y su «recuperado» lo da
           // esa misma vía; avisar también aquí duplicaría el aviso.
           if (!healthy && previousOk && !probe.severe) healthChange = { severity: 'warning', title: `${target.name}: la web responde pero no está sana`, detail: probe.problems.join(' · '), tenant: who };
-          else if (healthy && !previousOk && previous.status !== 'unreachable' && row.consecutiveFailures < alertAfterFailures(job)) healthChange = { severity: 'recovery', title: `${target.name}: la web vuelve a estar sana`, tenant: who };
+          // «Recuperado» solo si hubo aviso: un estado previo SIN fallos de tarea (`consecutiveFailures === 0`) viene de un problema no grave, que sí avisó con su warning. Con fallos por debajo
+          // del umbral (un solo mal sondeo grave) nunca se avisó, y por encima del umbral el «recuperado» lo da la propia tarea (H-226).
+          else if (healthy && !previousOk && previous.status !== 'unreachable' && row.consecutiveFailures === 0) healthChange = { severity: 'recovery', title: `${target.name}: la web vuelve a estar sana`, tenant: who };
         }
         // Señales de negocio: solo en el cambio (aparece, escala, se resuelve), igual que la salud técnica. Sin comprobación anterior también se avisa:
         // una señal de dinero activa en la primera lectura no debe esperar a «cambiar».

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import { signSponsorAccess } from '@/lib/access-token';
 
@@ -47,30 +47,31 @@ describe('POST /api/sponsors/portal/[sponsorId]/datos', () => {
     await prisma.sponsorRequest.deleteMany({ where: { id: sponsorRequestId } });
   });
 
-  // H-169 (fase 5): la web del sponsor acaba en un `href` del panel del admin. Esta ruta (solo con el token del sponsor) la guardaba tal cual:
-  // `javascript:…` quedaba en la BD. `/api/sponsors` ya la normalizaba (H-105).
-  describe('website (H-169)', () => {
+  // H-169 (fase 5) y H-216 (ronda 2): la web del sponsor acaba en un `href` del panel del admin. Esta ruta (solo con el token del sponsor) la guardaba tal cual (`javascript:`
+  // en la BD) y al validarla el formulario del portal, que NO tiene campo web pero reenviaba la guardada, daba 400 a quien tenía una web antigua no válida y le impedía guardar
+  // su email y el consentimiento. El portal no edita la web: la ignora (la fijan el alta pública, validada, y el admin).
+  describe('website: el portal no la escribe (H-169, H-216)', () => {
     const save = (website: unknown) =>
       saveDatos(jsonRequest(`http://localhost?t=${token}`, { companyName: 'Datos Incompletos SL', contactName: 'Rocío', website }), { params: Promise.resolve({ sponsorId }) });
+    const stored = async () => (await prisma.sponsorRequest.findUnique({ where: { id: sponsorRequestId }, select: { website: true } }))?.website ?? null;
 
-    it.each(['javascript:alert(1)', 'data:text/html,<b>x</b>', 'file:///etc/passwd', 'https://banco.com@evil.es', 'sin punto', 'ftp://x.com'])('rechaza «%s» con 400 y no lo guarda', async (bad) => {
-      const res = await save(bad);
-      expect(res.status).toBe(400);
-      const row = await prisma.sponsorRequest.findUnique({ where: { id: sponsorRequestId }, select: { website: true } });
-      expect(row?.website ?? '').not.toContain(bad);
+    afterEach(async () => {
+      await prisma.sponsorRequest.update({ where: { id: sponsorRequestId }, data: { website: null } });
     });
 
-    it('normaliza una dirección sin esquema a https y la guarda', async () => {
-      const res = await save('tuempresa.com/tienda');
+    it.each(['javascript:alert(1)', 'data:text/html,<b>x</b>', 'https://nueva-web.com', '   '])('lo que llegue en `website` («%s») se ignora: 200 y la web guardada no cambia', async (sent) => {
+      await prisma.sponsorRequest.update({ where: { id: sponsorRequestId }, data: { website: 'https://original.com' } });
+      const res = await save(sent);
       expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.sponsorRequest.website).toBe('https://tuempresa.com/tienda');
+      expect(await stored()).toBe('https://original.com');
+      expect((await res.json()).sponsorRequest.website).toBe('https://original.com');
     });
 
-    it('un texto vacío borra la web (null)', async () => {
-      const res = await save('   ');
+    it('una web antigua NO válida ya guardada («instagram @empresa») no impide guardar los datos y se queda como estaba', async () => {
+      await prisma.sponsorRequest.update({ where: { id: sponsorRequestId }, data: { website: 'instagram @empresa' } });
+      const res = await save('instagram @empresa'); // lo que reenvía el formulario del portal al precargarla
       expect(res.status).toBe(200);
-      expect((await res.json()).sponsorRequest.website).toBeNull();
+      expect(await stored()).toBe('instagram @empresa');
     });
   });
 

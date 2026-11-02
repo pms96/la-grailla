@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { normalizePublicUrl } from '@/lib/safe-url';
 import { DEFAULT_SPONSOR_TIERS, type SponsorTier } from '@/lib/sponsor-tiers';
 import { SponsorInviteDelivery } from './sponsor-invite-delivery';
 import { userMessage } from '@/lib/error-text';
@@ -55,8 +57,8 @@ export function CreateSponsorDialog({ open, onOpenChange, onCreated }: Props) {
   const [tiers, setTiers] = useState<SponsorTier[]>(DEFAULT_SPONSOR_TIERS);
 
   useEffect(() => {
-    fetch('/api/sponsors/tiers')
-      .then((r) => r.json())
+    // Solo precarga las tarifas del desplegable: sin ellas quedan las de serie (no es un aviso).
+    fetchAdminJson<{ tiers?: SponsorTier[] }>('/api/sponsors/tiers', 'No se pudieron cargar las tarifas')
       .then((d) => { if (Array.isArray(d?.tiers) && d.tiers.length > 0) setTiers(d.tiers); })
       .catch(() => {});
   }, []);
@@ -72,6 +74,11 @@ export function CreateSponsorDialog({ open, onOpenChange, onCreated }: Props) {
   const handleSave = async () => {
     if (!form.companyName.trim() || !form.contactName.trim() || !form.sponsorType) {
       toast.error('Completa los campos obligatorios');
+      return;
+    }
+    // H-242: la web se valida AQUÍ y se dice de qué campo se trata (el 400 del servidor es genérico: «Los datos enviados no son válidos…»). Igual que el formulario público.
+    if (form.website.trim() && !normalizePublicUrl(form.website)) {
+      toast.error('Escribe una dirección web válida (por ejemplo https://tuempresa.com) o deja el campo vacío');
       return;
     }
     setSaving(true);

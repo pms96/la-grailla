@@ -111,4 +111,43 @@ describe('retirar un cliente', () => {
     expect(row.meta).toMatchObject({ name: 'Ensayo auditado', from: 'SUSPENDED', subscriptions: 1, hosts: [t.domain.host] });
     expect(JSON.stringify(row.meta)).not.toMatch(/postgres|enc:v/);
   });
+
+  // H-236: `retireTenant` limpiaba el registro y después abría su transacción SIN el candado de publicación por suscripción (`pg_advisory_xact_lock(hashtext(subscriptionId))`, el de
+  // `publishSubscription`): un publicar (o el refresco diario) entre ambos pasos reescribía `h:host` y las URLs selladas de un cliente que acababa quedando `DELETED`. Ahora retira bajo el MISMO candado.
+  it('H-236: retira bajo el candado de publicación: no toca el registro mientras otra publicación lo tiene', async () => {
+    const t = await suspendedPublished('Ensayo candado');
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    let released = 0;
+    const hold = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${t.subscription.id}))`;
+        await sleep(600);
+        released = Date.now();
+      },
+      { timeout: 10_000 }
+    );
+    await sleep(150); // la «publicación» ya tiene el candado
+    const touched: number[] = [];
+    const spy: RegistryStore = {
+      get: (k) => t.store.get(k),
+      put: (k, v) => t.store.put(k, v),
+      del: async (k) => {
+        touched.push(Date.now());
+        return t.store.del(k);
+      },
+    };
+    await Promise.all([hold, retireTenant(t.tenant.id, { confirmName: 'Ensayo candado' }, t.actor, spy)]);
+    expect(touched.length).toBeGreaterThan(0);
+    expect(Math.min(...touched)).toBeGreaterThanOrEqual(released); // ningún borrado del registro antes de soltar el candado
+    expect((await prisma.tenant.findUniqueOrThrow({ where: { id: t.tenant.id } })).status).toBe('DELETED');
+  });
+
+  it('H-236: si el registro falla, el panel no cambia (la transacción se deshace) y se puede repetir', async () => {
+    const t = await suspendedPublished('Ensayo registro caído');
+    const broken: RegistryStore = { get: (k) => t.store.get(k), put: (k, v) => t.store.put(k, v), del: async () => { throw new Error('registro caído'); } };
+    await expect(retireTenant(t.tenant.id, { confirmName: 'Ensayo registro caído' }, t.actor, broken)).rejects.toMatchObject({ code: 'registry_unavailable' });
+    expect((await prisma.tenant.findUniqueOrThrow({ where: { id: t.tenant.id } })).status).toBe('SUSPENDED');
+    await retireTenant(t.tenant.id, { confirmName: 'Ensayo registro caído' }, t.actor, t.store);
+    expect((await prisma.tenant.findUniqueOrThrow({ where: { id: t.tenant.id } })).status).toBe('DELETED');
+  });
 });

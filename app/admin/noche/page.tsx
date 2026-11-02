@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { fetchAdminJson } from '@/lib/admin-fetch';
 import Link from 'next/link';
 import type { Event } from '@prisma/client';
 import { Card, CardContent } from '@/components/ui/card';
@@ -90,13 +91,14 @@ export default function NochePage() {
   }, []);
 
   useEffect(() => {
-    fetch('/api/admin/events')
-      .then((r) => r.json())
-      .then((list: Event[]) => {
+    // H-222: un error HTTP (`{ error }` no es una lista) rompía el filtro o dejaba la pantalla sin eventos y sin avisar.
+    fetchAdminJson<Event[]>('/api/admin/events', 'No se pudieron cargar los eventos')
+      .then((raw) => {
+        const list = Array.isArray(raw) ? raw : [];
         // Incluye también el evento recién FINISHED (además de PUBLISHED)
         // para poder repasar el cierre justo al terminar, igual que ya
         // permite /admin/escaneos.
-        const published = (list ?? []).filter((e) => e.status === 'PUBLISHED' || e.status === 'FINISHED');
+        const published = list.filter((e) => e.status === 'PUBLISHED' || e.status === 'FINISHED');
         setEvents(published);
         const fromUrl = new URLSearchParams(window.location.search).get('eventId');
         const stored = getStoredActiveEventId();
@@ -113,16 +115,12 @@ export default function NochePage() {
   const fetchNoche = useCallback(() => {
     if (!eventId) return;
     setLoadingData(true);
-    fetch(`/api/admin/noche?eventId=${encodeURIComponent(eventId)}`)
-      .then((r) => r.json())
+    // H-222: un error HTTP (también uno sin campo `error`) cuenta como «no se pudo actualizar», no como datos.
+    fetchAdminJson<NochePayload>(`/api/admin/noche?eventId=${encodeURIComponent(eventId)}`, 'No se pudo actualizar')
       .then((d) => {
-        if (!d?.error) {
-          setData(d);
-          setLastUpdatedAt(Date.now());
-          setLastFetchFailed(false);
-        } else {
-          setLastFetchFailed(true);
-        }
+        setData(d);
+        setLastUpdatedAt(Date.now());
+        setLastFetchFailed(false);
       })
       .catch(() => setLastFetchFailed(true))
       .finally(() => setLoadingData(false));

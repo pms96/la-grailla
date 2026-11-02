@@ -38,7 +38,10 @@ export interface MigrationExecutor {
 
 /** Quita de un texto cualquier cadena de conexión (un error de driver podría reproducirla). */
 export function redactUrls(text: string): string {
-  return text.replace(/postgres(?:ql)?:\/\/[^\s'"<>]+/gi, 'postgresql://[oculto]');
+  const out = text.replace(/postgres(?:ql)?:\/\/[^\s'"<>]+/gi, 'postgresql://[oculto]');
+  // H-247: los errores de conexión de Prisma (P1000–P1017) nombran el servidor, el usuario y la base EN TEXTO, entre comillas invertidas («Can't reach database server at `host:5432`»): ese host y
+  // ese usuario solo debe verlos un SUPERADMIN, y esta salida llega a quien tiene `migrations:run` y a la auditoría. Se ocultan esos valores; el código del error se conserva.
+  return /\bP10\d\d\b/.test(out) ? out.replace(/`[^`\n]*`/g, '`[oculto]`') : out;
 }
 
 const quoteIdent = (name: string) => `"${name.replace(/"/g, '""')}"`;

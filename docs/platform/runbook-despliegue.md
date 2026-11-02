@@ -278,3 +278,41 @@ No hay migraciones ni cambios de esquema en el panel. Cambian el front, el panel
 - **Pantallas del admin (H-176):** comprobadas por código, no en navegador.
 - **Pendientes de decisión (sin cambios):** H-170 (bloqueo del login del panel por cuenta, dueño) y H-179 (retención de la auditoría, abogado).
 
+## 15. Hallazgos de la segunda ronda de la fase 5: lo que cambia y los límites (lote 14)
+
+**HAY una migración nueva del panel** (`apps/control-panel/prisma/migrations/20261102120000_operator_login_buckets`: una tabla nueva, `OperatorLoginBucket`; aditiva, no toca filas ni columnas existentes). El front no tiene migraciones. Ver `docs/platform/revision-integral.md` (H-170 y H-214…H-248).
+
+**Antes de desplegar**
+
+- **Aplicar la migración del panel ANTES de desplegar el panel nuevo** (`npm run db:migrate` dentro de `apps/control-panel`, contra la BD de control). Sin la tabla, el login del panel falla en cuanto el código nuevo intenta reservar un intento. Con la migración aplicada y el panel viejo todavía en marcha no pasa nada (la tabla no se usa).
+- Nada más: el front se despliega como siempre. `BLOB_PUBLIC_HOST` sigue siendo obligatoria en la plataforma (§14).
+
+**Lo que cambia para quien compra**
+
+- **Cambiar la selección tras volver de la pasarela (H-214).** Si el comprador va a Stripe, vuelve atrás, cambia las entradas o el carrito y paga otra vez, se le cobra lo NUEVO (antes se le reabría el pedido anterior). Un reintento idéntico tras un fallo de red sigue sin duplicar el cobro. Si el navegador manda una clave vieja con otra selección, el servidor responde «Has cambiado tu selección… vuelve a pulsar Ir a pagar».
+- **Precio distinto tras la cola (H-215).** Si el precio o la comisión cambian mientras esperaba, al pagar ve «Los precios han cambiado: el total ahora es X €» y la pantalla se actualiza; no se cobra nada y conserva su turno.
+- **Volver desde la pasarela sin pagar (H-219).** El comprador recupera su sitio en la cola (si su turno no ha caducado) y el aviso ya no dice «ya completaste una compra».
+- **Confirmación (H-220, H-227, H-229).** Un fallo de red o un 5xx puntual ya no hace creer que el pedido se perdió («Pedido no encontrado»): se conserva lo ya cargado o se ofrece «Reintentar». Un pedido de un evento cancelado dice que el evento se ha cancelado y que las entradas ya no valen. Quien vuelve a `/comprar` con un pedido de ESE evento aún sin confirmar ve un aviso («no repitas la compra») con enlace a su estado.
+- **Otros (H-228, H-230, H-231, H-244, H-245).** Un fallo de BD en `/comprar` da el error con reintento (no un 404). Si la cola se activa con la página abierta, el formulario recarga y entra en la sala. El email al comprador y el PDF de autorización de menores salen con tildes (el texto legal por defecto NO se ha tocado). El formulario de entradas envía con Enter y la página imprimible se ve bien en móvil. `/comprar` y el portal de sponsor llevan `noindex`.
+- **Pagos (H-217, H-218, H-232).** Crear la sesión de Stripe se corta a los 12 s; la venta de taquilla y las invitaciones esperan el cerrojo del evento lo mismo que el checkout. Con la BD fallando, el cobro propaga el error de BD en vez de decir «modo mock» o «falta la clave», y un pedido ya no puede crearse con comisión 0 por un fallo de lectura.
+
+**Lo que cambia para quien administra**
+
+- **Pantallas del admin (H-221…H-225, H-237, H-248).** Todas enseñan el error con «Reintentar» en vez de listas vacías o ceros (pedidos, productos, usuarios, invitaciones, secciones, aforo, apariencia, noche, escaneos, sponsors, compras, panel de inicio, eventos). Secciones no enseña el editor en blanco si la carga falla (al guardar se habrían pisado las reales). El aviso toma el foco, y un reintento enseña la carga, no «0,00 €». Ventas avisa cuando llega a las 100 más recientes. Una respuesta lenta de la selección anterior ya no pisa la actual.
+- **Contabilidad (H-233, H-238, H-246).** Compras rechaza IVA vacío o fuera de 0–100, precios vacíos, negativos o enormes y cantidades negativas (antes quedaban a 0 o se guardaban). El total con IVA de una fila de gastos coincide con la API y el Excel (0,50 al 21 % = 0,61). «Hoy / 7 / 30 días» de Estadísticas se calcula en el servidor con la jornada de Madrid y su hora de corte. Las fechas de una temporada inválidas dan 400, no 500.
+- **Sponsors (H-216, H-239, H-242).** El portal ya no escribe la web (un sponsor con una web antigua no válida ya no queda bloqueado al guardar su email y el consentimiento). Rechazar un patrocinio deja auditoría `sponsor.reject` y, si estaba cobrado, avisa de que **sigue contando como ingreso** hasta que se desmarque en «Marcar pago» (no se desmarca solo: la devolución es manual). El alta manual avisa si la web no es válida.
+
+**Lo que cambia en el panel**
+
+- **Bloqueo del login por cuenta e IP (H-170).** El cupo de 5 fallos (15 min) es ahora por (cuenta, IP): quien conozca el email de un operador ya no lo bloquea, solo se bloquea a sí mismo desde su IP. Para no perder la defensa ante una fuerza bruta repartida, la cuenta tiene un tope mayor (30 fallos en total) que sí la bloquea; se levanta con `npm run operator:unlock -- --email …` (que ahora también limpia los cupos por IP). El MFA tiene su propio cupo por IP. Límite honesto: una botnet de más de 6 IPs puede seguir bloqueando una cuenta 15 minutos.
+- **Avisos (H-226).** Un solo mal sondeo grave seguido de la vuelta a la normalidad ya no manda un «recuperado» sin aviso previo.
+- **Auditoría (H-235).** El alta por asistente deja `tenant.seed` (claves escritas, si se creó el administrador; nunca la contraseña) y añadir un dominio al proyecto de Vercel deja `domain.vercel_add`.
+- **Retirar cliente (H-236).** Se hace bajo el candado de publicación de cada suscripción, dentro de una sola transacción: un publicar o el refresco diario no puede reescribir el registro de un cliente que se está retirando.
+- **Migraciones (H-247).** La salida de un error de conexión de Prisma ya no enseña el host, el usuario ni la base del cliente a quien tiene `migrations:run`.
+
+**Límites aceptados**
+
+- **Pantallas y formularios (H-220…H-231, H-244, H-245):** verificados por código y por funciones puras, no con un render ni en navegador; el foco del teclado y el «Ir» del móvil no se han probado con dispositivos reales.
+- **Tiempos (H-217, H-218):** `maxDuration` y el timeout de Stripe no se han medido en Vercel; el P2028 bajo carga real no se reproduce.
+- **Sin hacer (destino D, ver el registro):** el tope de «Todo» en la gráfica de estadísticas, el `anio` no único de temporadas (H-246), los mensajes por campo del formulario de contacto (H-245), todo lo de H-249…H-258 y la decisión de H-234 (dominio principal solo para SUPERADMIN). H-179 sigue siendo del abogado.
+

@@ -15,7 +15,7 @@ export const AUDIT_ACTIONS = [
   'order.cancel', 'order.refund', 'order.complete', 'order.verify', 'order.update_email', 'order.shop_cancel', 'order.shop_refund', 'order.shop_status',
   'event.create', 'event.update', 'event.delete', 'event.cancel',
   'event.ticket_type_create', 'event.ticket_type_update', 'event.ticket_type_delete',
-  'sponsor.update', 'sponsor.mark_paid',
+  'sponsor.update', 'sponsor.mark_paid', 'sponsor.reject',
   'export.orders', 'export.attendees', 'export.shop_orders',
   'invitation.delete', 'invitation.list_delete',
   'config.update',

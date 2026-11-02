@@ -11,6 +11,8 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 import { PageHeader } from '@/components/layouts/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { CONSOLIDATED_STATUS_LABELS, CONSOLIDATED_STATUS_VARIANT, consolidatedSponsorStatus, type ConsolidatedSponsorStatus } from '@/lib/sponsor-status';
@@ -39,18 +41,22 @@ export default function SponsorsAdminPage() {
   const [tiers, setTiers] = useState<SponsorTier[]>([]);
   const [payingId, setPayingId] = useState<string | null>(null);
 
+  // H-222: un error HTTP pintaba «sin sponsors» en lugar de avisar.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const fetchSponsors = () => {
-    fetch('/api/admin/sponsors')
-      .then((r) => r.json())
-      .then((d) => setSponsors(Array.isArray(d) ? d : []))
-      .catch(() => {})
+    fetchAdminJson<SponsorRow[]>('/api/admin/sponsors', 'No se pudieron cargar los sponsors')
+      .then((d) => {
+        setSponsors(Array.isArray(d) ? d : []);
+        setLoadError(null);
+      })
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar los sponsors')))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => { fetchSponsors(); }, []);
   useEffect(() => {
-    fetch('/api/sponsors/tiers')
-      .then((r) => r.json())
+    // Las tarifas solo precargan importes: sin ellas la pantalla sigue siendo útil, así que un fallo aquí no es un aviso.
+    fetchAdminJson<{ tiers?: SponsorTier[] }>('/api/sponsors/tiers', 'No se pudieron cargar las tarifas')
       .then((d) => { if (Array.isArray(d?.tiers)) setTiers(d.tiers); })
       .catch(() => {});
   }, []);
@@ -90,6 +96,7 @@ export default function SponsorsAdminPage() {
 
   return (
     <div className="space-y-6">
+      {loadError && <LoadError title="No se han podido cargar los sponsors." message={loadError} onRetry={() => { setLoadError(null); setLoading(true); fetchSponsors(); }} />}
       <PageHeader
         title="Sponsors"
         description="Del lead a la aprobación del vídeo — un único flujo por sponsor"

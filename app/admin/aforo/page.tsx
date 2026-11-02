@@ -6,6 +6,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, RefreshCw, Users, AlertTriangle, TrendingUp, Moon } from 'lucide-react';
+import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 import Link from 'next/link';
 import { PageHeader } from '@/components/layouts/page-header';
 import CapacityAlertsEditor from '@/components/admin/capacity-alerts-editor';
@@ -24,17 +27,22 @@ export default function AforoPage() {
   const [loading, setLoading] = useState(true);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [lastFetchFailed, setLastFetchFailed] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null); // H-222: el motivo del último fallo (la primera carga sin datos enseña el aviso)
   const [, setTick] = useState(0);
 
   const fetchData = () => {
-    fetch('/api/admin/events')
-      .then((r) => r.json())
-      .then((d: EventWithCount[]) => {
-        setEvents((d ?? []).filter((e) => e?.status === 'PUBLISHED'));
+    // H-222: un error HTTP (`{ error }` no es una lista) rompía el filtro o dejaba «sin eventos activos».
+    fetchAdminJson<EventWithCount[]>('/api/admin/events', 'No se pudo cargar el aforo')
+      .then((d) => {
+        setEvents((Array.isArray(d) ? d : []).filter((e) => e?.status === 'PUBLISHED'));
         setLastUpdatedAt(Date.now());
         setLastFetchFailed(false);
+        setLoadError(null);
       })
-      .catch(() => setLastFetchFailed(true))
+      .catch((e) => {
+        setLastFetchFailed(true);
+        setLoadError(userMessage(e, 'No se pudo cargar el aforo'));
+      })
       .finally(() => setLoading(false));
   };
 
@@ -46,6 +54,7 @@ export default function AforoPage() {
 
   return (
     <div className="space-y-6">
+      {lastFetchFailed && lastUpdatedAt === null && loadError && <LoadError title="No se ha podido cargar el aforo." message={loadError} onRetry={fetchData} />}
       <div className="flex items-center justify-between">
         <PageHeader title="Aforo en Tiempo Real" description="Control de capacidad de eventos activos" />
         <Button variant="outline" onClick={fetchData} className="gap-2"><RefreshCw className="h-4 w-4" /> Actualizar</Button>

@@ -37,7 +37,10 @@ function blobPublicHost() {
   const raw = (process.env.BLOB_PUBLIC_HOST || '').trim().toLowerCase();
   if (!raw) return '';
   if (!BLOB_HOST_RE.test(raw)) {
-    console.warn('BLOB_PUBLIC_HOST no tiene la forma <id>.public.blob.vercel-storage.com (solo el hostname, sin https:// ni barras): imágenes sin optimizar.');
+    // H-240: no solo se quedan las imágenes sin optimizar: sin un host válido tampoco se restringe la CSP ni la lista de URLs de Blob (vuelve el comodín `*.public.blob.vercel-storage.com`).
+    console.warn(
+      'BLOB_PUBLIC_HOST no tiene la forma <id>.public.blob.vercel-storage.com (solo el hostname, sin https:// ni barras): imágenes sin optimizar y, además, la CSP y la lista de URLs de Blob quedan SIN restringir (comodín *.public.blob.vercel-storage.com).'
+    );
     return '';
   }
   return raw;

@@ -32,19 +32,29 @@ export async function retireTenant(tenantId: string, opts: { confirmName: string
   if (tenant.status !== 'SUSPENDED') throw new ServiceError('suspend_first', 'Suspende el cliente antes de retirarlo: así su web queda cortada y nadie retira un cliente en marcha por error.');
   if ((opts.confirmName ?? '').trim() !== tenant.name) throw new ServiceError('confirm_mismatch', 'Para retirarlo, escribe el nombre del cliente exactamente como aparece.');
 
-  // 1. Registro: ya no debe enrutar ni guardar nada de este cliente.
-  try {
-    for (const sub of tenant.subscriptions) {
-      for (const d of sub.domains) await store.del(registryKeyForHost(d.host));
-      await store.del(registryKeyForSecrets(tenant.id, sub.productKey));
-    }
-    await store.del(registryKeyForRevocation(tenant.id));
-  } catch (err) {
-    throw new ServiceError('registry_unavailable', `No se pudo limpiar el registro: ${err instanceof Error ? err.message : err}. No se ha cambiado nada en el panel: repite cuando el registro responda.`);
-  }
-
-  // 2. Panel.
+  // H-236: TODO bajo el candado de publicación de cada suscripción (el mismo de `publishSubscription`, en orden para no interbloquearse): un publicar o el refresco diario no puede reescribir
+  // `h:host` ni las URLs selladas entre la limpieza del registro y el cambio del panel. Si el registro falla, la transacción se deshace y el panel queda como estaba.
   await prisma.$transaction(async (tx) => {
+    for (const sub of [...tenant.subscriptions].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${sub.id}))`;
+    }
+    // Con el candado ya tomado, el estado puede haber cambiado (otro retiro, una reactivación): se vuelve a comprobar.
+    const fresh = await tx.tenant.findUnique({ where: { id: tenant.id }, select: { status: true } });
+    if (fresh?.status === 'DELETED') return;
+    if (fresh?.status !== 'SUSPENDED') throw new ServiceError('suspend_first', 'El cliente ya no está suspendido: suspéndelo de nuevo antes de retirarlo.');
+
+    // 1. Registro: ya no debe enrutar ni guardar nada de este cliente.
+    try {
+      for (const sub of tenant.subscriptions) {
+        for (const d of sub.domains) await store.del(registryKeyForHost(d.host));
+        await store.del(registryKeyForSecrets(tenant.id, sub.productKey));
+      }
+      await store.del(registryKeyForRevocation(tenant.id));
+    } catch (err) {
+      throw new ServiceError('registry_unavailable', `No se pudo limpiar el registro: ${err instanceof Error ? err.message : err}. No se ha cambiado nada en el panel: repite cuando el registro responda.`);
+    }
+
+    // 2. Panel.
     for (const sub of tenant.subscriptions) {
       await tx.cronState.deleteMany({ where: { subscriptionId: sub.id } });
       await tx.tenantHealth.deleteMany({ where: { subscriptionId: sub.id } });
@@ -64,6 +74,7 @@ export async function retireTenant(tenantId: string, opts: { confirmName: string
       // Nombres de dominio y un recuento: nada de URLs de BD.
       meta: { name: tenant.name, from: tenant.status, subscriptions: tenant.subscriptions.length, hosts },
     });
-  });
+    // La transacción incluye las llamadas al registro (Upstash): con el límite por defecto de Prisma (5 s) un registro lento la cortaría a medias.
+  }, { timeout: 30_000, maxWait: 30_000 });
   return { tenantId, name: tenant.name, hosts, alreadyRetired: false };
 }

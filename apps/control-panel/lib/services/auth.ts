@@ -29,7 +29,10 @@ import {
 } from '../totp';
 import { ServiceError } from './errors';
 
+/** Fallos permitidos por (cuenta, IP) en cada ventana (H-170). */
 export const MAX_FAILED_LOGINS = 5;
+/** Fallos permitidos para la cuenta ENTERA, sumando todas las IPs (H-170): la defensa contra una fuerza bruta repartida entre muchas IPs. */
+export const MAX_FAILED_LOGINS_ACCOUNT = 30;
 export const LOCK_MS = 15 * 60_000;
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
@@ -40,38 +43,84 @@ const asActor = (op: Operator, ctx: SessionContext): Actor => ({ id: op.id, emai
  * Reserva UN intento de forma atómica ANTES de comprobar la contraseña o el código.
  * Contar el fallo después no sirve: una ráfaga de peticiones en paralelo leería todas el
  * mismo contador y se verificarían todas. Aquí el propio UPDATE decide (la fila se bloquea),
- * así que en cada ventana solo llegan a verificarse MAX_FAILED_LOGINS intentos, vengan
- * en serie o en paralelo. Devuelve el nº de intento (1..MAX) o null si la cuenta está bloqueada.
- * Al llegar al MAX el bloqueo queda fijado en ese mismo UPDATE.
+ * así que en cada ventana solo llegan a verificarse MAX_FAILED_LOGINS intentos por IP, vengan
+ * en serie o en paralelo.
+ *
+ * H-170: el cupo es por (cuenta, IP). Quien conoce el email de un operador agota SU cupo desde
+ * SU IP, pero no bloquea al operador, que entra desde la suya. Si la IP ya está bloqueada no se
+ * toca nada más (martillear desde ella no gasta el contador de la cuenta). Aparte, la cuenta
+ * tiene un tope MAYOR sumando todas las IPs (MAX_FAILED_LOGINS_ACCOUNT): una fuerza bruta
+ * repartida entre muchas IPs sí la bloquea, y se levanta con `unlockOperator`.
+ *
+ * Devuelve null si está bloqueado (la IP o la cuenta), o el nº de intento de esta IP y si este
+ * intento deja el bloqueo fijado (cualquiera de los dos).
  */
-async function reserveAttempt(operatorId: string, now: number): Promise<number | null> {
+type Reservation = { attempt: number; locked: boolean };
+
+async function reserveAttempt(operatorId: string, ip: string, now: number): Promise<Reservation | null> {
   const at = new Date(now);
   const until = new Date(now + LOCK_MS);
-  const rows = await prisma.$queryRaw<{ failedLogins: number }[]>`
+  const bucket = await prisma.$queryRaw<{ failedLogins: number }[]>`
+    INSERT INTO "OperatorLoginBucket" ("operatorId", "ip", "failedLogins", "lockedUntil", "updatedAt")
+    VALUES (${operatorId}, ${ip}, 1, ${MAX_FAILED_LOGINS <= 1 ? until : null}, ${at})
+    ON CONFLICT ("operatorId", "ip") DO UPDATE SET
+      "failedLogins" = (CASE WHEN "OperatorLoginBucket"."lockedUntil" IS NOT NULL AND "OperatorLoginBucket"."lockedUntil" <= ${at} THEN 1 ELSE "OperatorLoginBucket"."failedLogins" + 1 END),
+      "lockedUntil" = (CASE WHEN (CASE WHEN "OperatorLoginBucket"."lockedUntil" IS NOT NULL AND "OperatorLoginBucket"."lockedUntil" <= ${at} THEN 1 ELSE "OperatorLoginBucket"."failedLogins" + 1 END) >= ${MAX_FAILED_LOGINS}
+                            THEN ${until} ELSE NULL END),
+      "updatedAt" = ${at}
+    WHERE "OperatorLoginBucket"."lockedUntil" IS NULL OR "OperatorLoginBucket"."lockedUntil" <= ${at}
+    RETURNING "failedLogins"`;
+  if (!bucket.length) return null; // esta IP está bloqueada para esta cuenta
+
+  const account = await prisma.$queryRaw<{ failedLogins: number }[]>`
     UPDATE "Operator" SET
       "failedLogins" = (CASE WHEN "lockedUntil" IS NOT NULL AND "lockedUntil" <= ${at} THEN 1 ELSE "failedLogins" + 1 END),
-      "lockedUntil" = (CASE WHEN (CASE WHEN "lockedUntil" IS NOT NULL AND "lockedUntil" <= ${at} THEN 1 ELSE "failedLogins" + 1 END) >= ${MAX_FAILED_LOGINS}
+      "lockedUntil" = (CASE WHEN (CASE WHEN "lockedUntil" IS NOT NULL AND "lockedUntil" <= ${at} THEN 1 ELSE "failedLogins" + 1 END) >= ${MAX_FAILED_LOGINS_ACCOUNT}
                             THEN ${until} ELSE NULL END)
     WHERE id = ${operatorId} AND ("lockedUntil" IS NULL OR "lockedUntil" <= ${at})
     RETURNING "failedLogins"`;
-  return rows.length ? rows[0].failedLogins : null;
+  if (!account.length) return null; // la cuenta entera está bloqueada
+  const attempt = bucket[0].failedLogins;
+  return { attempt, locked: attempt >= MAX_FAILED_LOGINS || account[0].failedLogins >= MAX_FAILED_LOGINS_ACCOUNT };
 }
 
-/** La contraseña era correcta: se devuelve el intento reservado (el MFA sigue contando el suyo). */
-async function refundAttempt(operatorId: string): Promise<void> {
+/** La contraseña era correcta: se devuelve el intento reservado (el MFA sigue contando el suyo), en el cupo de la IP y en el de la cuenta. */
+async function refundAttempt(operatorId: string, ip: string): Promise<void> {
+  await prisma.$executeRaw`UPDATE "OperatorLoginBucket" SET "failedLogins" = GREATEST("failedLogins" - 1, 0) WHERE "operatorId" = ${operatorId} AND "ip" = ${ip} AND "lockedUntil" IS NULL`;
   await prisma.$executeRaw`UPDATE "Operator" SET "failedLogins" = GREATEST("failedLogins" - 1, 0) WHERE id = ${operatorId} AND "lockedUntil" IS NULL`;
 }
 
-async function clearAttempts(tx: Prisma.TransactionClient, operatorId: string): Promise<void> {
+/** Un acceso completo limpia el contador de la cuenta y el cupo de ESA IP (los de otras IPs siguen su curso). */
+async function clearAttempts(tx: Prisma.TransactionClient, operatorId: string, ip: string): Promise<void> {
   await tx.operator.update({ where: { id: operatorId }, data: { failedLogins: 0, lockedUntil: null } });
+  await tx.operatorLoginBucket.deleteMany({ where: { operatorId, ip } });
 }
+
+/** El mismo trabajo en BD que `reserveAttempt` para una cuenta que no existe (o está deshabilitada): la respuesta no se distingue por el tiempo. */
+async function decoyAttempt(): Promise<void> {
+  await prisma.$queryRaw`SELECT 1 FROM "OperatorLoginBucket" WHERE "operatorId" = ${'no-existe'} LIMIT 1`;
+  await prisma.$queryRaw`SELECT "failedLogins" FROM "Operator" WHERE id = ${'no-existe'}`;
+}
+
+/**
+ * Levanta el bloqueo de una cuenta: el contador y bloqueo de la cuenta y todos los cupos por IP. Lo usan el script `operator:unlock` y (H-170) el panel.
+ */
+export async function unlockOperator(operatorId: string, actor: Actor, meta: Record<string, unknown> = {}): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.operator.update({ where: { id: operatorId }, data: { failedLogins: 0, lockedUntil: null } });
+    await tx.operatorLoginBucket.deleteMany({ where: { operatorId } });
+    await appendAudit(tx, { actor, action: 'operator.unlock', targetType: 'operator', targetId: operatorId, meta });
+  });
+}
+
+const ipOf = (ctx: SessionContext) => (ctx.ip && ctx.ip.trim() ? ctx.ip.trim().slice(0, 64) : 'unknown');
 
 /**
  * Anota un fallo. Solo se llama para intentos que llegaron a verificarse, que son como mucho
  * MAX por ventana: el registro inmutable no se puede inflar desde fuera.
  */
-async function auditFailure(op: Operator, ctx: SessionContext, kind: 'password' | 'mfa', attempt: number): Promise<void> {
-  const locked = attempt >= MAX_FAILED_LOGINS;
+async function auditFailure(op: Operator, ctx: SessionContext, kind: 'password' | 'mfa', reservation: Reservation): Promise<void> {
+  const { attempt, locked } = reservation;
   await prisma.$transaction((tx) =>
     appendAudit(tx, {
       actor: asActor(op, ctx),
@@ -96,22 +145,24 @@ export async function loginWithPassword(emailRaw: string, password: string, ctx:
   const op = email.length <= 254 ? await prisma.operator.findUnique({ where: { email } }) : null;
   if (!op || op.disabledAt) {
     // Mismo trabajo (reserva en BD + bcrypt) que una cuenta real: no se distingue por el tiempo.
-    await reserveAttempt('no-existe', now);
+    await decoyAttempt();
     await burnPasswordCheck(password);
     return { status: 'invalid' };
   }
-  const attempt = await reserveAttempt(op.id, now);
-  if (attempt === null) {
+  const reservation = await reserveAttempt(op.id, ipOf(ctx), now);
+  if (reservation === null) {
     await burnPasswordCheck(password);
     return { status: 'invalid' }; // bloqueada: misma respuesta que una contraseña errónea
   }
   if (!(await verifyPassword(password, op.passwordHash))) {
-    await auditFailure(op, ctx, 'password', attempt);
+    await auditFailure(op, ctx, 'password', reservation);
     return { status: 'invalid' };
   }
-  await refundAttempt(op.id);
+  await refundAttempt(op.id, ipOf(ctx));
   // Las sesiones pre-MFA que nadie llegó a usar no se limpiarían solas: se borran aquí, de forma barata.
   await prisma.operatorSession.deleteMany({ where: { expiresAt: { lt: new Date(now) } } });
+  // Cupos por IP que llevan más de un día sin actividad (el bloqueo dura 15 min): no se acumulan.
+  await prisma.operatorLoginBucket.deleteMany({ where: { updatedAt: { lt: new Date(now - 24 * 3_600_000) } } });
   const token = await createSession(op.id, ctx, { mfaVerified: false }, now);
   return { status: 'mfa_required', token, mustChangePassword: op.mustChangePassword, needsTotpSetup: op.totpEnabledAt === null };
 }
@@ -132,8 +183,8 @@ export async function verifyMfa(token: string, codeRaw: string, ctx: SessionCont
   if (!op.totpEnabledAt || !op.totpSecretEnc) throw new ServiceError('totp_not_configured', 'Primero hay que configurar la verificación en dos pasos');
   if (op.mustChangePassword) throw new ServiceError('password_change_required', 'Hay que cambiar la contraseña antes de continuar');
 
-  const attempt = await reserveAttempt(op.id, now);
-  if (attempt === null) return { status: 'locked' };
+  const reservation = await reserveAttempt(op.id, ipOf(ctx), now);
+  if (reservation === null) return { status: 'locked' };
 
   let ok = false;
   const code = codeRaw.trim();
@@ -160,11 +211,11 @@ export async function verifyMfa(token: string, codeRaw: string, ctx: SessionCont
     }
   }
   if (!ok) {
-    await auditFailure(op, ctx, 'mfa', attempt);
-    return attempt >= MAX_FAILED_LOGINS ? { status: 'locked' } : { status: 'invalid' };
+    await auditFailure(op, ctx, 'mfa', reservation);
+    return reservation.locked ? { status: 'locked' } : { status: 'invalid' };
   }
   await prisma.$transaction(async (tx) => {
-    await clearAttempts(tx, op.id);
+    await clearAttempts(tx, op.id, ipOf(ctx));
     await appendAudit(tx, { actor: asActor(op, ctx), action: 'auth.login', targetType: 'operator', targetId: op.id, meta: {} });
   });
   return { status: 'ok', token: await promoteSession(token, ctx, now) };
@@ -197,12 +248,12 @@ export async function completeTotpSetup(
   const op = live.operator;
   if (op.totpEnabledAt || !op.totpSecretEnc) throw new ServiceError('invalid_state', 'No hay una configuración pendiente');
   if (op.mustChangePassword) throw new ServiceError('password_change_required', 'Hay que cambiar la contraseña antes de continuar');
-  const attempt = await reserveAttempt(op.id, now);
-  if (attempt === null) return { status: 'invalid' };
+  const reservation = await reserveAttempt(op.id, ipOf(ctx), now);
+  if (reservation === null) return { status: 'invalid' };
   const secret = await openField(op.totpSecretEnc, totpScope(op.id));
   const step = verifyTotp(secret, codeRaw, now, null);
   if (step === null) {
-    await auditFailure(op, ctx, 'mfa', attempt);
+    await auditFailure(op, ctx, 'mfa', reservation);
     return { status: 'invalid' };
   }
   const recoveryCodes = generateRecoveryCodes();
@@ -211,6 +262,7 @@ export async function completeTotpSetup(
       where: { id: op.id },
       data: { totpEnabledAt: new Date(now), totpLastStep: step, recoveryCodeHashes: recoveryCodes.map(hashRecoveryCode), failedLogins: 0, lockedUntil: null },
     });
+    await tx.operatorLoginBucket.deleteMany({ where: { operatorId: op.id, ip: ipOf(ctx) } }); // H-170: como el contador de la cuenta, el cupo de esta IP
     await appendAudit(tx, { actor: asActor(op, ctx), action: 'auth.totp_enabled', targetType: 'operator', targetId: op.id, meta: {} });
   });
   return { status: 'ok', token: await promoteSession(token, ctx, now), recoveryCodes };
@@ -228,10 +280,10 @@ export async function changePassword(token: string, current: string, next: strin
   if (!live.mfaVerified && !firstAccess) {
     throw new ServiceError('mfa_required', 'Verifica primero el segundo factor para cambiar la contraseña');
   }
-  const attempt = await reserveAttempt(op.id, now);
-  if (attempt === null) throw new ServiceError('locked', 'Demasiados intentos. Cuenta bloqueada temporalmente.');
+  const reservation = await reserveAttempt(op.id, ipOf(ctx), now);
+  if (reservation === null) throw new ServiceError('locked', 'Demasiados intentos. Cuenta bloqueada temporalmente.');
   if (!(await verifyPassword(current, op.passwordHash))) {
-    await auditFailure(op, ctx, 'password', attempt);
+    await auditFailure(op, ctx, 'password', reservation);
     throw new ServiceError('invalid_password', 'La contraseña actual no es correcta');
   }
   const problem = passwordPolicyError(next, op.email);
@@ -240,6 +292,7 @@ export async function changePassword(token: string, current: string, next: strin
   const passwordHash = await hashPassword(next);
   await prisma.$transaction(async (tx) => {
     await tx.operator.update({ where: { id: op.id }, data: { passwordHash, mustChangePassword: false, failedLogins: 0, lockedUntil: null } });
+    await tx.operatorLoginBucket.deleteMany({ where: { operatorId: op.id, ip: ipOf(ctx) } }); // H-170: como el contador de la cuenta, el cupo de esta IP
     await appendAudit(tx, { actor: asActor(op, ctx), action: 'auth.password_changed', targetType: 'operator', targetId: op.id, meta: {} });
   });
   await destroyAllSessions(op.id, hashToken(token));

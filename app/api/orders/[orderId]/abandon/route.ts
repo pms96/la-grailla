@@ -38,7 +38,18 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
     if (order.status !== 'PENDING') return redirect(confirmation); // pagado, o liberado con pago asociado: la confirmación lo comprueba y lo explica
 
     const result = await settleUnpaidOrder({ kind: 'entradas', order, abandoned: true, baseUrl });
-    return redirect(result.outcome === 'released' ? backToBuy : confirmation);
+    if (result.outcome === 'released') {
+      // H-219: el turno se gastó al crear el pedido; si el comprador vuelve sin pagar, se le devuelve (solo el de ESTE evento y mientras no haya caducado) en vez de mandarlo al final
+      // de la cola diciéndole que ya compró. `q` lo pone nuestra propia `cancelUrl`.
+      const queueToken = new URL(request.url).searchParams.get('q');
+      if (queueToken) {
+        await prisma.waitingRoomEntry
+          .updateMany({ where: { token: queueToken, eventId: order.eventId, status: 'COMPLETED', expiresAt: { gt: new Date() } }, data: { status: 'ADMITTED' } })
+          .catch(() => {});
+      }
+      return redirect(backToBuy);
+    }
+    return redirect(confirmation);
   } catch (error) {
     return handleApiError(error, 'GET /api/orders/[orderId]/abandon');
   }

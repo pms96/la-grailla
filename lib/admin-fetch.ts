@@ -10,6 +10,8 @@ export async function fetchAdminJson<T>(url: string, fallback: string, init?: Re
     const message = body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string' ? (body as { error: string }).error : '';
     throw new Error(message || fallback);
   }
+  // H-237: un 200 sin JSON (cuerpo vacío, el HTML de un proxy) o `null` no es un dato: se pintaría como ceros y listas vacías.
+  if (body === null) throw new Error(fallback);
   return body as T;
 }
 

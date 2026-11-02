@@ -13,6 +13,8 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { downloadPlanificadorExport } from '@/lib/compras/planificador-export';
 import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 
 type PrecioFila = {
   proveedorId: string;
@@ -60,25 +62,26 @@ export function TabPlanificador({ temporada }: { temporada: Temporada | null }) 
   const [loading, setLoading] = useState(true);
   const [exportando, setExportando] = useState<'excel' | 'pdf' | null>(null);
 
+  // H-222: un error HTTP pintaba un plan vacío (y la lista de proveedores del desplegable vacía) sin avisar.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const fetchPlanificador = useCallback(() => {
     if (!temporada) { setFilas([]); setLoading(false); return; }
     setLoading(true);
-    fetch(`/api/admin/compras/planificador?temporadaId=${temporada.id}`)
-      .then((r) => r.json())
+    fetchAdminJson<{ filas?: Fila[]; temporadaAnterior?: Temporada | null }>(`/api/admin/compras/planificador?temporadaId=${temporada.id}`, 'No se pudo cargar el planificador')
       .then((d) => {
         setFilas(Array.isArray(d?.filas) ? d.filas : []);
         setTemporadaAnterior(d?.temporadaAnterior ?? null);
+        setLoadError(null);
       })
-      .catch(() => {})
+      .catch((e) => setLoadError(userMessage(e, 'No se pudo cargar el planificador')))
       .finally(() => setLoading(false));
   }, [temporada]);
 
   useEffect(() => { fetchPlanificador(); }, [fetchPlanificador]);
   useEffect(() => {
-    fetch('/api/admin/compras/proveedores')
-      .then((r) => r.json())
-      .then((d) => setProveedores(Array.isArray(d) ? d.filter((p: Proveedor) => p.activo) : []))
-      .catch(() => {});
+    fetchAdminJson<Proveedor[]>('/api/admin/compras/proveedores', 'No se pudieron cargar los proveedores')
+      .then((d) => setProveedores(Array.isArray(d) ? d.filter((p) => p.activo) : []))
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar los proveedores')));
   }, []);
 
   const guardarPlan = async (articuloId: string, patch: { proveedorElegidoId?: string | null; cantidadPlanificada?: number; observaciones?: string }) => {
@@ -142,6 +145,7 @@ export function TabPlanificador({ temporada }: { temporada: Temporada | null }) 
 
   return (
     <div className="space-y-3">
+      {loadError && <LoadError title="No se ha podido cargar el planificador." message={loadError} onRetry={() => { setLoadError(null); setLoading(true); fetchPlanificador(); }} />}
       <div className="flex flex-wrap items-center justify-between gap-2">
         {temporadaAnterior ? (
           <p className="text-xs text-muted-foreground">Consumo de referencia: {temporadaAnterior.nombre}</p>

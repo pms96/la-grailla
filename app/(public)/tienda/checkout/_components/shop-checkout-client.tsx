@@ -11,6 +11,7 @@ import { FadeIn } from '@/components/ui/animate';
 import { ArrowLeft, CreditCard, Loader2, Lock, ShoppingBag } from 'lucide-react';
 import { type CartLine, cartTotalCents, cartTotals, dropUnavailableProduct, readCart, readUnconfirmedOrder, refreshCartPrices } from '@/lib/shop-cart';
 import { orderRef } from '@/lib/order-ref';
+import { type CheckoutAttempt, attemptKey, shopAttemptFingerprint } from '@/lib/checkout-attempt-key';
 import { LegalAcceptance } from '@/components/legal-acceptance';
 import { CaptchaWidget, type CaptchaWidgetHandle } from '@/components/captcha-widget';
 
@@ -53,7 +54,8 @@ export default function ShopCheckoutClient({
     shippingZip: '',
     shippingPhone: '',
   });
-  const idempotencyKeyRef = useRef<string | null>(null);
+  // H-214: la clave va ligada al carrito y al email: si se edita el carrito tras volver de la pasarela, se renueva.
+  const idempotencyKeyRef = useRef<CheckoutAttempt | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const addressRef = useRef<HTMLInputElement>(null);
@@ -113,9 +115,8 @@ export default function ShopCheckoutClient({
     }
 
     setSubmitting(true);
-    if (!idempotencyKeyRef.current) {
-      idempotencyKeyRef.current = crypto.randomUUID();
-    }
+    const attempt = attemptKey(idempotencyKeyRef.current, shopAttemptFingerprint(form.buyerEmail, cart));
+    idempotencyKeyRef.current = attempt;
     try {
       const res = await fetch('/api/shop/orders', {
         method: 'POST',
@@ -127,7 +128,7 @@ export default function ShopCheckoutClient({
           shippingCity: form.shippingCity.trim(),
           shippingZip: form.shippingZip.trim(),
           shippingPhone: form.shippingPhone.trim(),
-          idempotencyKey: idempotencyKeyRef.current,
+          idempotencyKey: attempt.key,
           captchaToken: captchaToken ?? undefined,
           acceptedTerms,
           termsVersion,

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { withConnectionLockTimeout } from '@/lib/migrations/executor';
+import { redactUrls, withConnectionLockTimeout } from '@/lib/migrations/executor';
 import { runMigrationsForSubscription } from '@/lib/services/migrations';
 import { createTenant } from '@/lib/services/tenants';
 import { freshStore, makeOperator, resetControlDb, tenantInput } from './helpers';
@@ -92,5 +92,26 @@ describe('el runner pone el lock_timeout en su conexión, no en la BD del client
     expect(res.error).toBeNull();
     expect(res.status).toBe('SUCCEEDED');
     expect(await queryScratch(DB, `SELECT 1 FROM pg_db_role_setting WHERE setdatabase = (SELECT oid FROM pg_database WHERE datname = current_database())`)).toHaveLength(0);
+  });
+});
+
+// H-247: `redactUrls` solo enmascaraba `postgres(ql)://…`, pero los errores de Prisma (P1000, P1001, P1003) nombran el servidor, el usuario y la base en TEXTO, entre comillas invertidas. Esa salida
+// (`slice(-200)`) se enseña a quien tenga `migrations:run` (OPERATOR) y parte acaba en `meta.error` de la auditoría, visible a VIEWER; el host y el usuario de la BD de un cliente solo debe verlos SUPERADMIN.
+describe('redactUrls oculta también el host, el usuario y la base de los errores de Prisma (H-247)', () => {
+  it.each([
+    ['P1001', "Error: P1001: Can't reach database server at `ep-cool-mouse-123456.eu-central-1.aws.neon.tech:5432`\n\nPlease make sure your database server is running at `ep-cool-mouse-123456.eu-central-1.aws.neon.tech`:`5432`.", ['ep-cool-mouse-123456', 'neon.tech', '5432']],
+    ['P1000', 'Error: P1000: Authentication failed against database server at `db.cliente-secreto.internal`, the provided database credentials for `usuario_secreto` are not valid.', ['cliente-secreto', 'usuario_secreto']],
+    ['P1003', 'Error: P1003: Database `bd_del_cliente` does not exist on the database server at `10.0.0.5:5432`.', ['bd_del_cliente', '10.0.0.5']],
+    ['P1010', 'Error: P1010: User `usuario_secreto` was denied access on the database `bd_del_cliente`', ['usuario_secreto', 'bd_del_cliente']],
+  ])('%s: no queda ni host, ni usuario, ni base', (_code, text, secretos) => {
+    const out = redactUrls(text);
+    for (const secreto of secretos) expect(out, secreto).not.toContain(secreto);
+    expect(out).toContain('[oculto]');
+    expect(out).toContain(_code); // el código del error sí se conserva: sirve para diagnosticar
+  });
+
+  it('las cadenas de conexión de siempre siguen ocultas y un texto sin datos de conexión no cambia', () => {
+    expect(redactUrls('falló postgresql://u:p@host.neon.tech/db?sslmode=require y algo más')).toBe('falló postgresql://[oculto] y algo más');
+    expect(redactUrls('Migration name: 20261101_algo\nTodo bien')).toBe('Migration name: 20261101_algo\nTodo bien');
   });
 });

@@ -64,3 +64,22 @@ describe('buildGastosPdf', () => {
     expect(bytes.length).toBeGreaterThan(300);
   });
 });
+
+/* H-238: la fila de la lista de gastos calculaba `(importeSinIva * (1 + iva/100)).toFixed(2)` y la API, el resumen y el Excel usan `Math.round(x*100)/100` (`importeGastoConIva`): en mitades
+ * exactas difieren un céntimo (0,50 al 21 % da 0,61 en la API y 0,60 en pantalla) y al contable no le cuadraba la suma de filas con el total. Una sola fórmula. */
+describe('H-238: el total con IVA de un gasto es el mismo en pantalla, API y Excel', () => {
+  it('la fórmula compartida redondea la mitad hacia arriba (0,50 al 21 % = 0,61)', async () => {
+    const { importeGastoConIva } = await import('@/lib/gasto-calc');
+    expect(importeGastoConIva(0.5, 21).toFixed(2)).toBe('0.61');
+    expect(importeGastoConIva(1.5, 21).toFixed(2)).toBe('1.82');
+    expect(importeGastoConIva(0.95, 10).toFixed(2)).toBe('1.05');
+  });
+
+  it('la pantalla de gastos usa esa fórmula (no la multiplicación suelta con toFixed) en la fila y en el aviso de anulación', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const page = fs.readFileSync(path.resolve(__dirname, '../../app/admin/gastos/page.tsx'), 'utf8');
+    expect(page).toContain("from '@/lib/gasto-calc'");
+    expect(page).not.toMatch(/importeSinIva \* \(1 \+ [\w.]*ivaPercent \/ 100\)/);
+  });
+});

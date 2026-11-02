@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Save, RotateCcw, Palette, Type, Image as ImageIcon, LayoutTemplate, Sparkles, TriangleAlert, Film } from 'lucide-react';
 import { toast } from 'sonner';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { userMessage } from '@/lib/error-text';
+import { LoadError } from '@/components/admin/load-error';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -217,15 +220,19 @@ export default function AparienciaPage() {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [theme, setTheme] = useState<SiteTheme | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null); // H-222: sin tema cargado no se queda un spinner eterno
 
   const load = () =>
-    fetch('/api/admin/theme')
-      .then((r) => r.json())
-      .then((d: Loaded) => {
+    // H-222: un error HTTP devolvía `{ error }` y `d.theme` era undefined (la página caía o quedaba en un spinner eterno).
+    fetchAdminJson<Loaded>('/api/admin/theme', 'No se ha podido cargar la apariencia')
+      .then((d) => {
         setLoaded(d);
         setTheme(d.theme);
       })
-      .catch(() => toast.error('No se ha podido cargar la apariencia'));
+      .catch((e) => {
+        setLoadError(userMessage(e, 'No se ha podido cargar la apariencia'));
+        toast.error('No se ha podido cargar la apariencia');
+      });
   useEffect(() => {
     load();
   }, []);
@@ -235,6 +242,7 @@ export default function AparienciaPage() {
   const dirty = useMemo(() => !!theme && !!loaded && JSON.stringify(theme) !== JSON.stringify(loaded.theme), [theme, loaded]);
 
   if (!theme || !loaded) {
+    if (loadError) return <LoadError title="No se ha podido cargar la apariencia." message={loadError} onRetry={() => { setLoadError(null); void load(); }} />;
     return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   }
 

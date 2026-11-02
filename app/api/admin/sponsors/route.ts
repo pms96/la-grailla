@@ -8,7 +8,7 @@ import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { ensureSponsorPortalInvite } from '@/lib/sponsor-portal';
 import { normalizePhone } from '@/lib/phone';
-import { optionalPublicUrl } from '@/lib/safe-url';
+import { optionalPublicUrl } from '@/lib/optional-public-url';
 import { getBaseUrl } from '@/lib/url';
 import { withoutSeasonLink } from '@/lib/modules/season-link';
 

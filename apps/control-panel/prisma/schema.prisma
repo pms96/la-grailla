@@ -70,6 +70,21 @@ model Operator {
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
   sessions           OperatorSession[]
+  loginBuckets       OperatorLoginBucket[]
+}
+
+// H-170: cupo de intentos fallidos de login por (operador, IP). Quien conoce el email de un operador solo agota SU cupo desde SU IP, no bloquea al operador. `Operator.failedLogins` /
+// `lockedUntil` quedan como tope de la CUENTA entera (fuerza bruta repartida entre muchas IPs).
+model OperatorLoginBucket {
+  operatorId   String
+  ip           String
+  failedLogins Int       @default(0)
+  lockedUntil  DateTime?
+  updatedAt    DateTime  @updatedAt
+  operator     Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@id([operatorId, ip])
+  @@index([updatedAt])
 }
 
 model OperatorSession {

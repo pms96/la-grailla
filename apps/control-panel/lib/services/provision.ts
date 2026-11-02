@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
 import { missingOnboarding, ONBOARDING_REQUIRED_CONFIG } from '@grailla/contracts';
 import type { ActingOperator } from '../actor';
+import { appendAudit } from '../audit';
 import { prisma } from '../db';
 import { assertCan } from '../permissions';
 import { openField } from '../secrets-store';
@@ -341,6 +342,20 @@ export async function provisionTenant(input: ProvisionInput, actor: ActingOperat
     // Adoptar una BD con usuarios: no se le añade un administrador nuevo (sus usuarios ya existen).
     const createAdmin = !(input.adoptDatabase === true && target.contents.users > 0);
     const seeded = await seedTenantDb(dbUrl, { tenantId, config, adminEmail: adminUserEmail, adminName: input.adminUser?.name?.trim() || 'Administrador', createAdmin });
+    // H-235: la siembra (configuración del cliente y un ADMIN con contraseña conocida) deja rastro, como en `tenant-setup`. Solo si escribió algo (repetir el alta no añade filas).
+    if (seeded.configWritten.length || seeded.adminPassword) {
+      await prisma.$transaction((tx) =>
+        appendAudit(tx, {
+          actor,
+          action: 'tenant.seed',
+          targetType: 'subscription',
+          targetId: subscriptionId,
+          tenantId,
+          // Solo nombres de claves y un booleano: ni la contraseña ni los textos ni los correos.
+          meta: { written: seeded.configWritten, adminCreated: !!seeded.adminPassword, via: 'wizard' },
+        })
+      );
+    }
     if (seeded.adminPassword) {
       result.adminPassword = seeded.adminPassword;
       await deps.onCredentials?.(seeded.adminPassword);

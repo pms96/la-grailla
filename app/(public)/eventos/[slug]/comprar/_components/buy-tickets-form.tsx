@@ -29,6 +29,9 @@ import { cn } from '@/lib/utils';
 import { calculateCommission, sumMoney, toCents } from '@/lib/pricing';
 import { getEventAgeWarningMessage } from '@/lib/age-warning';
 import { LegalAcceptance } from '@/components/legal-acceptance';
+import { type CheckoutAttempt, attemptKey, ticketAttemptFingerprint } from '@/lib/checkout-attempt-key';
+import { readUnconfirmedTicketOrder } from '@/lib/unconfirmed-ticket-order';
+import { orderRef } from '@/lib/order-ref';
 
 interface TicketType {
   id: string;
@@ -103,6 +106,12 @@ export default function BuyTicketsForm({ event, queueToken, onSubmittingChange }
   useEffect(() => {
     onSubmittingChange?.(loading);
   }, [loading, onSubmittingChange]);
+  // H-229: un pedido anterior de ESTE evento que sigue sin constar pagado (el aviso de la pasarela tarda): se avisa antes de que vuelva a pagar lo mismo.
+  const [unconfirmed, setUnconfirmed] = useState<{ orderId: string; token?: string } | null>(null);
+  useEffect(() => {
+    const remembered = readUnconfirmedTicketOrder();
+    if (remembered && (!remembered.eventId || remembered.eventId === event?.id)) setUnconfirmed({ orderId: remembered.orderId, token: remembered.token });
+  }, [event?.id]);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   // Captcha: el widget está siempre que el cliente lo tenga activado, aunque haya turno de cola (si el admin apaga la cola a media venta, el servidor
@@ -120,7 +129,8 @@ export default function BuyTicketsForm({ event, queueToken, onSubmittingChange }
   // nada colgado (rechazo de negocio o fallo de pasarela ya cancelado en el
   // servidor); ante un fallo de red se mantiene, porque no sabemos si la
   // petición llegó a procesarse.
-  const idempotencyKeyRef = useRef<string | null>(null);
+  // H-214: la clave va ligada a lo que se compra (selección y email): tras «atrás» desde la pasarela con otra selección se renueva.
+  const idempotencyKeyRef = useRef<CheckoutAttempt | null>(null);
   const ticketsSectionRef = useRef<HTMLDivElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const lastNameRef = useRef<HTMLInputElement>(null);
@@ -185,13 +195,12 @@ export default function BuyTicketsForm({ event, queueToken, onSubmittingChange }
     }
 
     setLoading(true);
-    if (!idempotencyKeyRef.current) {
-      idempotencyKeyRef.current = crypto.randomUUID();
-    }
     try {
       const items = Object.entries(quantities ?? {})
         .filter(([, qty]: [string, number]) => (qty ?? 0) > 0)
         .map(([ticketTypeId, quantity]: [string, number]) => ({ ticketTypeId, quantity }));
+      const attempt = attemptKey(idempotencyKeyRef.current, ticketAttemptFingerprint(event?.id ?? '', buyerEmail ?? '', items));
+      idempotencyKeyRef.current = attempt;
 
       const res = await fetch('/api/orders', {
         method: 'POST',
@@ -204,7 +213,9 @@ export default function BuyTicketsForm({ event, queueToken, onSubmittingChange }
           items,
           queueToken,
           captchaToken: captchaToken ?? undefined,
-          idempotencyKey: idempotencyKeyRef.current,
+          idempotencyKey: attempt.key,
+          // H-215: lo que el comprador tiene en pantalla; si el servidor saca otro total (precio o comisión cambiados mientras esperaba), no cobra y lo dice.
+          expectedTotalCents: toCents(grandTotal),
           acceptedTerms,
           termsVersion: event?.termsVersion,
           ageConfirmed: ageMessage ? ageConfirmed : undefined,
@@ -220,6 +231,10 @@ export default function BuyTicketsForm({ event, queueToken, onSubmittingChange }
         // necesita una clave nueva, no la misma.
         idempotencyKeyRef.current = null;
         toast.error(data?.error ?? 'No hemos podido preparar el pago. Inténtalo de nuevo.');
+        // H-215: los precios de la pantalla son los de cuando cargó; se vuelven a pedir (el turno de la cola y lo elegido se conservan) para que el comprador vea los vigentes.
+        if (data?.code === 'price_changed') router.refresh();
+        // H-230: la cola se activó con esta página ya abierta (los props decían «sin cola»): se recarga para que el evento traiga `waitingRoomEnabled` y la sala de espera lo meta en la cola.
+        if (data?.code === 'queue_required') router.refresh();
         return;
       }
       if (data?.checkoutUrl) {
@@ -249,6 +264,17 @@ export default function BuyTicketsForm({ event, queueToken, onSubmittingChange }
           >
             <ArrowLeft className="h-4 w-4" /> Volver al evento
           </Link>
+          {unconfirmed && (
+            <div role="alert" className="mb-4 rounded-lg border border-warm-yellow/50 bg-warm-yellow/10 p-4 text-sm">
+              <p className="font-medium">Tienes un pedido anterior que aún no consta como pagado (referencia {orderRef(unconfirmed.orderId)}).</p>
+              <p className="mt-1 text-muted-foreground">
+                Si llegaste a pagar, no repitas la compra: se confirmará sola y recibirás tus entradas por email.{' '}
+                <Link className="underline underline-offset-2" href={`/confirmacion/${unconfirmed.orderId}${unconfirmed.token ? `?t=${encodeURIComponent(unconfirmed.token)}` : ''}`}>
+                  Comprobar su estado
+                </Link>
+              </p>
+            </div>
+          )}
           <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Comprar entradas</h1>
           <p className="text-muted-foreground mt-1 font-display font-medium text-lg">{event?.name ?? ''}</p>
           <div className="flex flex-wrap gap-2 mt-3">
@@ -296,6 +322,16 @@ export default function BuyTicketsForm({ event, queueToken, onSubmittingChange }
           )}
         </div>
 
+        {/* H-245: un <form> real: Enter y el «Ir» del teclado móvil envían la compra, y el botón fijo del móvil (fuera del formulario) lo envía por su id. `noValidate`: la validación y sus avisos por campo son los propios. */}
+        <form
+          id="buy-tickets-form"
+          noValidate
+          className="space-y-6"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!loading) void handleSubmit();
+          }}
+        >
         <Card ref={ticketsSectionRef}>
           <CardContent className="p-6">
             <h2 className="font-display font-bold text-lg mb-4 flex items-center gap-2">
@@ -520,7 +556,7 @@ export default function BuyTicketsForm({ event, queueToken, onSubmittingChange }
                   size="lg"
                   className="gap-2 font-display font-semibold rounded-full shadow-lg shadow-primary/25"
                   disabled={loading}
-                  onClick={handleSubmit}
+                  type="submit"
                 >
                   {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CreditCard className="h-5 w-5" />}
                   {loading ? 'Conectando con el pago…' : 'Ir a pagar'}
@@ -534,6 +570,7 @@ export default function BuyTicketsForm({ event, queueToken, onSubmittingChange }
             </p>
           </CardContent>
         </Card>
+        </form>
       </div>
 
       {/* CTA sticky móvil */}
@@ -553,7 +590,8 @@ export default function BuyTicketsForm({ event, queueToken, onSubmittingChange }
             size="lg"
             className="gap-2 font-display font-semibold rounded-full shadow-lg shadow-primary/25 h-12 px-5 shrink-0"
             disabled={loading}
-            onClick={handleSubmit}
+            type="submit"
+            form="buy-tickets-form"
           >
             {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CreditCard className="h-5 w-5" />}
             {loading ? 'Pago…' : 'Ir a pagar'}

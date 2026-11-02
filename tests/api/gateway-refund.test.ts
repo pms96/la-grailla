@@ -9,7 +9,7 @@ import { invalidateShopOrder } from '@/lib/reconciliation/tienda';
 import { refundIdempotencyKey, lateRefundKey, REFUND_KEY_WINDOW_MS } from '@/lib/reconciliation/shared';
 import { PATCH as patchOrder } from '@/app/api/admin/orders/[id]/route';
 import { createTestEvent, createTicketType, cleanupTestEvent, getAndSetConfig, restoreConfig } from '../helpers/fixtures';
-import { gateway } from '../helpers/fake-gateway';
+import { gateway, fakeProvider } from '../helpers/fake-gateway';
 
 const mail = vi.hoisted(() => ({ sent: [] as { to: string; subject: string; html: string }[], fail: false }));
 vi.mock('@/lib/mailer', async (orig) => ({
@@ -440,6 +440,17 @@ describe('reembolsos fuera de la app (P1-01)', () => {
       expect(await statusOf(order.id)).toBe('REFUNDED');
       expect(await ticketStatuses(order.id)).toEqual(['REFUNDED', 'REFUNDED']);
       expect(await sold()).toBe(soldBefore - 2);
+    });
+
+    // H-248: `partial.refunded` no se actualizaba tras un reembolso hecho, así que el fake nunca «se acordaba» de lo devuelto y ningún test podía detectar un DOBLE reembolso.
+    it('H-248: el fake recuerda lo devuelto: tras el reembolso del resto el cobro queda íntegramente devuelto y un segundo reembolso FALLA (no hay doble reembolso)', async () => {
+      gateway.active = true;
+      const { order } = await makeOrder({ provider: 'fake', valid: 2 });
+      gateway.partial.set(order.paymentId!, { charged: 10, refunded: 3 });
+      expect((await invalidateOrder(order.id, 'REFUNDED')).success).toBe(true);
+      expect(gateway.partial.get(order.paymentId!)).toEqual({ charged: 10, refunded: 10 });
+      const again = await fakeProvider().refund(order.paymentId!, 7, 'otra-clave');
+      expect(again.success).toBe(false);
     });
 
     it('entradas: sin devolución previa NO hay consulta ni segundo reembolso (un solo intento)', async () => {

@@ -6,7 +6,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { jornadaCorteHora } from '@/lib/jornada';
-import { businessDayKey } from '@/lib/ventas-por-dia';
+import { businessDayKey, rangeStartForDays } from '@/lib/ventas-por-dia';
 
 const WAITING_ROOM_STATUSES = ['WAITING', 'ADMITTED', 'COMPLETED', 'EXPIRED'] as const;
 
@@ -20,7 +20,11 @@ export async function GET(request: Request) {
     const eventId = url.searchParams.get('eventId') || undefined;
     const fromParam = url.searchParams.get('from');
     const toParam = url.searchParams.get('to');
-    const from = fromParam ? new Date(fromParam) : undefined;
+    // H-246: «Hoy / 7 / 30 días» llega como `range` y el inicio se calcula AQUÍ con la jornada de negocio de Madrid (la misma que agrupa «ventas por día»); antes lo calculaba el
+    // navegador con su propia medianoche. `from` sigue aceptándose para quien lo pida con una fecha exacta.
+    const rangeParam = Number(url.searchParams.get('range'));
+    const rangeDays = [1, 7, 30].includes(rangeParam) ? rangeParam : null;
+    const from = rangeDays ? rangeStartForDays(rangeDays, new Date(), await jornadaCorteHora()) : fromParam ? new Date(fromParam) : undefined;
     const to = toParam ? new Date(toParam) : undefined;
 
     const orderWhere = {

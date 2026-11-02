@@ -138,7 +138,7 @@ export async function buildMinorAuthorizationPdf(event: EventForMinorAuthorizati
 
   // Cabecera
   draw(brand.name, { size: 22, bold: true, color: pdfColor(brand.colors.emailAccent) });
-  draw('Autorizacion de menores', { size: 11, color: rgb(0.4, 0.4, 0.4) });
+  draw('Autorización de menores', { size: 11, color: rgb(0.4, 0.4, 0.4) });
   y -= 10;
 
   // Datos del evento
@@ -148,9 +148,9 @@ export async function buildMinorAuthorizationPdf(event: EventForMinorAuthorizati
   y -= 12;
 
   // Aviso fijo: a quién va dirigida
-  draw('Esta autorizacion esta dirigida a:', { size: 10, bold: true, gap: 8 });
+  draw('Esta autorización está dirigida a:', { size: 10, bold: true, gap: 8 });
   for (const line of wrapText(
-    'Los menores con edad inferior a 16 anos deberan acceder acompanados en todo momento por su padre/madre/tutor, con esta autorizacion rellena.',
+    'Los menores con edad inferior a 16 años deberán acceder acompañados en todo momento por su padre/madre/tutor, con esta autorización rellena.',
     font,
     9,
     contentWidth,
@@ -160,7 +160,7 @@ export async function buildMinorAuthorizationPdf(event: EventForMinorAuthorizati
   }
   y -= 3;
   for (const line of wrapText(
-    'Los menores de 16 y 17 anos deberan presentar esta autorizacion, rellena y firmada, en taquilla de entrada.',
+    'Los menores de 16 y 17 años deberán presentar esta autorización, rellena y firmada, en taquilla de entrada.',
     font,
     9,
     contentWidth,
@@ -172,14 +172,14 @@ export async function buildMinorAuthorizationPdf(event: EventForMinorAuthorizati
 
   // Bloque: datos del menor
   draw('Datos del menor asistente al evento', { size: 12, bold: true, gap: 12 });
-  for (const label of ['Nombre y Apellidos', 'DNI', 'Fecha de nacimiento', 'Localidad', 'Telefono', 'Email']) {
+  for (const label of ['Nombre y Apellidos', 'DNI', 'Fecha de nacimiento', 'Localidad', 'Teléfono', 'Email']) {
     y = drawBlankField(page, label, { x: margin, y, width: 360, font });
   }
   y -= 8;
 
   // Bloque: datos del padre/madre/tutor
   draw('Datos del padre/madre/tutor que autoriza', { size: 12, bold: true, gap: 12 });
-  for (const label of ['Nombre y Apellidos', 'DNI', 'Telefono']) {
+  for (const label of ['Nombre y Apellidos', 'DNI', 'Teléfono']) {
     y = drawBlankField(page, label, { x: margin, y, width: 360, font });
   }
   y -= 10;

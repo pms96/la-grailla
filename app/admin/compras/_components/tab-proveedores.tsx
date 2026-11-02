@@ -13,6 +13,8 @@ import { Loader2, Plus, Pencil, Trash2, Truck, FileSpreadsheet, FileText } from 
 import { toast } from 'sonner';
 import { downloadProveedoresExport } from '@/lib/compras/proveedores-export';
 import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 
 type FormState = { nombre: string; contacto: string; telefono: string; email: string; notas: string };
 const EMPTY: FormState = { nombre: '', contacto: '', telefono: '', email: '', notas: '' };
@@ -26,11 +28,15 @@ export function TabProveedores() {
   const [saving, setSaving] = useState(false);
   const [exportando, setExportando] = useState<'excel' | 'pdf' | null>(null);
 
+  // H-222: un error HTTP pintaba «sin proveedores» en lugar de avisar.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const fetchProveedores = useCallback(() => {
-    fetch('/api/admin/compras/proveedores')
-      .then((r) => r.json())
-      .then((d) => setProveedores(Array.isArray(d) ? d : []))
-      .catch(() => {})
+    fetchAdminJson<Proveedor[]>('/api/admin/compras/proveedores', 'No se pudieron cargar los proveedores')
+      .then((d) => {
+        setProveedores(Array.isArray(d) ? d : []);
+        setLoadError(null);
+      })
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar los proveedores')))
       .finally(() => setLoading(false));
   }, []);
 
@@ -86,6 +92,7 @@ export function TabProveedores() {
 
   return (
     <div className="space-y-4">
+      {loadError && <LoadError title="No se han podido cargar los proveedores." message={loadError} onRetry={() => { setLoadError(null); setLoading(true); fetchProveedores(); }} />}
       <div className="flex flex-wrap justify-end gap-2">
         <Button variant="outline" size="sm" className="gap-2" disabled={exportando !== null || proveedores.length === 0} onClick={() => handleExport('excel')}>
           {exportando === 'excel' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
