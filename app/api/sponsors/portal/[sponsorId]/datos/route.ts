@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { handleApiError } from '@/lib/api-error';
 import { allowSponsorAccess, getTokenFromRequest } from '@/lib/access-token';
 import { normalizePhone } from '@/lib/phone';
+import { optionalPublicUrl } from '@/lib/safe-url';
 
 // Deja que el sponsor complete sus propios datos de contacto cuando el admin
 // lo dio de alta sin email todavía (o con datos parciales) — mismos campos
@@ -18,7 +19,8 @@ const datosSchema = z.object({
   contactName: z.string().min(1).max(200),
   email: z.union([z.string().trim().email().max(255), z.literal('')]).optional(),
   phone: z.string().max(30).optional().nullable(),
-  website: z.string().max(300).optional().nullable(),
+  // Va dentro de un `href` de la ficha del admin: solo una dirección http(s) (H-169).
+  website: optionalPublicUrl,
   message: z.string().max(5000).optional().nullable(),
   consentAccepted: z.boolean().optional(),
 });
@@ -63,7 +65,7 @@ export async function POST(request: Request, props: { params: Promise<{ sponsorI
         contactName: body.contactName,
         email: newEmail,
         phone: normalizePhone(body.phone),
-        website: body.website || null,
+        website: body.website,
         message: body.message || null,
         consentAt: isFirstTimeProvidingEmail ? new Date() : sponsor.sponsorRequest.consentAt,
       },

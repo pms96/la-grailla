@@ -12,3 +12,9 @@ export function maskEmail(email: string): string {
 export function orderRef(orderId: string): string {
   return orderId.slice(-6).toUpperCase();
 }
+
+/**
+ * Longitudes con las que el id de un pedido se puede buscar en la puerta (H-168): 6 = la referencia que enseña la puerta (`orderRef`), 8 = la que lee el comprador en su
+ * email o PDF (`lib/order-ref.ts`). Con CUALQUIER sufijo, cada búsqueda con resultado era una respuesta «sí» y se reconstruía el id carácter a carácter.
+ */
+export const ORDER_REF_SEARCH_LENGTHS: readonly number[] = [6, 8];

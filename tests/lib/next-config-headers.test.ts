@@ -35,3 +35,59 @@ describe('caché del CDN de la ficha de evento (H-059)', () => {
     }
   });
 });
+
+/* H-171 (fase 5): la CSP restrictiva (H-112) y la lista blanca de host de Blob (H-067) colgaban de la OPTIMIZACIÓN de imágenes: con `IMAGES_UNOPTIMIZED=1` (algo que se
+ * apaga por coste) `blobHost` quedaba vacío, volvía el comodín `*.public.blob.vercel-storage.com` y `isPlatformBlobHost` aceptaba cualquier almacén. La optimización y la
+ * restricción de host son cosas distintas: el host válido restringe siempre; `IMAGES_UNOPTIMIZED` solo decide si Next optimiza. */
+describe('BLOB_PUBLIC_HOST e IMAGES_UNOPTIMIZED (H-171)', () => {
+  const HOST = 'abc123.public.blob.vercel-storage.com';
+  const WILDCARD = '*.public.blob.vercel-storage.com';
+  type Loaded = { headers: () => Promise<HeaderRule[]>; env: Record<string, string>; images: { unoptimized?: boolean; remotePatterns?: unknown[] } };
+
+  function load(env: Record<string, string | undefined>): Loaded {
+    const saved = { host: process.env.BLOB_PUBLIC_HOST, off: process.env.IMAGES_UNOPTIMIZED };
+    for (const [k, v] of Object.entries(env)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    const req = createRequire(import.meta.url);
+    const file = req.resolve('../../next.config.js');
+    delete req.cache[file];
+    try {
+      return req(file) as Loaded;
+    } finally {
+      delete req.cache[file];
+      if (saved.host === undefined) delete process.env.BLOB_PUBLIC_HOST;
+      else process.env.BLOB_PUBLIC_HOST = saved.host;
+      if (saved.off === undefined) delete process.env.IMAGES_UNOPTIMIZED;
+      else process.env.IMAGES_UNOPTIMIZED = saved.off;
+    }
+  }
+  const csp = async (cfg: Loaded) => (await cfg.headers()).flatMap((r) => r.headers).find((h) => h.key === 'Content-Security-Policy')!.value;
+
+  it('con el host válido y la optimización activa: CSP restringida al almacén y imágenes optimizadas', async () => {
+    const cfg = load({ BLOB_PUBLIC_HOST: HOST, IMAGES_UNOPTIMIZED: undefined });
+    const value = await csp(cfg);
+    expect(value).toContain(`img-src 'self' data: blob: https://${HOST}`);
+    expect(value).not.toContain(WILDCARD);
+    expect(cfg.images.remotePatterns).toHaveLength(1);
+    expect(cfg.env.BLOB_PUBLIC_HOST).toBe(HOST);
+  });
+
+  it('con IMAGES_UNOPTIMIZED=1 la CSP y el host de Blob SIGUEN restringidos; solo se apaga la optimización', async () => {
+    const cfg = load({ BLOB_PUBLIC_HOST: HOST, IMAGES_UNOPTIMIZED: '1' });
+    const value = await csp(cfg);
+    expect(value).toContain(`https://${HOST}`);
+    expect(value).not.toContain(WILDCARD);
+    expect(cfg.env.BLOB_PUBLIC_HOST).toBe(HOST); // `isPlatformBlobHost` lee esta variable en el servidor
+    expect(cfg.env.IMAGES_UNOPTIMIZED).toBe('1');
+    expect(cfg.images).toEqual({ unoptimized: true });
+  });
+
+  it('sin la variable (desarrollo y despliegue antiguo) queda el comodín de siempre y sin optimizar', async () => {
+    const cfg = load({ BLOB_PUBLIC_HOST: undefined, IMAGES_UNOPTIMIZED: undefined });
+    expect(await csp(cfg)).toContain(WILDCARD);
+    expect(cfg.images).toEqual({ unoptimized: true });
+    expect(cfg.env.BLOB_PUBLIC_HOST).toBe('');
+  });
+});

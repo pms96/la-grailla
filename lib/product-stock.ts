@@ -1,5 +1,6 @@
 import type { PrismaTransactionClient } from '@/lib/prisma';
 import { expandVariantKeys } from '@/lib/shop-cart';
+import { sortedByKey } from '@/lib/lock-order';
 
 export type VariantKey = { size: string; color: string };
 
@@ -131,6 +132,9 @@ export type ReserveItem = {
   color?: string | null;
 };
 
+/** Clave de orden de bloqueo de una línea: producto, talla y color (H-181). */
+const variantLockKey = (item: ReserveItem): string => `${item.productId}\u0000${normalizeVariantPart(item.size)}\u0000${normalizeVariantPart(item.color)}`;
+
 /**
  * Reserva stock de forma atómica. Si el producto no tiene variantes, no hace nada
  * (compatibilidad con catálogo sin stock configurado).
@@ -140,7 +144,9 @@ export async function reserveShopStock(
   tx: PrismaTransactionClient,
   items: ReserveItem[]
 ): Promise<string | null> {
-  for (const item of items) {
+  // H-181: cada `updateMany` bloquea una fila de variante hasta el final de la transacción; en el orden de la petición dos carritos con las mismas variantes en orden
+  // inverso se interbloquean (40P01) y a uno le llega un 500. Siempre en el mismo orden, el segundo espera al primero.
+  for (const item of sortedByKey(items, variantLockKey)) {
     const qty = item.quantity;
     if (qty <= 0) continue;
 
@@ -175,7 +181,7 @@ export async function releaseShopStock(
   tx: PrismaTransactionClient,
   items: ReserveItem[]
 ): Promise<void> {
-  for (const item of items) {
+  for (const item of sortedByKey(items, variantLockKey)) { // mismo orden que la reserva (H-181)
     const qty = item.quantity;
     if (qty <= 0) continue;
 

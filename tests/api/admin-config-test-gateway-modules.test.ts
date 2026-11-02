@@ -28,29 +28,33 @@ const post = (body: unknown) => POST(new Request('http://localhost', { method: '
 const as = (modules: string[] | null): TestSession => ({ user: { id: 'u', role: 'ADMIN', modules } });
 
 /* H-068: la ruta de «probar pasarela» estaba abierta a cualquier rol restringido y, con la máscara, prueba la clave GUARDADA: un oráculo de las claves
- * de pago de un módulo que ese rol no tiene. Cada cuenta (`scope`) pide su módulo. */
-describe('POST /api/admin/config/test-gateway por módulo (H-068)', () => {
-  it('un contable no prueba las claves guardadas de Entradas ni de Tienda: 403 y no se llama a la pasarela', async () => {
+ * de pago. H-173 (fase 5): H-058 reservó las credenciales de cobro al PROPIETARIO (un rol restringido ni las ve ni las guarda), pero el probador seguía
+ * dejándolo a quien tuviera el módulo de la cuenta. Ahora lo usa solo el propietario, con la máscara o con una clave escrita. */
+describe('POST /api/admin/config/test-gateway solo para el propietario (H-068, H-173)', () => {
+  it('un rol restringido, sea cual sea su módulo, recibe 403 con la máscara o con una clave escrita y no se llama a la pasarela', async () => {
     tested.length = 0;
-    session = as(['contabilidad']);
-    for (const scope of ['entradas', 'tienda']) {
-      const res = await post({ gateway: 'stripe', secretKey: SECRET_MASK, scope });
-      expect(res.status, scope).toBe(403);
+    for (const modules of [['contabilidad'], ['entradas'], ['tienda'], ['entradas', 'tienda'], []]) {
+      session = as(modules);
+      for (const scope of ['entradas', 'tienda', undefined]) {
+        for (const secretKey of [SECRET_MASK, 'sk_test_escrita']) {
+          const res = await post({ gateway: 'stripe', secretKey, ...(scope ? { scope } : {}) });
+          expect(res.status, `${modules.join('+') || 'sin módulos'} ${scope} ${secretKey}`).toBe(403);
+        }
+      }
     }
     expect(tested).toEqual([]);
   });
 
-  it('un gestor de tienda prueba SU cuenta (tienda) y no la de entradas', async () => {
-    session = as(['tienda']);
-    expect((await post({ gateway: 'stripe', secretKey: SECRET_MASK, scope: 'tienda' })).status).toBe(200);
-    expect((await post({ gateway: 'stripe', secretKey: SECRET_MASK, scope: 'entradas' })).status).toBe(403);
-    expect((await post({ gateway: 'stripe', secretKey: SECRET_MASK })).status).toBe(403); // sin scope = entradas
+  it('el propietario (sin lista de módulos) prueba la cuenta de entradas y la de tienda', async () => {
+    session = as(null);
+    for (const scope of ['entradas', 'tienda']) {
+      expect((await post({ gateway: 'stripe', secretKey: SECRET_MASK, scope })).status, scope).toBe(200);
+    }
+    expect((await post({ gateway: 'stripe', secretKey: SECRET_MASK })).status).toBe(200);
   });
 
-  it('el propietario y un gestor de entradas pasan', async () => {
-    for (const s of [as(null), as(['entradas'])]) {
-      session = s;
-      expect((await post({ gateway: 'stripe', secretKey: SECRET_MASK, scope: 'entradas' })).status).toBe(200);
-    }
+  it('sin sesión de administrador, 401', async () => {
+    session = null;
+    expect((await post({ gateway: 'stripe', secretKey: SECRET_MASK })).status).toBe(401);
   });
 });

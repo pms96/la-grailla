@@ -15,6 +15,8 @@ import { downloadAdminCsv } from '@/lib/admin-export';
 import SalesChart from './_components/sales-chart';
 import VentasPorDia from './_components/ventas-por-dia';
 import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 
 type StatsEvent = Pick<Event, 'id' | 'name' | 'maxCapacity' | 'currentCount' | 'alertThresholds' | 'alertsSent'> & { soldCount: number };
 
@@ -62,6 +64,7 @@ const RANGE_OPTIONS = [
 export default function EstadisticasPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [eventId, setEventId] = useState('all');
   const [range, setRange] = useState('all');
   const [exporting, setExporting] = useState<string | null>(null);
@@ -76,10 +79,9 @@ export default function EstadisticasPage() {
       from.setHours(0, 0, 0, 0);
       params.set('from', from.toISOString());
     }
-    fetch(`/api/admin/stats?${params.toString()}`)
-      .then((r) => r.json())
-      .then((d) => setStats(d))
-      .catch(() => {})
+    fetchAdminJson<Stats>(`/api/admin/stats?${params.toString()}`, 'No se pudieron cargar las estadísticas')
+      .then((d) => { setStats(d); setLoadError(null); })
+      .catch((e) => { setStats(null); setLoadError(userMessage(e, 'No se pudieron cargar las estadísticas')); }) // sin datos, nada de cifras a cero (H-176)
       .finally(() => setLoading(false));
   }, [eventId, range]);
 
@@ -172,6 +174,8 @@ export default function EstadisticasPage() {
             </CardContent>
           </Card>
         </div>
+      ) : loadError ? (
+        <LoadError title="No se han podido cargar las estadísticas." message={loadError} onRetry={fetchStats} />
       ) : (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">

@@ -94,6 +94,15 @@ export function maskEmail(email: string | null | undefined): string | null {
   return at < 1 ? '***' : `${email[0]}***${email.slice(at)}`;
 }
 
+/**
+ * El filtro de una exportación para el rastro, SIN el texto buscado (H-172): `q` es texto libre (casi siempre el nombre o el email de un comprador) y el rastro
+ * no se puede corregir ni borrar (H-026). Queda el resto del filtro y, si hubo búsqueda, `busqueda: true`. Pura.
+ */
+export function exportFilterForAudit(filtro: { q?: string | null } & Record<string, unknown>): Record<string, unknown> {
+  const { q, ...rest } = filtro;
+  return typeof q === 'string' && q.trim() !== '' ? { ...rest, busqueda: true } : rest;
+}
+
 export function actorFromSession(session: { user?: { id?: string | null; email?: string | null } } | null | undefined): AuditActor {
   return { id: session?.user?.id ?? null, email: session?.user?.email ?? null };
 }

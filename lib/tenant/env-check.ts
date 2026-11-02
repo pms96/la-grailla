@@ -8,6 +8,9 @@ import { parseMasterKey } from '@grailla/contracts';
 
 type Env = Record<string, string | undefined>;
 
+/** Hostname exacto de un almacén público de Vercel Blob. Se repite en next.config.js y lib/images/blob-image.ts (CommonJS no puede importar este fichero). */
+const BLOB_HOST_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.public\.blob\.vercel-storage\.com$/;
+
 function jsonObject(raw: string | undefined): Record<string, unknown> | null {
   try {
     const v = JSON.parse(raw ?? '');
@@ -53,6 +56,12 @@ export function platformEnvProblems(env: Env = process.env): string[] {
   const active = env.SECRETS_ACTIVE_KID ?? '';
   if (!keys || !(active in keys) || !Object.values(keys).every((v) => typeof v === 'string')) {
     out.push('SECRETS_KEYS / SECRETS_ACTIVE_KID no son válidos: no se podrán abrir las URLs de BD de los clientes');
+  }
+
+  // H-171: sin el host del almacén de Blob la CSP vuelve al comodín `*.public.blob.vercel-storage.com` y `isPlatformBlobHost` acepta cualquier almacén (logos, carteles y
+  // borrados apuntando a uno ajeno; salida de datos por un XSS): el endurecimiento se apaga sin avisar. Misma forma que `next.config.js` y `lib/images/blob-image.ts`.
+  if (!BLOB_HOST_RE.test((env.BLOB_PUBLIC_HOST ?? '').trim().toLowerCase())) {
+    out.push('BLOB_PUBLIC_HOST no está definida o no tiene la forma <id>.public.blob.vercel-storage.com (solo el hostname): la CSP y las URLs de Blob quedarían abiertas a cualquier almacén');
   }
 
   if (env.LEGACY_TENANT_ID && !env.LEGACY_NEXTAUTH_SECRET) out.push('LEGACY_TENANT_ID está definida pero falta LEGACY_NEXTAUTH_SECRET: las sesiones del cliente legacy no se podrán leer');

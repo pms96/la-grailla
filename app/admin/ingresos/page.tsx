@@ -15,6 +15,9 @@ import { toast } from 'sonner';
 import { TemporadaSelector } from '@/app/admin/compras/_components/temporada-selector';
 import { ConfirmDeleteDialog } from '@/app/admin/_components/confirm-delete-dialog';
 import { IngresoDialog } from '@/app/admin/ingresos/_components/ingreso-dialog';
+import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson, responseError } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 
 type IngresoConRelaciones = WithNumberFields<Ingreso, 'importe'> & { createdBy: { id: string; name: string | null; email: string } | null };
 
@@ -39,12 +42,13 @@ export default function IngresosPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<WithNumberFields<Ingreso, 'importe'> | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<IngresoConRelaciones | null>(null);
+  // H-176: una carga fallida se ENSEÑA (con «Reintentar») en lugar de pintar una lista vacía y «0,00 €».
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchTemporadas = useCallback((preferId?: string, incluirArchivadasParam?: boolean) => {
     const params = (incluirArchivadasParam ?? incluirArchivadas) ? '?incluirArchivados=1' : '';
-    return fetch(`/api/admin/compras/temporadas${params}`)
-      .then((r) => r.json())
-      .then((d: Temporada[]) => {
+    return fetchAdminJson<Temporada[]>(`/api/admin/compras/temporadas${params}`, 'No se pudieron cargar las temporadas')
+      .then((d) => {
         const list = Array.isArray(d) ? d : [];
         setTemporadas(list);
         setTemporadaId((prev) => {
@@ -52,7 +56,7 @@ export default function IngresosPage() {
           return preferId ?? (prevSigueDisponible ? prev : list[0]?.id ?? null);
         });
       })
-      .catch(() => {});
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar las temporadas')));
   }, [incluirArchivadas]);
 
   useEffect(() => {
@@ -63,14 +67,20 @@ export default function IngresosPage() {
   const fetchDatos = useCallback(() => {
     if (!temporadaId) { setIngresos([]); setResumen(null); return; }
     Promise.all([
-      fetch(`/api/admin/ingresos?temporadaId=${temporadaId}`).then((r) => r.json()),
-      fetch(`/api/admin/ingresos/resumen?temporadaId=${temporadaId}`).then((r) => r.json()),
+      fetchAdminJson<IngresoConRelaciones[]>(`/api/admin/ingresos?temporadaId=${temporadaId}`, 'No se pudieron cargar los ingresos'),
+      fetchAdminJson<Resumen>(`/api/admin/ingresos/resumen?temporadaId=${temporadaId}`, 'No se pudo cargar el resumen de ingresos'),
     ])
       .then(([i, r]) => {
         setIngresos(Array.isArray(i) ? i : []);
         setResumen(r);
+        setLoadError(null);
       })
-      .catch(() => {});
+      .catch((e) => {
+        // Sin datos, nada de totales a cero: se vacía y se enseña el error.
+        setIngresos([]);
+        setResumen(null);
+        setLoadError(userMessage(e, 'No se pudieron cargar los ingresos'));
+      });
   }, [temporadaId]);
 
   useEffect(() => { fetchDatos(); }, [fetchDatos]);
@@ -85,14 +95,18 @@ export default function IngresosPage() {
   // Un ingreso no se borra: se anula, con motivo. Deja de contar en las cifras y el registro de auditoría guarda quién y por qué.
   const confirmDelete = async (motivo?: string) => {
     if (!deleteTarget) return false;
-    const res = await fetch(`/api/admin/ingresos/${deleteTarget.id}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ motivo }),
-    });
-    if (res.ok) { toast.success('Ingreso anulado'); fetchDatos(); return true; }
-    // Si falla, el diálogo se queda abierto con el motivo escrito (H-011).
-    toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo anular el ingreso');
+    try {
+      const res = await fetch(`/api/admin/ingresos/${deleteTarget.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo }),
+      });
+      if (res.ok) { toast.success('Ingreso anulado'); fetchDatos(); return true; }
+      // Si falla, el diálogo se queda abierto con el motivo escrito (H-011).
+      toast.error(await responseError(res, 'No se pudo anular el ingreso'));
+    } catch (e) {
+      toast.error(userMessage(e, 'No se pudo anular el ingreso'));
+    }
     return false;
   };
 
@@ -125,7 +139,9 @@ export default function IngresosPage() {
         />
       </div>
 
-      {!temporada ? (
+      {loadError ? (
+        <LoadError title="No se han podido cargar los ingresos." message={loadError} onRetry={() => { setLoadError(null); void fetchTemporadas(); fetchDatos(); }} />
+      ) : !temporada ? (
         <p className="text-sm text-muted-foreground py-10 text-center">Crea una temporada para empezar a registrar ingresos.</p>
       ) : (
         <>

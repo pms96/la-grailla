@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Loader2, Sparkles, Check, X as XIcon, Mail, ExternalLink, ArrowLeft, Search, Handshake, Upload, Trash2, Film, Wallet,
 } from 'lucide-react';
+import { normalizePublicUrl } from '@/lib/safe-url';
 import { toast } from 'sonner';
 import { upload } from '@vercel/blob/client';
 import { PageHeader } from '@/components/layouts/page-header';
@@ -348,7 +349,13 @@ export default function SponsorDetailPage() {
           </div>
           {detail.website && (
             <p className="text-sm text-muted-foreground">
-              <strong>Web:</strong> <a href={detail.website} target="_blank" rel="noopener noreferrer" className="underline inline-flex items-center gap-1">{detail.website} <ExternalLink className="h-3 w-3" /></a>
+              <strong>Web:</strong>{' '}
+              {/* Solo se enlaza una dirección http(s) (H-169): una fila antigua con `javascript:` se enseña como texto. */}
+              {normalizePublicUrl(detail.website) ? (
+                <a href={normalizePublicUrl(detail.website) ?? undefined} target="_blank" rel="noopener noreferrer" className="underline inline-flex items-center gap-1">{detail.website} <ExternalLink className="h-3 w-3" /></a>
+              ) : (
+                <span className="break-all">{detail.website}</span>
+              )}
             </p>
           )}
           {detail.message && <p className="text-sm text-muted-foreground bg-muted/50 p-3 rounded">{detail.message}</p>}

@@ -47,6 +47,33 @@ describe('POST /api/sponsors/portal/[sponsorId]/datos', () => {
     await prisma.sponsorRequest.deleteMany({ where: { id: sponsorRequestId } });
   });
 
+  // H-169 (fase 5): la web del sponsor acaba en un `href` del panel del admin. Esta ruta (solo con el token del sponsor) la guardaba tal cual:
+  // `javascript:…` quedaba en la BD. `/api/sponsors` ya la normalizaba (H-105).
+  describe('website (H-169)', () => {
+    const save = (website: unknown) =>
+      saveDatos(jsonRequest(`http://localhost?t=${token}`, { companyName: 'Datos Incompletos SL', contactName: 'Rocío', website }), { params: Promise.resolve({ sponsorId }) });
+
+    it.each(['javascript:alert(1)', 'data:text/html,<b>x</b>', 'file:///etc/passwd', 'https://banco.com@evil.es', 'sin punto', 'ftp://x.com'])('rechaza «%s» con 400 y no lo guarda', async (bad) => {
+      const res = await save(bad);
+      expect(res.status).toBe(400);
+      const row = await prisma.sponsorRequest.findUnique({ where: { id: sponsorRequestId }, select: { website: true } });
+      expect(row?.website ?? '').not.toContain(bad);
+    });
+
+    it('normaliza una dirección sin esquema a https y la guarda', async () => {
+      const res = await save('tuempresa.com/tienda');
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.sponsorRequest.website).toBe('https://tuempresa.com/tienda');
+    });
+
+    it('un texto vacío borra la web (null)', async () => {
+      const res = await save('   ');
+      expect(res.status).toBe(200);
+      expect((await res.json()).sponsorRequest.website).toBeNull();
+    });
+  });
+
   it('rechaza sin token', async () => {
     const res = await saveDatos(
       jsonRequest('http://localhost', { companyName: 'X', contactName: 'Y', sponsorType: 'evento' }),

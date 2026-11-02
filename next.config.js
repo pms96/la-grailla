@@ -29,6 +29,7 @@ function latestMigration() {
  * Optimización de imágenes de Vercel Blob (docs/platform/optimizacion-imagenes.md). Solo se activa si existe la variable NO secreta
  * BLOB_PUBLIC_HOST con el hostname exacto del store de la plataforma (`<id>.public.blob.vercel-storage.com`) y IMAGES_UNOPTIMIZED no vale 1.
  * Sin ella (o con un valor que no tenga esa forma) todo queda como antes: `images.unoptimized`. Nunca `domains` ni comodines.
+ * La variable además RESTRINGE el host de Blob (CSP y lista blanca de URLs) aunque IMAGES_UNOPTIMIZED valga 1 (H-171); en modo plataforma la exige el preflight.
  * La expresión regular se repite en lib/images/blob-image.ts (este fichero es CommonJS y no puede importar TypeScript).
  */
 const BLOB_HOST_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.public\.blob\.vercel-storage\.com$/;
@@ -42,7 +43,9 @@ function blobPublicHost() {
   return raw;
 }
 const imagesOff = process.env.IMAGES_UNOPTIMIZED === '1';
-const blobHost = imagesOff ? '' : blobPublicHost();
+// El host válido RESTRINGE siempre (CSP y `isPlatformBlobHost`, H-112, H-067); `IMAGES_UNOPTIMIZED` solo decide si Next optimiza (H-171): antes lo vaciaba y
+// con él volvía el comodín de Blob, así que apagar la optimización por coste desactivaba también el endurecimiento.
+const blobHost = blobPublicHost();
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -64,7 +67,7 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
-  images: blobHost
+  images: blobHost && !imagesOff
     ? {
         // Solo WebP: menos variantes por imagen y menos CPU en la primera visita. AVIF = añadir 'image/avif' aquí (un cambio de una línea).
         formats: ['image/webp'],

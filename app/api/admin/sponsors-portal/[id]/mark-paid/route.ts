@@ -11,6 +11,7 @@ import { findSponsorTier, parseSponsorTiers } from '@/lib/sponsor-tiers';
 import { actorFromSession, diffFields, recordAdminAudit } from '@/lib/admin-audit';
 import { MAX_IMPORTE } from '@/lib/contabilidad/validation';
 import { seasonLinkEnabled } from '@/lib/modules/season-link';
+import { checkTemporadaAbiertaTx } from '@/lib/contabilidad/control';
 
 const PAYMENT_AUDIT_FIELDS = ['isPaid', 'isCollaboration', 'paidAmount'] as const;
 
@@ -76,7 +77,14 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     }
 
     // H-018/H-021: marcar (o desmarcar) un patrocinio como pagado mueve el ingreso de la temporada: queda quién, cuándo y el importe, en la misma transacción.
-    const updated = await prisma.$transaction(async (tx) => {
+    // H-184: el ingreso cuenta en la temporada de la solicitud, y una temporada CERRADA no admite cambios de libros (423, igual que gastos e ingresos). Se comprueba DENTRO de la
+    // transacción y con la fila bloqueada (H-014), también al desmarcar: quitar un cobro de unos libros presentados cambia el margen igual que añadirlo.
+    const temporadaId = seasonLinkEnabled() ? sponsor.sponsorRequest.temporadaId : null;
+    const outcome = await prisma.$transaction(async (tx) => {
+      if (temporadaId) {
+        const open = await checkTemporadaAbiertaTx(tx, temporadaId);
+        if (!open.ok) return NextResponse.json({ error: open.error, code: open.code }, { status: open.status });
+      }
       const saved = await tx.sponsor.update({ where: { id: sponsorId }, data });
       await recordAdminAudit(tx, actorFromSession(session), request, {
         action: 'sponsor.mark_paid',
@@ -86,7 +94,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       });
       return saved;
     });
-    return NextResponse.json(updated);
+    return outcome instanceof NextResponse ? outcome : NextResponse.json(outcome);
   } catch (error) {
     return handleApiError(error, 'POST /api/admin/sponsors-portal/[id]/mark-paid');
   }

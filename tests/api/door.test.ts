@@ -315,6 +315,25 @@ describe('puerta: escaneo, búsqueda y admisión manual', () => {
       expect(byQr.results.map((r: { ticketId: string }) => r.ticketId)).toEqual([tickets.bea.id]);
     });
 
+    // H-168 (fase 5): la puerta acepta cualquier SUFIJO del id del pedido y responde si hay resultados: con ~36 intentos por posición (límite de 90/min) un usuario de taquilla
+    // alargaba el sufijo carácter a carácter hasta reconstruir el id completo (la pantalla solo enseña 6) y con el id pedía `GET /api/orders/{id}` o el PDF con el QR. El id solo
+    // se busca por una referencia COMPLETA: 6 caracteres (la que enseña la puerta) u 8 (la que lee el comprador).
+    it('H-168: el id del pedido solo se encuentra con la referencia completa (6 u 8 caracteres), no con un sufijo cualquiera', async () => {
+      const id = tickets.bea.orderId;
+      const found = async (q: string) => (await (await searchReq(event.id, q)).json()).results.some((r: { ticketId: string }) => r.ticketId === tickets.bea.id);
+      expect(await found(id.slice(-6))).toBe(true); // la que enseña la puerta
+      expect(await found(id.slice(-8))).toBe(true); // la del comprador
+      for (const len of [3, 4, 5, 7, 9, 12, id.length]) {
+        expect(await found(id.slice(-len)), `sufijo de ${len}`).toBe(false);
+      }
+    });
+
+    it('H-168: una referencia de otra longitud tampoco encuentra a otro pedido por azar (nada de oráculo de prefijos)', async () => {
+      const id = tickets.ana.orderId;
+      const body = await (await searchReq(event.id, id.slice(-7))).json();
+      expect(body.results.map((r: { ticketId: string }) => r.ticketId)).not.toContain(tickets.ana.id);
+    });
+
     it('enseña el email enmascarado y nunca el completo ni el QR', async () => {
       const res = await searchReq(event.id, 'lucía ferrer');
       const text = JSON.stringify(await res.json());

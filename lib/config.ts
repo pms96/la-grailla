@@ -177,6 +177,21 @@ export async function getConfigOrThrow(key: string): Promise<string> {
   return decryptConfigValue(key, raw, true);
 }
 
+/**
+ * Lectura EXACTA de una clave: un error de base de datos se PROPAGA (a diferencia de `getConfig`, que devuelve el valor por defecto) y un valor cifrado ilegible lanza
+ * `SecretDecryptionError`. Para pantallas vale degradar; para decidir DE QUÉ CUENTA se cobra o se concilia no (H-177): con la BD caída un `payment_gateway` leído como
+ * «mock» se confundía con «sin pasarela real» y la conciliación se saltaba la cuenta sin contarla como error.
+ */
+export async function getConfigExact(key: string): Promise<string> {
+  const config = await prisma.appConfig.findUnique({ where: { key } });
+  return decryptConfigValue(key, config?.value ?? configDefault(key), true);
+}
+
+/** Como `hasConfigRow`, pero un error de BD se propaga (H-178): «no se pudo leer» no es «no existe la fila». */
+export async function hasConfigRowExact(key: string): Promise<boolean> {
+  return (await prisma.appConfig.findUnique({ where: { key }, select: { key: true } })) !== null;
+}
+
 /** Fila de sistema: cuándo guardó la Tienda su PROPIA pasarela por primera vez (ms desde epoch). Antes de eso cobraba con la cuenta de Entradas. */
 export const SHOP_ACCOUNT_SINCE_KEY = 'shop_account_since';
 

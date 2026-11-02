@@ -21,6 +21,8 @@ import { ComparativoBarChart } from '@/app/admin/gastos/_components/comparativo-
 import { CATEGORIAS_GASTO, descripcionContabilidad } from '@/lib/compras/constantes';
 import { downloadGastosExport } from '@/lib/gastos/gastos-export';
 import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson, responseError } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 
 type GastoConRelaciones = WithNumberFields<Gasto, 'importeSinIva' | 'ivaPercent'> & { proveedor: Proveedor | null; createdBy: { id: string; name: string | null; email: string } | null };
 
@@ -47,12 +49,13 @@ export default function GastosPage() {
   const [editing, setEditing] = useState<WithNumberFields<Gasto, 'importeSinIva' | 'ivaPercent'> | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<GastoConRelaciones | null>(null);
   const [exportando, setExportando] = useState<'excel' | 'pdf' | null>(null);
+  // H-176: una carga fallida se ENSEÑA (con «Reintentar») en lugar de pintar una lista vacía y «0,00 €».
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchTemporadas = useCallback((preferId?: string, incluirArchivadasParam?: boolean) => {
     const params = (incluirArchivadasParam ?? incluirArchivadas) ? '?incluirArchivados=1' : '';
-    return fetch(`/api/admin/compras/temporadas${params}`)
-      .then((r) => r.json())
-      .then((d: Temporada[]) => {
+    return fetchAdminJson<Temporada[]>(`/api/admin/compras/temporadas${params}`, 'No se pudieron cargar las temporadas')
+      .then((d) => {
         const list = Array.isArray(d) ? d : [];
         setTemporadas(list);
         setTemporadaId((prev) => {
@@ -60,15 +63,15 @@ export default function GastosPage() {
           return preferId ?? (prevSigueDisponible ? prev : list[0]?.id ?? null);
         });
       })
-      .catch(() => {});
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar las temporadas')));
   }, [incluirArchivadas]);
 
   useEffect(() => {
     Promise.all([
       fetchTemporadas(),
-      fetch('/api/admin/compras/proveedores').then((r) => r.json()).then((p) => setProveedores(Array.isArray(p) ? p : [])),
+      fetchAdminJson<Proveedor[]>('/api/admin/compras/proveedores', 'No se pudieron cargar los proveedores').then((p) => setProveedores(Array.isArray(p) ? p : [])),
     ])
-      .catch(() => {})
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar los proveedores')))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -78,14 +81,20 @@ export default function GastosPage() {
     const params = new URLSearchParams({ temporadaId });
     if (categoriaFiltro !== '__all__') params.set('categoria', categoriaFiltro);
     Promise.all([
-      fetch(`/api/admin/gastos?${params}`).then((r) => r.json()),
-      fetch(`/api/admin/gastos/resumen?temporadaId=${temporadaId}`).then((r) => r.json()),
+      fetchAdminJson<GastoConRelaciones[]>(`/api/admin/gastos?${params}`, 'No se pudieron cargar los gastos'),
+      fetchAdminJson<Resumen>(`/api/admin/gastos/resumen?temporadaId=${temporadaId}`, 'No se pudo cargar el resumen de gastos'),
     ])
       .then(([g, r]) => {
         setGastos(Array.isArray(g) ? g : []);
         setResumen(r);
+        setLoadError(null);
       })
-      .catch(() => {});
+      .catch((e) => {
+        // Sin datos, nada de totales a cero: se vacía y se enseña el error.
+        setGastos([]);
+        setResumen(null);
+        setLoadError(userMessage(e, 'No se pudieron cargar los gastos'));
+      });
   }, [temporadaId, categoriaFiltro]);
 
   useEffect(() => { fetchDatos(); }, [fetchDatos]);
@@ -100,14 +109,18 @@ export default function GastosPage() {
   // Un gasto no se borra: se anula, con motivo. Deja de contar en las cifras y el registro de auditoría guarda quién y por qué.
   const confirmDelete = async (motivo?: string) => {
     if (!deleteTarget) return false;
-    const res = await fetch(`/api/admin/gastos/${deleteTarget.id}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ motivo }),
-    });
-    if (res.ok) { toast.success('Gasto anulado'); fetchDatos(); return true; }
-    // Si falla, el diálogo se queda abierto con el motivo escrito (H-011).
-    toast.error((await res.json().catch(() => null))?.error ?? 'No se pudo anular el gasto');
+    try {
+      const res = await fetch(`/api/admin/gastos/${deleteTarget.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo }),
+      });
+      if (res.ok) { toast.success('Gasto anulado'); fetchDatos(); return true; }
+      // Si falla, el diálogo se queda abierto con el motivo escrito (H-011).
+      toast.error(await responseError(res, 'No se pudo anular el gasto'));
+    } catch (e) {
+      toast.error(userMessage(e, 'No se pudo anular el gasto'));
+    }
     return false;
   };
 
@@ -145,7 +158,9 @@ export default function GastosPage() {
         </div>
       </div>
 
-      {!temporada ? (
+      {loadError ? (
+        <LoadError title="No se han podido cargar los gastos." message={loadError} onRetry={() => { setLoadError(null); void fetchTemporadas(); fetchDatos(); }} />
+      ) : !temporada ? (
         <p className="text-sm text-muted-foreground py-10 text-center">Crea una temporada para empezar a registrar gastos.</p>
       ) : (
         <>

@@ -2,11 +2,12 @@ import { getFallbackBaseUrl } from '@/lib/url';
 import { escapeHtml as esc } from '@/lib/html-escape';
 import type { OrderStatus, TicketStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { sortedByKey } from '@/lib/lock-order';
 import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { scheduleOrderEmail } from '@/lib/order-email';
 import { hasEventEnded } from '@/lib/active-event';
 import { gatewayRefundState } from './gateway-refund';
-import { alertOperator, alertPaidButInactiveOrder, logPaymentEvent, paymentMatchesOrder, refundIdempotencyKey, type CompleteOutcome, type PaidInfo } from './shared';
+import { alertOperator, alertPaidButInactiveOrder, logPaymentEvent, paymentMatchesOrder, refundIdempotencyKey, refundOrderTotal, type CompleteOutcome, type PaidInfo } from './shared';
 import { alertManuallyRefunded, confirmLatePayment, finishLateRefund, lateRefundMarker } from './late-payment';
 import { closeSessionBeforeCancel } from './close-session';
 import { releasePendingSlot } from '@/lib/rate-limit';
@@ -117,7 +118,7 @@ export async function reviveOrder(orderId: string): Promise<ReviveResult> {
       const { count } = await tx.order.updateMany({ where: { id: orderId, status: 'CANCELLED' }, data: { status: 'COMPLETED' } });
       if (count === 0) return 'not_cancelled';
       await tx.ticket.updateMany({ where: { orderId, status: 'CANCELLED' }, data: { status: 'VALID' } });
-      for (const [ticketTypeId, quantity] of quantityByType) {
+      for (const [ticketTypeId, quantity] of sortedByKey(quantityByType, ([id]) => id)) { // orden fijo de bloqueo (H-181)
         await tx.ticketType.update({ where: { id: ticketTypeId }, data: { soldCount: { increment: quantity } } });
       }
       return 'revived';
@@ -225,7 +226,7 @@ export async function releaseExpiredOrder(orderId: string): Promise<boolean> {
     }
 
     await tx.ticket.updateMany({ where: { orderId, status: 'PENDING' }, data: { status: 'CANCELLED' } });
-    for (const [ticketTypeId, quantity] of quantityByType.entries()) {
+    for (const [ticketTypeId, quantity] of sortedByKey(quantityByType, ([id]) => id)) { // orden fijo de bloqueo (H-181): esta liberación NO toma el cerrojo del evento
       await tx.ticketType.update({ where: { id: ticketTypeId }, data: { soldCount: { decrement: quantity } } });
     }
     return true;
@@ -312,7 +313,7 @@ export async function invalidateOrder(
       await tx.ticket.updateMany({ where: { id: { in: active.map((t) => t.id) } }, data: { status: 'CANCELLED' } });
       const byType = new Map<string, number>();
       for (const t of active) if (t.ticketTypeId) byType.set(t.ticketTypeId, (byType.get(t.ticketTypeId) ?? 0) + 1);
-      for (const [ticketTypeId, quantity] of byType) await tx.ticketType.update({ where: { id: ticketTypeId }, data: { soldCount: { decrement: quantity } } });
+      for (const [ticketTypeId, quantity] of sortedByKey(byType, ([id]) => id)) await tx.ticketType.update({ where: { id: ticketTypeId }, data: { soldCount: { decrement: quantity } } }); // orden fijo (H-181)
       return true;
     });
     if (!done) return { success: false, error: 'El pedido cambió de estado mientras se procesaba; vuelve a intentarlo' };
@@ -333,7 +334,7 @@ export async function invalidateOrder(
     let refundError: string | null = null;
     try {
       const provider = await getPaymentProviderByName(order.paymentProvider);
-      const refund = await provider.refund(order.paymentId, order.totalAmount, refundIdempotencyKey(order.id));
+      const refund = await refundOrderTotal(provider, order.paymentId, order.totalAmount, refundIdempotencyKey(order.id));
       if (!refund.success) refundError = refund.error ?? 'El reembolso en la pasarela ha fallado';
     } catch (err) {
       refundError = err instanceof Error ? err.message : 'Error al reembolsar en la pasarela';
@@ -363,7 +364,7 @@ export async function invalidateOrder(
       where: { orderId, status: { in: activeStatuses } },
       data: { status: ticketStatus },
     }),
-    ...Array.from(quantityByType.entries()).map(([ticketTypeId, quantity]) =>
+    ...sortedByKey(quantityByType, ([id]) => id).map(([ticketTypeId, quantity]) => // orden fijo de bloqueo (H-181)
       prisma.ticketType.update({
         where: { id: ticketTypeId },
         data: { soldCount: { decrement: quantity } },

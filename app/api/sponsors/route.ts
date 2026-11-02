@@ -13,7 +13,7 @@ import { normalizePhone } from '@/lib/phone';
 import { getBrand } from '@/lib/brand/brand';
 import { brandLogoHtml } from '@/lib/brand/email';
 import { escapeHtml as esc } from '@/lib/html-escape';
-import { normalizePublicUrl } from '@/lib/safe-url';
+import { optionalPublicUrl } from '@/lib/safe-url';
 import { captchaRejection, verifyCaptcha } from '@/lib/captcha';
 
 // Los campos del formulario van directos al HTML de dos emails reales (a administrador y al remitente): todos pasan por `esc` (que escapa también las
@@ -33,20 +33,7 @@ const createSponsorRequestSchema = z.object({
   email: z.string().email().max(255),
   phone: z.string().max(30).optional().nullable(),
   // Solo una dirección web http(s) (con o sin «https://»): va dentro de un `href` del correo al operador.
-  website: z
-    .string()
-    .max(300)
-    .optional()
-    .nullable()
-    .transform((v, ctx) => {
-      if (v == null || v.trim() === '') return null;
-      const url = normalizePublicUrl(v);
-      if (!url) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Escribe una dirección web válida (por ejemplo https://tuempresa.com)' });
-        return z.NEVER;
-      }
-      return url;
-    }),
+  website: optionalPublicUrl,
   message: z.string().max(5000).optional().nullable(),
   // Token del captcha (Turnstile) si el cliente lo tiene activado; ver lib/captcha.ts.
   captchaToken: z.string().max(2100).optional(),

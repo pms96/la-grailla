@@ -293,6 +293,16 @@ describe('SumUp (P1-13): tope de tiempo en todas las llamadas', () => {
     }
   });
 
+  // H-173 (fase 5): el código de comerciante viene del formulario y va en la RUTA de la URL: sin codificar, `../` o `?` cambian el endpoint al que se envía la clave.
+  it('la prueba de conexión codifica el código de comerciante en la ruta', async () => {
+    const calls = seen();
+    await new SumUpAdapter('key', 'MC/../../v1.0/me?x=1#').testConnection();
+    const url = new URL(calls[0].url);
+    expect(url.host).toBe('api.sumup.com');
+    expect(url.pathname).toBe('/v0.1/merchants/MC%2F..%2F..%2Fv1.0%2Fme%3Fx%3D1%23');
+    expect(url.search).toBe('');
+  });
+
   it('si SumUp no contesta al crear el checkout, la llamada FALLA (la ruta de compra cancela el pedido y libera el aforo) en vez de colgarse', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError'); }));
     await expect(adapter().createCheckoutSession(params)).rejects.toThrow(/timeout/i);

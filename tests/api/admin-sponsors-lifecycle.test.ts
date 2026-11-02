@@ -81,6 +81,27 @@ describe('POST /api/admin/sponsors — alta manual', () => {
     }
   });
 
+  // H-169 (fase 5): la web acaba en un `href` de la ficha del admin; el alta manual también la normaliza.
+  it('rechaza una web con esquema peligroso y normaliza una sin esquema', async () => {
+    const badName = `[TEST] Web Mala ${Date.now()}`; // único: si el código estuviera mal y creara la fila, el test no deja basura que rompa la siguiente pasada
+    try {
+      const bad = await createSponsor(adminRequest({ companyName: badName, contactName: 'Rosa', website: 'javascript:alert(1)', sponsorType: 'evento', status: 'PENDING' }));
+      expect(bad.status).toBe(400);
+      expect(await prisma.sponsorRequest.count({ where: { companyName: badName } })).toBe(0);
+    } finally {
+      await prisma.sponsorRequest.deleteMany({ where: { companyName: badName } });
+    }
+
+    const ok = await createSponsor(adminRequest({ companyName: 'Web Buena SL', contactName: 'Rosa', website: 'tuempresa.com', sponsorType: 'evento', status: 'PENDING' }));
+    const data = await ok.json();
+    try {
+      expect(ok.status).toBe(201);
+      expect(data.sponsorRequest.website).toBe('https://tuempresa.com/');
+    } finally {
+      await cleanup(data.sponsorRequest.id, data.sponsor?.id ?? null);
+    }
+  });
+
   it('teléfono se normaliza a solo dígitos con prefijo de país', async () => {
     const res = await createSponsor(
       adminRequest({

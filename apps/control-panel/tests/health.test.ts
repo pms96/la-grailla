@@ -56,6 +56,32 @@ describe('probeTenantHealth', () => {
     expect(r).toMatchObject({ reachable: true, problems: [] });
   });
 
+  // H-175 (fase 5): lo que es un fallo TÉCNICO grave (`severe`) cuenta como fallo de la tarea de salud en el disparador; lo leve (datos sin completar) sigue siendo un aviso.
+  describe('severe (H-175)', () => {
+    const severeOf = async (over: Record<string, unknown>, tgt = target) => {
+      const r = await probeTenantHealth(tgt, { fetchImpl: fetchOf(503, detail(over)) });
+      return r.reachable ? r.severe : undefined;
+    };
+    it('es false con la web sana y con un problema leve (datos sin completar)', async () => {
+      expect(await severeOf({})).toBe(false);
+      expect(await severeOf({ onboarding: { complete: false, missing: ['legal_notice'] } })).toBe(false);
+    });
+    it('la BD no responde', async () => expect(await severeOf({ db: { ok: false, latencyMs: 3 } })).toBe(true));
+    it('la BD es de OTRO cliente', async () => expect(await severeOf({ tenantMarker: '01JBBBBBBBBBBBBBBBBBBBBBBB' })).toBe(true));
+    it('el marcado de la BD que coincide con el cliente NO es grave', async () => expect(await severeOf({ tenantMarker: target.tenantId })).toBe(false));
+    it('el front no sirve a este cliente (mantenimiento por esquema)', async () => expect(await severeOf({ serving: false })).toBe(true));
+    it('esquema atrasado', async () => {
+      const stale = { schema: { applied: '20261008213000_contact_inbox', expected: '20261009090000_reconcile_queue', minRequired: '20261009090000_reconcile_queue', upToDate: false } };
+      expect(await severeOf(stale)).toBe(true);
+    });
+    it('la BD por detrás del registro (tras un PITR)', async () => {
+      expect(await severeOf({ schema: { applied: '20261008213000_contact_inbox', expected: '20261009090000_reconcile_queue', minRequired: '20261008213000_contact_inbox', upToDate: true } })).toBe(true);
+    });
+    it('la BD por DELANTE del registro (registro sin actualizar) no es grave: el front se pone en mantenimiento y se corrige el registro', async () => {
+      expect(await severeOf({}, { ...target, declaredSchema: '20261008213000_contact_inbox' })).toBe(false);
+    });
+  });
+
   it('detecta deriva entre lo declarado en el registro y lo que hay en la BD', async () => {
     const r = await probeTenantHealth({ ...target, declaredSchema: '20261008213000_contact_inbox' }, { fetchImpl: fetchOf(200, detail()) });
     expect(r.problems.join()).toMatch(/Deriva/);

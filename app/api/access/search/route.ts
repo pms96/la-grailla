@@ -9,7 +9,7 @@ import { authOptions } from '@/lib/auth';
 import { rateLimit } from '@/lib/rate-limit';
 import { handleApiError } from '@/lib/api-error';
 import { ticketUnusable } from '@/lib/ticket-validity';
-import { maskEmail, orderRef } from '@/lib/door-search';
+import { ORDER_REF_SEARCH_LENGTHS, maskEmail, orderRef } from '@/lib/door-search';
 import { displayBuyerEmail, isPlaceholderEmail } from '@/lib/placeholder-email';
 
 /* Búsqueda de asistentes en la PUERTA (P1-06 / EN-12): «no encuentro el email» es el motivo nº 1 de soporte en la entrada. El personal escribe un
@@ -53,7 +53,8 @@ export async function GET(request: Request) {
         { order: { buyerLastName: { contains: w, mode: 'insensitive' } } },
         // El email solo casa ENTERO: con `contains` se podía reconstruir carácter a carácter el email que la respuesta enmascara (revisión de P1-06).
         ...(w.includes('@') ? [{ order: { buyerEmail: { equals: w, mode: 'insensitive' as const } } }] : []),
-        { order: { id: { endsWith: w.toLowerCase() } } },
+        // La referencia del pedido, COMPLETA (H-168): un sufijo de cualquier longitud sería un oráculo para reconstruir el id (con el que se pide el pedido o su PDF con el QR).
+        ...(ORDER_REF_SEARCH_LENGTHS.includes(w.length) ? [{ order: { id: { endsWith: w.toLowerCase() } } }] : []),
         { qrCode: { equals: w, mode: 'insensitive' } },
       ],
     });

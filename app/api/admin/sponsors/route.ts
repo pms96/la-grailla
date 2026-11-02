@@ -8,6 +8,7 @@ import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { ensureSponsorPortalInvite } from '@/lib/sponsor-portal';
 import { normalizePhone } from '@/lib/phone';
+import { optionalPublicUrl } from '@/lib/safe-url';
 import { getBaseUrl } from '@/lib/url';
 import { withoutSeasonLink } from '@/lib/modules/season-link';
 
@@ -35,7 +36,7 @@ const createSponsorSchema = z.object({
   // añade él mismo desde ahí (ver /api/sponsors/portal/[sponsorId]/datos).
   email: z.union([z.string().email().max(255), z.literal('')]).optional(),
   phone: z.string().max(30).optional().nullable(),
-  website: z.string().max(300).optional().nullable(),
+  website: optionalPublicUrl,
   sponsorType: z.string().min(1),
   message: z.string().max(5000).optional().nullable(),
   // Acuerdo ya cerrado por teléfono/WhatsApp/en persona — el admin da de alta
@@ -61,7 +62,7 @@ export async function POST(request: Request) {
         contactName: body.contactName,
         email: body.email || null,
         phone: normalizePhone(body.phone),
-        website: body.website || null,
+        website: body.website,
         sponsorType: body.sponsorType,
         message: body.message || null,
         status: body.status,

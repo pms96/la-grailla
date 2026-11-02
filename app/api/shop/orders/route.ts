@@ -1,4 +1,6 @@
 export const dynamic = 'force-dynamic';
+// H-180: hasta 20 s esperando el cerrojo + 20 s de transacción y, DESPUÉS del commit, la pasarela (SumUp 12 s): con el límite por defecto la función podía morir entre el commit y guardar `paymentId`.
+export const maxDuration = 60;
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';

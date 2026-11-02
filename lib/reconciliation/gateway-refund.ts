@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { sortedByKey } from '@/lib/lock-order';
 import { sendMail } from '@/lib/mailer';
 import { escapeHtml as esc } from '@/lib/html-escape';
 import { getBrand } from '@/lib/brand/brand';
@@ -117,7 +118,7 @@ async function applyToOrder(
     await tx.ticket.updateMany({ where: { id: { in: active.map((t) => t.id) } }, data: { status: 'REFUNDED' } });
     const byType = new Map<string, number>();
     for (const t of active) if (t.ticketTypeId) byType.set(t.ticketTypeId, (byType.get(t.ticketTypeId) ?? 0) + 1);
-    for (const [ticketTypeId, quantity] of byType) await tx.ticketType.update({ where: { id: ticketTypeId }, data: { soldCount: { decrement: quantity } } });
+    for (const [ticketTypeId, quantity] of sortedByKey(byType, ([id]) => id)) await tx.ticketType.update({ where: { id: ticketTypeId }, data: { soldCount: { decrement: quantity } } }); // orden fijo (H-181)
     return { cancelled: active.length };
   });
   if (!applied) return 'already';
@@ -286,7 +287,7 @@ export async function repairRefundedOrders(opts: { now?: number; limit?: number;
           await tx.ticket.updateMany({ where: { id: { in: active.map((t) => t.id) } }, data: { status: 'REFUNDED' } });
           const byType = new Map<string, number>();
           for (const t of active) if (t.ticketTypeId) byType.set(t.ticketTypeId, (byType.get(t.ticketTypeId) ?? 0) + 1);
-          for (const [ticketTypeId, quantity] of byType) await tx.ticketType.update({ where: { id: ticketTypeId }, data: { soldCount: { decrement: quantity } } });
+          for (const [ticketTypeId, quantity] of sortedByKey(byType, ([id]) => id)) await tx.ticketType.update({ where: { id: ticketTypeId }, data: { soldCount: { decrement: quantity } } }); // orden fijo (H-181)
           return active.length;
         });
         if (n > 0) {

@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
+import { sortedByKey } from '@/lib/lock-order';
 import { getServerSession } from 'next-auth';
 import { adminLacksModule } from '@/lib/modules/access';
 import { authOptions } from '@/lib/auth';
@@ -150,7 +151,7 @@ export async function POST(request: Request) {
         },
       });
 
-      for (const td of ticketData) {
+      for (const td of sortedByKey(ticketData, (t) => t.ticketTypeId)) { // orden fijo de bloqueo (H-181)
         for (let i = 0; i < td.quantity; i++) {
           const ticket = await tx.ticket.create({
             data: {

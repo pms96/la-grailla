@@ -65,10 +65,20 @@ describe('comprobación del entorno del modo plataforma', () => {
     PLATFORM_CRON_MASTER: generateMasterKey(),
     SECRETS_KEYS: JSON.stringify({ m1: generateMasterKey() }),
     SECRETS_ACTIVE_KID: 'm1',
+    BLOB_PUBLIC_HOST: 'abc123.public.blob.vercel-storage.com',
   });
 
   it('un entorno completo no tiene problemas', () => {
     expect(platformEnvProblems(validEnv())).toEqual([]);
+  });
+
+  // H-171 (fase 5): sin esta variable (o mal formada) la CSP vuelve al comodín de Blob y se acepta cualquier almacén: el endurecimiento se apaga sin avisar.
+  it('BLOB_PUBLIC_HOST ausente o mal formada es un problema (el host de Blob dejaría de estar restringido)', () => {
+    const { BLOB_PUBLIC_HOST: _omit, ...sin } = validEnv();
+    expect(platformEnvProblems(sin).join('\n')).toContain('BLOB_PUBLIC_HOST');
+    for (const bad of ['https://abc.public.blob.vercel-storage.com', 'abc.public.blob.vercel-storage.com/', 'otro.example.com', '   ', 'a.b.public.blob.vercel-storage.com']) {
+      expect(platformEnvProblems({ ...validEnv(), BLOB_PUBLIC_HOST: bad }).join('\n'), JSON.stringify(bad)).toContain('BLOB_PUBLIC_HOST');
+    }
   });
 
   it.each([

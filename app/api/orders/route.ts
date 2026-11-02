@@ -1,10 +1,13 @@
 export const dynamic = 'force-dynamic';
+// H-180: hasta 20 s esperando el cerrojo + 20 s de transacción y, DESPUÉS del commit, la pasarela (SumUp 12 s): con el límite por defecto la función podía morir entre el commit y guardar `paymentId`.
+export const maxDuration = 60;
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import type { TicketStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { sortedByKey } from '@/lib/lock-order';
 import { generateQRCode } from '@/lib/qr';
 import { getConfig } from '@/lib/config';
 import { rateLimit, getClientIp, countPendingSlots, takePendingSlot } from '@/lib/rate-limit';
@@ -373,7 +376,8 @@ export async function POST(request: Request) {
         // checkout, no solo cuando se confirma el pago (igual que el aforo).
         // Segura frente a condiciones de carrera porque ya estamos dentro del
         // lock por evento tomado arriba.
-        for (const td of ticketData) {
+        // H-181: los tipos se actualizan en un orden fijo: con el cerrojo del evento no se cruzan dos altas, pero la liberación de un pedido caducado no lo toma.
+        for (const td of sortedByKey(ticketData, (t) => t.ticketTypeId)) {
           await tx.ticketType.update({
             where: { id: td.ticketTypeId },
             data: { soldCount: { increment: td.quantity } },

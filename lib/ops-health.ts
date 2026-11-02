@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { countEmailBacklog } from '@/lib/email-delivery';
 import { CHECKOUT_RELEASE_AFTER_MS } from '@/lib/checkout-hold';
 import { currentTenant } from '@/lib/tenant/context';
+import { liveWaitingWhere } from '@/lib/waiting-room';
 
 /* Bloque `ops` de /api/health: las señales de negocio que el panel necesita para alertar antes que el comprador (P0-07 · OB-06).
  *
@@ -71,13 +72,11 @@ export interface OpenObligations {
 export interface SalesActivity {
   /** Pedidos de entradas Y de tienda creados en los últimos 15 minutos (cualquier estado): un lanzamiento de la tienda también es una venta. */
   orders15min: number;
-  /** Personas en la sala de espera con turno vivo: ADMITTED con turno sin caducar, o WAITING que entraron hace menos de `WAITING_LIVE_MS`. Las filas viejas no cuentan (solo se cierran con tráfico de la cola, y una venta terminada no lo tiene). */
+  /** Personas en la sala de espera con turno vivo: ADMITTED con turno sin caducar, o WAITING que siguen sondeando (`liveWaitingWhere`: latido de los últimos 2 min, H-182). Las pestañas cerradas no cuentan: solo se cierran con tráfico de la cola, y una venta terminada no lo tiene. */
   waitingRoom: number;
 }
 
 const SALES_WINDOW_MS = 15 * 60_000;
-/** Un WAITING más viejo que esto es casi seguro una pestaña cerrada: quien espera de verdad sondea cada pocos segundos y la cola avanza. */
-const WAITING_LIVE_MS = 3 * 3_600_000;
 /** Un pedido PENDING más viejo que esto es un pago abandonado (lo resuelve la conciliación), no un comprador esperando. */
 const OBLIGATION_PENDING_MS = 24 * 3_600_000;
 /** Un evento que empezó hace menos de esto sigue contando como «por venir»: la noche aún no ha terminado. */
@@ -186,7 +185,7 @@ export async function collectOps(now = Date.now(), timeoutMs = OPS_TIMEOUT_MS): 
         const tickets = await db.order.count({ where: since });
         const shop = await db.shopOrder.count({ where: since });
         const waitingRoom = await db.waitingRoomEntry.count({
-          where: { OR: [{ status: 'ADMITTED', expiresAt: { gt: new Date(now) } }, { status: 'WAITING', joinedAt: { gte: new Date(now - WAITING_LIVE_MS) } }] },
+          where: { OR: [{ status: 'ADMITTED', expiresAt: { gt: new Date(now) } }, liveWaitingWhere(new Date(now))] },
         });
         out.sales = { orders15min: tickets + shop, waitingRoom };
       }),

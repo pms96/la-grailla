@@ -28,6 +28,9 @@ const detail = (over: Partial<Extract<ProbeResult, { reachable: true }>['detail'
 });
 const HEALTHY: ProbeResult = { reachable: true, httpStatus: 200, latencyMs: 5, detail: detail(), problems: [] };
 const DEGRADED: ProbeResult = { reachable: true, httpStatus: 200, latencyMs: 5, detail: detail({ onboarding: { complete: false, missing: ['legal_notice'] } }), problems: ['Datos sin completar: legal_notice'] };
+// Fallo TÉCNICO grave (H-175): el front responde pero la BD no, o es la de otro cliente, o el esquema bloquea: `severe`.
+const DB_DOWN: ProbeResult = { reachable: true, httpStatus: 503, latencyMs: 5, detail: detail({ status: 'error', db: { ok: false, latencyMs: 3 } }), problems: ['La base de datos no responde'], severe: true };
+const WRONG_DB: ProbeResult = { reachable: true, httpStatus: 503, latencyMs: 5, detail: detail({ tenantMarker: 'otro-cliente' }), problems: ['LA BD ES DE OTRO CLIENTE (marcada como otro-cliente): revisa las URLs de BD de este cliente ya'], severe: true };
 const DOWN: ProbeResult = { reachable: false, httpStatus: null, latencyMs: 20_000, error: 'timeout', problems: ['El cliente no responde'] };
 
 async function publishedTenant(name = `Cliente ${Math.random().toString(36).slice(2, 7)}`) {
@@ -128,6 +131,134 @@ describe('tareas que fallan', () => {
       c.next();
     }
     expect(summary.ran).toBe(2);
+  });
+});
+
+describe('un aviso crítico que no sale no se pierde (H-174)', () => {
+  // Antes `failures === threshold` y el resultado de `emit` se ignoraba: si el canal fallaba (o el tope por pasada lo omitía) en ESE fallo, el contador seguía subiendo, nunca
+  // volvía a igualar el umbral y la caída no se avisaba jamás (luego sí salía el «recuperado»). Ahora queda «aviso pendiente» y se reintenta en la siguiente pasada.
+  const lossy = async (_a: Alert) => ({ sent: [] as string[], failed: ['ntfy'] });
+  const channelDown = async () => {
+    throw new Error('el canal cayó');
+  };
+
+  it('si el aviso del umbral no sale, la siguiente pasada fallida lo reintenta; una vez entregado no se repite', async () => {
+    await publishedTenant('Peña Reintento');
+    const c = clock();
+    const run = (notify: (a: Alert) => Promise<unknown>) => dispatchTenantJobs({ jobs: ['reconcile-payments'], fetchImpl: fail500, notify, now: c.now });
+    const threshold = alertAfterFailures(TENANT_JOBS['reconcile-payments']);
+    for (let i = 1; i < threshold; i++) {
+      await run(spy);
+      c.next();
+    }
+    await run(lossy); // el del umbral: el canal no lo entrega
+    c.next();
+    expect(alerts).toHaveLength(0);
+    await run(spy); // un fallo más, ya con canal: se reintenta
+    c.next();
+    expect(alerts.map((a) => a.severity)).toEqual(['critical']);
+    expect(alerts[0].title).toContain('reconcile-payments');
+    await run(spy); // ya entregado: no se repite
+    c.next();
+    await run(spy);
+    c.next();
+    expect(alerts).toHaveLength(1);
+  });
+
+  it('un canal que LANZA al avisar tampoco lo pierde, y sigue reintentándose hasta que sale', async () => {
+    await publishedTenant('Peña Canal Caído');
+    const c = clock();
+    const run = (notify: (a: Alert) => Promise<unknown>) => dispatchTenantJobs({ jobs: ['reconcile-payments'], fetchImpl: fail500, notify, now: c.now });
+    for (let i = 0; i < 3; i++) {
+      await run(channelDown);
+      c.next();
+    }
+    await run(channelDown); // la pendiente se reintenta y vuelve a fallar: sigue pendiente (no se da por avisada)
+    c.next();
+    expect(alerts).toHaveLength(0);
+    await run(spy);
+    expect(alerts.map((a) => a.severity)).toEqual(['critical']);
+  });
+
+  it('si se recupera sin que el aviso llegara a salir, no se manda un «recuperado» de algo que nunca se avisó… y la marca no queda en la fila', async () => {
+    await publishedTenant('Peña Recupera');
+    const c = clock();
+    for (let i = 0; i < 3; i++) {
+      await dispatchTenantJobs({ jobs: ['reconcile-payments'], fetchImpl: fail500, notify: lossy, now: c.now });
+      c.next();
+    }
+    await dispatchTenantJobs({ jobs: ['reconcile-payments'], fetchImpl: ok200, notify: spy, now: c.now });
+    const row = await prisma.cronState.findFirst({ where: { job: 'reconcile-payments' } });
+    expect(row?.consecutiveFailures).toBe(0);
+    expect(row?.lastError ?? '').not.toContain('aviso pendiente');
+    // El «recuperado» sí sale (el operador debe saber que ya no falla, aunque no supiera que fallaba).
+    expect(alerts.map((a) => a.severity)).toEqual(['recovery']);
+  });
+});
+
+describe('un fallo técnico grave de la web no se queda en un solo warning (H-175)', () => {
+  // Antes una BD caída, la BD de OTRO cliente o un esquema bloqueante contaban como «alcanzable» (el front responde 503 con JSON válido): `consecutiveFailures` quedaba a 0 y solo salía
+  // un `warning` único en la transición, sin recordatorio. Ahora cuentan como fallo de la tarea: crítico a los 2 seguidos (con el reintento de H-174) y «recuperado» al volver.
+  for (const [name, probe] of [['la BD no responde', DB_DOWN], ['la BD es de otro cliente', WRONG_DB]] as const) {
+    it(`${name}: crítico a los 2 seguidos, sin repetirse, y UN solo «recuperado» al volver`, async () => {
+      await publishedTenant('Cliente Grave');
+      const c = clock();
+      const run = async (p: ProbeResult) => {
+        vi.mocked(probeTenantHealth).mockResolvedValue(p);
+        await dispatchTenantJobs({ jobs: ['health'], notify: spy, now: c.now });
+        c.next();
+      };
+      await run(HEALTHY);
+      await run(probe);
+      expect(alerts).toHaveLength(0); // un solo mal sondeo: aún no
+      await run(probe);
+      expect(alerts.map((a) => a.severity)).toEqual(['critical']);
+      expect(alerts[0].detail).toContain(probe.problems[0].slice(0, 20));
+      await run(probe);
+      await run(probe);
+      expect(alerts).toHaveLength(1); // no se repite
+      await run(HEALTHY);
+      expect(alerts.map((a) => a.severity)).toEqual(['critical', 'recovery']); // ni dos «recuperado»
+    });
+  }
+
+  it('el estado de la tarea refleja el fallo (la ficha y el código HTTP del disparador lo ven)', async () => {
+    await publishedTenant('Cliente Grave Estado');
+    vi.mocked(probeTenantHealth).mockResolvedValue(DB_DOWN);
+    const summary = await dispatchTenantJobs({ jobs: ['health'], notify: spy, now: clock().now });
+    expect(summary).toMatchObject({ ran: 1, failed: 1 });
+    const row = await prisma.cronState.findFirst({ where: { job: 'health' } });
+    expect(row).toMatchObject({ lastStatus: 'error', consecutiveFailures: 1 });
+    expect(row?.lastError).toContain('La base de datos no responde');
+  });
+
+  it('si el aviso crítico de un fallo grave no sale, se reintenta en la siguiente pasada', async () => {
+    await publishedTenant('Cliente Grave Reintento');
+    const c = clock();
+    const lossy = async (_a: Alert) => ({ sent: [] as string[], failed: ['ntfy'] });
+    const run = async (notify: (a: Alert) => Promise<unknown>) => {
+      vi.mocked(probeTenantHealth).mockResolvedValue(DB_DOWN);
+      await dispatchTenantJobs({ jobs: ['health'], notify, now: c.now });
+      c.next();
+    };
+    await run(spy);
+    await run(lossy); // el del umbral no sale
+    expect(alerts).toHaveLength(0);
+    await run(spy);
+    expect(alerts.map((a) => a.severity)).toEqual(['critical']);
+  });
+
+  it('un problema NO grave (datos sin completar) sigue siendo un warning único en el cambio, no un fallo de la tarea', async () => {
+    await publishedTenant('Cliente Leve');
+    const c = clock();
+    for (const p of [HEALTHY, DEGRADED, DEGRADED, DEGRADED]) {
+      vi.mocked(probeTenantHealth).mockResolvedValue(p);
+      await dispatchTenantJobs({ jobs: ['health'], notify: spy, now: c.now });
+      c.next();
+    }
+    expect(alerts.map((a) => a.severity)).toEqual(['warning']);
+    const row = await prisma.cronState.findFirst({ where: { job: 'health' } });
+    expect(row?.consecutiveFailures).toBe(0);
   });
 });
 

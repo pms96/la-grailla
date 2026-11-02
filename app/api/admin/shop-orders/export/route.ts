@@ -7,7 +7,7 @@ import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { buildShopOrdersWhere } from '@/lib/shop-order-filters';
 import { SHOP_ORDERS_CSV_MAX, madridDay, shopOrdersToCsv } from '@/lib/shop-orders-csv';
-import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
+import { actorFromSession, exportFilterForAudit, recordAdminAudit } from '@/lib/admin-audit';
 
 // Cuelga de /api/admin/shop-orders: mismo módulo (tienda) y por tanto el mismo permiso por rol que el listado de pedidos.
 export async function GET(request: Request) {
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     });
     // H-145: el CSV lleva dirección y teléfono de los compradores: queda quién, cuándo, el filtro y cuántas filas, SIN los datos. Antes de entregarlo y sin
     // «mejor esfuerzo»: si el rastro no se puede escribir, no se exporta.
-    await recordAdminAudit(prisma, actorFromSession(session), request, { action: 'export.shop_orders', targetType: 'ShopOrder', meta: { filtro, filas: orders.length } });
+    await recordAdminAudit(prisma, actorFromSession(session), request, { action: 'export.shop_orders', targetType: 'ShopOrder', meta: { filtro: exportFilterForAudit(filtro), filas: orders.length } });
     return new NextResponse(shopOrdersToCsv(orders), {
       status: 200,
       headers: {

@@ -96,6 +96,18 @@ describe('bloque `ops` de /api/health', () => {
     expect((await ops())!.sales).toEqual({ orders15min: 3, waitingRoom: 2 });
   });
 
+  // H-182 (fase 5): `sales.waitingRoom` contaba los WAITING que entraron hace menos de 3 h SIN mirar el latido: tras un lanzamiento con miles de pestañas cerradas y sin más
+  // tráfico en la cola (quien la barre es el propio tráfico) esas filas muertas seguían contando como «venta en marcha», y con la guardia de ventas en fallo-cerrado el runner del
+  // panel dejaba las migraciones en SKIPPED hasta 3 h. Un turno vivo es el que ha sondeado hace poco (`liveWaitingWhere`).
+  it('`sales.waitingRoom` cuenta solo a quien sigue sondeando: una pestaña cerrada hace 10 min ya no es «venta en marcha»', async () => {
+    const queue = (extra: { joinedAt: Date; lastSeenAt?: Date | null }) => db().waitingRoomEntry.create({ data: { eventId, token: `tok-${n++}`, status: 'WAITING', ...extra } });
+    await queue({ joinedAt: ago(10 * MIN), lastSeenAt: ago(10 * MIN) }); // abandonó hace 10 min: NO cuenta
+    await queue({ joinedAt: ago(10 * MIN), lastSeenAt: null }); // entró hace 10 min y nunca sondeó: NO cuenta
+    await queue({ joinedAt: ago(10 * MIN), lastSeenAt: ago(30_000) }); // lleva 10 min esperando y sondeó hace 30 s: vivo
+    await queue({ joinedAt: ago(30_000), lastSeenAt: null }); // acaba de entrar (aún sin sondeo): vivo
+    expect((await ops())?.sales?.waitingRoom).toBe(2);
+  });
+
   it('`obligations` (P1-20): cuenta lo que impide apagar un módulo, y no cuenta lo viejo, lo ya enviado ni los eventos pasados o sin entradas', async () => {
     // Entradas: pedidos PENDING de las últimas 24 h (uno viejo = pago abandonado, no cuenta) y eventos por venir con entradas válidas.
     await order({ status: 'PENDING', createdAgoMs: 3 * 60 * MIN });

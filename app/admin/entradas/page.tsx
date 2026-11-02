@@ -14,6 +14,9 @@ import { Badge } from '@/components/ui/badge';
 import { Plus, Pencil, Trash2, Loader2, Ticket } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layouts/page-header';
+import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 
 type EventWithTicketTypes = Event & { ticketTypes: WithNumberFields<TicketType, 'price'>[] };
 
@@ -32,19 +35,20 @@ export default function EntradasPage() {
   const [events, setEvents] = useState<EventWithTicketTypes[]>([]);
   const [selectedEvent, setSelectedEvent] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<WithNumberFields<TicketType, 'price'> | null>(null);
   const [form, setForm] = useState<Partial<TicketTypeFormState>>({});
   const [saving, setSaving] = useState(false);
 
   const fetchEvents = () => {
-    fetch('/api/admin/events')
-      .then((r) => r.json())
+    fetchAdminJson<EventWithTicketTypes[]>('/api/admin/events', 'No se pudieron cargar los eventos')
       .then((d) => {
         setEvents(d ?? []);
+        setLoadError(null);
         if (!selectedEvent && d?.[0]?.id) setSelectedEvent(d[0].id);
       })
-      .catch(() => {})
+      .catch((e) => setLoadError(userMessage(e, 'No se pudieron cargar los eventos'))) // sin eventos por un error no es «no hay eventos» (H-176)
       .finally(() => setLoading(false));
   };
 
@@ -99,6 +103,8 @@ export default function EntradasPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Entradas" description="Gestiona tipos de entrada, fases y precios" />
+
+      {loadError && <LoadError title="No se han podido cargar los eventos." message={loadError} onRetry={() => { setLoadError(null); setLoading(true); fetchEvents(); }} />}
 
       <div className="flex items-center gap-4">
         <Select value={selectedEvent} onValueChange={setSelectedEvent}>

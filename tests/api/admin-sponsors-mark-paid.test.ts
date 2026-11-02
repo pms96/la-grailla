@@ -214,4 +214,33 @@ describe('POST /api/admin/sponsors-portal/[id]/mark-paid', () => {
       }
     });
   });
+  // H-184 (fase 5): marcar o desmarcar un patrocinio como pagado mueve `ingresosPatrocinio` de su temporada, pero la ruta no miraba si estaba CERRADA
+  // (H-014 y H-019 cubrieron gastos, ingresos y reasignaciones): el margen de unos libros ya presentados cambiaba sin 423.
+  describe('temporada cerrada (H-184)', () => {
+    const call = (mode: string) => markPaid(postRequest({ mode }), { params: Promise.resolve({ id: sponsorId }) });
+    const auditRows = () => prisma.adminAuditLog.count({ where: { action: 'sponsor.mark_paid', targetId: sponsorId } });
+    const snap = async () => {
+      const r = await prisma.sponsor.findUnique({ where: { id: sponsorId }, select: { isPaid: true, isCollaboration: true, paidAmount: true } });
+      return JSON.stringify({ isPaid: r?.isPaid, isCollaboration: r?.isCollaboration, paidAmount: r?.paidAmount == null ? null : Number(r.paidAmount) }); // texto: el Decimal de Prisma no se compara con toEqual
+    };
+
+    it('con la temporada CERRADA ni se marca ni se desmarca (423) y no cambia nada ni deja rastro', async () => {
+      expect((await call('paid')).status).toBe(200); // abierta: se puede
+      const before = await snap();
+      const rows = await auditRows();
+      await prisma.temporada.update({ where: { id: temporadaId }, data: { status: 'CERRADA', closedAt: new Date() } });
+      try {
+        for (const mode of ['unpaid', 'paid', 'collaboration']) {
+          const res = await call(mode);
+          expect(res.status, mode).toBe(423);
+          expect((await res.json()).code, mode).toBe('temporada_cerrada');
+        }
+        expect(await snap()).toEqual(before);
+        expect(await auditRows()).toBe(rows);
+      } finally {
+        await prisma.temporada.update({ where: { id: temporadaId }, data: { status: 'ABIERTA', closedAt: null } });
+      }
+      expect((await call('unpaid')).status).toBe(200); // reabierta: vuelve a poder
+    });
+  });
 });

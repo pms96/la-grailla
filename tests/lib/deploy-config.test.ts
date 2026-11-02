@@ -116,6 +116,11 @@ describe('platform-preflight: comprobaciones de entorno', () => {
     expect(pre).not.toMatch(/^\s*add\('CRON_SECRET/m);
   });
 
+  it('BLOB_PUBLIC_HOST se exige como comprobación que BLOQUEA el corte (H-171), con la misma regla que el front', () => {
+    expect(pre).toMatch(/^\s*add\('BLOB_PUBLIC_HOST/m);
+    expect(pre).toMatch(/platformEnvProblems\(process\.env\)/);
+  });
+
   it('PLATFORM_ALERT_URL y SENTRY_DSN se comprueban como AVISO (⚠) que no bloquea, con la misma regla que el front', () => {
     expect(pre).toMatch(/platformEnvWarnings\(process\.env\)/);
     expect(pre).toMatch(/addWarn\('PLATFORM_ALERT_URL/);

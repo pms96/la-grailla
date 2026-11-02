@@ -8,7 +8,7 @@ import { authOptions } from '@/lib/auth';
 import { handleApiError } from '@/lib/api-error';
 import { madridDayKey } from '@/lib/ventas-por-dia';
 import { buildOrdersWhere } from '@/lib/order-filters';
-import { actorFromSession, recordAdminAudit } from '@/lib/admin-audit';
+import { actorFromSession, exportFilterForAudit, recordAdminAudit } from '@/lib/admin-audit';
 import { ORDERS_CSV_MAX, TICKETS_CSV_MAX, attendeesToCsv, ordersToCsv } from '@/lib/orders-csv';
 
 function csvResponse(filename: string, body: string) {
@@ -67,7 +67,7 @@ export async function GET(request: Request) {
         action: 'export.orders',
         targetType: eventId ? 'Event' : 'Order',
         targetId: eventId || null,
-        meta: { filtro, filas: orders.length },
+        meta: { filtro: exportFilterForAudit(filtro), filas: orders.length },
       });
       const csv = ordersToCsv(orders);
       const name = eventId ? `ventas-${eventId.slice(0, 8)}-${day}.csv` : `ventas-${day}.csv`;

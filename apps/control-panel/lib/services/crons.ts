@@ -56,6 +56,12 @@ export function nextRunDelay(job: TenantJob, failures: number): number {
 export const alertAfterFailures = (job: TenantJob) => (job.kind === 'health' ? 2 : 3);
 /** Tope de avisos por pasada: una caída general no debe mandar un mensaje por cliente. */
 export const MAX_ALERTS_PER_RUN = 10;
+/** Marca al final de `lastError` cuando el aviso crítico de «la tarea falla» NO salió (canal caído, tope por pasada, ningún canal): la siguiente pasada fallida lo reintenta (H-174).
+ *  Misma idea que el «aviso pendiente» de las señales `ops`; vive en el texto para no añadir una columna. */
+export const ALERT_PENDING_MARK = ' [aviso pendiente]';
+const MAX_LAST_ERROR = 500;
+const withPendingMark = (error: string | null): string => `${(error ?? '').slice(0, MAX_LAST_ERROR - ALERT_PENDING_MARK.length)}${ALERT_PENDING_MARK}`;
+const hasPendingMark = (error: string | null | undefined): boolean => !!error && error.endsWith(ALERT_PENDING_MARK);
 
 export type DispatchOptions = {
   /** Cómo se envía un aviso (por defecto, los canales configurados en el entorno). Los tests lo sustituyen. */
@@ -91,6 +97,14 @@ async function targets() {
     schemaVersion: s.schemaVersion,
     host: (s.domains.find((d) => d.isPrimary) ?? s.domains[0]).host,
   }));
+}
+
+/** Marca (o desmarca) el aviso crítico de una tarea como pendiente en `lastError`. Nunca lanza: si no se puede, la siguiente pasada vuelve a intentarlo por otro camino (no hay peor caso que antes). */
+async function markCronAlertPending(subscriptionId: string, job: string, error: string | null): Promise<void> {
+  await prisma.cronState.update({ where: { subscriptionId_job: { subscriptionId, job } }, data: { lastError: withPendingMark(error) } }).catch(() => undefined);
+}
+async function clearCronAlertPending(subscriptionId: string, job: string, error: string | null): Promise<void> {
+  await prisma.cronState.update({ where: { subscriptionId_job: { subscriptionId, job } }, data: { lastError: error ? error.slice(0, MAX_LAST_ERROR) : null } }).catch(() => undefined);
 }
 
 export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<DispatchSummary> {
@@ -168,8 +182,10 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
           const healthy = isHealthy(probe);
           // Un «no ok» que venía SOLO de las señales de operación no cuenta como estado técnico anterior: de eso avisa el bloque de abajo.
           const previousOk = previous.ok || wasOnlyOpsDegraded(previous);
-          if (!healthy && previousOk) healthChange = { severity: 'warning', title: `${target.name}: la web responde pero no está sana`, detail: probe.problems.join(' · '), tenant: who };
-          else if (healthy && !previousOk && previous.status !== 'unreachable') healthChange = { severity: 'recovery', title: `${target.name}: la web vuelve a estar sana`, tenant: who };
+          // Un fallo técnico GRAVE (`severe`) no es un cambio de estado de un solo aviso: cuenta como fallo de la tarea (crítico a los 2 seguidos, con reintento, H-175) y su «recuperado» lo da
+          // esa misma vía; avisar también aquí duplicaría el aviso.
+          if (!healthy && previousOk && !probe.severe) healthChange = { severity: 'warning', title: `${target.name}: la web responde pero no está sana`, detail: probe.problems.join(' · '), tenant: who };
+          else if (healthy && !previousOk && previous.status !== 'unreachable' && row.consecutiveFailures < alertAfterFailures(job)) healthChange = { severity: 'recovery', title: `${target.name}: la web vuelve a estar sana`, tenant: who };
         }
         // Señales de negocio: solo en el cambio (aparece, escala, se resuelve), igual que la salud técnica. Sin comprobación anterior también se avisa:
         // una señal de dinero activa en la primera lectura no debe esperar a «cambiar».
@@ -181,9 +197,9 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
           }
           if (opsEval.recovered) opsChanges.push({ severity: 'recovery', title: `${target.name}: las señales de operación vuelven a la normalidad`, tenant: who });
         }
-        success = probe.reachable;
+        success = probe.reachable && !probe.severe;
         http = probe.httpStatus;
-        error = probe.reachable ? null : probe.error;
+        error = !probe.reachable ? probe.error : probe.severe ? probe.problems.join(' · ') : null;
         duration = probe.latencyMs;
       } else {
         const res = await callTenant({ tenantId: target.tenantId, host: target.host }, job.path!, { fetchImpl: opts.fetchImpl, timeoutMs: timeoutFor(job), now });
@@ -200,6 +216,9 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
     }
     const failures = success ? 0 : row.consecutiveFailures + 1;
     const finished = now();
+    const threshold = alertAfterFailures(job);
+    // H-174: si el aviso del umbral NO salió, la marca viaja en `lastError` de pasada en pasada (mientras siga fallando) hasta que un aviso salga.
+    const carryPending = !success && failures > threshold && hasPendingMark(row.lastError);
     let recorded = false;
     try {
       await prisma.cronState.update({
@@ -210,7 +229,7 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
           lastStatus: success ? 'ok' : 'error',
           lastHttp: http,
           lastDurationMs: duration,
-          lastError: error ? error.slice(0, 500) : null,
+          lastError: error ? (carryPending ? withPendingMark(error) : error.slice(0, MAX_LAST_ERROR)) : null,
           consecutiveFailures: failures,
           nextRunAt: new Date(finished + nextRunDelay(job, failures)),
         },
@@ -222,9 +241,12 @@ export async function dispatchTenantJobs(opts: DispatchOptions = {}): Promise<Di
     }
     // Avisos SOLO si el estado quedó anotado: si no, la fila se repite en la siguiente pasada con el mismo contador y el aviso saldría otra vez.
     if (recorded) {
-      const threshold = alertAfterFailures(job);
-      if (!success && failures === threshold) {
-        await emit({ severity: 'critical', title: `${target.name}: la tarea «${row.job}» falla`, detail: `${failures} fallos seguidos. ${error ?? ''}`, tenant: who });
+      if (!success && (failures === threshold || carryPending)) {
+        const sent = await emit({ severity: 'critical', title: `${target.name}: la tarea «${row.job}» falla`, detail: `${failures} fallos seguidos. ${error ?? ''}`, tenant: who });
+        // H-174: antes el resultado se ignoraba y un aviso perdido no se reintentaba nunca (el contador ya había pasado el umbral).
+        const wasMarked = hasPendingMark(error ? (carryPending ? withPendingMark(error) : error) : null);
+        if (!sent && !wasMarked) await markCronAlertPending(row.subscriptionId, row.job, error);
+        else if (sent && wasMarked) await clearCronAlertPending(row.subscriptionId, row.job, error);
       } else if (success && row.consecutiveFailures >= threshold) {
         await emit({ severity: 'recovery', title: `${target.name}: la tarea «${row.job}» se ha recuperado`, tenant: who });
       }

@@ -41,6 +41,8 @@ export const gateway = {
   verifyDelayMs: 0,
   activeVerifies: 0,
   maxConcurrentVerifies: 0,
+  /** Pagos con una devolución PARCIAL hecha fuera de la app (H-183): importe cobrado y ya devuelto, en euros. `verifyPayment` los da PAID con `refundedAmount`, y un reembolso que pide más de lo que queda FALLA (como Stripe). */
+  partial: new Map<string, { charged: number; refunded: number }>(),
   /** Si es true, un segundo reembolso de un pago ya reembolsado FALLA (como SumUp, sin idempotencia). Si no, devuelve el mismo éxito (como Stripe con la misma clave). */
   strictRefunds: false,
 
@@ -60,6 +62,7 @@ export const gateway = {
     this.refundDelayMs = 0;
     this.inFlight.clear();
     this.strictRefunds = false;
+    this.partial.clear();
     this.verifyDelayMs = 0;
     this.activeVerifies = 0;
     this.maxConcurrentVerifies = 0;
@@ -107,6 +110,8 @@ export function fakeProvider(): PaymentProvider {
         gateway.activeVerifies -= 1;
       }
       if (gateway.refunded.has(paymentId)) return { success: false, paymentId, provider: 'fake', status: 'REFUNDED' as const, error: 'reembolsado' };
+      const part = gateway.partial.get(paymentId);
+      if (part) return { success: true, paymentId, provider: 'fake', status: 'PAID' as const, amount: part.charged, currency: 'EUR', refundedAmount: part.refunded };
       const queue = gateway.scripts.get(paymentId);
       if (!queue || queue.length === 0) return unknown(paymentId, 'sin guion para este pago');
       const next = queue.length > 1 ? queue.shift()! : queue[0];
@@ -129,6 +134,10 @@ export function fakeProvider(): PaymentProvider {
       const key = idempotencyKey ?? `${paymentId}:no-key`;
       if (gateway.inFlight.has(key)) return { success: false, error: 'idempotency_key_in_use' };
       if (gateway.strictRefunds && gateway.refunded.has(paymentId)) return { success: false, error: 'already refunded' };
+      const part = gateway.partial.get(paymentId);
+      if (part && amount !== undefined && amount > part.charged - part.refunded + 0.005) {
+        return { success: false, error: `Refund amount (${amount}) is greater than unrefunded amount on charge (${part.charged - part.refunded})` };
+      }
       gateway.inFlight.add(key);
       try {
         if (gateway.refundDelayMs > 0) await new Promise((r) => setTimeout(r, gateway.refundDelayMs));

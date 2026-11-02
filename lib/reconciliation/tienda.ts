@@ -7,7 +7,7 @@ import { notifyShopNewOrder } from '@/lib/shop/shop-notices';
 import { trackEmail } from '@/lib/email-delivery';
 import { getFallbackBaseUrl } from '@/lib/url';
 import { gatewayRefundState } from './gateway-refund';
-import { alertOperator, alertPaidButInactiveOrder, logPaymentEvent, paymentMatchesOrder, refundIdempotencyKey, type CompleteOutcome, type PaidInfo } from './shared';
+import { alertOperator, alertPaidButInactiveOrder, logPaymentEvent, paymentMatchesOrder, refundIdempotencyKey, refundOrderTotal, type CompleteOutcome, type PaidInfo } from './shared';
 import { alertManuallyRefunded, confirmLatePayment, finishLateRefund, lateRefundMarker } from './late-payment';
 import { closeSessionBeforeCancel } from './close-session';
 import { releasePendingSlot } from '@/lib/rate-limit';
@@ -255,7 +255,7 @@ export async function invalidateShopOrder(
     const refundScope = await accountScopeForOrder('tienda', order);
     try {
       const provider = await getPaymentProviderByName(order.paymentProvider, refundScope);
-      const refund = await provider.refund(order.paymentId, order.totalAmount, refundIdempotencyKey(order.id));
+      const refund = await refundOrderTotal(provider, order.paymentId, order.totalAmount, refundIdempotencyKey(order.id));
       if (!refund.success) refundError = refund.error ?? 'El reembolso en la pasarela ha fallado';
     } catch (err) {
       refundError = err instanceof Error ? err.message : 'Error al reembolsar en la pasarela';

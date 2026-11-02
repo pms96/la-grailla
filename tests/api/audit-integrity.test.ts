@@ -402,6 +402,22 @@ describe('rastro de auditoría: cobertura e integridad (lote 4)', () => {
       expect(JSON.stringify(fila)).not.toMatch(/rastro-exporta@example\.com|Rastro/);
     });
 
+    // H-172 (fase 5): el filtro `q` es texto libre (normalmente el email o el nombre de un comprador) y el rastro ya no se puede corregir ni borrar.
+    it('el CSV de pedidos no guarda en el rastro el texto buscado, solo que hubo búsqueda', async () => {
+      const res = await exportCsv(get(`http://localhost/api/admin/export?type=orders&eventId=${event.id}&q=rastro-exporta@example.com`));
+      expect(res.status).toBe(200);
+      const fila = (await rastro({ action: 'export.orders' })).at(-1)!; // la más reciente (el rastro va por orden de creación)
+      expect(fila.meta).toMatchObject({ filtro: { eventId: event.id, busqueda: true } });
+      expect((fila.meta as { filtro: Record<string, unknown> }).filtro).not.toHaveProperty('q');
+      expect(JSON.stringify(fila)).not.toMatch(/rastro-exporta@example\.com/);
+    });
+
+    it('sin texto de búsqueda no se anota `busqueda`', async () => {
+      await exportCsv(get(`http://localhost/api/admin/export?type=orders&eventId=${event.id}&q=%20%20`));
+      const fila = (await rastro({ action: 'export.orders' })).at(-1)!;
+      expect((fila.meta as { filtro: Record<string, unknown> }).filtro).not.toHaveProperty('busqueda');
+    });
+
     it('el CSV de asistentes lo anota igual', async () => {
       const res = await exportCsv(get(`http://localhost/api/admin/export?type=tickets&eventId=${event.id}`));
       expect(res.status).toBe(200);
@@ -417,8 +433,10 @@ describe('rastro de auditoría: cobertura e integridad (lote 4)', () => {
         const res = await exportShopCsv(get('http://localhost/api/admin/shop-orders/export?status=PAID&q=Rastro%20Exporta%20Tienda'));
         expect(res.status).toBe(200);
         const [fila] = await rastro({ action: 'export.shop_orders' });
-        expect(fila.meta).toMatchObject({ filas: 1, filtro: { status: 'PAID', q: 'Rastro Exporta Tienda' } });
-        expect(JSON.stringify(fila)).not.toMatch(/rastro-exporta-tienda@example\.com/);
+        // H-172: el texto buscado (nombre o email de un comprador) NO se guarda: el rastro es inmutable (H-026). Solo consta que hubo búsqueda.
+        expect(fila.meta).toMatchObject({ filas: 1, filtro: { status: 'PAID', busqueda: true } });
+        expect((fila.meta as { filtro: Record<string, unknown> }).filtro).not.toHaveProperty('q');
+        expect(JSON.stringify(fila)).not.toMatch(/rastro-exporta-tienda@example\.com|Rastro Exporta Tienda/);
       } finally {
         await prisma.shopOrder.delete({ where: { id: shop.id } }).catch(() => {});
       }

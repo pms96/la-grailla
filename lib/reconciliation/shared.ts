@@ -7,6 +7,7 @@ import { currentTenant } from '@/lib/tenant/context';
 import { sendPlatformAlert } from '@/lib/observability/platform-alert';
 import { toCents } from '@/lib/pricing';
 import { orderRef } from '@/lib/order-ref';
+import type { PaymentProvider, RefundResult } from '@/lib/payment-adapter';
 
 /** Qué ha pasado al confirmar un pago sobre un pedido (ver completeOrder / completeShopOrder). */
 export type CompleteOutcome =
@@ -46,6 +47,28 @@ export function refundIdempotencyKey(orderId: string, now = Date.now()): string 
  */
 export function lateRefundKey(orderId: string, now = Date.now()): string {
   return `late_${orderId}_${Math.floor(now / REFUND_KEY_WINDOW_MS)}`;
+}
+
+/**
+ * Reembolsa el pedido ENTERO desde la app, también cuando alguien ya devolvió una parte a mano en el panel de la pasarela (H-183). H-031 deja ese cobro como `PAID`
+ * (devolver una parte no anula el pedido) y `verifyPayment` informa de `refundedAmount`; pero pedir el total otra vez lo rechaza la pasarela (Stripe: «Refund amount
+ * is greater than unrefunded amount on charge») y el pedido volvía a vigente con el error crudo (y en la cancelación de evento agotaba los intentos y quedaba «manual»).
+ * El camino normal no cambia: se pide el total y, solo si FALLA, se consulta lo ya devuelto; si es una devolución parcial se pide lo que QUEDA, con otra clave de
+ * idempotencia (Stripe rechaza reutilizar una clave con parámetros distintos). Cualquier otro fallo se devuelve tal cual, sin reintento.
+ */
+export async function refundOrderTotal(provider: PaymentProvider, paymentId: string, total: number, idempotencyKey: string): Promise<RefundResult> {
+  const first = await provider.refund(paymentId, total, idempotencyKey);
+  if (first.success) return first;
+  let already: number | undefined;
+  try {
+    already = (await provider.verifyPayment(paymentId)).refundedAmount;
+  } catch {
+    return first; // sin saber lo devuelto no se inventa un importe
+  }
+  const alreadyCents = typeof already === 'number' ? toCents(already) : 0;
+  const totalCents = toCents(total);
+  if (alreadyCents <= 0 || alreadyCents >= totalCents) return first;
+  return provider.refund(paymentId, (totalCents - alreadyCents) / 100, `${idempotencyKey}_resto_${alreadyCents}`);
 }
 
 /** Log estructurado de pagos (una línea JSON tras una etiqueta greppable). Siempre con el cliente y sin datos personales. */

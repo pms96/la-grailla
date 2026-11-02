@@ -17,6 +17,8 @@ import { PageHeader } from '@/components/layouts/page-header';
 import { downloadAdminCsv } from '@/lib/admin-export';
 import { displayBuyerEmail, isPlaceholderEmail } from '@/lib/placeholder-email';
 import { userMessage } from '@/lib/error-text';
+import { fetchAdminJson } from '@/lib/admin-fetch';
+import { LoadError } from '@/components/admin/load-error';
 
 const statusLabels: Record<OrderStatus, string> = {
   PENDING: 'Pendiente',
@@ -96,6 +98,7 @@ function emailLine(d: NonNullable<EmailDelivery>): string {
 export default function VentasPage() {
   const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<string>('all');
   const [emailFailedOnly, setEmailFailedOnly] = useState(false);
@@ -117,18 +120,20 @@ export default function VentasPage() {
     if (status !== 'all' && !emailFailedOnly) params.set('status', status);
     if (emailFailedOnly) params.set('emailFailed', '1');
     if (eventFilter !== 'all') params.set('eventId', eventFilter);
-    fetch(`/api/admin/orders?${params.toString()}`)
-      .then((r) => r.json())
-      .then((d) => setOrders(Array.isArray(d) ? d : []))
-      .catch(() => toast.error('No se pudieron cargar las ventas'))
+    fetchAdminJson<unknown>(`/api/admin/orders?${params.toString()}`, 'No se pudieron cargar las ventas')
+      .then((d) => { setOrders(Array.isArray(d) ? d : []); setLoadError(null); })
+      .catch((e) => {
+        // Una lista vacía por un error no es «no hay ventas» (H-176): se enseña el motivo con «Reintentar».
+        setOrders([]);
+        setLoadError(userMessage(e, 'No se pudieron cargar las ventas'));
+      })
       .finally(() => setLoading(false));
   }, [q, status, eventFilter, emailFailedOnly]);
 
   useEffect(() => {
-    fetch('/api/admin/events')
-      .then((r) => r.json())
-      .then((list) => setEvents((list ?? []).map((e: { id: string; name: string }) => ({ id: e.id, name: e.name }))))
-      .catch(() => {});
+    fetchAdminJson<{ id: string; name: string }[]>('/api/admin/events', 'No se pudieron cargar los eventos')
+      .then((list) => setEvents((list ?? []).map((e) => ({ id: e.id, name: e.name }))))
+      .catch((e) => toast.error(userMessage(e, 'No se pudieron cargar los eventos del filtro')));
   }, []);
 
   useEffect(() => {
@@ -348,6 +353,8 @@ export default function VentasPage() {
             <div className="flex justify-center py-20">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
+          ) : loadError ? (
+            <LoadError title="No se han podido cargar las ventas." message={loadError} onRetry={fetchOrders} />
           ) : orders.length === 0 ? (
             <p className="text-center py-20 text-muted-foreground">No hay ventas con estos filtros</p>
           ) : (

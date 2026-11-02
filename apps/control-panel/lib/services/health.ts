@@ -27,7 +27,7 @@ export const HealthDetailSchema = z.object({
 export type HealthDetail = z.infer<typeof HealthDetailSchema>;
 
 export type ProbeResult =
-  | { reachable: true; httpStatus: number; latencyMs: number; detail: HealthDetail; problems: string[]; /** La BD está por detrás de lo que el registro declara o del mínimo del front: las lecturas del modelo nuevo dan 500 aunque el front «sirva» (H-043). */ schemaBlocking?: boolean; /** Bloque `ops` válido del cliente (ausente en fronts anteriores). */ ops?: OpsBlock | null; /** Por qué `ops` es null: `absent` = front anterior sin el bloque; `unavailable` = el front no pudo medirlo en esta pasada (H-118); `invalid` = lo manda y no cumple el contrato. */ opsStatus?: 'ok' | 'absent' | 'unavailable' | 'invalid' }
+  | { reachable: true; httpStatus: number; latencyMs: number; detail: HealthDetail; problems: string[]; /** La BD está por detrás de lo que el registro declara o del mínimo del front: las lecturas del modelo nuevo dan 500 aunque el front «sirva» (H-043). */ schemaBlocking?: boolean; /** Fallo TÉCNICO grave: la BD no responde, es la de OTRO cliente, o el esquema/mantenimiento impide servir (H-175). Cuenta como fallo de la tarea de salud (aviso crítico, con reintento), no como un `warning` único. */ severe?: boolean; /** Bloque `ops` válido del cliente (ausente en fronts anteriores). */ ops?: OpsBlock | null; /** Por qué `ops` es null: `absent` = front anterior sin el bloque; `unavailable` = el front no pudo medirlo en esta pasada (H-118); `invalid` = lo manda y no cumple el contrato. */ opsStatus?: 'ok' | 'absent' | 'unavailable' | 'invalid' }
   | { reachable: false; httpStatus: number | null; latencyMs: number; error: string; problems: string[] };
 
 /** Llama a /api/health y lo interpreta. `declaredSchema` es lo que el registro cree que hay en la BD (para detectar deriva). */
@@ -46,9 +46,16 @@ export async function probeTenantHealth(
   }
   const d = parsed.data;
   const problems: string[] = [];
-  if (!d.db.ok) problems.push('La base de datos no responde');
+  // H-175: los fallos TÉCNICOS graves (la BD no responde, es la de otro cliente, el front no sirve o el esquema lo bloquea) cuentan como fallo de la tarea de salud, no como un aviso único.
+  let severe = false;
+  if (!d.db.ok) {
+    problems.push('La base de datos no responde');
+    severe = true;
+  }
   // El problema más grave posible en una plataforma multi-cliente: el front de este cliente está leyendo la BD de otro.
+  if (d.tenantMarker && d.tenantMarker !== target.tenantId) severe = true;
   if (d.tenantMarker && d.tenantMarker !== target.tenantId) problems.push(`LA BD ES DE OTRO CLIENTE (marcada como ${d.tenantMarker}): revisa las URLs de BD de este cliente ya`);
+  if (d.serving === false) severe = true;
   if (d.serving === false) problems.push('El front NO está sirviendo a este cliente (mantenimiento por esquema del registro atrasado): ejecuta el runner de migraciones o corrige la versión del registro');
   if (!d.schema.upToDate) problems.push(`Esquema atrasado: aplicado ${d.schema.applied ?? 'desconocido'}, el front exige ${d.schema.minRequired}`);
   // H-043: la deriva tiene dos sentidos y no son igual de graves. El front decide si sirve con la versión del REGISTRO, no con la de la BD:
@@ -68,11 +75,12 @@ export async function probeTenantHealth(
     }
   }
   const schemaBlocking = dbBehindRegistry || !d.schema.upToDate;
+  if (schemaBlocking) severe = true;
   if (!d.onboarding.complete) problems.push(`Datos sin completar: ${d.onboarding.missing.join(', ')}`);
   const opsRead = parseOpsBlock(d.ops);
   // Un `ops` que no cumple el contrato es un fallo del front (versión desfasada o un bug), no del cliente: se dice, sin copiar lo recibido.
   if (opsRead.status === 'invalid') problems.push(`El bloque «ops» de la salud no cumple el contrato (${opsRead.issue}): las señales de negocio de este cliente no se están vigilando`);
-  return { reachable: true, httpStatus: res.status, latencyMs: res.durationMs, detail: d, problems, schemaBlocking, ops: opsRead.status === 'ok' ? opsRead.ops : null, opsStatus: opsRead.status };
+  return { reachable: true, httpStatus: res.status, latencyMs: res.durationMs, detail: d, problems, schemaBlocking, severe, ops: opsRead.status === 'ok' ? opsRead.ops : null, opsStatus: opsRead.status };
 }
 
 /** ¿Está sano TÉCNICAMENTE? Responde, sin error declarado por el propio cliente y sin problemas (esquema atrasado, BD de otro cliente…). Las señales de negocio (`ops`) se tratan aparte. */

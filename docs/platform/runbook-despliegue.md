@@ -41,7 +41,7 @@ Cosas que el código **no puede decidir por sí solo** y que hay que mirar en ca
    - `DATABASE_URL=<BD del cliente> npx tsx scripts/listar-eventos-fecha-a-revisar.ts --antes-de=AAAA-MM-DD`, con la fecha en que se desplegó el arreglo en ese cliente.
    - Para cada evento listado, comparar «se ve ahora» con la hora que el organizador sabe que es la correcta. Si ya es la correcta, no hacer nada.
    - Si no lo es: corregir la fecha desde Eventos → editar. Si el evento tiene compradores, el panel pregunta si avisarlos por email del cambio de fecha (409 `date_change_needs_confirmation`): decidir **antes** qué hora vieron ellos (la de sus entradas y emails) y avisar solo si de verdad cambia lo que ellos creen.
-6. **`BLOB_PUBLIC_HOST`** (H-067): poner el host exacto del almacén de Blob de la plataforma (`<id>.public.blob.vercel-storage.com`). Con la variable definida, las imágenes de marca, carteles y logos de sponsors solo se aceptan de ese almacén; **sin ella** vale cualquier almacén de Blob (comportamiento de desarrollo).
+6. **`BLOB_PUBLIC_HOST`** (H-067): poner el host exacto del almacén de Blob de la plataforma (`<id>.public.blob.vercel-storage.com`). Con la variable definida, las imágenes de marca, carteles y logos de sponsors solo se aceptan de ese almacén; **sin ella** vale cualquier almacén de Blob (comportamiento de desarrollo). **En el proyecto de plataforma es obligatoria desde el lote 13 (H-171):** `platform:preflight` falla sin ella (o con una forma incorrecta) y el front lo deja en el log; además ya no la anula `IMAGES_UNOPTIMIZED=1` (esa variable solo decide si Next optimiza las imágenes).
 
 ## 4. Límites de la sala de espera (H-049)
 
@@ -250,3 +250,31 @@ No hay migraciones. Cambia el panel (`apps/control-panel`: Next 15.5.28, `vitest
 - **Copia de condiciones sin clave foránea (H-054):** con una caída persistente de la BD durante la venta el pedido conserva el hash sin copia, y si las condiciones cambian antes de que se guarde, el texto aceptado ya no se puede reconstruir. Se avisa a operación en cada fallo.
 - **El tope de 32 KB solo cubre las dos rutas públicas con arrays** (H-162). No es un sustituto de zod 4.
 - **Pendientes externos (sin cambios):** H-133 (criterio de margen y devoluciones, gestoría), H-135 (emisor del justificante, gestoría), H-142 (prueba de edad y menores, abogado), H-144 (textos legales por defecto, abogado) y H-028 (plazo de conservación de la auditoría, abogado).
+
+## 14. Hallazgos «Medio» de la segunda revisión: lo que cambia y los límites (lote 13)
+
+No hay migraciones ni cambios de esquema en el panel. Cambian el front, el panel y `scripts/platform-preflight.ts`. Ver `docs/platform/revision-integral.md` (H-168…H-184).
+
+**Antes de desplegar**
+
+- **`BLOB_PUBLIC_HOST` obligatoria en la plataforma (H-171).** Definirla con el hostname exacto del almacén de Blob (`<id>.public.blob.vercel-storage.com`, sin `https://` ni barras). Sin ella el preflight no deja hacer el corte. Antes de definirla, comprobar que TODAS las imágenes y vídeos se leen de ese almacén (ver §12, CSP).
+
+**Lo que cambia para quien usa la web y el panel**
+
+- **Puerta (H-168):** la búsqueda de asistentes encuentra un pedido por su referencia **completa** (6 caracteres, la que enseña la puerta, u 8, la que lee el comprador), no por un trozo. Por nombre, email completo o QR exacto sigue igual.
+- **Configuración (H-173):** «Probar conexión» de las pasarelas es solo del propietario; un rol restringido recibe un 403.
+- **Pantallas de contabilidad y ventas (H-176):** gastos, ingresos, ventas, entradas y estadísticas enseñan el error («No se han podido cargar…», con «Reintentar») en lugar de «0,00 €» o una lista vacía. Borrar un evento con pedidos o entradas enseña el motivo y no dice «Evento eliminado».
+- **Patrocinios (H-169, H-184):** la web de un sponsor solo admite direcciones http(s) (también desde el portal y el alta manual) y marcar o desmarcar un patrocinio como pagado en una temporada cerrada da 423.
+- **Reembolsos (H-183):** si alguien devolvió una parte a mano en Stripe, «Reembolsar» devuelve lo que queda del cobro (antes lo rechazaba la pasarela y el admin veía el error crudo).
+- **Auditoría de exportaciones (H-172):** el rastro ya no guarda el texto buscado (solo que hubo búsqueda). Las filas anteriores con un email en el filtro siguen ahí: purgarlas es decisión del abogado (H-179).
+- **Panel (H-174, H-175):** una BD de cliente caída, la BD de otro cliente, un front que no sirve o un esquema bloqueante cuentan como fallo de la tarea de salud: aviso **crítico a los 2 sondeos** (10 min) y un único «recuperado». Un aviso crítico que no sale se reintenta en la siguiente pasada fallida (la fila de la tarea muestra « [aviso pendiente]» hasta que sale). Los problemas leves (datos sin completar) siguen siendo un único aviso en el cambio.
+
+**Límites aceptados**
+
+- **`maxDuration = 60` en las rutas de pedido (H-180)** cubre la espera del cerrojo, la transacción y la pasarela; el tiempo límite real de la función en Vercel no se ha medido.
+- **Orden de bloqueo (H-181):** reservas, liberaciones y cambios de `soldCount` bloquean siempre en el mismo orden, lo que evita el ciclo; no se ha reproducido el interbloqueo original en un test (es de concurrencia real).
+- **Reembolso parcial (H-183):** solo Stripe informa de lo ya devuelto (`refundedAmount`); con SumUp sigue pidiéndose el total.
+- **Avisos del panel (H-174):** el estado «aviso pendiente» vive en el texto de `lastError`, no en una columna. Lo que cambia es que ya no se pierde; el resumen «N avisos más» por tope de pasada sigue sin nombrar a los clientes (se reintentan en la siguiente).
+- **Pantallas del admin (H-176):** comprobadas por código, no en navegador.
+- **Pendientes de decisión (sin cambios):** H-170 (bloqueo del login del panel por cuenta, dueño) y H-179 (retención de la auditoría, abogado).
+

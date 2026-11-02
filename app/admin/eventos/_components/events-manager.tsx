@@ -13,6 +13,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Switch } from '@/components/ui/switch';
 import { Plus, Pencil, Trash2, Loader2, Calendar, Hourglass, ShoppingCart, Archive, ArchiveRestore, ShieldCheck, MonitorOff, Ban } from 'lucide-react';
 import { toast } from 'sonner';
+import { userMessage } from '@/lib/error-text';
+import { responseError } from '@/lib/admin-fetch';
 import { PageHeader } from '@/components/layouts/page-header';
 import { ImageUploadField } from '@/app/admin/_components/image-upload-field';
 import { ConfirmDeleteDialog } from '@/app/admin/_components/confirm-delete-dialog';
@@ -186,11 +188,16 @@ export default function EventsManager() {
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     try {
-      await fetch(`/api/admin/events/${deleteTarget.id}`, { method: 'DELETE' });
-      toast.success('Evento eliminado');
-      fetchEvents();
-    } catch {
-      toast.error('Error al eliminar');
+      const res = await fetch(`/api/admin/events/${deleteTarget.id}`, { method: 'DELETE' });
+      // H-176: antes decía «Evento eliminado» aunque la API respondiera 409 (hay pedidos o entradas) o 500, y el evento seguía ahí.
+      if (res.ok) {
+        toast.success('Evento eliminado');
+        fetchEvents();
+      } else {
+        toast.error(await responseError(res, 'No se pudo eliminar el evento'));
+      }
+    } catch (e) {
+      toast.error(userMessage(e, 'No se pudo eliminar el evento'));
     } finally {
       setDeleteTarget(null);
     }

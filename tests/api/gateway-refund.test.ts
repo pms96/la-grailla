@@ -5,6 +5,7 @@ import { StripeAdapter } from '@/lib/payment-adapter';
 import { POST as stripeWebhook } from '@/app/api/webhooks/stripe/route';
 import { alertDisputeOpened, applyGatewayRefund, repairRefundedOrders, sendRefundEmail } from '@/lib/reconciliation/gateway-refund';
 import { invalidateOrder } from '@/lib/reconciliation/entradas';
+import { invalidateShopOrder } from '@/lib/reconciliation/tienda';
 import { refundIdempotencyKey, lateRefundKey, REFUND_KEY_WINDOW_MS } from '@/lib/reconciliation/shared';
 import { PATCH as patchOrder } from '@/app/api/admin/orders/[id]/route';
 import { createTestEvent, createTicketType, cleanupTestEvent, getAndSetConfig, restoreConfig } from '../helpers/fixtures';
@@ -206,6 +207,19 @@ describe('reembolsos fuera de la app (P1-01)', () => {
       expect(await stock(productId)).toBe(5);
     });
 
+    // H-183: lo mismo en la tienda: se devuelve lo que queda tras una devolución parcial hecha fuera de la app.
+    it('H-183: tras 4 € devueltos a mano de 10 €, reembolsar el pedido devuelve los 6 € que quedan, lo marca REFUNDED y repone el stock', async () => {
+      gateway.active = true;
+      const { o, productId } = await shopOrder('PAID');
+      await prisma.shopOrder.update({ where: { id: o.id }, data: { paymentProvider: 'fake' } });
+      gateway.partial.set(o.paymentId!, { charged: 10, refunded: 4 });
+      const res = await invalidateShopOrder(o.id, 'REFUNDED');
+      expect(res.success).toBe(true);
+      expect(gateway.calls.filter((c) => c.op === 'refund').map((c) => c.args?.[0])).toEqual([10, 6]);
+      expect((await prisma.shopOrder.findUnique({ where: { id: o.id } }))?.status).toBe('REFUNDED');
+      expect(await stock(productId)).toBe(7);
+    });
+
     it('un reembolso parcial en la tienda solo avisa', async () => {
       const { o } = await shopOrder('PAID');
       expect(await applyGatewayRefund({ orderId: o.id, full: false, refunded: 3, total: 10, source: 'refund' })).toBe('partial_alerted');
@@ -403,6 +417,59 @@ describe('reembolsos fuera de la app (P1-01)', () => {
       await invalidateOrder(order.id, 'REFUNDED');
       expect(await applyGatewayRefund({ orderId: order.id, full: true, refunded: 10, total: 10, source: 'refund' })).toBe('already');
       expect(buyerMails(email)).toHaveLength(0); // el aviso lo da la ruta del admin, no el webhook
+    });
+  });
+
+  // H-183 (fase 5): H-031 deja un cobro con devolución PARCIAL hecha fuera de la app como `PAID` (no hay precio por entrada para anular solo una parte), pero el
+  // reembolso de la app seguía pidiendo el importe ENTERO de pedido: con 3 € devueltos a mano de 10 €, la pasarela rechaza 10 € frente a los 7 que quedan, el pedido
+  // volvía a COMPLETED y el admin veía el error crudo (en la cancelación de evento agotaba los intentos y quedaba «manual»). Ahora se devuelve lo que QUEDA.
+  describe('devolución parcial previa en la pasarela (H-183)', () => {
+    const refundCalls = () => gateway.calls.filter((c) => c.op === 'refund').map((c) => ({ amount: c.args?.[0] as number, key: c.args?.[1] as string }));
+
+    it('entradas: tras 3 € devueltos a mano de 10 €, «Reembolsar» devuelve los 7 € que quedan y el pedido pasa a REFUNDED', async () => {
+      gateway.active = true;
+      const { order } = await makeOrder({ provider: 'fake', valid: 2 });
+      gateway.partial.set(order.paymentId!, { charged: 10, refunded: 3 });
+      const soldBefore = await sold();
+      const res = await invalidateOrder(order.id, 'REFUNDED');
+      expect(res).toEqual({ success: true, status: 'REFUNDED' });
+      const calls = refundCalls();
+      expect(calls.map((c) => c.amount)).toEqual([10, 7]);
+      expect(calls[1].key).not.toBe(calls[0].key); // Stripe rechaza reutilizar una clave con otros parámetros
+      expect(calls[1].key).toContain(order.id);
+      expect(await statusOf(order.id)).toBe('REFUNDED');
+      expect(await ticketStatuses(order.id)).toEqual(['REFUNDED', 'REFUNDED']);
+      expect(await sold()).toBe(soldBefore - 2);
+    });
+
+    it('entradas: sin devolución previa NO hay consulta ni segundo reembolso (un solo intento)', async () => {
+      gateway.active = true;
+      const { order } = await makeOrder({ provider: 'fake' });
+      expect((await invalidateOrder(order.id, 'REFUNDED')).success).toBe(true);
+      expect(refundCalls().map((c) => c.amount)).toEqual([10]);
+      expect(gateway.count('verify')).toBe(0);
+    });
+
+    it('entradas: un fallo que NO es una devolución parcial no se reintenta: el pedido vuelve a vigente con el error', async () => {
+      gateway.active = true;
+      const { order } = await makeOrder({ provider: 'fake' });
+      gateway.refundResult = { success: false, error: 'La pasarela rechaza el reembolso' };
+      const res = await invalidateOrder(order.id, 'REFUNDED');
+      expect(res.success).toBe(false);
+      expect(res.success === false && res.error).toContain('rechaza');
+      expect(refundCalls()).toHaveLength(1);
+      expect(await statusOf(order.id)).toBe('COMPLETED');
+    });
+
+    it('entradas: si lo ya devuelto iguala el total no se pide un reembolso de 0 € (el error original sigue y el pedido no se da por devuelto)', async () => {
+      gateway.active = true;
+      const { order } = await makeOrder({ provider: 'fake' });
+      gateway.partial.set(order.paymentId!, { charged: 10, refunded: 10 });
+      gateway.refundResult = { success: false, error: 'ya devuelto' };
+      const res = await invalidateOrder(order.id, 'REFUNDED');
+      expect(refundCalls().every((c) => c.amount > 0)).toBe(true);
+      expect(refundCalls()).toHaveLength(1);
+      expect(res.success).toBe(false);
     });
   });
 

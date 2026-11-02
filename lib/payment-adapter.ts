@@ -1,6 +1,6 @@
 /* Payment Adapter Pattern — extensible payment gateway abstraction */
 import type Stripe from 'stripe';
-import { getConfig, getConfigOrThrow, getShopAccountSince, hasConfigRow } from '@/lib/config';
+import { getConfig, getConfigExact, getConfigOrThrow, getShopAccountSince, hasConfigRowExact } from '@/lib/config';
 import { isModuleEnabled } from '@/lib/modules/runtime';
 import { stripeExpiresAt, sumUpValidUntil } from '@/lib/checkout-hold';
 import { roundMoney, toCents } from '@/lib/pricing';
@@ -580,7 +580,7 @@ export class SumUpAdapter implements PaymentProvider {
   // ya hemos visto fallar esto en producción.
   async testConnection(): Promise<ConnectionTestResult> {
     try {
-      const response = await fetch(`https://api.sumup.com/v0.1/merchants/${this.merchantCode}`, {
+      const response = await fetch(`https://api.sumup.com/v0.1/merchants/${encodeURIComponent(this.merchantCode)}`, {
         headers: { Authorization: `Bearer ${this.apiKey}` },
         signal: AbortSignal.timeout(SUMUP_TEST_TIMEOUT_MS),
       });
@@ -870,7 +870,8 @@ const TIENDA_KEYS = {
  */
 async function paymentKeys(scope: PaymentScope): Promise<{ gateway: string; stripeSecret: string; stripeWebhook: string; sumupKey: string; sumupMerchant: string }> {
   if (scope === 'entradas') return ENTRADAS_KEYS;
-  if (isModuleEnabled('entradas') && !(await hasConfigRow(TIENDA_KEYS.gateway))) return ENTRADAS_KEYS;
+  // H-178: «sin fila propia» tiene que ser un dato, no un fallo de lectura: ante un error de BD se propaga en lugar de cobrar o consultar con las claves de Entradas.
+  if (isModuleEnabled('entradas') && !(await hasConfigRowExact(TIENDA_KEYS.gateway))) return ENTRADAS_KEYS;
   return TIENDA_KEYS;
 }
 
@@ -916,11 +917,12 @@ export async function getPaymentProvider(scope: PaymentScope = 'entradas'): Prom
  * misma huella cobran en la misma cuenta (Tienda hereda la de Entradas hasta que guarda la suya): la conciliación recorre cada cuenta UNA vez.
  */
 export async function paymentAccountFingerprint(scope: PaymentScope = 'entradas'): Promise<string | null> {
+  // H-177: lecturas EXACTAS: un fallo de BD no puede pasar por «sin pasarela real» (null) y dejar la cuenta sin conciliar en silencio; lanza y el llamante lo cuenta como error.
   const keys = await paymentKeys(scope);
-  const gateway = (await getConfig(keys.gateway)) || 'mock';
+  const gateway = (await getConfigExact(keys.gateway)) || 'mock';
   const { createHash } = await import('node:crypto');
   const hash = (...parts: string[]) => createHash('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 16);
-  if (gateway === 'stripe') return `stripe:${hash((await getConfigOrThrow(keys.stripeSecret)).trim())}`;
-  if (gateway === 'sumup') return `sumup:${hash((await getConfigOrThrow(keys.sumupKey)).trim(), (await getConfig(keys.sumupMerchant)).trim())}`;
+  if (gateway === 'stripe') return `stripe:${hash((await getConfigExact(keys.stripeSecret)).trim())}`;
+  if (gateway === 'sumup') return `sumup:${hash((await getConfigExact(keys.sumupKey)).trim(), (await getConfigExact(keys.sumupMerchant)).trim())}`;
   return null;
 }

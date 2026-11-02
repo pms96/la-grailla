@@ -7,7 +7,7 @@
  * No imprime secretos: solo identificadores, estados y recuentos. Sale con código 1 si falla alguna comprobación. */
 import { isSchemaAtLeast, parseMasterKey } from '@grailla/contracts';
 import { FRONT_MIN_SCHEMA } from '@/lib/platform/min-schema';
-import { platformEnvWarnings } from '@/lib/tenant/env-check';
+import { platformEnvProblems, platformEnvWarnings } from '@/lib/tenant/env-check';
 import { runWithTenant } from '@/lib/tenant/context';
 import { getRegistryReader, resolveHost } from '@/lib/tenant/resolve';
 import { effectiveLicensePhase } from '@grailla/contracts';
@@ -83,6 +83,9 @@ async function main() {
   addWarn('PLATFORM_ALERT_URL (canal de avisos de dinero)', !warnings.some((w) => w.startsWith('PLATFORM_ALERT_URL')), warnings.find((w) => w.startsWith('PLATFORM_ALERT_URL')));
   addWarn('SENTRY_DSN (errores de cobros y webhooks)', !warnings.some((w) => w.startsWith('SENTRY_DSN')), warnings.find((w) => w.startsWith('SENTRY_DSN')));
   add('BLOB_READ_WRITE_TOKEN definida (subidas de imágenes y vídeos)', !!process.env.BLOB_READ_WRITE_TOKEN);
+  // H-171: sin el host del almacén de Blob (o mal formado) la CSP y la lista blanca de URLs de Blob quedan abiertas a cualquier almacén. Misma regla que el front.
+  const blobProblem = platformEnvProblems(process.env).find((p) => p.startsWith('BLOB_PUBLIC_HOST'));
+  add('BLOB_PUBLIC_HOST con la forma <id>.public.blob.vercel-storage.com (restringe el almacén de Blob)', !blobProblem, blobProblem);
   if (flag('legacy')) {
     add('LEGACY_TENANT_ID + LEGACY_NEXTAUTH_SECRET', !!process.env.LEGACY_TENANT_ID && !!process.env.LEGACY_NEXTAUTH_SECRET);
   }
