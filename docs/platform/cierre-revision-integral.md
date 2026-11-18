@@ -9,7 +9,7 @@ Documento de cierre de `docs/platform/revision-integral.md` (259 hallazgos, H-00
 | Hallazgos registrados | 259 (158 de la fase 1; H-159…H-162 en los lotes 10 y 11; H-163…H-167 en la fase 4; H-168…H-258 en la fase 5; H-259 en el lote 16) |
 | Hechos (código y prueba) | 226 |
 | Documentados (riesgo aceptado con su motivo, §3) | 24 |
-| Decisión del propietario (§4) | 4 (H-234, H-253, H-254, H-259) |
+| Decisión del propietario (§4) | 3 (H-234, H-253, H-254); H-259 ya resuelto (2026-11-18) |
 | Pendientes externos, gestoría o abogado (§5) | 5, más H-135 y H-028 (ya documentados, con su decisión externa) |
 | Críticos abiertos | 0 |
 | Altos e «Importantes» abiertos | 0 (los 15 altos, el medio-alto y los 6 importantes están hechos) |
@@ -67,7 +67,7 @@ Todos son «Bajo». Ninguno se ha dejado por no saber arreglarlo: o es un compro
 
 **H-259. La rama por defecto de GitHub (`main`) iba 102 commits por detrás de `plataforma`.** Solo se subía `main:plataforma`, así que `origin/main` no tenía `reconcile-gateway.yml` (la conciliación diaria con la pasarela, H-129) ni `post-deploy-smoke.yml`. GitHub solo ejecuta los workflows con `schedule`, y solo deja lanzar a mano los de `workflow_dispatch`, si el fichero está en la rama por defecto.
 - **Decisión del dueño (2026-11-18): una sola rama, `main`.** Comprobado que `main` era ancestro de `plataforma` (avance sin fuerza, sin fusión) y que los dos proyectos de Vercel (`la-grailla-platform`, `panel-control`) seguían `plataforma`; el proyecto antiguo `la-grailla` ya no está conectado al repositorio. `ci.yml` pasa a `branches: [main]`.
-- **Pasos del dueño, en este orden, tras el push de `main`:** (1) Vercel, en `la-grailla-platform` y en `panel-control`: Settings → Environments → Production → Branch Tracking = `main`, y comprobar que el siguiente despliegue sale de `main`; (2) GitHub: Settings → Branches → rama por defecto = `main`; (3) unos días después, borrar `plataforma`. Mientras exista, se empuja también `main:plataforma` para que nada cambie por el camino.
+- **Hecho (2026-11-18):** `main` avanzó a `plataforma` (`d709460`), el dueño puso `main` como Production Branch en `la-grailla-platform` y `panel-control`, y la rama `plataforma` se borró. La rama por defecto de GitHub ya era `main`, así que no hizo falta cambiarla. Desde ahora se empuja solo a `main`.
 - Comprobación después: pestaña Actions → deben aparecer «Reconcile gateway (diaria)», «Post-deploy smoke» y «Migrar la BD de control».
 
 **Caducidad de los enlaces de entrada (H-212, `stash@{0}`).** El stash «caducidad de tokens de acceso + aviso de reacceso a entradas» está sin decidir desde hace semanas: aplicarlo, o descartarlo y dejar los enlaces permanentes (§3).
