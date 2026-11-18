@@ -10,11 +10,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useBrand } from '@/components/brand-provider';
 
-/* Formulario de contacto de la portada (núcleo). El campo `website` es una trampa para bots: está fuera de pantalla y fuera del orden de
- * tabulación; una persona nunca lo rellena (ver lib/contact.ts). */
+/* Formulario de contacto de la portada (núcleo). El campo `qx_trampa_zv` es una trampa para bots: está fuera de pantalla y fuera del orden de
+ * tabulación; una persona nunca lo rellena (ver lib/contact.ts). Su nombre no significa nada a propósito (H-252): el autocompletado no lo reconoce. Debe coincidir con
+ * `CONTACT_HONEYPOT_FIELD` de lib/contact.ts (no se importa aquí para no meter código de servidor en el cliente; un test comprueba que coinciden). */
 
-type Form = { name: string; email: string; phone: string; subject: string; message: string; website: string };
-const EMPTY: Form = { name: '', email: '', phone: '', subject: '', message: '', website: '' };
+type Form = { name: string; email: string; phone: string; subject: string; message: string; qx_trampa_zv: string };
+const EMPTY: Form = { name: '', email: '', phone: '', subject: '', message: '', qx_trampa_zv: '' };
 
 export function ContactForm() {
   const { name: brandName } = useBrand();
@@ -95,7 +96,7 @@ export function ContactForm() {
       <div aria-hidden className="absolute left-[-10000px] top-auto h-px w-px overflow-hidden">
         <label>
           No rellenes este campo
-          <input type="text" name="website" tabIndex={-1} autoComplete="off" value={form.website} onChange={set('website')} />
+          <input type="text" name="qx_trampa_zv" tabIndex={-1} autoComplete="off" value={form.qx_trampa_zv} onChange={set('qx_trampa_zv')} />
         </label>
       </div>
 

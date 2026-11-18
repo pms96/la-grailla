@@ -43,7 +43,7 @@ Todos son «Bajo». Ninguno se ha dejado por no saber arreglarlo: o es un compro
 | H-213 | `smtp_password` sigue en claro en `AppConfig`. | Ya planificado en dos releases (primero el lector, luego el escritor); el lector ya está. | El lector lleva desplegado en todos los clientes: activar el escritor. |
 | H-249 | Un despliegue del front con esquema nuevo y un runner lento genera un aviso crítico por cliente si dura más de ~10 min. | Es lo que pide H-175 (el cliente está en mantenimiento). Falta medir cuánto tarda de verdad el runner. Migrar antes de desplegar (runbook §1) lo evita. | Se mide el runner en un despliegue real: ajustar el plazo. |
 | H-250 | Si el aviso sale pero no se puede borrar la marca «pendiente», la siguiente pasada fallida lo reenvía, y las marcas consumen cupo de avisos por pasada. | Solo ocurre cuando el propio canal de alertas falla; basta arreglar el canal. | El canal de alertas se cae a menudo. |
-| H-252 | El campo trampa del formulario de contacto se llama `website`: un autocompletado del navegador que lo rellene hace que el mensaje se descarte con «éxito». | Sin confirmar que ocurra. Arreglo trivial (renombrar el campo). | Un cliente dice que no le llegan mensajes de contacto: candidato a un lote 16. |
+| H-252 | **Resuelto en el lote 21.** El campo trampa del formulario de contacto ya no se llama `website` (lleva un nombre sin significado que el autocompletado no reconoce). | — | — |
 | H-255 | Con el registro caído más de 7 días, un cliente bloqueado solo por calendario vuelve a la fase publicada. | Compromiso del plan: ante la duda no se castiga a quien pudo haber pagado. El comentario del código ya lo dice (corregido en esta fase). | Se quiere endurecer: exigiría decidir qué hacer con un cliente que sí pagó mientras el registro estaba caído. |
 | H-256 | Diseño de roles del panel: un OPERATOR levanta una revocación de emergencia; un SUPERADMIN que reinicia a otro operador conoce su contraseña temporal; «Publicar» publica todo lo guardado; la cadena de auditoría no tiene ancla externa. | Todo queda en la auditoría; los operadores son de confianza. | Entra un operador de confianza limitada, o hay que demostrar la integridad de la auditoría ante un tercero. |
 | H-257 | Varios menores de diseño del panel (anti-replay de snapshots por instancia, el disparador no reclama filas vencidas, cubo de búsquedas de Host global, dominios PENDING sin lápida, `RUN_STALE_MS` sin tope). | Sin confirmar o documentados como diseño asumido; Prisma serializa las migraciones. | Se escala por encima de ~15 clientes (umbral del plan). |
@@ -74,7 +74,7 @@ Todos son «Bajo». Ninguno se ha dejado por no saber arreglarlo: o es un compro
 
 **Caducidad de los enlaces de entrada (H-212).** Decisión del dueño (2026-11-18): rehacerlo con la caducidad ligada al evento. **Hecho en el lote 19** (runbook §21): los enlaces de pedido y de entrada caducan 30 días después del evento, también los ya enviados. El stash `stash@{0}` (caducidad fija de 120 días con un formato de token nuevo y un aviso por email en cada reacceso) se descartó: estaba 185 commits desfasado, no cubría los enlaces ya enviados y el aviso mandaba un email al comprador en cada reapertura, con el correo de La Grailla fijado en el código.
 
-**Otras decisiones abiertas de lotes anteriores:** qué hacer con las ~455 filas de auditoría de pruebas que quedan de antes en la BD de desarrollo (H-013; la suite ya borra las que crea); y si un rol «contable» puede ver los ingresos agregados de entradas y el nombre de la temporada de cada evento (excepciones documentadas en `module-off-zero-data.test.ts`, lote 8).
+**Otras decisiones de lotes anteriores (cerradas el 2026-11-19, lote 21):** las ~455 filas de auditoría de pruebas de la BD de desarrollo (H-013) se borraron, con copia previa en JSON, junto con 9 temporadas `[TEST]` y sus dependientes; y un rol «contable» **sigue viendo** los ingresos agregados de entradas y de patrocinio en el resumen de gastos (el margen los necesita; son cifras, no datos de personas), igual que el gestor de entradas ve el nombre de la temporada de cada evento: decisión del dueño, sin cambios de código.
 
 ## 5. Pendientes externos
 
@@ -88,6 +88,8 @@ Todos son «Bajo». Ninguno se ha dejado por no saber arreglarlo: o es un compro
 | Abogado | H-251 | El banner de cookies promete analítica que la política dice que no existe. |
 
 ## 6. Acciones del propietario, en orden
+
+> Versión corta y con los comandos exactos, para tenerla a mano al desplegar: `docs/platform/checklist-lanzamiento.md`.
 
 **Antes de desplegar**
 1. **Migrar la BD de cada cliente** con el runner del panel (o `migrate:tenants`), cliente a cliente y fuera de una venta (runbook §1 y §8). `FRONT_MIN_SCHEMA` protege el orden contrario.

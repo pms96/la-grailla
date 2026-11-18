@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { CONTACT_HONEYPOT_FIELD } from '@/lib/contact';
 import { disconnectAllTenantClients } from '@/lib/tenant/db';
 import { enablePlatformEnv } from '../helpers/platform';
 import { TEST_TENANT_IDS, disconnectTenantClients, ensureTenantDatabases, resetTenantDatabase, tenantClient, withTenantForTest } from '../helpers/tenant-dbs';
@@ -108,10 +111,30 @@ describe('POST /api/contact (público)', () => {
   });
 
   it('el campo trampa descarta al bot en silencio: responde bien y no guarda ni avisa', async () => {
-    const res = await submit('a', { ...valid, website: 'http://spam.example' });
+    const res = await submit('a', { ...valid, [CONTACT_HONEYPOT_FIELD]: 'http://spam.example' });
     expect(res.status).toBe(200);
     expect(await tenantClient('a').contactMessage.count()).toBe(0);
     expect(sendMailMock).not.toHaveBeenCalled();
+  });
+
+  /* H-252: el campo trampa se llamaba `website`, un nombre que los navegadores y los gestores de contraseñas rellenan solos: una persona con el autocompletado puesto veía «mensaje
+   * enviado» y el servidor lo descartaba sin avisar, sin que nadie se enterara de que se perdía un contacto. Ahora lleva un nombre sin significado. */
+  it('H-252: un autocompletado que rellene `website` (el nombre antiguo) NO descarta el mensaje: se guarda', async () => {
+    const res = await submit('a', { ...valid, website: 'https://mi-web.example' });
+    expect(res.status).toBe(200);
+    expect(await tenantClient('a').contactMessage.count()).toBe(1);
+    expect(sendMailMock).toHaveBeenCalled();
+  });
+
+  it('H-252: el campo trampa no tiene un nombre que el autocompletado reconozca (web, url, nombre, email, teléfono, empresa, dirección…)', () => {
+    expect(CONTACT_HONEYPOT_FIELD).not.toMatch(/web|site|url|name|nombre|mail|phone|tel|fax|company|empresa|address|direcc|zip|city|subject|asunto|message|mensaje|comment/i);
+  });
+
+  it('H-252: el formulario usa exactamente ese nombre como `name` del input y como clave del envío, y ya no usa `website`', () => {
+    const form = readFileSync(join(process.cwd(), 'components/contact-form.tsx'), 'utf8');
+    expect(form).toContain(`name="${CONTACT_HONEYPOT_FIELD}"`);
+    expect(form).toContain(`${CONTACT_HONEYPOT_FIELD}: ''`); // clave del estado que se envía en el JSON
+    expect(form).not.toMatch(/\bwebsite\b\s*[:=]|name="website"|form\.website/);
   });
 
   it('limita el ritmo por IP (5 por hora) y cada IP tiene su cubeta', async () => {

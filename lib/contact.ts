@@ -8,8 +8,13 @@ import { perRequest } from '@/lib/request-cache';
 
 /* Bandeja de contacto (núcleo): validación del formulario público y los emails que genera. */
 
-/** Campo trampa: está oculto para las personas. Si llega relleno, es un bot y se descarta en silencio. */
-export const CONTACT_HONEYPOT_FIELD = 'website';
+/**
+ * Campo trampa: está oculto para las personas. Si llega relleno, es un bot y se descarta en silencio.
+ * H-252: su nombre NO significa nada a propósito. Se llamaba `website`, y los navegadores y los gestores de contraseñas rellenan solos los campos con nombres como web, url, nombre o
+ * email: una persona con el autocompletado puesto veía «enviado» y el servidor descartaba su mensaje. Si lo cambias, cambia también la clave de `components/contact-form.tsx`
+ * (un test comprueba que coinciden) y elige un nombre que ningún autocompletado reconozca.
+ */
+export const CONTACT_HONEYPOT_FIELD = 'qx_trampa_zv';
 
 export const contactSchema = z.object({
   name: z.string().trim().min(1, 'Escribe tu nombre').max(120),

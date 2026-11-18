@@ -349,8 +349,8 @@ const ROLES: { name: string; role: Mod[]; exceptions?: Record<string, string> }[
   {
     name: 'contable',
     role: ['contabilidad'],
-    // Decisión de producto abierta (revisión integral, lote 8): el resumen de gastos calcula el margen con los ingresos AGREGADOS de entradas y de patrocinio (cifras, no datos de personas).
-    // Si el dueño decide que un contable no debe verlas sin el rol de entradas/sponsors, se corrige la ruta y se quita esta excepción.
+    // Decidido por el dueño el 2026-11-19 (lote 21): se deja. El resumen de gastos calcula el margen con los ingresos AGREGADOS de entradas y de patrocinio (cifras, no datos de personas)
+    // y un contable los necesita. Si algún día cambia la decisión, se corrige la ruta y se quita esta excepción.
     exceptions: { '/api/admin/gastos/resumen': 'el margen incluye el total cobrado en entradas y en patrocinio (agregado)' },
   },
   {
