@@ -112,6 +112,8 @@ npm run db:migrate        # = prisma migrate deploy sobre prisma/schema.prisma d
 
 Es solo aditiva y se puede repetir (no hace nada si está al día). Un panel desplegado con una BD de control atrasada falla en la primera consulta que toque lo nuevo.
 
+**Alternativa sin portátil (lote 16):** el workflow de GitHub «Migrar la BD de control» hace lo mismo con un clic (modo «estado» para mirar, «aplicar» para migrar) usando el secreto `CONTROL_DIRECT_URL`; ver `docs/platform/runbook-despliegue.md` §18. Y si se te olvida, el panel enseña un aviso rojo y el latido del disparador pasa a fallo.
+
 **Cliente ya registrado** (ficha, tarjeta «Puesta en marcha»): la lista de pasos dice cuál toca. Botones: **Migrar BD**, **Datos iniciales** (email de avisos, textos legales y administrador, para quien se registró sin ellos), **Salir a producción**, **Comprobar salud**. En cada dominio, **Añadir a Vercel**.
 
 **Dominios en Vercel desde el panel (opcional).** Sin esto, el panel enseña el registro DNS y tú añades el dominio a mano en el proyecto `grailla-platform`. Para que lo haga el panel, añade estas variables al proyecto **`grailla-panel`** (solo Production, Sensitive) y redespliega:

@@ -6,6 +6,9 @@ import { GET } from '@/app/api/cron/dispatch/route';
  * avisan las alertas), y con nada vencido tampoco hay problema. */
 const summary = vi.hoisted(() => ({ value: { due: 0, ran: 0, ok: 0, failed: 0, deferred: 0, results: [] as unknown[] } }));
 vi.mock('@/lib/services/crons', async (orig) => ({ ...(await orig<typeof import('@/lib/services/crons')>()), dispatchTenantJobs: async () => summary.value }));
+// Lote 16 (B): el estado de la BD de control lo fija cada prueba (por defecto, al día).
+const schema = vi.hoisted(() => ({ value: { state: 'ok' as 'ok' | 'behind' | 'unknown', applied: 'x', expected: 'x' } }));
+vi.mock('@/lib/services/control-schema', async (orig) => ({ ...(await orig<typeof import('@/lib/services/control-schema')>()), controlSchemaStatus: async () => schema.value }));
 
 const VERCEL_SECRET = 'secreto-de-vercel-cron-de-prueba-0123456789';
 let fetchSpy: ReturnType<typeof vi.fn>;
@@ -21,6 +24,7 @@ beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {});
 });
 afterEach(() => {
+  schema.value = { state: 'ok', applied: 'x', expected: 'x' };
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -45,6 +49,23 @@ describe('H-198: el latido del disparador dice la verdad', () => {
     summary.value = { due: 0, ran: 0, ok: 0, failed: 0, deferred: 0, results: [] };
     const res = await run();
     expect(res.status).toBe(200);
+    expect(pings()).toEqual(['https://hc-ping.com/tenants-uuid']);
+  });
+
+  // Lote 16 (B): con el panel por delante de su BD de control el login se rompe y nadie ve el aviso en pantalla; el monitor externo sí recibe el latido de fallo.
+  it('con la BD de control por detrás del panel manda el latido de FALLO aunque las tareas se ejecuten, y lo deja en el log', async () => {
+    summary.value = { due: 3, ran: 3, ok: 3, failed: 0, deferred: 0, results: [] };
+    schema.value = { state: 'behind', applied: 'a', expected: 'b' };
+    await run();
+    expect(pings()).toEqual(['https://hc-ping.com/tenants-uuid/fail']);
+    const logged = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0])).join('\n');
+    expect(logged).toMatch(/BD de control/);
+  });
+
+  it('un estado desconocido (no se pudo leer) NO cambia el latido', async () => {
+    summary.value = { due: 3, ran: 3, ok: 3, failed: 0, deferred: 0, results: [] };
+    schema.value = { state: 'unknown', applied: null as unknown as string, expected: 'b' };
+    await run();
     expect(pings()).toEqual(['https://hc-ping.com/tenants-uuid']);
   });
 });

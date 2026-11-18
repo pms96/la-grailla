@@ -347,3 +347,25 @@ No hay migraciones ni cambios de esquema en el panel. Cambian el front, el panel
 
 La lista única y ordenada de lo que tiene que hacer el propietario (antes, durante y después de desplegar, y cuando toque), los riesgos aceptados con su «reabrir si…», las decisiones abiertas con opciones y los pendientes de gestoría y abogado están en **`docs/platform/cierre-revision-integral.md`**. Esta sección solo existe para que quien llegue por el runbook lo encuentre; las secciones 1 a 16 siguen siendo el detalle operativo de cada lote.
 
+## 18. Migrar la BD de control del panel desde GitHub, y el aviso de BD atrasada (lote 16)
+
+El build del panel **no migra** su propia BD de control (solo hace `prisma generate` y `next build`). Hay dos formas de hacerlo; las dos son solo aditivas y se pueden repetir.
+
+**A. Desde GitHub, con un clic (recomendada).** Workflow `.github/workflows/migrate-control-db.yml`, «Migrar la BD de control».
+1. **Una sola vez:** en GitHub, Settings → Secrets and variables → Actions → New repository secret: nombre `CONTROL_DIRECT_URL`, valor la URL **directa** de Neon del proyecto `grailla-control` (la que no lleva `-pooler`). Opcional: guardarla como secreto del *environment* `control-db-prod` y exigir ahí un revisor antes de ejecutar.
+2. **Que el workflow aparezca en la pestaña Actions:** tiene que estar en la rama por defecto del repositorio. Hoy la rama por defecto es `main` y va 102 commits por detrás de `plataforma` (H-259): ver `docs/platform/cierre-revision-integral.md` §4 antes de seguir.
+3. Actions → «Migrar la BD de control» → Run workflow → rama `plataforma` → modo **estado**. No cambia nada: dice si la BD de control está al día o qué migraciones faltan.
+4. Si faltan: Run workflow otra vez con el modo **aplicar**. Al terminar comprueba que quedó al día y, si no, falla.
+5. Despliega el panel nuevo **después** (el orden de §1 y §15 no cambia).
+
+El workflow se niega a ejecutarse (y dice por qué) si no hay secreto, si la URL apunta a una BD local o si es la URL del pooler; nunca imprime la URL (solo el host y el nombre de la base) y no tiene permisos de escritura sobre el repositorio.
+
+**B. A mano** (si prefieres no guardar la URL en GitHub): `npm run db:migrate` dentro de `apps/control-panel` con `CONTROL_DATABASE_URL` y `CONTROL_DIRECT_URL` de producción cargadas en el entorno (`docs/platform/m9-primer-despliegue.md`).
+
+**Qué ves si te olvidas de migrar.** El panel conoce la última migración que espera (`EXPECTED_CONTROL_SCHEMA` en `apps/control-panel/lib/services/control-schema.ts`) y la compara con la BD:
+- **Aviso rojo en todas las pantallas del panel, también en la de inicio de sesión:** «Falta aplicar una migración a la base de datos del panel». No nombra migraciones. Desaparece sola en 30 s tras migrar.
+- **Latido de FALLO del disparador** (`HEARTBEAT_URL`), además del aviso en el log del disparador: con la BD atrasada el login se rompe y nadie vería el aviso en pantalla, pero el monitor externo sí recibe el fallo.
+- **Para quien desarrolla:** al añadir una migración al panel hay que actualizar `EXPECTED_CONTROL_SCHEMA` en el mismo cambio; un test falla si no coincide con la última de `prisma/migrations`.
+
+**Límites:** el workflow no se ha ejecutado nunca contra GitHub (se probó en local la lógica del paso de guardas y los textos de `prisma migrate status`); el panel no tiene un `/api/health` público y no se ha abierto uno; una BD de control **por delante** del panel desplegado no da aviso (otro despliegue más nuevo ya migró).
+

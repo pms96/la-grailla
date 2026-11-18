@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { currentSession } from '@/lib/guard';
 import { can } from '@/lib/permissions';
 import { logoutAction } from './actions/auth';
+import { ControlSchemaNotice } from './_components/control-schema-notice';
 import './globals.css';
 
 export const metadata: Metadata = { title: 'Control · La Grailla', robots: { index: false, follow: false } };
@@ -41,6 +42,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             </>
           )}
         </header>
+        <ControlSchemaNotice />
         {children}
       </body>
     </html>

@@ -7,6 +7,7 @@ import type { ActingOperator } from '@/lib/actor';
 import { notify, sendHeartbeat } from '@/lib/services/alerts';
 import { dispatchHttpStatus, dispatchTenantJobs, effectiveCronBudgetMs, MIN_CRON_BUDGET_MS, RECONCILE_CALL_TIMEOUT_MS, TENANT_JOBS } from '@/lib/services/crons';
 import { refreshAllSnapshots } from '@/lib/services/license';
+import { controlSchemaStatus } from '@/lib/services/control-schema';
 
 /* Único disparador de tareas periódicas. Lo llama Vercel Cron (apps/control-panel/vercel.json) con `Authorization: Bearer $CRON_SECRET`:
  *   GET /api/cron/dispatch?job=tenants            → tareas de cada cliente que toquen ahora (cada 5 min)
@@ -63,7 +64,11 @@ export async function GET(request: Request) {
       if (summary.due > 0 && summary.ran === 0) console.error('[cron-dispatch] había tareas vencidas y no se lanzó ninguna: ¿CRON_BUDGET_MS menor que el tiempo máximo de una llamada (55 s en reconcile-payments)?');
       // Latido: «el disparador sigue vivo» aunque haya clientes fallando (de eso avisan las alertas). Si deja de llegar, el servicio externo avisa.
       // H-198: «vivo» solo si la pasada hizo lo que debía: con tareas vencidas y NINGUNA ejecutada (todo diferido por presupuesto) el latido es de fallo, igual que el 500.
-      await sendHeartbeat(!(summary.due > 0 && summary.ran === 0));
+      // Lote 16 (B): con la BD de control por detrás del panel el login se rompe y nadie ve el aviso en pantalla: el monitor externo lo recibe como latido de fallo.
+      const controlSchema = await controlSchemaStatus();
+      const schemaBehind = controlSchema.state === 'behind';
+      if (schemaBehind) console.error('[cron-dispatch] la BD de control está por detrás del panel: falta aplicar una migración (workflow «Migrar la BD de control» o npm run db:migrate)');
+      await sendHeartbeat(!(summary.due > 0 && summary.ran === 0) && !schemaBehind);
       return NextResponse.json(summary, { status });
     }
     return NextResponse.json({ error: 'job debe ser tenants o snapshots-refresh' }, { status: 400 });

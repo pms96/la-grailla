@@ -114,6 +114,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .pill.warn { background: var(--warn-soft); color: var(--warn); }
 .pill.bad { background: var(--bad-soft); color: var(--bad); }
 .pill.accent { background: var(--accent-soft); color: var(--accent); }
+
+/* Aviso a todo el ancho cuando la BD de control va por detrás del panel (lote 16). Colores de «bad» del propio panel: legible en claro y en oscuro. */
+.schema-notice { background: var(--bad-soft); color: var(--bad); border-bottom: 1px solid var(--bad); padding: .7rem 1.25rem; font-size: .9rem; line-height: 1.45; }
+.schema-notice strong { font-weight: 700; }
 .chips { display: flex; flex-wrap: wrap; gap: .3rem; }
 
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1.25rem; margin: 0; }

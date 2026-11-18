@@ -1,15 +1,15 @@
 # Cierre de la revisión integral (fase 6)
 
-Documento de cierre de `docs/platform/revision-integral.md` (258 hallazgos, H-001…H-258). Resume el resultado, deja por escrito **por qué** cada riesgo que sigue abierto se acepta y **cuándo** habría que reabrirlo, y reúne en un solo sitio lo que tiene que hacer el propietario. El detalle de cada cambio está en el registro y en `docs/platform/runbook-despliegue.md` (secciones 1 a 16).
+Documento de cierre de `docs/platform/revision-integral.md` (259 hallazgos, H-001…H-259; el H-259 se registró en el lote 16). Resume el resultado, deja por escrito **por qué** cada riesgo que sigue abierto se acepta y **cuándo** habría que reabrirlo, y reúne en un solo sitio lo que tiene que hacer el propietario. El detalle de cada cambio está en el registro y en `docs/platform/runbook-despliegue.md` (secciones 1 a 16).
 
 ## 1. Resultado
 
 | | |
 |---|---|
-| Hallazgos registrados | 258 (158 de la fase 1; H-159…H-162 en los lotes 10 y 11; H-163…H-167 en la fase 4; H-168…H-258 en la fase 5) |
+| Hallazgos registrados | 259 (158 de la fase 1; H-159…H-162 en los lotes 10 y 11; H-163…H-167 en la fase 4; H-168…H-258 en la fase 5; H-259 en el lote 16) |
 | Hechos (código y prueba) | 226 |
 | Documentados (riesgo aceptado con su motivo, §3) | 24 |
-| Decisión del propietario (§4) | 3 |
+| Decisión del propietario (§4) | 4 (H-234, H-253, H-254, H-259) |
 | Pendientes externos, gestoría o abogado (§5) | 5, más H-135 y H-028 (ya documentados, con su decisión externa) |
 | Críticos abiertos | 0 |
 | Altos e «Importantes» abiertos | 0 (los 15 altos, el medio-alto y los 6 importantes están hechos) |
@@ -65,6 +65,11 @@ Todos son «Bajo». Ninguno se ha dejado por no saber arreglarlo: o es un compro
 - **D:** aceptar que el margen de una temporada cerrada pueda cambiar, con una línea de devoluciones visible.
 - Mi recomendación: esperar al criterio de la gestoría sobre H-133 (margen y devoluciones), porque decide esto también.
 
+**H-259. La rama por defecto de GitHub (`main`) va 102 commits por detrás de `plataforma`.** Solo subimos `main:plataforma`, así que `origin/main` no tiene `reconcile-gateway.yml` (la conciliación diaria con la pasarela, H-129) ni `post-deploy-smoke.yml`. GitHub solo ejecuta los workflows con `schedule`, y solo deja lanzar a mano los de `workflow_dispatch`, si el fichero está en la rama por defecto: esos dos workflows y el nuevo `migrate-control-db.yml` no existen para GitHub. Los de `reconcile-payments` y `cleanup-waiting-room` sí, porque son antiguos y están en `main`.
+- **A (recomendada):** en GitHub, Settings → Branches → rama por defecto → `plataforma`. No despliega nada (Vercel decide el despliegue por su propia rama de producción) y los workflows pasan a leerse de la rama que de verdad se sirve.
+- **No recomendada:** empujar `main` con los 102 commits. Si el proyecto antiguo de Vercel (`la-grailla`) tiene `main` como rama de producción, desplegaría el código nuevo sobre la web real; habría que comprobarlo antes.
+- Comprobación después: pestaña Actions → deben aparecer «Reconcile gateway (diaria)», «Post-deploy smoke» y «Migrar la BD de control».
+
 **Caducidad de los enlaces de entrada (H-212, `stash@{0}`).** El stash «caducidad de tokens de acceso + aviso de reacceso a entradas» está sin decidir desde hace semanas: aplicarlo, o descartarlo y dejar los enlaces permanentes (§3).
 
 **Otras decisiones abiertas de lotes anteriores:** qué hacer con las ~455 filas de auditoría de pruebas que quedan de antes en la BD de desarrollo (H-013; la suite ya borra las que crea); y si un rol «contable» puede ver los ingresos agregados de entradas y el nombre de la temporada de cada evento (excepciones documentadas en `module-off-zero-data.test.ts`, lote 8).
@@ -84,7 +89,7 @@ Todos son «Bajo». Ninguno se ha dejado por no saber arreglarlo: o es un compro
 
 **Antes de desplegar**
 1. **Migrar la BD de cada cliente** con el runner del panel (o `migrate:tenants`), cliente a cliente y fuera de una venta (runbook §1 y §8). `FRONT_MIN_SCHEMA` protege el orden contrario.
-2. **Migración del panel `20261102120000_operator_login_buckets`** a la BD de control, **antes** de desplegar el panel (§15). Los lotes 13 y 15 no traen migraciones.
+2. **Migración del panel `20261102120000_operator_login_buckets`** a la BD de control, **antes** de desplegar el panel (§15). Se puede hacer con el workflow «Migrar la BD de control» (modo «estado» y luego «aplicar»; ver runbook §18, necesita el secreto `CONTROL_DIRECT_URL` y la decisión de H-259) o a mano con `npm run db:migrate`. Los lotes 13, 15 y 16 no traen migraciones.
 3. **Revisar cada cliente** (runbook §3): temporadas cerradas que sigan en uso, `jornada_corte_hora`, la retención de la auditoría (ahora de solo inserción), eventos creados antes del arreglo de zona horaria y `BLOB_PUBLIC_HOST` (obligatoria en la plataforma).
 4. **Variables y ajustes opcionales pero recomendados:** `HEARTBEAT_URL` y `HEARTBEAT_SNAPSHOTS_URL` (monitor externo del panel), `SMOKE_URLS` (GitHub: añadir la URL de cada cliente al darlo de alta), `DIRECT_URL` (proyecto antiguo: migrar con tiempos), `PLATFORM_ALERT_URL` y `SENTRY_DSN`.
 

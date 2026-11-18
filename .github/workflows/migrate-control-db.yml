@@ -1,0 +1,104 @@
+name: Migrar la BD de control
+
+# Lote 16 (C). El build del panel NO migra su propia BD de control (solo hace `prisma generate` y `next build`) y la CI solo migra una BD `_test` desechable. Hasta ahora la BD de control de
+# producción se migraba a mano desde un portátil con su URL. Este workflow lo hace desde GitHub con un clic («Run workflow»), sin tener esa URL en ninguna máquina.
+#
+# Toca la BD que guarda los secretos y la auditoría del panel, así que es deliberadamente aburrido:
+#   - Solo se lanza a mano. Nunca por push, PR ni calendario.
+#   - El modo por defecto es «estado»: solo mira qué falta, no cambia nada. «aplicar» hay que elegirlo a propósito.
+#   - Antes de tocar nada comprueba el secreto: que exista, que no sea una BD local y que sea la URL DIRECTA (las migraciones no funcionan por el pooler de Neon).
+#   - La URL nunca se imprime: solo el host y el nombre de la base, y GitHub enmascara el secreto en el log.
+#   - Las migraciones del panel son solo aditivas y se pueden repetir: si ya está al día no hace nada.
+#
+# Requisito (una vez): crear el secreto `CONTROL_DIRECT_URL` (Settings > Secrets and variables > Actions) con la URL directa de Neon del proyecto `grailla-control`. Opcional: guardarlo en el
+# «environment» `control-db-prod` y exigir ahí un revisor; el workflow ya lo usa. GitHub solo lista este workflow en la pestaña Actions si está en la rama por defecto del repositorio.
+on:
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: 'estado = solo mira qué falta (no cambia nada) · aplicar = ejecuta las migraciones pendientes'
+        type: choice
+        default: estado
+        options:
+          - estado
+          - aplicar
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migrate-control-db
+  cancel-in-progress: false
+
+jobs:
+  migrar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: control-db-prod
+    defaults:
+      run:
+        working-directory: apps/control-panel
+    env:
+      # El esquema declara `url` y `directUrl`: las dos apuntan a la URL DIRECTA (una migración no puede ir por el pooler).
+      CONTROL_DIRECT_URL: ${{ secrets.CONTROL_DIRECT_URL }}
+      CONTROL_DATABASE_URL: ${{ secrets.CONTROL_DIRECT_URL }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+          cache-dependency-path: apps/control-panel/package-lock.json
+
+      - name: Comprobar el secreto y a qué BD apunta
+        run: |
+          if [ -z "$CONTROL_DIRECT_URL" ]; then
+            echo "::error::Falta el secreto CONTROL_DIRECT_URL (Settings > Secrets and variables > Actions): la URL DIRECTA de la BD de control, la que no lleva -pooler"
+            exit 1
+          fi
+          host=$(echo "$CONTROL_DIRECT_URL" | sed -E 's#^[a-z]+://[^@]*@([^/:?]+).*#\1#')
+          db=$(echo "$CONTROL_DIRECT_URL" | sed -E 's#^[a-z]+://[^/]*/([^?]+).*#\1#')
+          echo "Host: $host · Base de datos: $db · Modo: ${{ inputs.modo }}"
+          case "$host" in
+            localhost|127.*|*.local)
+              echo "::error::La URL apunta a una BD local ($host), no a la BD de control de producción"
+              exit 1
+              ;;
+            *-pooler*)
+              echo "::error::Es la URL del pooler: las migraciones necesitan la URL DIRECTA (el host no lleva -pooler)"
+              exit 1
+              ;;
+          esac
+
+      - name: Instalar dependencias del panel
+        run: npm ci
+
+      - name: Estado de las migraciones
+        run: |
+          set +e
+          out=$(npx prisma migrate status 2>&1)
+          set -e
+          echo "$out" | sed -E 's#(postgres(ql)?://)[^@ ]*@#\1***@#g'
+          if echo "$out" | grep -q "Database schema is up to date"; then
+            echo "::notice::La BD de control está al día: no hay nada que aplicar"
+          elif echo "$out" | grep -qi "have not yet been applied"; then
+            echo "::notice::Hay migraciones pendientes. Vuelve a lanzar este workflow con el modo «aplicar»"
+          else
+            echo "::error::No se pudo comprobar el estado (conexión, una migración fallida o un historial distinto al del repositorio)"
+            exit 1
+          fi
+
+      - name: Aplicar las migraciones pendientes
+        if: ${{ inputs.modo == 'aplicar' }}
+        run: npx prisma migrate deploy
+
+      - name: Comprobar que quedó al día
+        if: ${{ inputs.modo == 'aplicar' }}
+        run: |
+          set +e
+          out=$(npx prisma migrate status 2>&1)
+          set -e
+          echo "$out" | sed -E 's#(postgres(ql)?://)[^@ ]*@#\1***@#g'
+          echo "$out" | grep -q "Database schema is up to date" || { echo "::error::Tras aplicar, la BD de control no figura al día: revisa el log de arriba"; exit 1; }
+          echo "::notice::La BD de control está al día"
