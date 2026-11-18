@@ -8,7 +8,7 @@ import { getPaymentProviderByName } from '@/lib/payment-adapter';
 import { completeOrder } from '@/lib/reconciliation/entradas';
 import { getBaseUrl } from '@/lib/url';
 import { handleApiError } from '@/lib/api-error';
-import { allowOrderAccess, getTokenFromRequest } from '@/lib/access-token';
+import { LINK_EXPIRED_ERROR, getTokenFromRequest, orderAccess } from '@/lib/access-token';
 import { withoutSeasonLink } from '@/lib/modules/season-link';
 import { LATE_PAYMENT_WINDOW_MS, checkCancelledOrderPayment } from '@/lib/reconciliation/payment-check';
 import type { PaymentCheck } from '@/lib/confirmation-state';
@@ -23,7 +23,9 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
   const params = await props.params;
   try {
     const orderId = params?.orderId;
-    if (!(await allowOrderAccess(orderId, getTokenFromRequest(request)))) {
+    const access = await orderAccess(orderId, getTokenFromRequest(request));
+    if (access === 'expired') return NextResponse.json({ error: LINK_EXPIRED_ERROR }, { status: 410 }); // H-212
+    if (access !== 'ok') {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 

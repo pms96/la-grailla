@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateQRDataUrl } from '@/lib/qr';
 import { handleApiError } from '@/lib/api-error';
-import { allowOrderAccess, getTokenFromRequest } from '@/lib/access-token';
+import { LINK_EXPIRED_ERROR, getTokenFromRequest, orderAccess } from '@/lib/access-token';
 import { escapeHtml as esc } from '@/lib/html-escape';
 import { getBrand } from '@/lib/brand/brand';
 import { brandLogoHtml } from '@/lib/brand/email';
@@ -16,7 +16,9 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
   const params = await props.params;
   try {
     const orderId = params?.orderId;
-    if (!(await allowOrderAccess(orderId, getTokenFromRequest(request)))) {
+    const access = await orderAccess(orderId, getTokenFromRequest(request));
+    if (access === 'expired') return NextResponse.json({ error: LINK_EXPIRED_ERROR }, { status: 410 }); // H-212
+    if (access !== 'ok') {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 

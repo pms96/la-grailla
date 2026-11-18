@@ -3,7 +3,22 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getInstallationSecret } from '@/lib/tenant/installation-secret';
 import { adminLacksModule } from '@/lib/modules/access';
+import { prisma } from '@/lib/prisma';
 import type { ModuleKey } from '@grailla/contracts';
+
+/** H-212: días después del evento en los que el enlace de pedido/entrada sigue valiendo (reimprimir, soporte). Pasado el plazo la entrada ya no vale para nada y el enlace deja de abrir el pedido. */
+export const ORDER_LINK_GRACE_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * ¿Caducó el enlace de este pedido? Se mira al ABRIR el enlace, no al emitirlo: el token no lleva fecha, así que la regla vale también para los enlaces ya enviados. Un pedido sin
+ * evento (o que no existe) no caduca por aquí: eso lo decide quien llama.
+ */
+export async function orderLinkExpired(orderId: string, now: number = Date.now()): Promise<boolean> {
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { event: { select: { date: true } } } });
+  if (!order?.event) return false;
+  return now > order.event.date.getTime() + ORDER_LINK_GRACE_DAYS * DAY_MS;
+}
 
 const HKDF_INFO = 'la-grailla-access-token-v1';
 const TOKEN_BYTES = 16;
@@ -119,26 +134,47 @@ export async function isAdminSession(): Promise<boolean> {
   return session?.user?.role === 'ADMIN';
 }
 
-/** Token de pedido válido o sesión staff. */
+/** Resultado de abrir un enlace de pedido/entrada. `expired` solo lo recibe quien trae un token VÁLIDO (H-212); quien no, `denied`, sin saber si el pedido existe. */
+export type LinkAccess = 'ok' | 'denied' | 'expired';
+/** Cuerpo del 410 de un enlace caducado: sin datos del pedido, y con a quién acudir. */
+export const LINK_EXPIRED_ERROR = 'Este enlace ha caducado. Si necesitas tu entrada, contacta con la organización del evento.';
+
+/** Token de pedido válido y no caducado, o sesión staff. */
+export async function orderAccess(orderId: string, token: string | null | undefined): Promise<LinkAccess> {
+  const validToken = verifyOrderAccess(orderId, token);
+  if (validToken && !(await orderLinkExpired(orderId))) return 'ok';
+  if (await isStaffSessionFor('entradas')) return 'ok';
+  return validToken ? 'expired' : 'denied';
+}
+
+/** Token de pedido válido y no caducado, o sesión staff. */
 export async function allowOrderAccess(
   orderId: string,
   token: string | null | undefined
 ): Promise<boolean> {
-  if (verifyOrderAccess(orderId, token)) return true;
-  return isStaffSessionFor('entradas');
+  return (await orderAccess(orderId, token)) === 'ok';
 }
 
 /** Token de ticket, token del pedido padre, o un ADMIN con Entradas (la taquilla no: el pase de Wallet lleva el QR). */
+export async function ticketAccess(
+  ticketId: string,
+  orderId: string | null | undefined,
+  token: string | null | undefined
+): Promise<LinkAccess> {
+  const validToken = verifyTicketAccess(ticketId, token) || (!!orderId && verifyOrderAccess(orderId, token));
+  if (validToken && !(orderId && (await orderLinkExpired(orderId)))) return 'ok'; // H-212: ni el token de la entrada ni el del pedido valen pasado el plazo
+  // H-064: SOLO un ADMIN con Entradas, no «cualquier personal». Esto abre el pase de Wallet, que lleva el QR completo, y la búsqueda de la puerta
+  // entrega el `ticketId` de cualquier entrada: con el fallback de personal, quien está en la puerta se llevaba el QR de la entrada de otro.
+  if (await isAdminSessionFor('entradas')) return 'ok';
+  return validToken ? 'expired' : 'denied';
+}
+
 export async function allowTicketAccess(
   ticketId: string,
   orderId: string | null | undefined,
   token: string | null | undefined
 ): Promise<boolean> {
-  if (verifyTicketAccess(ticketId, token)) return true;
-  if (orderId && verifyOrderAccess(orderId, token)) return true;
-  // H-064: SOLO un ADMIN con Entradas, no «cualquier personal». Esto abre el pase de Wallet, que lleva el QR completo, y la búsqueda de la puerta
-  // entrega el `ticketId` de cualquier entrada: con el fallback de personal, quien está en la puerta se llevaba el QR de la entrada de otro.
-  return isAdminSessionFor('entradas');
+  return (await ticketAccess(ticketId, orderId, token)) === 'ok';
 }
 
 /**

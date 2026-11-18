@@ -402,3 +402,22 @@ El workflow se niega a ejecutarse (y dice por qué) si no hay secreto, si la URL
 **En la práctica.** Si un OPERATOR necesita un dominio nuevo para un cliente, se lo pide a un SUPERADMIN, que lo añade; el OPERATOR puede entonces verificarlo por DNS. La ficha del cliente ya no enseña «Añadir dominio» ni «Hacer principal» a un OPERATOR, y el servidor lo rechaza aunque alguien lance la acción a mano.
 
 **Límites.** «Liberar» sigue siendo de OPERATOR: no cambia a dónde apunta un cliente (el principal no se puede liberar), pero un dominio liberado deja de servir ese cliente. La creación de un cliente nuevo y el asistente de alta ya eran de SUPERADMIN (`database:write`).
+
+
+## 21. Los enlaces de pedido y de entrada caducan 30 días después del evento (lote 19, H-212)
+
+**Qué cambia.** El enlace que el comprador recibe por email (`?t=`) abría su pedido, su PDF y sus pases de Wallet para siempre: un enlace filtrado (captura de pantalla, historial de un móvil compartido, un log con la URL) daba acceso a los QR reales y a sus datos. Ahora, pasados **30 días desde la fecha del evento** (`ORDER_LINK_GRACE_DAYS`, en `lib/access-token.ts`), el enlace deja de abrir el pedido, el PDF de entradas y los pases de Apple y Google Wallet: responden 410 «Este enlace ha caducado» y la pantalla de confirmación dice que puede que el enlace haya caducado.
+
+**Vale también para los enlaces ya enviados.** La caducidad se mira al abrir el enlace, mirando la fecha del evento del pedido; el token no cambia de formato. No hay que reemitir nada ni hay enlaces «de antes» que se libren.
+
+**Qué no cambia.**
+- El personal con sesión (ADMIN o TAQUILLA, según el caso) sigue pudiendo abrir cualquier pedido, caducado o no.
+- Los enlaces de **tienda** siguen siendo permanentes (no tienen evento) y los de **sponsors** también (ya se pueden revocar a mano subiendo la versión del portal).
+- Antes del evento y durante los 30 días siguientes todo funciona igual.
+- Quien no trae un token válido recibe el 401 de siempre: solo quien tiene un enlace auténtico se entera de que caducó.
+
+**Qué hacer si un comprador pide su entrada pasado el plazo.** Un administrador con sesión abre el pedido desde el panel de administración y descarga el PDF para enviárselo él mismo. El botón de reenviar el email no sirve en este caso: el correo llevaría el mismo enlace, ya caducado.
+
+**Para cambiar el plazo.** Una sola constante (`ORDER_LINK_GRACE_DAYS`); los tests miden el límite exacto a los 30 días.
+
+**Límites.** La fecha que cuenta es la de inicio del evento (`Event.date`), sin tener en cuenta la hora de fin: un evento nocturno tiene 30 días y unas horas. Un evento aplazado a una fecha posterior alarga el plazo con él. No se ha recuperado el aviso al comprador en cada reacceso que traía el stash: mandaba un email por cada reapertura (también el día del evento) y tenía el correo de La Grailla fijado en el código; si se quiere un aviso de accesos sospechosos, es un lote aparte y por cliente.

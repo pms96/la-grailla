@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { buildApplePass } from '@/lib/wallet';
 import { handleApiError } from '@/lib/api-error';
-import { allowTicketAccess, getTokenFromRequest } from '@/lib/access-token';
+import { LINK_EXPIRED_ERROR, getTokenFromRequest, ticketAccess } from '@/lib/access-token';
 import { isModuleEnabled } from '@/lib/modules/runtime';
 import { ticketUnusable } from '@/lib/ticket-validity';
 
@@ -24,7 +24,9 @@ export async function GET(request: Request, props: { params: Promise<{ ticketId:
       return NextResponse.json({ error: 'Entrada no encontrada' }, { status: 404 });
     }
 
-    if (!(await allowTicketAccess(ticketId, ticket.orderId, getTokenFromRequest(request)))) {
+    const access = await ticketAccess(ticketId, ticket.orderId, getTokenFromRequest(request));
+    if (access === 'expired') return NextResponse.json({ error: LINK_EXPIRED_ERROR }, { status: 410 }); // H-212
+    if (access !== 'ok') {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
