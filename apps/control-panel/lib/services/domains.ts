@@ -83,7 +83,7 @@ async function loadDomain(tx: Prisma.TransactionClient, id: string) {
 }
 
 export async function addDomain(subscriptionId: string, rawHost: string, actor: ActingOperator, now: number = Date.now()): Promise<Domain> {
-  assertCan(actor.role, 'tenants:write');
+  assertCan(actor.role, 'domains:manage'); // H-234: el alta de un dominio es de SUPERADMIN
   const host = parseHostOrThrow(rawHost);
   return prisma.$transaction(async (tx) => {
     const sub = await tx.subscription.findUnique({ where: { id: subscriptionId } });
@@ -147,7 +147,7 @@ export async function verifyDomainManually(domainId: string, actor: ActingOperat
 }
 
 export async function setPrimaryDomain(domainId: string, actor: ActingOperator): Promise<void> {
-  assertCan(actor.role, 'tenants:write');
+  assertCan(actor.role, 'domains:manage'); // H-234: marcar el dominio principal decide a dónde apuntan los enlaces del cliente
   await prisma.$transaction(async (tx) => {
     const d = await loadDomain(tx, domainId);
     if (d.status !== 'VERIFIED') throw new ServiceError('domain_not_verified', 'Solo un dominio verificado puede ser el principal');

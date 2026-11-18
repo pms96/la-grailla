@@ -524,7 +524,7 @@ export default async function TenantPage(props: { params: Promise<{ id: string }
                             {can(role, 'domains:verify-manual') && d.status === 'PENDING' && (
                               <ActionForm className="inline" action={verifyManualAction.bind(null, tenant.id, d.id)} submitLabel="Marcar verificado" tone="quiet" confirm="Verificación manual: queda auditada. ¿Seguro?" />
                             )}
-                            {canWrite && d.status === 'VERIFIED' && !d.isPrimary && (
+                            {can(role, 'domains:manage') && d.status === 'VERIFIED' && !d.isPrimary && (
                               <ActionForm className="inline" action={setPrimaryAction.bind(null, tenant.id, d.id)} submitLabel="Hacer principal" tone="quiet" />
                             )}
                             {canWrite && !d.isPrimary && (
@@ -542,7 +542,7 @@ export default async function TenantPage(props: { params: Promise<{ id: string }
                   Liberados (reservados 30 días): {released.map((d) => d.host).join(', ')}
                 </p>
               )}
-              {canWrite && (
+              {can(role, 'domains:manage') && (
                 <ActionForm className="row" action={addDomainAction.bind(null, tenant.id, sub.id)} submitLabel="Añadir dominio">
                   <input name="host" type="text" required placeholder="otro-dominio.es" autoCapitalize="none" spellCheck={false} aria-label="Nuevo dominio" style={{ maxWidth: '320px' }} />
                 </ActionForm>

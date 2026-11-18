@@ -87,9 +87,9 @@ describe('publicar el registro', () => {
 
   it('publica en todos los dominios verificados y retira los liberados', async () => {
     const { actor, root, subscription, domain, store } = await verifiedTenant();
-    const second = await addDomain(subscription.id, `segundo-${uniq()}.es`, actor);
+    const second = await addDomain(subscription.id, `segundo-${uniq()}.es`, root);
     await verifyDomainManually(second.id, root);
-    await setPrimaryDomain(second.id, actor);
+    await setPrimaryDomain(second.id, root);
     await publishSubscription(subscription.id, actor, store);
     expect(await read(store, domain.host)).not.toBeNull();
     expect(await read(store, second.host)).not.toBeNull();
@@ -101,8 +101,8 @@ describe('publicar el registro', () => {
   });
 
   it('un dominio pendiente (no verificado) no se publica', async () => {
-    const { actor, subscription, store } = await verifiedTenant();
-    const pending = await addDomain(subscription.id, `pendiente-${uniq()}.es`, actor);
+    const { actor, root, subscription, store } = await verifiedTenant();
+    const pending = await addDomain(subscription.id, `pendiente-${uniq()}.es`, root);
     await publishSubscription(subscription.id, actor, store);
     expect(await read(store, pending.host)).toBeNull();
   });
@@ -212,9 +212,9 @@ describe('cambios que se aplican ya', () => {
 
   it('liberar un dominio retira su entrada del registro al instante', async () => {
     const { actor, root, subscription, tenant, domain, store } = await verifiedTenant();
-    const second = await addDomain(subscription.id, `segundo-${uniq()}.es`, actor);
+    const second = await addDomain(subscription.id, `segundo-${uniq()}.es`, root);
     await verifyDomainManually(second.id, root);
-    await setPrimaryDomain(second.id, actor);
+    await setPrimaryDomain(second.id, root);
     await publishSubscription(subscription.id, actor, store);
     expect(await read(store, domain.host)).not.toBeNull();
     await releaseDomain(domain.id, actor);

@@ -384,3 +384,21 @@ El workflow se niega a ejecutarse (y dice por qué) si no hay secreto, si la URL
 3. Al terminar, borrar esa BD (`DROP DATABASE lagrailla_ci_repro`).
 
 **Pendiente de comprobar.** «Cleanup waiting room» fallaba en cada ejecución programada: HTTP 402 (probablemente de Vercel, con `www.lagrailla.es` aún en el proyecto antiguo) y, la última, un fallo de conexión sin respuesta. La URL ya responde 401 sin credenciales. Las ejecuciones programadas de GitHub llegan cada 6-8 horas: la primera con el workflow nuevo, que escribe el código HTTP en una anotación, dirá si quedó resuelto.
+
+
+## 20. Dominios del panel: solo SUPERADMIN añade y marca el principal (lote 18, H-234)
+
+**Qué cambia.** Añadir un dominio a un cliente y marcarlo como principal decide a dónde apuntan los enlaces de email, de «fija tu contraseña» y los retornos de pago de ese cliente. Verificar por DNS prueba que se controla el dominio, no que sea del cliente, así que con `tenants:write` un OPERATOR podía encadenar alta, verificación y «principal». Ahora ambas cosas exigen el permiso nuevo `domains:manage`, que solo tiene SUPERADMIN (igual que `domains:verify-manual`).
+
+**Quién puede qué.**
+| Acción | VIEWER | BILLING | OPERATOR | SUPERADMIN |
+|---|---|---|---|---|
+| Añadir dominio | no | no | **no** (antes sí) | sí |
+| Marcar como principal | no | no | **no** (antes sí) | sí |
+| Verificar por DNS | no | no | sí | sí |
+| Liberar un dominio que no es el principal | no | no | sí | sí |
+| Marcar verificado a mano | no | no | no | sí |
+
+**En la práctica.** Si un OPERATOR necesita un dominio nuevo para un cliente, se lo pide a un SUPERADMIN, que lo añade; el OPERATOR puede entonces verificarlo por DNS. La ficha del cliente ya no enseña «Añadir dominio» ni «Hacer principal» a un OPERATOR, y el servidor lo rechaza aunque alguien lance la acción a mano.
+
+**Límites.** «Liberar» sigue siendo de OPERATOR: no cambia a dónde apunta un cliente (el principal no se puede liberar), pero un dominio liberado deja de servir ese cliente. La creación de un cliente nuevo y el asistente de alta ya eran de SUPERADMIN (`database:write`).

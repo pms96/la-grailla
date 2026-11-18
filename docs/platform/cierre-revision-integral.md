@@ -9,12 +9,12 @@ Documento de cierre de `docs/platform/revision-integral.md` (259 hallazgos, H-00
 | Hallazgos registrados | 259 (158 de la fase 1; H-159…H-162 en los lotes 10 y 11; H-163…H-167 en la fase 4; H-168…H-258 en la fase 5; H-259 en el lote 16) |
 | Hechos (código y prueba) | 226 |
 | Documentados (riesgo aceptado con su motivo, §3) | 24 |
-| Decisión del propietario (§4) | 3 (H-234, H-253, H-254); H-259 ya resuelto (2026-11-18) |
+| Decisión del propietario (§4) | 1 (H-254, a la espera de la gestoría); decididas el 2026-11-18: H-234 (A, hecho en el lote 18), H-253 (A, pendiente) y la caducidad de enlaces H-212 (B, pendiente); H-259 resuelto |
 | Pendientes externos, gestoría o abogado (§5) | 5, más H-135 y H-028 (ya documentados, con su decisión externa) |
 | Críticos abiertos | 0 |
 | Altos e «Importantes» abiertos | 0 (los 15 altos, el medio-alto y los 6 importantes están hechos) |
 
-Lo que sigue abierto por gravedad: 2 «Medio» (H-133 criterio de IVA y margen, H-179 retención; ambos externos), 2 «Medio-bajo» (H-142, externo; H-234, del propietario) y el resto «Bajo».
+Lo que sigue abierto por gravedad: 2 «Medio» (H-133 criterio de IVA y margen, H-179 retención; ambos externos), 2 «Medio-bajo» (H-142, externo; H-234, resuelto en el lote 18) y el resto «Bajo».
 
 Lotes: 1 a 8 (correcciones y pruebas), 9 `3a3dceb`, 10 `242b745`, 11 `e15a16a`, 12 `d7741ca` (con la fase 4), 13 `e4fa53c`, 14 `b77764b`, 15 `335655f` y `749173e`. La fase 5 tuvo dos rondas con seis revisores nuevos cada una (cazadores de regresiones y barridos ciegos); la ronda 2 fue la última.
 
@@ -54,6 +54,7 @@ Todos son «Bajo». Ninguno se ha dejado por no saber arreglarlo: o es un compro
 **H-234. Permiso de un OPERATOR sobre los dominios del panel.** Hoy añadir un dominio, verificarlo por DNS y marcarlo principal solo pide `tenants:write`. La verificación prueba control del dominio, no que sea del cliente: un operador malintencionado podría hacer que el front construya enlaces de email y retornos de pago hacia su dominio.
 - **A (recomendada):** reservar «marcar como principal» y el alta de dominio a SUPERADMIN. Cambio pequeño de permisos.
 - **D:** aceptarlo mientras todos los operadores sean de confianza.
+- **Decisión del dueño (2026-11-18): A. Hecho en el lote 18** (runbook §20).
 
 **H-253. ¿Cómo se corrige una venta equivocada en puerta?** Una venta de taquilla «durante el evento» crea las entradas ya usadas y la app no deja anular un pedido con entradas usadas: un error de cantidad o de método solo se corrige con un ingreso negativo manual, y la caja del día queda inflada.
 - **A:** permitir al propietario anular una venta de taquilla de puerta, con motivo y rastro, ajustando caja y aforo.

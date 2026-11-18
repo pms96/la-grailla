@@ -203,7 +203,7 @@ export async function setModulesAction(tenantId: string, subscriptionId: string,
 }
 
 export async function addDomainAction(tenantId: string, subscriptionId: string, _p: ActionState, fd: FormData) {
-  return run('tenants:write', tenantId, async (actor) => {
+  return run('domains:manage', tenantId, async (actor) => {
     await addDomain(subscriptionId, str(fd, 'host'), actor);
     return 'Dominio añadido. Falta verificarlo.';
   });
@@ -224,7 +224,7 @@ export async function verifyManualAction(tenantId: string, domainId: string, _p:
 }
 
 export async function setPrimaryAction(tenantId: string, domainId: string, _p: ActionState) {
-  return run('tenants:write', tenantId, async (actor) => {
+  return run('domains:manage', tenantId, async (actor) => {
     await setPrimaryDomain(domainId, actor);
     return 'Dominio principal actualizado.';
   });
