@@ -90,6 +90,10 @@ export function lintLockingSql(rawSql: string): LintFinding[] {
   for (const m of sql.matchAll(/\bUPDATE\s+"?(\w+)"?\s+SET\b/gi)) {
     if (existing(m[1])) add('backfill-update', `UPDATE sobre «${m[1]}», que ya existe: un relleno de datos bloquea filas (y puede tardar)`);
   }
+  // H-205: un disparador nuevo sobre una tabla viva toma un bloqueo que frena sus escrituras mientras se crea (la tabla creada en la misma migración no cuenta).
+  for (const m of sql.matchAll(/\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:CONSTRAINT\s+)?TRIGGER\s+"?\w+"?[^;]*?\bON\s+(?:ONLY\s+)?"?(\w+)"?/gi)) {
+    if (existing(m[1])) add('create-trigger-existing-table', `CREATE TRIGGER sobre «${m[1]}», que ya existe: toma un bloqueo que frena sus escrituras`);
+  }
   if (/\bDROP\s+INDEX\b/i.test(sql)) add('drop-index', 'DROP INDEX: el código anterior puede depender de él y bloquea la tabla un instante');
   return findings;
 }

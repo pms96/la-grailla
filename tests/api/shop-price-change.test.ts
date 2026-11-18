@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import { syncProductVariants } from '@/lib/product-stock';
-import { getAndSetConfig, restoreConfig } from '../helpers/fixtures';
+import { getAndSetConfig, restoreConfig, cleanupWarn } from '../helpers/fixtures';
 
 // Con la pasarela `mock` el pedido nace pagado y se manda el correo de confirmación: aquí no sale nada a ningún servidor de correo.
 vi.mock('@/lib/mailer', async (orig) => ({
@@ -44,7 +44,7 @@ describe('H-132: el precio que se cobra es el que se vio', () => {
   afterEach(async () => {
     await prisma.shopOrderItem.deleteMany({ where: { productId } });
     await prisma.shopOrder.deleteMany({ where: { items: { some: { productId } } } });
-    await prisma.product.delete({ where: { id: productId } }).catch(() => {});
+    await prisma.product.delete({ where: { id: productId } }).catch(cleanupWarn);
   });
 
   const body = (over: Record<string, unknown> = {}) => ({
@@ -103,7 +103,7 @@ describe('H-132: el precio que se cobra es el que se vio', () => {
       expect(await pedidos()).toBe(0);
       expect(await stock()).toBe(5);
     } finally {
-      await prisma.product.delete({ where: { id: other.id } }).catch(() => {});
+      await prisma.product.delete({ where: { id: other.id } }).catch(cleanupWarn);
     }
   });
 

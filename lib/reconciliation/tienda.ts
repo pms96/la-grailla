@@ -239,6 +239,24 @@ export async function invalidateShopOrder(
   // de tocar la pasarela o liberar stock, para que dos peticiones
   // concurrentes sobre el mismo pedido no acaben reembolsando/liberando
   // stock por duplicado.
+  // H-188: sin dinero que devolver por la pasarela (anular, o reembolsar un pedido sin cobro real), el cambio de estado y la reposición del stock van en UNA transacción
+  // (como en entradas, H-033): antes eran dos y, si el proceso moría entre medias, quedaba CANCELLED con el stock sin reponer y sin reparador. Con reembolso por pasarela
+  // el orden sigue siendo estado → pasarela → stock (si el reembolso falla se revierte el estado, y el stock aún no se tocó).
+  const gatewayRefund = mode === 'REFUNDED' && paidWithRealGateway && Boolean(order.paymentProvider && order.paymentId);
+  if (!gatewayRefund) {
+    const { releaseShopStock } = await import('@/lib/product-stock');
+    const done = await prisma.$transaction(async (tx) => {
+      const swap = await tx.shopOrder.updateMany({ where: { id: shopOrderId, status: order.status }, data: { status: mode, idempotencyKey: null } });
+      if (swap.count === 0) return false;
+      if (mode === 'CANCELLED' || refundReturnsStock(order.status)) {
+        await releaseShopStock(tx, (order.items ?? []).map((i) => ({ productId: i.productId, quantity: i.quantity, size: i.size, color: i.color })));
+      }
+      return true;
+    });
+    if (!done) return { success: false, error: 'El pedido cambió de estado mientras se procesaba; vuelve a intentarlo' };
+    await releasePendingSlot(shopOrderId);
+    return { success: true, status: mode };
+  }
   const claim = await prisma.shopOrder.updateMany({
     where: { id: shopOrderId, status: order.status },
     data: { status: mode, idempotencyKey: null },
@@ -269,8 +287,8 @@ export async function invalidateShopOrder(
     }
   }
 
-  // Con la mercancía ya enviada o entregada el dinero se devuelve pero el stock NO se repone (no ha vuelto al almacén).
-  if (mode === 'CANCELLED' || refundReturnsStock(order.status)) {
+  // Reembolso por pasarela (el único caso que llega aquí). Con la mercancía ya enviada o entregada el dinero se devuelve pero el stock NO se repone (no ha vuelto al almacén).
+  if (refundReturnsStock(order.status)) {
     const { releaseShopStock } = await import('@/lib/product-stock');
     await prisma.$transaction((tx) =>
       releaseShopStock(

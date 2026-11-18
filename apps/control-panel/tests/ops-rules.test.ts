@@ -280,6 +280,22 @@ describe('avisos que no salieron (M3)', () => {
     expect(quiet.raise).toEqual([]);
   });
 
+  // H-202: una línea crítica conservada (contador nulo) que ya llevaba « [aviso pendiente]» se re-sellaba con «(avisado …)» DETRÁS de la marca: la
+  // marca quedaba en medio y, si el aviso volvía a fallar, `markUnalerted` la duplicaba. Ahora el sello sustituye a la marca vieja.
+  it('H-202: una línea crítica conservada con aviso pendiente se re-sella sin dejar la marca vieja en medio, y un nuevo fallo no la duplica', () => {
+    const first = evaluateOps(calm({ emailsFailed: 1 }), NOW, null);
+    const stored = markUnalerted(first.findings.map((f) => f.line).join(' · '), ['emails_failed'])!;
+    expect(stored.endsWith(PENDING_MARK)).toBe(true);
+    const carried = evaluateOps(calmAt(5 * MIN, { emailsFailed: null }), NOW + 5 * MIN, stored); // no se pudo medir: se conserva la línea
+    expect(carried.raise.map((f) => f.key)).toEqual(['emails_failed']); // su aviso nunca salió: se vuelve a avisar
+    const line = carried.findings[0].line;
+    expect(line).not.toContain('[aviso pendiente]');
+    expect(line.match(/\(avisado /g)).toHaveLength(1);
+    const failedAgain = markUnalerted(line, ['emails_failed'])!;
+    expect(failedAgain.match(/\[aviso pendiente\]/g)).toHaveLength(1);
+    expect(failedAgain.match(/\(avisado /g)).toHaveLength(1);
+  });
+
   it('markUnalerted solo toca las señales indicadas y es idempotente', () => {
     const e = evaluateOps(calm({ emailsFailed: 1, pendingOver20min: 1, pendingOldestMinutes: 25 }), NOW, null);
     const error = [...e.findings.map((f) => f.line), 'Datos sin completar: x'].join(' · ');

@@ -46,6 +46,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       // La temporada se comprueba DENTRO de la transacción y con la fila bloqueada (H-014): un cierre en curso no deja pasar este cambio.
       const open = await checkTemporadaAbiertaTx(tx, before.temporadaId);
       if (!open.ok) return NextResponse.json({ error: open.error, code: open.code }, { status: open.status });
+      // H-187: `voidedAt` se miró fuera de la transacción; una anulación que llegó entre medias no se pisa (compare-and-swap, como la anulación, H-009).
+      const alive = await tx.ingreso.updateMany({ where: { id: before.id, voidedAt: null }, data: { updatedAt: new Date() } });
+      if (alive.count === 0) return NextResponse.json({ error: 'Este ingreso está anulado y ya no se puede modificar', code: 'anulado' }, { status: 409 });
       const updated = await tx.ingreso.update({ where: { id: params?.id }, data });
       await recordAdminAudit(tx, actorFromSession(session), request, {
         action: 'ingreso.update',

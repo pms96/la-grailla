@@ -82,6 +82,10 @@ describe('lintLockingSql (H-045)', () => {
     ['UPDATE "Order" SET "flag" = true WHERE "flag" IS NULL;', 'backfill-update'],
     ['DROP INDEX "Order_x_idx";', 'drop-index'],
     ['DROP INDEX IF EXISTS "Order_x_idx";', 'drop-index'],
+    // H-205: crear un disparador sobre una tabla viva toma un bloqueo que frena sus escrituras y el linter no lo veía.
+    ['CREATE TRIGGER "Order_audit" BEFORE UPDATE ON "Order" FOR EACH ROW EXECUTE FUNCTION f();', 'create-trigger-existing-table'],
+    ['CREATE OR REPLACE TRIGGER order_guard AFTER INSERT OR DELETE ON "Order" FOR EACH ROW EXECUTE FUNCTION f();', 'create-trigger-existing-table'],
+    ['CREATE CONSTRAINT TRIGGER t AFTER INSERT ON ONLY "Order" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION f();', 'create-trigger-existing-table'],
   ])('marca: %s', (sql, rule) => {
     expect(lock(sql)).toContain(rule);
   });
@@ -94,6 +98,7 @@ describe('lintLockingSql (H-045)', () => {
         CREATE UNIQUE INDEX IF NOT EXISTS "Slot_ref_key" ON "Slot"("ref");
         ALTER TABLE "Slot" ADD CONSTRAINT "Slot_fk" FOREIGN KEY ("scope") REFERENCES "Order"("id");
         UPDATE "Slot" SET "scope" = 'x';
+        CREATE TRIGGER "Slot_guard" BEFORE UPDATE ON "Slot" FOR EACH ROW EXECUTE FUNCTION f();
       `)
     ).toEqual([]);
   });

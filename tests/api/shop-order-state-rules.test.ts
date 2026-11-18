@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { cleanupWarn } from '../helpers/fixtures';
 import { prisma } from '@/lib/prisma';
 import { syncProductVariants } from '@/lib/product-stock';
 
@@ -24,7 +25,7 @@ describe('Pedidos de tienda — transiciones de estado y stock en reembolsos', (
   afterAll(async () => {
     await prisma.shopOrderItem.deleteMany({ where: { productId } });
     await prisma.shopOrder.deleteMany({ where: { id: { in: orderIds } } });
-    await prisma.product.delete({ where: { id: productId } }).catch(() => {});
+    await prisma.product.delete({ where: { id: productId } }).catch(cleanupWarn);
   });
 
   async function order(status: Status) {
@@ -71,6 +72,32 @@ describe('Pedidos de tienda — transiciones de estado y stock en reembolsos', (
       expect((await put(o.id, { notes: 'Nota interna' })).status, s).toBe(200);
       expect(await statusOf(o.id)).toBe(s);
     }
+  });
+
+  // H-187: la transición se validaba con el estado leído al principio y el `update` era incondicional: un reembolso que llegaba entre la lectura y la escritura se pisaba
+  // (el pedido reembolsado pasaba a «Enviado» y el rastro decía que se había enviado).
+  it('H-187: un cambio de estado concurrente (reembolso entre la lectura y la escritura) no se pisa: 409 y el pedido sigue REFUNDED', async () => {
+    const o = await order('PAID');
+    const real = (globalThis as unknown as { prisma: typeof prisma }).prisma;
+    const original = real.shopOrder.findUnique.bind(real.shopOrder) as (...a: unknown[]) => Promise<unknown>;
+    let flipped = false;
+    const spy = vi.spyOn(real.shopOrder, 'findUnique').mockImplementation(((...a: unknown[]) => {
+      const args = a[0] as { select?: { trackingNumber?: boolean } } | undefined;
+      if (!flipped && args?.select?.trackingNumber) {
+        flipped = true;
+        return original(...a).then(async (row) => {
+          await prisma.shopOrder.update({ where: { id: o.id }, data: { status: 'REFUNDED' } });
+          return row;
+        });
+      }
+      return original(...a);
+    }) as never);
+    try {
+      expect((await put(o.id, { status: 'SHIPPED' })).status).toBe(409);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await statusOf(o.id)).toBe('REFUNDED');
   });
 
   it('repetir el mismo estado (p. ej. al guardar solo el seguimiento) funciona', async () => {

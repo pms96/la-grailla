@@ -125,7 +125,11 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
           { status: 422 }
         );
       }
-      await completeOrder(params?.id, getBaseUrl(request), paid);
+      // H-185: con un importe cobrado que no cuadra el pedido no se completa; contestar 200 y anotar «verificado» era mentir (en «complete» ya se hacía bien).
+      const verified = await completeOrder(params?.id, getBaseUrl(request), paid);
+      if (verified === 'amount_mismatch') {
+        return NextResponse.json({ error: 'Lo cobrado en la pasarela no coincide con el importe del pedido: no se ha marcado como pagado. Revísalo en el panel de la pasarela.' }, { status: 422 });
+      }
     } else if (body.action === 'complete') {
       // Marcado manual — el admin ya ha comprobado el cobro fuera de la app
       // (extracto bancario, panel de Stripe...), normalmente porque el

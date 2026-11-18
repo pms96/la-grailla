@@ -37,6 +37,8 @@ import { EVENT_CANCELLED_ORDER_NOTICE, EVENT_CANCELLED_TITLE } from '@/lib/event
 type OrderWithTickets = Prisma.OrderGetPayload<{
   include: { event: true; tickets: { include: { ticketType: true } } };
 }> & {
+  /** ¿Tiene un pago asociado en la pasarela? (lo añade la API del pedido: ya no se devuelve el `paymentId`, H-211). */
+  hasPayment?: boolean;
   /** Resultado de comprobar contra la pasarela un pedido anulado con pago (lo añade la API del pedido). */
   paymentCheck?: PaymentCheck;
   /** Estado REAL del email con las entradas (lo calcula la API del pedido): la pantalla no afirma haberlo enviado sin comprobarlo. */
@@ -74,7 +76,7 @@ export default function ConfirmationClient({
   const validOrder = order && !('error' in order) ? order : null;
   // Qué debe decir la pantalla (decisión pura, compartida con la tienda): «no se ha cobrado nada» solo si la pasarela lo confirma.
   const view = validOrder
-    ? confirmationView({ status: validOrder.status, paymentId: validOrder.paymentId, paymentCheck: validOrder.paymentCheck, pollsExhausted: pollCount >= MAX_POLLS, eventCancelled: validOrder.event?.status === 'CANCELLED' })
+    ? confirmationView({ status: validOrder.status, hasPayment: validOrder.hasPayment, paymentCheck: validOrder.paymentCheck, pollsExhausted: pollCount >= MAX_POLLS, eventCancelled: validOrder.event?.status === 'CANCELLED' })
     : null;
   const isPending = view === 'pending';
   const isCheckingPayment = view === 'checking' || view === 'checking_gave_up';

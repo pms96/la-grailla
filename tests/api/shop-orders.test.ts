@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import { POST as createShopOrder } from '@/app/api/shop/orders/route';
-import { getAndSetConfig, restoreConfig } from '../helpers/fixtures';
+import { getAndSetConfig, restoreConfig, cleanupWarn } from '../helpers/fixtures';
 import { syncProductVariants } from '@/lib/product-stock';
 import { releaseExpiredShopOrder } from '@/lib/reconciliation/tienda';
 
@@ -52,7 +52,7 @@ describe('POST /api/shop/orders — stock', () => {
     await prisma.shopOrder.deleteMany({
       where: { items: { some: { productId } } },
     });
-    await prisma.product.delete({ where: { id: productId } }).catch(() => {});
+    await prisma.product.delete({ where: { id: productId } }).catch(cleanupWarn);
   });
 
   it('reserva stock y completa el pedido mock', async () => {

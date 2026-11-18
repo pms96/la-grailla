@@ -16,20 +16,21 @@ export type ConfirmationView =
 
 export function confirmationView(input: {
   status: string;
-  paymentId?: string | null;
+  /** ¿El pedido tiene un pago asociado en la pasarela? (H-211: la API ya no devuelve el `paymentId` al comprador.) */
+  hasPayment?: boolean;
   paymentCheck?: PaymentCheck | null;
   /** El cliente ya hizo todos los sondeos que iba a hacer. */
   pollsExhausted: boolean;
   /** El evento del pedido está CANCELADO (solo entradas). */
   eventCancelled?: boolean;
 }): ConfirmationView {
-  const { status, paymentId, paymentCheck, pollsExhausted, eventCancelled } = input;
+  const { status, hasPayment, paymentCheck, pollsExhausted, eventCancelled } = input;
   if (status === 'PENDING') return 'pending';
   if (status === 'REFUNDED') return 'refunded';
   if (status === 'CANCELLED') {
     if (paymentCheck === 'refunded') return 'refunded';
     // «No se ha realizado ningún cargo» SOLO si la pasarela lo ha confirmado o si nunca hubo pago que comprobar.
-    if (paymentCheck === 'not_paid' || !paymentId) return 'not_charged';
+    if (paymentCheck === 'not_paid' || !hasPayment) return 'not_charged';
     return pollsExhausted ? 'checking_gave_up' : 'checking';
   }
   if (eventCancelled) return 'event_cancelled';

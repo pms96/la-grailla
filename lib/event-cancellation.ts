@@ -96,10 +96,18 @@ async function mapLimit<T>(items: T[], concurrency: number, deadline: number, fn
 }
 
 /** Corta la espera de una llamada que se cuelga (la de la pasarela puede tardar más que `maxDuration`): pasado el tope cuenta como fallo y se reintenta más tarde. */
-async function withCap(call: Promise<{ success: boolean; error?: string }>, capMs: number): Promise<{ success: boolean; error?: string }> {
+async function withCap(call: Promise<{ success: boolean; error?: string }>, capMs: number, onTimeout?: () => void): Promise<{ success: boolean; error?: string }> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([call, new Promise<{ success: boolean; error?: string }>((resolve) => (timer = setTimeout(() => resolve({ success: false, error: 'sin respuesta (tiempo agotado)' }), capMs)))]);
+    return await Promise.race([
+      call,
+      new Promise<{ success: boolean; error?: string }>((resolve) =>
+        (timer = setTimeout(() => {
+          onTimeout?.();
+          resolve({ success: false, error: 'sin respuesta (tiempo agotado)' });
+        }, capMs))
+      ),
+    ]);
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -119,13 +127,23 @@ async function sendNoticeOnce(opts: { finalId: string; leaseId: string; capMs: n
     const stale = await prisma.processedWebhookEvent.updateMany({ where: { id: leaseId, processedAt: { lt: new Date(Date.now() - MAIL_LEASE_TTL_MS) } }, data: { processedAt: new Date() } });
     if (stale.count === 0) return 'skipped';
   }
+  // H-195: el tope corta la ESPERA, no aborta el envío: un SMTP lento puede acabar entregando. Si salta el tope se CONSERVA la reserva (caduca sola, MAIL_LEASE_TTL_MS) para que la
+  // pasada siguiente no reenvíe mientras tanto, y si el envío tardío termina bien anota él mismo el marcador definitivo.
+  let capped = false;
+  const sending = opts.send();
   try {
-    const sent = await withCap(opts.send(), opts.capMs);
+    const sent = await withCap(sending, opts.capMs, () => (capped = true));
     if (!sent.success) return 'failed';
     await prisma.processedWebhookEvent.createMany({ data: [{ id: finalId }], skipDuplicates: true });
     return 'sent';
   } finally {
-    await prisma.processedWebhookEvent.deleteMany({ where: { id: leaseId } }).catch(() => {});
+    if (capped) {
+      void sending
+        .then((late) => (late.success ? prisma.processedWebhookEvent.createMany({ data: [{ id: finalId }], skipDuplicates: true }) : undefined))
+        .catch(() => {});
+    } else {
+      await prisma.processedWebhookEvent.deleteMany({ where: { id: leaseId } }).catch(() => {});
+    }
   }
 }
 

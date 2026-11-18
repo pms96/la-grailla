@@ -13,6 +13,7 @@ import {
   AlertTriangle, TrendingUp, ArrowRight, ScanLine,
 } from 'lucide-react';
 import { PageHeader } from '@/components/layouts/page-header';
+import { scanResultLabel } from '@/lib/scan-results';
 import { CapacityBar } from '@/components/admin/capacity-bar';
 import {
   getStoredActiveEventId,
@@ -56,16 +57,6 @@ const channelLabels: Record<string, string> = {
   ONLINE: 'Online',
   TAQUILLA: 'Taquilla',
   INVITACION: 'Invitación',
-};
-
-const scanResultLabel: Record<string, string> = {
-  VALID: 'Válido',
-  VALID_MANUAL: 'Válido (manual)',
-  DUPLICATE: 'Duplicado',
-  INVALID: 'Inválido',
-  CANCELLED: 'Anulado',
-  WRONG_EVENT: 'Otro evento',
-  ERROR: 'Error',
 };
 
 function accesoHref(eventId: string, tab: 'scan' | 'taquilla' | 'invitaciones') {
@@ -371,7 +362,7 @@ export default function NochePage() {
                         <div className="min-w-0">
                           <p className="truncate font-medium">{s.holderName}</p>
                           <p className="text-xs text-muted-foreground truncate">
-                            {scanResultLabel[s.result] ?? s.result}
+                            {scanResultLabel(s.result)}
                             {s.ticketType ? ` · ${s.ticketType}` : ''}
                           </p>
                         </div>

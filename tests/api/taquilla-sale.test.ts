@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
-import { createTestEvent, createTicketType, cleanupTestEvent } from '../helpers/fixtures';
+import { createTestEvent, createTicketType, cleanupTestEvent, cleanupWarn } from '../helpers/fixtures';
 import bcrypt from 'bcryptjs';
 
 const staffEmail = `taquilla-test-${Date.now()}@test.local`;
@@ -46,7 +46,7 @@ describe('POST /api/taquilla/sale', () => {
   });
 
   afterAll(async () => {
-    await prisma.user.delete({ where: { id: staffUserId } }).catch(() => {});
+    await prisma.user.delete({ where: { id: staffUserId } }).catch(cleanupWarn);
     await cleanupTestEvent(event.id);
   });
 

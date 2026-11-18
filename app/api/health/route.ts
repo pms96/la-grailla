@@ -34,13 +34,13 @@ async function appliedSchema(): Promise<string | null> {
   }
 }
 
-/** El id de cliente con que el panel marcó esta BD al darla de alta (AppConfig `platform_tenant_id`), o null si no tiene marca. */
-async function databaseTenantMarker(): Promise<string | null> {
+/** El id de cliente con que el panel marcó esta BD al darla de alta (AppConfig `platform_tenant_id`). `unreadable` = la lectura falló con la BD viva (H-197: ya no se confunde con «sin marca»). */
+async function databaseTenantMarker(): Promise<{ marker: string | null; unreadable: boolean }> {
   try {
     const row = await prisma.appConfig.findUnique({ where: { key: 'platform_tenant_id' }, select: { value: true } });
-    return row?.value?.trim() || null;
+    return { marker: row?.value?.trim() || null, unreadable: false };
   } catch {
-    return null;
+    return { marker: null, unreadable: true };
   }
 }
 
@@ -69,9 +69,14 @@ export async function GET(request: Request) {
 
   // ¿Es esta BD de este cliente? Si la marca dice otro, el aislamiento está roto por configuración (URLs cambiadas a la BD de otro cliente):
   // es un error también para un monitor externo (la respuesta pública no dice por qué).
-  const tenantMarker = dbOk && isPlatformMode() ? await databaseTenantMarker() : null;
+  const markerRead = dbOk && isPlatformMode() ? await databaseTenantMarker() : { marker: null, unreadable: false };
+  const tenantMarker = markerRead.marker;
   const tenantId = isPlatformMode() ? (currentTenant()?.tenantId ?? null) : null;
   const wrongDatabase = !!tenantMarker && !!tenantId && tenantMarker !== tenantId;
+  // H-197: la guarda solo saltaba con marca que no coincide. Sin la fila (BD restaurada o sembrada sin ella) o con la lectura fallida el aislamiento queda SIN comprobar: se dice
+  // (`tenantMarkerState`) y se degrada. A un cliente anterior a la plataforma (legacy) no se le exige marca; a uno nuevo sí (el panel la siembra siempre).
+  const tenantMarkerState = !dbOk || !isPlatformMode() ? null : markerRead.unreadable ? 'unreadable' : !tenantMarker ? 'missing' : wrongDatabase ? 'mismatch' : 'match';
+  const markerUnverified = tenantMarkerState === 'unreadable' || (tenantMarkerState === 'missing' && onboardingApplies());
 
   if (!(await isAuthorized(request))) {
     if (!dbOk || wrongDatabase) return NextResponse.json({ status: 'error' }, { status: 503, headers });
@@ -91,7 +96,7 @@ export async function GET(request: Request) {
   }
   // El onboarding solo degrada a quien se le exige (cliente nuevo en modo plataforma); a La Grailla no.
   const onboardingPending = dbOk && onboardingApplies() && !onboarding.complete;
-  const status = !dbOk || wrongDatabase ? 'error' : !serving || !upToDate || onboardingPending ? 'degraded' : 'ok';
+  const status = !dbOk || wrongDatabase ? 'error' : !serving || !upToDate || onboardingPending || markerUnverified ? 'degraded' : 'ok';
   // Con la BD de otro cliente (`wrongDatabase`) no se lee nada de negocio: serían datos de otro.
   const ops = dbOk && !wrongDatabase ? await collectOpsCached() : null;
 
@@ -102,6 +107,7 @@ export async function GET(request: Request) {
       platform: isPlatformMode(),
       tenantId,
       tenantMarker,
+      tenantMarkerState,
       serving,
       db: { ok: dbOk, latencyMs },
       schema: { applied, expected: expectedSchema(), minRequired: FRONT_MIN_SCHEMA, upToDate },

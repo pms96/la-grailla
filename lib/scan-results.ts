@@ -6,6 +6,24 @@ export const ENTRY_RESULTS = ['VALID', 'VALID_MANUAL'] as const;
 /** Reentrada autorizada por el ADMIN a quien ya entró y sale/vuelve a entrar (H-077). Ni es una entrada (no suma a «han entrado») ni un rechazo (no sube el % de rechazados). */
 export const REENTRY_RESULT = 'REENTRY';
 
+/** Cómo se nombra cada `ScanLog.result` al personal (H-192: antes cada pantalla tenía su tabla y una se quedaba sin `REENTRY` ni `PENDING_PAYMENT`). Un valor nuevo se enseña tal cual. */
+const SCAN_RESULT_LABELS: Record<string, string> = {
+  VALID: 'Válido',
+  VALID_MANUAL: 'Válido (manual)',
+  DUPLICATE: 'Duplicado',
+  REENTRY: 'Reentrada',
+  INVALID: 'Inválido',
+  CANCELLED: 'Anulado',
+  WRONG_EVENT: 'Otro evento',
+  PENDING_PAYMENT: 'Pedido sin pagar',
+  NO_EVENT: 'Sin evento',
+  ERROR: 'Error',
+};
+
+export function scanResultLabel(result: string): string {
+  return SCAN_RESULT_LABELS[result] ?? result;
+}
+
 export function isEntryResult(result: string | null | undefined): boolean {
   return (ENTRY_RESULTS as readonly string[]).includes(result ?? '');
 }

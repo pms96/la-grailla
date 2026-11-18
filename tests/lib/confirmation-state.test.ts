@@ -32,30 +32,30 @@ describe('confirmationView', () => {
 
   describe('CANCELLED', () => {
     it('sin pago asociado: nunca hubo cargo que comprobar → not_charged', () => {
-      expect(v('CANCELLED', { paymentId: null })).toBe('not_charged');
-      expect(v('CANCELLED', { paymentId: undefined, paymentCheck: 'none' })).toBe('not_charged');
+      expect(v('CANCELLED', { hasPayment: false })).toBe('not_charged');
+      expect(v('CANCELLED', { hasPayment: undefined, paymentCheck: 'none' })).toBe('not_charged');
     });
 
     it('con pago asociado y la pasarela confirmando que NO se pagó → not_charged («no se ha realizado ningún cargo»)', () => {
-      expect(v('CANCELLED', { paymentId: 'cs_1', paymentCheck: 'not_paid' })).toBe('not_charged');
+      expect(v('CANCELLED', { hasPayment: true, paymentCheck: 'not_paid' })).toBe('not_charged');
     });
 
     it('con pago asociado SIN confirmación (checking, none o ausente) → «comprobando», nunca «no se ha cobrado»', () => {
       for (const paymentCheck of ['checking', 'none', undefined, null] as const) {
-        expect(v('CANCELLED', { paymentId: 'cs_1', paymentCheck }), String(paymentCheck)).toBe('checking');
+        expect(v('CANCELLED', { hasPayment: true, paymentCheck }), String(paymentCheck)).toBe('checking');
       }
     });
 
     it('agotado el sondeo sin resolverse → mensaje final claro (checking_gave_up), que no afirma que no se cobró', () => {
-      expect(v('CANCELLED', { paymentId: 'cs_1', paymentCheck: 'checking', pollsExhausted: true })).toBe('checking_gave_up');
+      expect(v('CANCELLED', { hasPayment: true, paymentCheck: 'checking', pollsExhausted: true })).toBe('checking_gave_up');
     });
 
     it('si la pasarela confirma el no-pago, agotar el sondeo no lo cambia', () => {
-      expect(v('CANCELLED', { paymentId: 'cs_1', paymentCheck: 'not_paid', pollsExhausted: true })).toBe('not_charged');
+      expect(v('CANCELLED', { hasPayment: true, paymentCheck: 'not_paid', pollsExhausted: true })).toBe('not_charged');
     });
 
     it('cobro devuelto → refunded', () => {
-      expect(v('CANCELLED', { paymentId: 'cs_1', paymentCheck: 'refunded' })).toBe('refunded');
+      expect(v('CANCELLED', { hasPayment: true, paymentCheck: 'refunded' })).toBe('refunded');
     });
   });
 

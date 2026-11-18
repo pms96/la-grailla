@@ -5,7 +5,7 @@ import { POST as createShopOrder } from '@/app/api/shop/orders/route';
 import * as getOrderRoute from '@/app/api/orders/[orderId]/route';
 import * as getShopOrderRoute from '@/app/api/shop/orders/[orderId]/route';
 import { signOrderAccess, signShopOrderAccess } from '@/lib/access-token';
-import { createTestEvent, createTicketType, cleanupTestEvent, getAndSetConfig, restoreConfig } from '../helpers/fixtures';
+import { createTestEvent, createTicketType, cleanupTestEvent, getAndSetConfig, restoreConfig, cleanupWarn } from '../helpers/fixtures';
 import { syncProductVariants } from '@/lib/product-stock';
 import { computeTermsVersion } from '@/lib/legal-terms';
 
@@ -210,7 +210,7 @@ describe('P0-11: aceptación de condiciones y justificante', () => {
     afterEach(async () => {
       await prisma.shopOrderItem.deleteMany({ where: { productId } });
       await prisma.shopOrder.deleteMany({ where: { items: { some: { productId } } } });
-      await prisma.product.delete({ where: { id: productId } }).catch(() => {});
+      await prisma.product.delete({ where: { id: productId } }).catch(cleanupWarn);
     });
 
     const shopBody = (over: Record<string, unknown> = {}) => ({

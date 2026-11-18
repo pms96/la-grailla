@@ -62,7 +62,8 @@ export async function GET(request: Request) {
       console.log(`[cron-dispatch] due=${summary.due} ran=${summary.ran} ok=${summary.ok} failed=${summary.failed} deferred=${summary.deferred}`);
       if (summary.due > 0 && summary.ran === 0) console.error('[cron-dispatch] había tareas vencidas y no se lanzó ninguna: ¿CRON_BUDGET_MS menor que el tiempo máximo de una llamada (55 s en reconcile-payments)?');
       // Latido: «el disparador sigue vivo» aunque haya clientes fallando (de eso avisan las alertas). Si deja de llegar, el servicio externo avisa.
-      await sendHeartbeat(true);
+      // H-198: «vivo» solo si la pasada hizo lo que debía: con tareas vencidas y NINGUNA ejecutada (todo diferido por presupuesto) el latido es de fallo, igual que el 500.
+      await sendHeartbeat(!(summary.due > 0 && summary.ran === 0));
       return NextResponse.json(summary, { status });
     }
     return NextResponse.json({ error: 'job debe ser tenants o snapshots-refresh' }, { status: 400 });

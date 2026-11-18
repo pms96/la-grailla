@@ -56,6 +56,24 @@ describe('probeTenantHealth', () => {
     expect(r).toMatchObject({ reachable: true, problems: [] });
   });
 
+  // H-197: el front ahora dice si pudo comprobar que la BD es de este cliente (`tenantMarkerState`). Sin marca en un cliente nuevo o con la lectura fallida, el aislamiento entre
+  // clientes queda sin comprobar: el panel lo enseña como motivo (antes solo veía «degradado» sin causa).
+  describe('marca de la BD sin comprobar (H-197)', () => {
+    it('`unreadable`: se señala, aunque el estado sea ok, y no es un fallo grave', async () => {
+      const r = await probeTenantHealth(target, { fetchImpl: fetchOf(200, detail({ status: 'degraded', tenantMarker: null, tenantMarkerState: 'unreadable' })) });
+      expect(r).toMatchObject({ reachable: true, severe: false });
+      expect(r.problems.join(' ')).toMatch(/marca de la BD/i);
+    });
+    it('`missing` con el cliente degradado: se señala la falta de marca', async () => {
+      const r = await probeTenantHealth(target, { fetchImpl: fetchOf(200, detail({ status: 'degraded', tenantMarker: null, tenantMarkerState: 'missing' })) });
+      expect(r.problems.join(' ')).toMatch(/sin marca/i);
+    });
+    it('`missing` con el cliente ok (cliente anterior a la plataforma) NO es un problema; un estado futuro desconocido tampoco rompe la lectura', async () => {
+      expect(await probeTenantHealth(target, { fetchImpl: fetchOf(200, detail({ tenantMarker: null, tenantMarkerState: 'missing' })) })).toMatchObject({ reachable: true, problems: [] });
+      expect(await probeTenantHealth(target, { fetchImpl: fetchOf(200, detail({ tenantMarkerState: 'algo-nuevo' })) })).toMatchObject({ reachable: true, problems: [] });
+    });
+  });
+
   // H-175 (fase 5): lo que es un fallo TÉCNICO grave (`severe`) cuenta como fallo de la tarea de salud en el disparador; lo leve (datos sin completar) sigue siendo un aviso.
   describe('severe (H-175)', () => {
     const severeOf = async (over: Record<string, unknown>, tgt = target) => {

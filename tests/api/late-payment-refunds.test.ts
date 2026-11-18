@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { GET as cron } from '@/app/api/cron/reconcile-payments/route';
 import { completeOrder } from '@/lib/reconciliation/entradas';
 import { completeShopOrder, reviveShopOrder } from '@/lib/reconciliation/tienda';
-import { createTestEvent, createTicketType, cleanupTestEvent } from '../helpers/fixtures';
+import { createTestEvent, createTicketType, cleanupTestEvent, cleanupWarn } from '../helpers/fixtures';
 import { gateway, paid, state } from '../helpers/fake-gateway';
 
 const mail = vi.hoisted(() => ({ sent: [] as { to: string; subject: string; html: string }[] }));
@@ -44,7 +44,7 @@ describe('reembolsos y pago tardío', () => {
     await prisma.shopOrder.deleteMany({ where: { items: { some: { productId: { in: productIds } } } } });
     await prisma.product.deleteMany({ where: { id: { in: productIds } } });
     for (const id of eventIds) {
-      await prisma.ticketType.deleteMany({ where: { eventId: id } }).catch(() => {});
+      await prisma.ticketType.deleteMany({ where: { eventId: id } }).catch(cleanupWarn);
       await cleanupTestEvent(id);
     }
     await prisma.processedWebhookEvent.deleteMany({ where: { id: { startsWith: 'late-refund:' } } });

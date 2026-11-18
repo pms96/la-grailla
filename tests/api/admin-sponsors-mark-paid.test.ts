@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
-import { restoreConfigSnapshot, snapshotConfig } from '../helpers/fixtures';
+import { restoreConfigSnapshot, snapshotConfig, cleanupWarn } from '../helpers/fixtures';
 import type { ConfigRow } from '../helpers/config-journal';
 
 let sessionRole: 'ADMIN' | null = 'ADMIN';
@@ -60,7 +60,7 @@ describe('POST /api/admin/sponsors-portal/[id]/mark-paid', () => {
     await prisma.sponsor.deleteMany({ where: { id: sponsorId } });
     await prisma.sponsorRequest.deleteMany({ where: { id: requestId } });
     await restoreConfigSnapshot(['sponsor_tiers'], savedTiers);
-    await prisma.temporada.delete({ where: { id: temporadaId } }).catch(() => {});
+    await prisma.temporada.delete({ where: { id: temporadaId } }).catch(cleanupWarn);
   });
 
   it('rechaza a quien no es admin', async () => {

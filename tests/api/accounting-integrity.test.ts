@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { cleanupWarn } from '../helpers/fixtures';
 import ExcelJS from 'exceljs';
 import { prisma } from '@/lib/prisma';
 import { purgeAuditLog } from '../helpers/audit';
@@ -58,7 +59,7 @@ describe('integridad contable (lote 4)', () => {
     await prisma.proveedor.deleteMany({ where: { id: { in: extras.proveedores } } });
     await prisma.temporada.deleteMany({ where: { id: { in: temporadas } } });
     await purgeAuditLog({ actorId: ACTOR });
-    await prisma.user.delete({ where: { id: ACTOR } }).catch(() => {});
+    await prisma.user.delete({ where: { id: ACTOR } }).catch(cleanupWarn);
   });
 
   // H-055: `fecha: z.string()` sin validar. Un texto con hora u offset se guardaba como instante no medianoche UTC; «abc» daba 500.

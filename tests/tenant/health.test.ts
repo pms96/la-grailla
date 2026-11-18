@@ -60,11 +60,35 @@ afterAll(async () => {
 describe('marca de la BD (platform_tenant_id)', () => {
   const putMarker = (slot: 'a' | 'b', value: string) => tenantClient(slot).appConfig.create({ data: { key: 'platform_tenant_id', value, group: 'platform' } });
 
-  it('sin marca (BD anterior a la plataforma): tenantMarker null y nada cambia', async () => {
+  it('sin marca en el cliente legacy (BD anterior a la plataforma): tenantMarker null y nada cambia', async () => {
+    const res = await detailOf('a', { tenantId: env.LEGACY_TENANT_ID });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'ok', tenantId: env.LEGACY_TENANT_ID, tenantMarker: null, tenantMarkerState: 'missing' });
+  });
+
+  // H-197: la guarda «BD de otro cliente» solo saltaba si había marca y no coincidía: una BD restaurada o sembrada SIN la fila, o con la lectura fallida, no se señalaba y el
+  // aislamiento entre clientes quedaba sin comprobar sin que nadie lo viera. En un cliente NUEVO (el panel siempre siembra la marca) falta de marca = degradado.
+  it('H-197: sin marca en un cliente nuevo: degradado y `tenantMarkerState: missing` (antes salía «ok»)', async () => {
     await fill('a');
     const res = await detailOf('a');
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ status: 'ok', tenantId: TEST_TENANT_IDS.a, tenantMarker: null });
+    expect(await res.json()).toMatchObject({ status: 'degraded', tenantId: TEST_TENANT_IDS.a, tenantMarker: null, tenantMarkerState: 'missing' });
+  });
+
+  it('H-197: si la lectura de la marca falla con la BD viva, degradado y `unreadable` (también en el cliente legacy)', async () => {
+    await fill('a');
+    const { prisma } = await import('@/lib/prisma');
+    const secret = await secretFor(TEST_TENANT_IDS.a);
+    const res = await withTenantForTest('a', async () => {
+      const spy = vi.spyOn(prisma.appConfig, 'findUnique').mockImplementation((() => Promise.reject(new Error('lectura caída'))) as never);
+      try {
+        return await route.GET(call(secret));
+      } finally {
+        spy.mockRestore();
+      }
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'degraded', tenantMarkerState: 'unreadable' });
   });
 
   it('con la marca de ESTE cliente: se devuelve y todo sigue bien', async () => {
@@ -72,7 +96,7 @@ describe('marca de la BD (platform_tenant_id)', () => {
     await putMarker('a', TEST_TENANT_IDS.a);
     const res = await detailOf('a');
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ status: 'ok', tenantMarker: TEST_TENANT_IDS.a });
+    expect(await res.json()).toMatchObject({ status: 'ok', tenantMarker: TEST_TENANT_IDS.a, tenantMarkerState: 'match' });
   });
 
   it('con la marca de OTRO cliente (URLs apuntando a la BD de otro): error, 503 y la marca a la vista del panel', async () => {
@@ -80,7 +104,7 @@ describe('marca de la BD (platform_tenant_id)', () => {
     await putMarker('a', TEST_TENANT_IDS.b);
     const res = await detailOf('a');
     expect(res.status).toBe(503);
-    expect(await res.json()).toMatchObject({ status: 'error', tenantId: TEST_TENANT_IDS.a, tenantMarker: TEST_TENANT_IDS.b });
+    expect(await res.json()).toMatchObject({ status: 'error', tenantId: TEST_TENANT_IDS.a, tenantMarker: TEST_TENANT_IDS.b, tenantMarkerState: 'mismatch' });
   });
 
   it('también lo ve un monitor externo en la respuesta pública, sin decir por qué', async () => {
@@ -135,19 +159,21 @@ describe('puerta de esquema', () => {
 });
 
 describe('detalle (con el secreto de cron del cliente)', () => {
-  it('forma EXACTA: status, version, platform, tenantId, tenantMarker, db, schema y onboarding, más el bloque ADITIVO `ops`', async () => {
+  it('forma EXACTA: status, version, platform, tenantId, tenantMarker, tenantMarkerState, db, schema y onboarding, más el bloque ADITIVO `ops`', async () => {
     await fill('a');
+    await tenantClient('a').appConfig.create({ data: { key: 'platform_tenant_id', value: TEST_TENANT_IDS.a, group: 'platform' } });
     const res = await detailOf('a');
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('no-store');
     const body = await res.json();
-    expect(Object.keys(body).sort()).toEqual(['db', 'onboarding', 'ops', 'platform', 'schema', 'serving', 'status', 'tenantId', 'tenantMarker', 'version']);
+    expect(Object.keys(body).sort()).toEqual(['db', 'onboarding', 'ops', 'platform', 'schema', 'serving', 'status', 'tenantId', 'tenantMarker', 'tenantMarkerState', 'version']);
     expect(body).toEqual({
       status: 'ok',
       version: 'abcdef1',
       platform: true,
       tenantId: TEST_TENANT_IDS.a,
-      tenantMarker: null,
+      tenantMarker: TEST_TENANT_IDS.a,
+      tenantMarkerState: 'match',
       serving: true,
       db: { ok: true, latencyMs: expect.any(Number) },
       schema: { applied: latestMigrationOnDisk(), expected: latestMigrationOnDisk(), minRequired: FRONT_MIN_SCHEMA, upToDate: true },
@@ -176,6 +202,7 @@ describe('detalle (con el secreto de cron del cliente)', () => {
     expect(before.status).toBe('degraded');
     expect(before.onboarding).toEqual({ complete: false, missing: ['admin_email', 'legal_notice', 'privacy_policy', 'cookies_policy'] });
     await fill('a');
+    await tenantClient('a').appConfig.create({ data: { key: 'platform_tenant_id', value: TEST_TENANT_IDS.a, group: 'platform' } });
     expect((await (await detailOf('a')).json()).status).toBe('ok');
   });
 

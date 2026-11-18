@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
-import { getAndSetConfig, restoreConfig } from '../helpers/fixtures';
+import { getAndSetConfig, restoreConfig, cleanupWarn } from '../helpers/fixtures';
 
 let sessionRole: 'ADMIN' | null = 'ADMIN';
 vi.mock('next-auth', () => ({
@@ -66,7 +66,7 @@ describe('CRUD /api/admin/ingresos', () => {
   afterAll(async () => {
     await prisma.ingreso.deleteMany({ where: { temporadaId } });
     await prisma.temporada.delete({ where: { id: temporadaId } });
-    await prisma.user.delete({ where: { id: 'admin-ingresos-test' } }).catch(() => {});
+    await prisma.user.delete({ where: { id: 'admin-ingresos-test' } }).catch(cleanupWarn);
   });
 
   it('rechaza a quien no es admin', async () => {
@@ -141,7 +141,7 @@ describe('fecha por defecto en hora de Madrid (P1-15)', () => {
     await prisma.ingreso.deleteMany({ where: { temporadaId } });
     await prisma.gasto.deleteMany({ where: { temporadaId } });
     await prisma.temporada.delete({ where: { id: temporadaId } });
-    await prisma.user.delete({ where: { id: 'admin-ingresos-test' } }).catch(() => {});
+    await prisma.user.delete({ where: { id: 'admin-ingresos-test' } }).catch(cleanupWarn);
   });
 
   const at = (when: Date) => vi.useFakeTimers({ toFake: ['Date'], now: when, shouldAdvanceTime: true });

@@ -22,7 +22,7 @@ export type ShopOrderView = {
   buyerEmail: string;
   totalAmount: number;
   /** Id del pago en la pasarela: si existe, un pedido cancelado puede tener un cobro en camino (pago tardío). */
-  paymentId?: string | null;
+  hasPayment?: boolean;
   /** Resultado de comprobar contra la pasarela un pedido anulado con pago (lo añade la API del pedido). */
   paymentCheck?: PaymentCheck;
   /** Estado REAL del email de confirmación (lo calcula la API del pedido): la pantalla no afirma haberlo enviado sin comprobarlo. */
@@ -94,7 +94,7 @@ export default function ShopConfirmationClient({ orderId, accessToken }: { order
   }, [load]);
 
   // Qué debe decir la pantalla (decisión pura, compartida con entradas): «no se ha cobrado nada» solo si la pasarela lo confirma.
-  const view = order ? confirmationView({ status: order.status, paymentId: order.paymentId, paymentCheck: order.paymentCheck, pollsExhausted: pollCount >= MAX_POLLS }) : null;
+  const view = order ? confirmationView({ status: order.status, hasPayment: order.hasPayment, paymentCheck: order.paymentCheck, pollsExhausted: pollCount >= MAX_POLLS }) : null;
 
   // El carrito se vacía AQUÍ, cuando el pedido consta como pagado (no al pulsar «Pagar»), y solo si lo guardado es el de este pedido.
   useEffect(() => {

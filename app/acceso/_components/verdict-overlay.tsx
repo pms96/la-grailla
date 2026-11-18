@@ -16,14 +16,18 @@ const ICON: Record<string, string> = { VALID: '✅', REENTRY: '✅', DUPLICATE: 
 export function VerdictOverlay({ result, onDismiss, reentry }: { result: VerdictOverlayResult; onDismiss: () => void; reentry?: { onAllow: () => void } | null }) {
   const style = verdictStyle(result.color);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  // H-191: el foco se toma UNA vez, al montarse el veredicto. El padre pasa una flecha nueva en cada render (el sondeo del aforo repinta cada 8 s): con `[onDismiss]` como
+  // dependencia el efecto se repetía y devolvía el foco a «Continuar», quitándoselo a «Permitir reentrada» o al lector de pantalla. Escape usa siempre la última función.
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
   useEffect(() => {
     buttonRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onDismiss();
+      if (e.key === 'Escape') dismissRef.current();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onDismiss]);
+  }, []);
 
   return (
     <div role="alert" aria-live="assertive" data-verdict={result.result} className="fixed inset-0 z-50 flex items-center justify-center p-8" style={{ backgroundColor: style.bg, color: style.fg }}>

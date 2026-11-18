@@ -18,7 +18,7 @@ import {
 
 type TestSession = { user: { id: string; role: string; email: string; modules: string[] | null } } | null;
 let session: TestSession = { user: { id: 'admin-test', role: 'ADMIN', email: 'admin@test.local', modules: null } };
-const mailer = vi.hoisted(() => ({ sent: [] as { to: string; subject: string; html: string }[], fail: false, hang: false }));
+const mailer = vi.hoisted(() => ({ sent: [] as { to: string; subject: string; html: string }[], fail: false, hang: false, slowMs: 0 }));
 const race = vi.hoisted(() => ({ flipBeforeInvalidate: null as string | null }));
 
 vi.mock('next-auth', () => ({ getServerSession: vi.fn(async () => session) }));
@@ -31,6 +31,7 @@ vi.mock('@/lib/mailer', async (orig) => ({
       return { success: false, transport: 'none' as const, error: 'colgado' };
     }
     if (mailer.fail) return { success: false, transport: 'none' as const, error: 'smtp caído' };
+    if (mailer.slowMs) await new Promise((r) => setTimeout(r, mailer.slowMs)); // lento pero acaba entregando (H-195)
     mailer.sent.push({ to: p.to, subject: p.subject, html: p.html });
     return { success: true, transport: 'smtp' as const };
   },
@@ -177,6 +178,25 @@ describe('cancelación de evento y cambio de fecha (P1-04)', () => {
       await processCancellation(event.id, { deadline: farDeadline() });
       expect(mailer.sent.filter((m) => m.to === a.buyerEmail)).toHaveLength(1);
       expect(await markerCount(a.id)).toBe(1);
+    });
+
+    // H-195: el tope de tiempo corta la ESPERA pero no aborta el envío: con un SMTP lento que acaba entregando, la pasada contaba «fallo», el `finally` borraba la reserva y la
+    // pasada siguiente reenviaba: aviso duplicado pese a «una sola vez». Ahora, si el tope salta, la reserva se conserva (caduca sola) y el envío tardío anota el marcador.
+    it('H-195: un envío que supera el tope pero acaba entregando NO se reenvía en la pasada siguiente y deja su marcador', async () => {
+      const a = await mk({ total: 10 });
+      await startCancellation(event.id, { refund: true, notify: true, startedBy: 'admin-test' });
+      mailer.slowMs = 600;
+      await processCancellation(event.id, { deadline: farDeadline(), callCapMs: 150 });
+      expect(await markerCount(a.id)).toBe(0); // aún no ha terminado
+      expect(await prisma.processedWebhookEvent.count({ where: { id: `event-cancel-lease:${a.id}` } })).toBe(1); // la reserva se conserva
+      await expireBackoff();
+      await prisma.processedWebhookEvent.deleteMany({ where: { id: { startsWith: 'event-cancel-run:' } } });
+      await processCancellation(event.id, { deadline: farDeadline() }); // la reserva sigue viva: no vuelve a enviar
+      await new Promise((r) => setTimeout(r, 900)); // el primer envío termina
+      mailer.slowMs = 0;
+      expect(mailer.sent.filter((m) => m.to === a.buyerEmail)).toHaveLength(1);
+      expect(await markerCount(a.id)).toBe(1);
+      await prisma.processedWebhookEvent.deleteMany({ where: { id: { startsWith: 'event-cancel-lease:' } } });
     });
 
     it('dos pasadas que llegan a avisar a la vez no mandan el email dos veces (reserva con caducidad)', async () => {

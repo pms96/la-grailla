@@ -225,6 +225,51 @@ describe('reembolsos fuera de la app (P1-01)', () => {
       expect(await applyGatewayRefund({ orderId: o.id, full: false, refunded: 3, total: 10, source: 'refund' })).toBe('partial_alerted');
       expect((await prisma.shopOrder.findUnique({ where: { id: o.id } }))?.status).toBe('PAID');
     });
+
+    // H-188: `invalidateShopOrder` cambiaba el estado y reponía el stock en DOS transacciones (en entradas se arregló con H-033) y la tienda no tiene reparador: si el proceso moría
+    // entre ambas quedaba el pedido CANCELLED y el stock sin reponer para siempre. Sin pasarela de por medio, las dos cosas van ahora en una sola transacción.
+    describe('H-188: anular un pedido de tienda es atómico', () => {
+      const pendingOrder = async () => {
+        const { o, productId } = await shopOrder('PAID');
+        await prisma.shopOrder.update({ where: { id: o.id }, data: { status: 'PENDING', paymentProvider: null, paymentId: null } });
+        return { o, productId };
+      };
+      const dieAfterTransaction = () => {
+        const real = (globalThis as unknown as { prisma: typeof prisma }).prisma;
+        const original = real.$transaction.bind(real) as (...a: unknown[]) => Promise<unknown>;
+        let done = false;
+        return vi.spyOn(real, '$transaction').mockImplementation(((arg: unknown, ...rest: unknown[]) => {
+          if (done) return original(arg, ...rest);
+          done = true;
+          if (typeof arg !== 'function') return Promise.reject(new Error('boom: murió entre el estado y el stock'));
+          return original(async (tx: unknown) => {
+            await (arg as (t: unknown) => Promise<unknown>)(tx);
+            throw new Error('boom: murió al terminar');
+          }, ...rest);
+        }) as never);
+      };
+
+      it('si el proceso muere al reponer el stock, el pedido NO queda CANCELLED con el stock sin reponer: todo o nada', async () => {
+        const { o, productId } = await pendingOrder();
+        const before = await stock(productId);
+        const spy = dieAfterTransaction();
+        await expect(invalidateShopOrder(o.id, 'CANCELLED')).rejects.toThrow('boom');
+        spy.mockRestore();
+        expect((await prisma.shopOrder.findUnique({ where: { id: o.id } }))?.status).toBe('PENDING');
+        expect(await stock(productId)).toBe(before);
+        // y el reintento funciona
+        expect((await invalidateShopOrder(o.id, 'CANCELLED')).success).toBe(true);
+        expect(await stock(productId)).toBe(before + 2);
+      });
+
+      it('dos anulaciones simultáneas del mismo pedido reponen el stock una sola vez', async () => {
+        const { o, productId } = await pendingOrder();
+        const before = await stock(productId);
+        const [a, b] = await Promise.all([invalidateShopOrder(o.id, 'CANCELLED'), invalidateShopOrder(o.id, 'CANCELLED')]);
+        expect([a.success, b.success].filter(Boolean)).toHaveLength(1);
+        expect(await stock(productId)).toBe(before + 2);
+      });
+    });
   });
 
   describe('disputas', () => {

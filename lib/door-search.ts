@@ -18,3 +18,6 @@ export function orderRef(orderId: string): string {
  * email o PDF (`lib/order-ref.ts`). Con CUALQUIER sufijo, cada búsqueda con resultado era una respuesta «sí» y se reconstruía el id carácter a carácter.
  */
 export const ORDER_REF_SEARCH_LENGTHS: readonly number[] = [6, 8];
+
+/** H-193: la referencia ANTIGUA del comprador (los 8 PRIMEROS caracteres del id, anterior a H-136) también se acepta, con esta longitud exacta y solo al principio del id. */
+export const LEGACY_ORDER_REF_LENGTH = 8;

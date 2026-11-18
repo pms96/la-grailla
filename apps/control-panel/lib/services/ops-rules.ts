@@ -78,7 +78,8 @@ const alertedAtOf = (line: string): number | null => {
   return Number.isFinite(t) ? t : null;
 };
 /** La línea con su marca de «avisado» puesta a `at` (sustituye la que hubiera). */
-const stampAlerted = (line: string, at: number): string => `${line.replace(ALERTED_RE, '')} (avisado ${new Date(at).toISOString().slice(0, 16)}Z)`;
+/** H-202: también quita un « [aviso pendiente]» que la línea conservada (`carry`) ya llevara: el sello nuevo lo sustituye, no queda la marca en medio ni se duplica si el aviso vuelve a fallar. */
+const stampAlerted = (line: string, at: number): string => `${line.replace(ALERTED_RE, '').split(PENDING_MARK).join('')} (avisado ${new Date(at).toISOString().slice(0, 16)}Z)`;
 function previousFindings(error: string | null | undefined): Previous {
   const out: Previous = new Map();
   for (const line of splitHealthError(error).ops) {

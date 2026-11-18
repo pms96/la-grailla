@@ -172,6 +172,63 @@ describe('turno de la sala de espera de un solo uso (H-035)', () => {
     });
   });
 
+  // H-186: el turno se gasta dentro de la transacción de la compra. Un doble clic en «Pagar» (mismo turno, misma `idempotencyKey`) en el que la segunda petición no ve todavía el
+  // pedido de la primera recibía 403 «Tu turno ha expirado» en lugar del pedido que acababa de crear la primera.
+  describe('H-186: reintento con la misma clave de idempotencia y el turno ya gastado', () => {
+    const postKeyed = (queueToken: string, email: string, key: string) =>
+      createOrder(
+        new Request('http://localhost/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-forwarded-for': freshIp() },
+          body: JSON.stringify({ acceptedTerms: true, eventId: event.id, queueToken, idempotencyKey: key, buyerName: 'Ana', buyerLastName: 'Gil', buyerEmail: email, items: [{ ticketTypeId: tt.id, quantity: 1 }] }),
+        })
+      );
+    // La carrera: la segunda petición mira si ya existe un pedido con la clave ANTES de que la primera lo confirme (devuelve null una vez).
+    const doNotSeeTheOrderYet = () => {
+      const real = (globalThis as unknown as { prisma: typeof prisma }).prisma;
+      const original = real.order.findUnique.bind(real.order) as (...a: unknown[]) => unknown;
+      let first = true;
+      vi.spyOn(real.order, 'findUnique').mockImplementation(((...a: unknown[]) => (first ? ((first = false), Promise.resolve(null)) : original(...a))) as never);
+    };
+
+    it('con el turno ya COMPLETED devuelve el pedido existente (200, mismo orderId), no un 403', async () => {
+      const t = await turn();
+      const key = `h186-a-${Date.now()}`;
+      const first = await postKeyed(t.token, 'turno-l@example.com', key);
+      expect(first.status).toBe(200);
+      const { orderId } = await first.json();
+      doNotSeeTheOrderYet();
+      const second = await postKeyed(t.token, 'turno-l@example.com', key);
+      expect(second.status).toBe(200);
+      expect((await second.json()).orderId).toBe(orderId);
+      expect(await prisma.order.count({ where: { eventId: event.id, buyerEmail: 'turno-l@example.com' } })).toBe(1);
+    });
+
+    it('si la segunda petición ve el turno aún ADMITTED y lo encuentra gastado al entrar en la transacción, también recibe el pedido', async () => {
+      const t = await turn();
+      const key = `h186-b-${Date.now()}`;
+      const first = await postKeyed(t.token, 'turno-m2@example.com', key);
+      const { orderId } = await first.json();
+      doNotSeeTheOrderYet();
+      const real = (globalThis as unknown as { prisma: typeof prisma }).prisma;
+      const entry = await prisma.waitingRoomEntry.findUniqueOrThrow({ where: { id: t.id } });
+      vi.spyOn(real.waitingRoomEntry, 'findUnique').mockResolvedValueOnce({ ...entry, status: 'ADMITTED' } as never);
+      const second = await postKeyed(t.token, 'turno-m2@example.com', key);
+      expect(second.status).toBe(200);
+      expect((await second.json()).orderId).toBe(orderId);
+    });
+
+    it('con OTRA selección (mismo turno y clave) sigue siendo un conflicto, no el pedido viejo (H-214)', async () => {
+      const t = await turn();
+      const key = `h186-c-${Date.now()}`;
+      expect((await postKeyed(t.token, 'turno-n3@example.com', key)).status).toBe(200);
+      doNotSeeTheOrderYet();
+      const other = await postKeyed(t.token, 'otro-n3@example.com', key);
+      expect(other.status).toBe(409);
+      expect((await other.json()).code).toBe('idempotency_mismatch');
+    });
+  });
+
   it('un turno que caduca mientras la compra espera el cerrojo del evento ya no sirve al reclamarlo (403)', async () => {
     const t = await turn({ expiresInMs: 300 });
     // Otra transacción tiene el cerrojo del evento 700 ms: la compra pasa la comprobación de lectura (el turno aún vale) y espera; al entrar, ya caducó.

@@ -135,13 +135,16 @@ export async function POST(request: Request) {
     // comprador a /confirmacion, que ya sabe reconciliar el estado real del
     // pago. Solo si es de verdad el MISMO intento (H-214): quien vuelve atrás desde la pasarela, cambia la selección y paga de nuevo conserva la clave, y devolverle el
     // pedido antiguo era cobrarle lo que ya no quería.
-    if (idempotencyKey) {
+    // H-186: la misma comprobación se repite si el turno de la cola resulta ya gastado: un doble clic en «Pagar» recibe el pedido que acaba de crear la primera petición, no un 403.
+    const replayExistingOrder = async (): Promise<NextResponse | null> => {
+      if (!idempotencyKey) return null;
       const existingOrder = await prisma.order.findUnique({ where: { idempotencyKey }, include: { tickets: { select: { ticketTypeId: true } } } });
-      if (existingOrder) {
-        if (!sameTicketOrderRequest(existingOrder, { eventId, buyerEmail, items })) return NextResponse.json(IDEMPOTENCY_MISMATCH, { status: 409 });
-        return existingOrderResponse(existingOrder);
-      }
-    }
+      if (!existingOrder) return null;
+      if (!sameTicketOrderRequest(existingOrder, { eventId, buyerEmail, items })) return NextResponse.json(IDEMPOTENCY_MISMATCH, { status: 409 });
+      return existingOrderResponse(existingOrder);
+    };
+    const replayed = await replayExistingOrder();
+    if (replayed) return replayed;
 
     // Validate event
     const event = await prisma.event.findUnique({
@@ -191,6 +194,9 @@ export async function POST(request: Request) {
         !queueEntry.expiresAt ||
         queueEntry.expiresAt < new Date()
       ) {
+        // Un reintento del MISMO intento (misma clave) cuyo turno ya gastó la primera petición recibe su pedido (H-186).
+        const spentButSameAttempt = await replayExistingOrder();
+        if (spentButSameAttempt) return spentButSameAttempt;
         // `code`: si la cola se activó con la página ya abierta, el formulario recarga y entra en la sala (H-230).
         return NextResponse.json(
           { error: 'Tu turno ha expirado o no es válido. Vuelve a la sala de espera.', code: 'queue_required' },
@@ -435,6 +441,8 @@ export async function POST(request: Request) {
     }
 
     if (order instanceof TurnSpentError) {
+      const sameAttempt = await replayExistingOrder(); // H-186
+      if (sameAttempt) return sameAttempt;
       return NextResponse.json({ error: 'Tu turno ha expirado o no es válido. Vuelve a la sala de espera.', code: 'queue_required' }, { status: 403 });
     }
 

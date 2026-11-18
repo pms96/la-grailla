@@ -328,6 +328,15 @@ describe('puerta: escaneo, búsqueda y admisión manual', () => {
       }
     });
 
+    // H-193: la referencia del comprador pasó de los PRIMEROS 8 caracteres del id a los ÚLTIMOS 8 (H-136). Quien lleve un email o PDF anterior al cambio trae la referencia
+    // antigua y la puerta no lo encontraba por ella (solo por nombre o email). La longitud sigue siendo EXACTA (8): no es un oráculo para ir alargando.
+    it('H-193: la referencia ANTIGUA (los 8 primeros caracteres del id) también encuentra el pedido, pero solo completa', async () => {
+      const id = tickets.bea.orderId;
+      const found = async (q: string) => (await (await searchReq(event.id, q)).json()).results.some((r: { ticketId: string }) => r.ticketId === tickets.bea.id);
+      expect(await found(id.slice(0, 8).toUpperCase())).toBe(true);
+      for (const len of [3, 5, 6, 7, 9, 12]) expect(await found(id.slice(0, len)), `prefijo de ${len}`).toBe(false);
+    });
+
     it('H-168: una referencia de otra longitud tampoco encuentra a otro pedido por azar (nada de oráculo de prefijos)', async () => {
       const id = tickets.ana.orderId;
       const body = await (await searchReq(event.id, id.slice(-7))).json();

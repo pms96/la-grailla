@@ -6,7 +6,7 @@ import { completeOrder, releaseExpiredOrder, invalidateOrder } from '@/lib/recon
 import { completeShopOrder, releaseExpiredShopOrder, invalidateShopOrder } from '@/lib/reconciliation/tienda';
 import { signOrderAccess } from '@/lib/access-token';
 import { lateRefundKey } from '@/lib/reconciliation/shared';
-import { createTestEvent, createTicketType, cleanupTestEvent } from '../helpers/fixtures';
+import { createTestEvent, createTicketType, cleanupTestEvent, cleanupWarn } from '../helpers/fixtures';
 import { gateway, paid, state, unknown } from '../helpers/fake-gateway';
 
 const mail = vi.hoisted(() => ({ sent: [] as { to: string; subject: string; html: string }[] }));
@@ -52,7 +52,7 @@ describe('pago tardío (P0-05)', () => {
     await prisma.shopOrder.deleteMany({ where: { items: { some: { productId: { in: productIds } } } } });
     await prisma.product.deleteMany({ where: { id: { in: productIds } } });
     for (const id of eventIds) {
-      await prisma.ticketType.deleteMany({ where: { eventId: id } }).catch(() => {});
+      await prisma.ticketType.deleteMany({ where: { eventId: id } }).catch(cleanupWarn);
       await cleanupTestEvent(id);
     }
     await prisma.processedWebhookEvent.deleteMany({ where: { OR: [{ id: { startsWith: 'evt_late_' } }, { id: { startsWith: 'late-refund:' } }] } });
@@ -186,7 +186,7 @@ describe('pago tardío (P0-05)', () => {
       gateway.refundResult = { success: false, error: 'caída' };
       await completeOrder(late.id);
       // Se libera la plaza de la otra persona.
-      await releaseExpiredOrder(other.id).catch(() => {});
+      await releaseExpiredOrder(other.id).catch(cleanupWarn);
       await prisma.order.update({ where: { id: other.id }, data: { status: 'CANCELLED' } });
       await prisma.ticket.updateMany({ where: { orderId: other.id }, data: { status: 'CANCELLED' } });
       await prisma.ticketType.update({ where: { id: smallTt.id }, data: { soldCount: 0 } });

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
-import { createTestEvent, createTicketType, cleanupTestEvent } from '../helpers/fixtures';
+import { createTestEvent, createTicketType, cleanupTestEvent, cleanupWarn } from '../helpers/fixtures';
 import { orderAccessQuery, ticketAccessQuery } from '@/lib/access-token';
 import { ticketUnusable } from '@/lib/ticket-validity';
 import bcrypt from 'bcryptjs';
@@ -65,7 +65,7 @@ describe('P1-02: escáner, PDF y Wallet respetan el estado del pedido y del even
   afterAll(async () => {
     await prisma.scanLog.deleteMany({ where: { eventId: event.id } });
     await cleanupTestEvent(event.id);
-    await prisma.user.delete({ where: { id: scannerUserId } }).catch(() => {});
+    await prisma.user.delete({ where: { id: scannerUserId } }).catch(cleanupWarn);
   });
   beforeEach(async () => {
     await prisma.event.update({ where: { id: event.id }, data: { status: 'PUBLISHED' } });

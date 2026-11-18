@@ -12,6 +12,7 @@ import { userMessage } from '@/lib/error-text';
 import { fetchAdminJson } from '@/lib/admin-fetch';
 import { LoadError } from '@/components/admin/load-error';
 import { PageHeader } from '@/components/layouts/page-header';
+import { scanResultLabel } from '@/lib/scan-results';
 import {
   getStoredActiveEventId,
   pickDefaultActiveEventId,
@@ -52,17 +53,6 @@ const resultVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'o
   INVALID: 'destructive',
   CANCELLED: 'destructive',
   WRONG_EVENT: 'outline',
-};
-
-const resultLabel: Record<string, string> = {
-  VALID: 'Válido',
-  VALID_MANUAL: 'Válido (manual)',
-  DUPLICATE: 'Duplicado',
-  REENTRY: 'Reentrada',
-  INVALID: 'Inválido',
-  CANCELLED: 'Anulado',
-  WRONG_EVENT: 'Otro evento',
-  ERROR: 'Error',
 };
 
 export default function EscaneosPage() {
@@ -216,7 +206,7 @@ export default function EscaneosPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-medium truncate">{s.ticket?.holderName ?? '—'}</p>
                     <Badge variant={resultVariant[s.result] ?? 'outline'} className="text-xs">
-                      {resultLabel[s.result] ?? s.result}
+                      {scanResultLabel(s.result)}
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground truncate mt-0.5">

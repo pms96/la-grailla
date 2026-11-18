@@ -316,3 +316,24 @@ No hay migraciones ni cambios de esquema en el panel. Cambian el front, el panel
 - **Tiempos (H-217, H-218):** `maxDuration` y el timeout de Stripe no se han medido en Vercel; el P2028 bajo carga real no se reproduce.
 - **Sin hacer (destino D, ver el registro):** el tope de «Todo» en la gráfica de estadísticas, el `anio` no único de temporadas (H-246), los mensajes por campo del formulario de contacto (H-245), todo lo de H-249…H-258 y la decisión de H-234 (dominio principal solo para SUPERADMIN). H-179 sigue siendo del abogado.
 
+## 16. Los «Bajo» de la primera ronda de la fase 5 (lote 15)
+
+**Sin migraciones.** El front y el panel se despliegan como siempre; no hay orden obligatorio, pero conviene desplegar el **front antes que el panel** (el panel ya entiende el campo nuevo de `/api/health`; un panel viejo lo ignora sin problema). Ver `docs/platform/revision-integral.md` (H-185, H-186, H-187, H-188, H-191, H-192, H-193, H-195, H-197, H-198, H-200, H-202, H-205 y H-211).
+
+**Lo que cambia para quien administra**
+
+- **Salud de un cliente (H-197).** Un cliente nuevo cuya BD no tiene la marca `platform_tenant_id`, o cuya marca no se pudo leer, sale **degradado** con el motivo en la ficha («BD sin marca de cliente» / «No se pudo leer la marca»). El cliente legacy sin marca sigue en verde. Si aparece: vuelve a sembrar la BD desde el panel.
+- **Latido del disparador (H-198).** Si hay tareas vencidas y no se ejecutó ninguna (presupuesto agotado), el monitor externo recibe el latido de FALLO: antes decía «vivo».
+- **«Verificar» un pedido (H-185).** Con un importe cobrado que no cuadra con el pedido responde un error y no anota «verificado»; el pedido sigue pendiente. Revisa el cobro en el panel de la pasarela.
+- **Editar un gasto, un ingreso o un pedido de tienda (H-187).** Si otra persona lo anuló o cambió de estado mientras se editaba, sale «recarga y vuelve a intentarlo» (409) en vez de pisar el cambio.
+- **Anular un pedido de la tienda (H-188).** Estado y stock se mueven a la vez. **Límite:** el reembolso por pasarela sigue en tres pasos (estado, pasarela, stock); si el proceso muere entre medias el stock no se repone y hay que ajustarlo a mano.
+- **Puerta (H-192, H-193).** La referencia antigua de los emails (8 primeros caracteres del pedido) encuentra el pedido; Noche enseña «Reentrada» y «Pedido sin pagar».
+
+**Lo que cambia para quien compra**
+
+- Doble clic en «Pagar» con cola: recibe su pedido, no «Tu turno ha expirado» (H-186).
+- El pedido que devuelve la web ya no incluye notas internas ni ids de pago (H-211).
+- Los avisos de cancelación de un evento no se duplican con un SMTP lento (H-195).
+
+**Para quien desarrolla:** las limpiezas de tests usan `cleanupWarn` (no `.catch(() => {})`, H-200) y `check:migrations` también marca `CREATE TRIGGER` sobre una tabla viva (H-205).
+

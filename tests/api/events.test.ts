@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
-import { createTestEvent, cleanupTestEvent } from '../helpers/fixtures';
+import { createTestEvent, cleanupTestEvent, cleanupWarn } from '../helpers/fixtures';
 
 vi.mock('next-auth', () => ({
   getServerSession: vi.fn(async () => ({ user: { id: 'admin-events-test', role: 'ADMIN' } })),
@@ -24,7 +24,7 @@ describe('GET/PATCH /api/admin/events — vínculo con Temporada (Fase 0)', () =
 
   afterAll(async () => {
     await cleanupTestEvent(event.id);
-    await prisma.temporada.delete({ where: { id: temporada.id } }).catch(() => {});
+    await prisma.temporada.delete({ where: { id: temporada.id } }).catch(cleanupWarn);
   });
 
   it('un evento sin temporadaId se sigue creando y listando igual que antes (regresión)', async () => {
@@ -96,7 +96,7 @@ describe('POST/PUT /api/admin/events — enlace con Temporada desde el formulari
   });
 
   afterAll(async () => {
-    await prisma.temporada.delete({ where: { id: temporada.id } }).catch(() => {});
+    await prisma.temporada.delete({ where: { id: temporada.id } }).catch(cleanupWarn);
   });
 
   it('POST crea el evento ya enlazado a la temporada indicada', async () => {

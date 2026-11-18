@@ -11,7 +11,7 @@ import { MAX_PENDING_ORDERS_PER_IP, MAX_TICKETS_PER_TYPE, normalizeEmailForLimit
 import { invalidateOrder } from '@/lib/reconciliation/entradas';
 import { invalidateShopOrder } from '@/lib/reconciliation/tienda';
 import { cartMatchesOrderItems, type CartLine } from '@/lib/shop-cart';
-import { createTestEvent, createTicketType, cleanupTestEvent, getAndSetConfig, restoreConfig } from '../helpers/fixtures';
+import { createTestEvent, createTicketType, cleanupTestEvent, getAndSetConfig, restoreConfig, cleanupWarn } from '../helpers/fixtures';
 import { gateway, paid } from '../helpers/fake-gateway';
 
 vi.mock('@/lib/payment-adapter', async (orig) => {
@@ -157,7 +157,7 @@ describe('topes de compra (P0-04)', () => {
         const res = await post(createOrder, { ...body([{ ticketTypeId: otherTt.id, quantity: 1 }]), eventId: other.id }, ip);
         expect(res.status).toBe(200);
       } finally {
-        await prisma.ticketType.deleteMany({ where: { eventId: other.id } }).catch(() => {});
+        await prisma.ticketType.deleteMany({ where: { eventId: other.id } }).catch(cleanupWarn);
         await prisma.ticket.deleteMany({ where: { eventId: other.id } });
         await cleanupTestEvent(other.id);
       }

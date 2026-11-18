@@ -49,6 +49,16 @@ export async function cleanupTestEvent(eventId: string) {
   });
 }
 
+/**
+ * Para las limpiezas `afterAll` de los tests: `.catch(cleanupWarn)` en lugar de `.catch(() => {})` (H-200). Un borrado que falla (una clave foránea) dejaba la fila de prueba en la BD
+ * de desarrollo sin que nadie lo viera. Solo se calla «la fila ya no existe» (P2025: la propia prueba ya la borró); cualquier otro error se muestra, sin lanzar (una limpieza no
+ * debe tumbar el archivo entero).
+ */
+export function cleanupWarn(error: unknown): void {
+  if ((error as { code?: string } | null)?.code === 'P2025') return;
+  console.warn('[cleanup de prueba] no se pudo borrar una fila:', error instanceof Error ? error.message.trim().split('\n').slice(-2).join(' ') : error);
+}
+
 // H-151: lo primero que se hace con una clave de configuración es APUNTAR cómo estaba (diario fuera del repo); si la ejecución muere a medias, `globalSetup` la devuelve a
 // su sitio en la siguiente. Ver tests/helpers/config-journal.ts.
 const rowOf = (r: { key: string; value: string; label: string | null; group: string | null } | null): ConfigRow | null =>

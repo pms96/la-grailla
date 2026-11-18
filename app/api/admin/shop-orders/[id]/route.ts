@@ -19,6 +19,9 @@ import { sendShopShippedEmail } from '@/lib/shop/shop-notices';
 import { sendRefundEmail } from '@/lib/reconciliation/gateway-refund';
 import { actorFromSession, recordAdminAudit, recordAdminAuditSafe } from '@/lib/admin-audit';
 
+/** H-187: el estado del pedido cambió entre que se leyó y que se escribió (otra persona o un cobro tardío): se deshace y se pide recargar. */
+class ShopOrderChangedError extends Error {}
+
 const updateShopOrderSchema = z.object({
   status: z.enum(['PENDING', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED']).optional(),
   trackingNumber: z.string().optional().nullable(),
@@ -97,6 +100,12 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
     // cuándo, en la MISMA transacción que el cambio (H-021). Solo el estado: el seguimiento y las notas no son dinero.
     const statusChange = body?.status !== undefined && current && body.status !== current.status ? { from: current.status, to: body.status } : null;
     const order = await prisma.$transaction(async (tx) => {
+      // H-187: la transición se validó con el estado leído arriba; si otro cambio (un reembolso, una anulación) llegó entre medias no se pisa. Solo vale el estado leído o
+      // el pedido ya en el destino (el «Marcar como pagado» de arriba lo deja en PAID antes de esta escritura).
+      if (body?.status !== undefined && current) {
+        const stillValid = await tx.shopOrder.updateMany({ where: { id: params?.id, status: { in: [current.status, body.status] } }, data: { updatedAt: new Date() } });
+        if (stillValid.count === 0) throw new ShopOrderChangedError();
+      }
       const updated = await tx.shopOrder.update({
         where: { id: params?.id },
         data: {
@@ -127,6 +136,7 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
     const shippedEmail = becameShipped || trackingArrived || body?.resendShippedEmail ? await sendShopShippedEmail(order.id, { force: body?.resendShippedEmail === true }) : undefined;
     return NextResponse.json({ ...order, shippedEmail });
   } catch (error) {
+    if (error instanceof ShopOrderChangedError) return NextResponse.json({ error: 'El pedido ha cambiado de estado mientras lo editabas. Recarga la página y vuelve a intentarlo.' }, { status: 409 });
     return handleApiError(error, 'PUT /api/admin/shop-orders/[id]');
   }
 }

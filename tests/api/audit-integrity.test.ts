@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import { purgeAuditLog } from '../helpers/audit';
-import { createTestEvent, createTicketType, cleanupTestEvent, getAndSetConfig, restoreConfig } from '../helpers/fixtures';
+import { createTestEvent, createTicketType, cleanupTestEvent, getAndSetConfig, restoreConfig, cleanupWarn } from '../helpers/fixtures';
 import { gateway } from '../helpers/fake-gateway';
 
 const ACTOR = 'audit-integrity-test';
@@ -113,8 +113,8 @@ describe('rastro de auditoría: cobertura e integridad (lote 4)', () => {
     gateway.reset();
     for (const key of TOUCHED_CONFIG) {
       const v = originalConfig.get(key);
-      if (v === undefined) await prisma.appConfig.delete({ where: { key } }).catch(() => {});
-      else await prisma.appConfig.update({ where: { key }, data: { value: v } }).catch(() => {});
+      if (v === undefined) await prisma.appConfig.delete({ where: { key } }).catch(cleanupWarn);
+      else await prisma.appConfig.update({ where: { key }, data: { value: v } }).catch(cleanupWarn);
     }
     await restoreConfig('sponsor_tiers', tiersBefore);
     await prisma.sponsor.deleteMany({ where: { sponsorRequestId: { in: createdSponsors } } });
@@ -127,7 +127,7 @@ describe('rastro de auditoría: cobertura e integridad (lote 4)', () => {
     await cleanupTestEvent(event.id);
     await prisma.temporada.deleteMany({ where: { id: { in: createdTemporadas } } });
     await purgeAuditLog({ actorId: ACTOR });
-    await prisma.user.delete({ where: { id: ACTOR } }).catch(() => {});
+    await prisma.user.delete({ where: { id: ACTOR } }).catch(cleanupWarn);
   });
 
   beforeEach(() => {
@@ -239,7 +239,7 @@ describe('rastro de auditoría: cobertura e integridad (lote 4)', () => {
         expect((await putShopOrder(json('PUT', { trackingNumber: 'ABC123' }), ctx(shop.id))).status).toBe(200);
         expect(await rastro({ action: 'order.shop_status', targetId: shop.id })).toHaveLength(1);
       } finally {
-        await prisma.shopOrder.delete({ where: { id: shop.id } }).catch(() => {});
+        await prisma.shopOrder.delete({ where: { id: shop.id } }).catch(cleanupWarn);
       }
     });
   });
@@ -279,7 +279,7 @@ describe('rastro de auditoría: cobertura e integridad (lote 4)', () => {
         expect(traceWhenMailing.get(shop.id)).toBe(1);
       } finally {
         gateway.reset();
-        await prisma.shopOrder.delete({ where: { id: shop.id } }).catch(() => {});
+        await prisma.shopOrder.delete({ where: { id: shop.id } }).catch(cleanupWarn);
       }
     });
   });
@@ -438,7 +438,7 @@ describe('rastro de auditoría: cobertura e integridad (lote 4)', () => {
         expect((fila.meta as { filtro: Record<string, unknown> }).filtro).not.toHaveProperty('q');
         expect(JSON.stringify(fila)).not.toMatch(/rastro-exporta-tienda@example\.com|Rastro Exporta Tienda/);
       } finally {
-        await prisma.shopOrder.delete({ where: { id: shop.id } }).catch(() => {});
+        await prisma.shopOrder.delete({ where: { id: shop.id } }).catch(cleanupWarn);
       }
     });
 

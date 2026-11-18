@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { cleanupWarn } from '../helpers/fixtures';
 import { prisma } from '@/lib/prisma';
 
 vi.mock('next-auth', () => ({
@@ -19,7 +20,7 @@ describe('GET/PATCH /api/admin/compras/temporadas — archivado (Fase 4)', () =>
   });
 
   afterAll(async () => {
-    await prisma.temporada.delete({ where: { id: temporada.id } }).catch(() => {});
+    await prisma.temporada.delete({ where: { id: temporada.id } }).catch(cleanupWarn);
   });
 
   it('PATCH archivado:true la oculta del listado por defecto y no la borra', async () => {

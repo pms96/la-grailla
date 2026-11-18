@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
+import { cleanupWarn } from '../helpers/fixtures';
 import { prisma } from '@/lib/prisma';
 import * as brand from '@/lib/brand/brand';
 import { syncProductVariants } from '@/lib/product-stock';
@@ -49,7 +50,7 @@ describe('avisos de la tienda (P1-10)', () => {
     });
     await prisma.shopOrderItem.deleteMany({ where: { productId } });
     await prisma.shopOrder.deleteMany({ where: { id: { in: orderIds } } });
-    await prisma.product.delete({ where: { id: productId } }).catch(() => {});
+    await prisma.product.delete({ where: { id: productId } }).catch(cleanupWarn);
     await prisma.appConfig.deleteMany({ where: { key: { in: ['notify_email_tienda', 'shop_new_order_notice_since'] } } });
   });
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import { purgeAuditLog } from '../helpers/audit';
-import { createTestEvent, createTicketType, cleanupTestEvent } from '../helpers/fixtures';
+import { createTestEvent, createTicketType, cleanupTestEvent, cleanupWarn } from '../helpers/fixtures';
 import { gateway } from '../helpers/fake-gateway';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -60,8 +60,8 @@ describe('registro de auditoría de acciones sensibles', () => {
   afterAll(async () => {
     for (const key of TOUCHED) {
       const v = originalConfig.get(key);
-      if (v === undefined) await prisma.appConfig.delete({ where: { key } }).catch(() => {});
-      else await prisma.appConfig.update({ where: { key }, data: { value: v } }).catch(() => {});
+      if (v === undefined) await prisma.appConfig.delete({ where: { key } }).catch(cleanupWarn);
+      else await prisma.appConfig.update({ where: { key }, data: { value: v } }).catch(cleanupWarn);
     }
     await prisma.user.deleteMany({ where: { id: { in: createdUsers } } });
     await prisma.accessRole.deleteMany({ where: { id: { in: createdRoles } } });
@@ -138,7 +138,7 @@ describe('registro de auditoría de acciones sensibles', () => {
         expect(fila.meta).toMatchObject({ totalAmount: 42 });
         expect(JSON.stringify(fila)).not.toMatch(/rastro-tienda@example\.com|Rastro Tienda/);
       } finally {
-        await prisma.shopOrder.delete({ where: { id: shop.id } }).catch(() => {});
+        await prisma.shopOrder.delete({ where: { id: shop.id } }).catch(cleanupWarn);
       }
     });
 
@@ -177,6 +177,25 @@ describe('registro de auditoría de acciones sensibles', () => {
       }
     });
 
+    // H-185: «verificar» ignoraba el resultado de `completeOrder`: con un importe cobrado distinto al del pedido seguía PENDING pero respondía 200 y escribía el rastro
+    // `order.verify` como si se hubiera verificado (en «marcar como pagado» ya se contestaba 422, H-034).
+    it('H-185: verificar con un importe cobrado que no cuadra responde 422, no deja el rastro y el pedido sigue PENDING', async () => {
+      gateway.reset();
+      gateway.active = true;
+      try {
+        const paymentId = `cs_audit_verify_mismatch_${Date.now()}`;
+        gateway.script(paymentId, { success: true, paymentId, provider: 'stripe', status: 'PAID', amount: 5, currency: 'EUR' }); // el pedido es de 25 €
+        const order = await crearPedido('PENDING', 'rastro-verify-mismatch@example.com', { paymentProvider: 'stripe', paymentId });
+        const res = await patchOrder(json('PATCH', { action: 'verify' }), ctx(order.id));
+        expect(res.status).toBe(422);
+        expect((await res.json()).error).toMatch(/no coincide con el importe/);
+        expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('PENDING');
+        expect(await rastro({ action: 'order.verify', targetId: order.id })).toHaveLength(0);
+      } finally {
+        gateway.reset();
+      }
+    });
+
     it('reembolsar un pedido de tienda deja rastro con el importe y sin datos del comprador', async () => {
       const shop = await prisma.shopOrder.create({
         data: {
@@ -192,7 +211,7 @@ describe('registro de auditoría de acciones sensibles', () => {
         expect(fila.meta).toMatchObject({ totalAmount: 33 });
         expect(JSON.stringify(fila)).not.toMatch(/rastro-tienda-refund@example\.com|Rastro Reembolso/);
       } finally {
-        await prisma.shopOrder.delete({ where: { id: shop.id } }).catch(() => {});
+        await prisma.shopOrder.delete({ where: { id: shop.id } }).catch(cleanupWarn);
       }
     });
 
@@ -231,8 +250,8 @@ describe('registro de auditoría de acciones sensibles', () => {
         expect(ingreso).toMatchObject({ targetType: 'Ingreso', actorEmail: ACTOR_EMAIL });
       } finally {
         await prisma.ingreso.deleteMany({ where: { temporadaId: temporada.id } });
-        await prisma.temporada.delete({ where: { id: temporada.id } }).catch(() => {});
-        await prisma.user.delete({ where: { id: ACTOR } }).catch(() => {});
+        await prisma.temporada.delete({ where: { id: temporada.id } }).catch(cleanupWarn);
+        await prisma.user.delete({ where: { id: ACTOR } }).catch(cleanupWarn);
       }
     });
   });

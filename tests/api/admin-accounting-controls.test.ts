@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { cleanupWarn } from '../helpers/fixtures';
 import { prisma } from '@/lib/prisma';
 import { purgeAuditLog } from '../helpers/audit';
 
@@ -57,8 +58,8 @@ describe('P1-16 — controles de contabilidad: anulación, temporada cerrada y a
     await prisma.gasto.deleteMany({ where: { temporadaId } });
     await prisma.ingreso.deleteMany({ where: { temporadaId } });
     await purgeAuditLog({ actorId: ACTOR });
-    await prisma.temporada.delete({ where: { id: temporadaId } }).catch(() => {});
-    await prisma.user.delete({ where: { id: ACTOR } }).catch(() => {});
+    await prisma.temporada.delete({ where: { id: temporadaId } }).catch(cleanupWarn);
+    await prisma.user.delete({ where: { id: ACTOR } }).catch(cleanupWarn);
   });
 
   describe('gastos', () => {
@@ -133,6 +134,27 @@ describe('P1-16 — controles de contabilidad: anulación, temporada cerrada y a
       expect(exportado?.gastos.map((g) => g.concepto)).not.toContain('[TEST] Se anula');
     });
 
+    // H-187: el PATCH leía `voidedAt` fuera de la transacción y actualizaba por `id`: una anulación que llegaba entre la lectura y la escritura se pisaba (el gasto anulado
+    // volvía a cambiar y el rastro decía que se había modificado). La anulación sí usaba compare-and-swap (H-009); la edición, no.
+    it('H-187: una anulación que llega ENTRE la lectura y la escritura del PATCH no se pisa (409) y el gasto no cambia', async () => {
+      const { body } = await nuevoGasto({ concepto: '[TEST] Carrera anulación', importeSinIva: 77 });
+      const real = (globalThis as unknown as { prisma: typeof prisma }).prisma;
+      const original = real.gasto.findUnique.bind(real.gasto) as (...a: unknown[]) => Promise<unknown>;
+      let first = true;
+      const spy = vi.spyOn(real.gasto, 'findUnique').mockImplementation(((...a: unknown[]) =>
+        first
+          ? ((first = false), original(...a).then(async (row) => { await prisma.gasto.update({ where: { id: body.id }, data: { voidedAt: new Date(), voidReason: 'Carrera (test)' } }); return row; }))
+          : original(...a)) as never);
+      try {
+        const res = await updateGasto(json('http://localhost', 'PATCH', { importeSinIva: 999 }), ctx(body.id));
+        expect(res.status).toBe(409);
+        expect((await prisma.gasto.findUniqueOrThrow({ where: { id: body.id } })).importeSinIva).toBe(77);
+        expect(await auditoria({ action: 'gasto.update', targetId: body.id })).toHaveLength(0);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it('un gasto anulado ya no se puede modificar ni anular otra vez (409)', async () => {
       const { body } = await nuevoGasto({ concepto: '[TEST] Ya anulado' });
       await voidGasto(json('http://localhost', 'DELETE', { motivo: 'Error de tecleo' }), ctx(body.id));
@@ -166,6 +188,24 @@ describe('P1-16 — controles de contabilidad: anulación, temporada cerrada y a
       expect((await updateIngreso(json('http://localhost', 'PATCH', { importe: 35 }), ctx(b.id))).status).toBe(200);
       const [cambio] = await auditoria({ action: 'ingreso.update', targetId: b.id });
       expect((cambio.meta as { cambios: Record<string, unknown> }).cambios).toEqual({ importe: { from: 30, to: 35 } });
+    });
+
+    it('H-187: una anulación que llega ENTRE la lectura y la escritura del PATCH de un ingreso no se pisa (409)', async () => {
+      const ing = (await (await createIngreso(json('http://localhost', 'POST', { temporadaId, concepto: '[TEST] Carrera', importe: 60, fecha: '2026-09-25' }))).json()) as { id: string };
+      const real = (globalThis as unknown as { prisma: typeof prisma }).prisma;
+      const original = real.ingreso.findUnique.bind(real.ingreso) as (...a: unknown[]) => Promise<unknown>;
+      let first = true;
+      const spy = vi.spyOn(real.ingreso, 'findUnique').mockImplementation(((...a: unknown[]) =>
+        first
+          ? ((first = false), original(...a).then(async (row) => { await prisma.ingreso.update({ where: { id: ing.id }, data: { voidedAt: new Date(), voidReason: 'Carrera (test)' } }); return row; }))
+          : original(...a)) as never);
+      try {
+        expect((await updateIngreso(json('http://localhost', 'PATCH', { importe: 999 }), ctx(ing.id))).status).toBe(409);
+        expect((await prisma.ingreso.findUniqueOrThrow({ where: { id: ing.id } })).importe).toBe(60);
+        expect(await auditoria({ action: 'ingreso.update', targetId: ing.id })).toHaveLength(0);
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 
@@ -271,7 +311,7 @@ describe('P1-16 — controles de contabilidad: anulación, temporada cerrada y a
       failAudit = false;
       await prisma.gasto.deleteMany({ where: { temporadaId: tid } });
       await prisma.ingreso.deleteMany({ where: { temporadaId: tid } });
-      await prisma.temporada.delete({ where: { id: tid } }).catch(() => {});
+      await prisma.temporada.delete({ where: { id: tid } }).catch(cleanupWarn);
     });
     const sinRastro = async <T,>(fn: () => Promise<T>): Promise<T> => {
       failAudit = true;

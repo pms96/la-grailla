@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
-import { createTestEvent, cleanupTestEvent } from '../helpers/fixtures';
+import { createTestEvent, cleanupTestEvent, cleanupWarn } from '../helpers/fixtures';
 
 vi.mock('next-auth', () => ({
   getServerSession: vi.fn(async () => ({ user: { id: 'admin-gastos-resumen-test', role: 'ADMIN' } })),
@@ -27,7 +27,7 @@ describe('GET /api/admin/gastos/resumen — Ingresos y Margen (Fase 3)', () => {
 
   afterAll(async () => {
     await prisma.gasto.deleteMany({ where: { temporadaId: temporada.id } });
-    await prisma.temporada.delete({ where: { id: temporada.id } }).catch(() => {});
+    await prisma.temporada.delete({ where: { id: temporada.id } }).catch(cleanupWarn);
   });
 
   it('sin eventos enlazados: ingresos 0, margen = -gastoTotal, nEventosEnlazados 0', async () => {

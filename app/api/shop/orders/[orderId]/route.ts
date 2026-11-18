@@ -14,6 +14,7 @@ import type { PaymentCheck } from '@/lib/confirmation-state';
 import { SHOP_PAID_STATUSES, getEmailState } from '@/lib/email-delivery';
 import { buyerEmailView } from '@/lib/order-email';
 import { buildFiscalView } from '@/lib/fiscal';
+import { INTERNAL_SHOP_ORDER_FIELDS, publicOrder } from '@/lib/public-order';
 
 export async function GET(request: Request, props: { params: Promise<{ orderId: string }> }) {
   const params = await props.params;
@@ -77,7 +78,8 @@ export async function GET(request: Request, props: { params: Promise<{ orderId: 
     const emailDelivery = (SHOP_PAID_STATUSES as readonly string[]).includes(order.status) ? buyerEmailView(await getEmailState('tienda', order.id)) : null;
     // P0-11: datos del vendedor e IVA del justificante (solo con el pedido pagado).
     const fiscal = (SHOP_PAID_STATUSES as readonly string[]).includes(order.status) ? await buildFiscalView(order.totalAmount, order.vatRate) : null;
-    return NextResponse.json({ ...withoutSeasonLink(order), paymentCheck, emailDelivery, fiscal });
+    // H-211: sin los campos internos (`notes` las escribe el admin, `idempotencyKey`, `paymentId`, contadores de reconciliación…); la pantalla solo necesita `hasPayment`.
+    return NextResponse.json({ ...publicOrder(withoutSeasonLink(order), INTERNAL_SHOP_ORDER_FIELDS), paymentCheck, emailDelivery, fiscal });
   } catch (error) {
     return handleApiError(error, 'GET /api/shop/orders/[orderId]');
   }

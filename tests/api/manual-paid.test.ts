@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { prisma } from '@/lib/prisma';
-import { createTestEvent, createTicketType, cleanupTestEvent } from '../helpers/fixtures';
+import { createTestEvent, createTicketType, cleanupTestEvent, cleanupWarn } from '../helpers/fixtures';
 import { gateway, paid } from '../helpers/fake-gateway';
 
 const mailer = vi.hoisted(() => ({ sent: [] as { to: string; subject: string }[] }));
@@ -42,10 +42,10 @@ describe('marcar como pagado a mano (H-034)', () => {
     tt = await createTicketType(event.id, { maxQuantity: 50 });
   });
   afterAll(async () => {
-    await prisma.processedWebhookEvent.deleteMany({ where: { id: { startsWith: 'email:shop:' }, AND: { id: { in: shopIds.flatMap((i) => [`email:shop:${i}:due`]) } } } }).catch(() => {});
+    await prisma.processedWebhookEvent.deleteMany({ where: { id: { startsWith: 'email:shop:' }, AND: { id: { in: shopIds.flatMap((i) => [`email:shop:${i}:due`]) } } } }).catch(cleanupWarn);
     await prisma.shopOrderItem.deleteMany({ where: { productId } });
     await prisma.shopOrder.deleteMany({ where: { id: { in: shopIds } } });
-    await prisma.product.delete({ where: { id: productId } }).catch(() => {});
+    await prisma.product.delete({ where: { id: productId } }).catch(cleanupWarn);
     await prisma.ticket.deleteMany({ where: { eventId: event.id } });
     await prisma.order.deleteMany({ where: { eventId: event.id } });
     await cleanupTestEvent(event.id);

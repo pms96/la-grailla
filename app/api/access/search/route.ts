@@ -9,7 +9,7 @@ import { authOptions } from '@/lib/auth';
 import { rateLimit } from '@/lib/rate-limit';
 import { handleApiError } from '@/lib/api-error';
 import { ticketUnusable } from '@/lib/ticket-validity';
-import { ORDER_REF_SEARCH_LENGTHS, maskEmail, orderRef } from '@/lib/door-search';
+import { LEGACY_ORDER_REF_LENGTH, ORDER_REF_SEARCH_LENGTHS, maskEmail, orderRef } from '@/lib/door-search';
 import { displayBuyerEmail, isPlaceholderEmail } from '@/lib/placeholder-email';
 
 /* Búsqueda de asistentes en la PUERTA (P1-06 / EN-12): «no encuentro el email» es el motivo nº 1 de soporte en la entrada. El personal escribe un
@@ -55,6 +55,9 @@ export async function GET(request: Request) {
         ...(w.includes('@') ? [{ order: { buyerEmail: { equals: w, mode: 'insensitive' as const } } }] : []),
         // La referencia del pedido, COMPLETA (H-168): un sufijo de cualquier longitud sería un oráculo para reconstruir el id (con el que se pide el pedido o su PDF con el QR).
         ...(ORDER_REF_SEARCH_LENGTHS.includes(w.length) ? [{ order: { id: { endsWith: w.toLowerCase() } } }] : []),
+        // H-193: la referencia ANTIGUA del comprador eran los 8 PRIMEROS caracteres del id (H-136 la cambió a los últimos): los emails y PDF anteriores siguen vigentes. Solo con
+        // la longitud exacta de 8, así no sirve para alargar un prefijo y reconstruir el id (H-168).
+        ...(w.length === LEGACY_ORDER_REF_LENGTH ? [{ order: { id: { startsWith: w.toLowerCase() } } }] : []),
         { qrCode: { equals: w, mode: 'insensitive' } },
       ],
     });

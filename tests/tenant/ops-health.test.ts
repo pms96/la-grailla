@@ -66,6 +66,7 @@ beforeEach(async () => {
   vi.stubEnv('FRONT_SCHEMA_EXPECTED', latestMigrationOnDisk());
   await resetTenantDatabase('a');
   for (const [key, value] of [['admin_email', 'duena@cliente.es'], ['legal_notice', 'a'], ['privacy_policy', 'b'], ['cookies_policy', 'c']]) await db().appConfig.create({ data: { key, value } });
+  await db().appConfig.create({ data: { key: 'platform_tenant_id', value: TEST_TENANT_IDS.a, group: 'platform' } }); // el panel siembra siempre la marca (H-197: sin ella un cliente nuevo sale degradado)
   eventId = (await db().event.create({ data: { name: 'Evento ops', slug: 'evento-ops', venue: 'Sala', city: 'Madrid', date: new Date(Date.now() + 5 * 86_400_000), maxCapacity: 100, status: 'PUBLISHED' } })).id;
 });
 afterEach(() => env.restore());
@@ -395,13 +396,13 @@ describe('bloque `ops` de /api/health', () => {
     it('con el secreto del cliente: el bloque con la forma exacta y los campos de siempre intactos', async () => {
       await order({ attempts: EMAIL_MAX_ATTEMPTS });
       const body = await (await health('valid')).json();
-      expect(Object.keys(body).sort()).toEqual(['db', 'onboarding', 'ops', 'platform', 'schema', 'serving', 'status', 'tenantId', 'tenantMarker', 'version']);
+      expect(Object.keys(body).sort()).toEqual(['db', 'onboarding', 'ops', 'platform', 'schema', 'serving', 'status', 'tenantId', 'tenantMarker', 'tenantMarkerState', 'version']);
       expect(body.ops).toEqual({ generatedAt: expect.any(String), pendingOldestMinutes: null, pendingOver20min: 0, emailsUnsent: 0, emailsFailed: 1, reconcile: null, gateway: null, sales: { orders15min: 0, waitingRoom: 0 }, obligations: { ticketOrdersPending: 0, futureEventsWithTickets: 0, cancelledEventsWithTickets: 0, shopOrdersPending: 0, shopOrdersToShip: 0 } });
       expect(body.status).toBe('ok');
     });
 
     it('con la BD de OTRO cliente (marca distinta) no se lee nada de negocio: ops null', async () => {
-      await db().appConfig.create({ data: { key: 'platform_tenant_id', value: TEST_TENANT_IDS.b, group: 'platform' } });
+      await db().appConfig.update({ where: { key: 'platform_tenant_id' }, data: { value: TEST_TENANT_IDS.b } });
       await order({ attempts: EMAIL_MAX_ATTEMPTS });
       const res = await health('valid');
       expect(res.status).toBe(503);

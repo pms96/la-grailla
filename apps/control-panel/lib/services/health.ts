@@ -17,6 +17,9 @@ export const HealthDetailSchema = z.object({
   tenantId: z.string().nullable(),
   // Id de cliente con el que está marcada la BD (si coincide con `tenantId`, bien; si no, la BD es de OTRO cliente). Opcional por compatibilidad.
   tenantMarker: z.string().nullable().optional(),
+  // H-197: si el front pudo comprobar la marca (`match`, `mismatch`, `missing` sin marca, `unreadable` lectura fallida). Texto libre a propósito: un valor futuro desconocido no debe
+  // hacer que el cliente parezca «no responde».
+  tenantMarkerState: z.string().nullable().optional(),
   db: z.object({ ok: z.boolean(), latencyMs: z.number() }),
   schema: z.object({ applied: z.string().nullable(), expected: z.string(), minRequired: z.string(), upToDate: z.boolean() }),
   onboarding: z.object({ complete: z.boolean(), missing: z.array(z.string()) }),
@@ -55,6 +58,10 @@ export async function probeTenantHealth(
   // El problema más grave posible en una plataforma multi-cliente: el front de este cliente está leyendo la BD de otro.
   if (d.tenantMarker && d.tenantMarker !== target.tenantId) severe = true;
   if (d.tenantMarker && d.tenantMarker !== target.tenantId) problems.push(`LA BD ES DE OTRO CLIENTE (marcada como ${d.tenantMarker}): revisa las URLs de BD de este cliente ya`);
+  // H-197: el front no pudo comprobar que la BD es de este cliente. Con la lectura fallida se dice siempre; sin marca solo cuando el front ya lo da por degradado (un cliente anterior a
+  // la plataforma no tiene marca y es normal). No es grave por sí solo: el aislamiento no está ROTO, está sin comprobar.
+  if (d.tenantMarkerState === 'unreadable') problems.push('No se pudo leer la marca de la BD: no se puede comprobar que la base de datos sea de este cliente');
+  if (d.tenantMarkerState === 'missing' && d.status === 'degraded') problems.push('La BD está sin marca de cliente (platform_tenant_id): no se puede comprobar que sea de este cliente; vuelve a sembrarla desde el panel');
   if (d.serving === false) severe = true;
   if (d.serving === false) problems.push('El front NO está sirviendo a este cliente (mantenimiento por esquema del registro atrasado): ejecuta el runner de migraciones o corrige la versión del registro');
   if (!d.schema.upToDate) problems.push(`Esquema atrasado: aplicado ${d.schema.applied ?? 'desconocido'}, el front exige ${d.schema.minRequired}`);
