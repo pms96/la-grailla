@@ -12,7 +12,7 @@ export const AUDIT_ACTIONS = [
   'gasto.create', 'gasto.update', 'gasto.void',
   'ingreso.create', 'ingreso.update', 'ingreso.void',
   'temporada.create', 'temporada.close', 'temporada.reopen', 'temporada.update', 'temporada.reassign',
-  'order.cancel', 'order.refund', 'order.complete', 'order.verify', 'order.update_email', 'order.shop_cancel', 'order.shop_refund', 'order.shop_status',
+  'order.cancel', 'order.refund', 'order.void_door_sale', 'order.complete', 'order.verify', 'order.update_email', 'order.shop_cancel', 'order.shop_refund', 'order.shop_status',
   'event.create', 'event.update', 'event.delete', 'event.cancel',
   'event.ticket_type_create', 'event.ticket_type_update', 'event.ticket_type_delete',
   'sponsor.update', 'sponsor.mark_paid', 'sponsor.reject',

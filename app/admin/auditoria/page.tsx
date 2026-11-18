@@ -28,6 +28,7 @@ const ACTION_LABELS: Record<string, string> = {
   'temporada.reassign': 'Elemento movido de temporada',
   'order.cancel': 'Pedido cancelado',
   'order.refund': 'Pedido reembolsado',
+  'order.void_door_sale': 'Venta de puerta anulada',
   'order.complete': 'Pedido marcado como pagado',
   'order.verify': 'Pago verificado en la pasarela',
   'order.update_email': 'Email de pedido cambiado',

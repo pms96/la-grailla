@@ -9,7 +9,7 @@ Documento de cierre de `docs/platform/revision-integral.md` (259 hallazgos, H-00
 | Hallazgos registrados | 259 (158 de la fase 1; H-159…H-162 en los lotes 10 y 11; H-163…H-167 en la fase 4; H-168…H-258 en la fase 5; H-259 en el lote 16) |
 | Hechos (código y prueba) | 226 |
 | Documentados (riesgo aceptado con su motivo, §3) | 24 |
-| Decisión del propietario (§4) | 1 (H-254, a la espera de la gestoría); decididas el 2026-11-18: H-234 (A, hecho en el lote 18), H-253 (A, pendiente) y la caducidad de enlaces H-212 (B, hecho en el lote 19); H-259 resuelto |
+| Decisión del propietario (§4) | 1 (H-254, a la espera de la gestoría); decididas el 2026-11-18: H-234 (A, hecho en el lote 18), H-253 (A, hecho en el lote 20) y la caducidad de enlaces H-212 (B, hecho en el lote 19); H-259 resuelto |
 | Pendientes externos, gestoría o abogado (§5) | 5, más H-135 y H-028 (ya documentados, con su decisión externa) |
 | Críticos abiertos | 0 |
 | Altos e «Importantes» abiertos | 0 (los 15 altos, el medio-alto y los 6 importantes están hechos) |
@@ -60,6 +60,7 @@ Todos son «Bajo». Ninguno se ha dejado por no saber arreglarlo: o es un compro
 - **A:** permitir al propietario anular una venta de taquilla de puerta, con motivo y rastro, ajustando caja y aforo.
 - **D:** mantener y escribir el procedimiento manual (ingreso negativo con motivo).
 - Mi recomendación: D ahora y A cuando haya un caso real, porque A toca aforo y caja a la vez.
+- **Decisión del dueño (2026-11-18): A, aunque mi recomendación era D. Hecho en el lote 20** (runbook §22), con los límites que puse yo: solo el propietario, con motivo, sin anulación parcial y bloqueado (423) en una temporada cerrada.
 
 **H-254. Reembolsos y ventas posteriores en una temporada ya cerrada.** El cierre bloquea gastos e ingresos pero no congela los ingresos por entradas: un reembolso en un evento de una temporada CERRADA cambia su margen sin avisar (la venta sí es intencionada).
 - **A:** bloquear (423) reembolsos de eventos de temporadas cerradas: obliga a reabrir con motivo.

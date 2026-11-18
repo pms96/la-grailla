@@ -421,3 +421,32 @@ El workflow se niega a ejecutarse (y dice por qué) si no hay secreto, si la URL
 **Para cambiar el plazo.** Una sola constante (`ORDER_LINK_GRACE_DAYS`); los tests miden el límite exacto a los 30 días.
 
 **Límites.** La fecha que cuenta es la de inicio del evento (`Event.date`), sin tener en cuenta la hora de fin: un evento nocturno tiene 30 días y unas horas. Un evento aplazado a una fecha posterior alarga el plazo con él. No se ha recuperado el aviso al comprador en cada reacceso que traía el stash: mandaba un email por cada reapertura (también el día del evento) y tenía el correo de La Grailla fijado en el código; si se quiere un aviso de accesos sospechosos, es un lote aparte y por cliente.
+
+
+## 22. Anular una venta de taquilla de puerta (lote 20, H-253)
+
+**El problema.** Una venta de taquilla «durante el evento» crea las entradas ya **usadas**, y «Cancelar pedido» no anula un pedido con entradas usadas. Un error de cantidad o de método de pago solo se corregía con un ingreso negativo manual, y la caja del día quedaba inflada.
+
+**Qué hay ahora.** En Administración → Ventas, al abrir una venta de taquilla de puerta aparece **«Anular venta de puerta»**. Pide un motivo obligatorio (5 a 300 caracteres) y, al confirmar, en una sola operación:
+- el pedido pasa a **cancelado** y sus entradas quedan **anuladas** (el QR deja de valer);
+- baja lo **vendido** del tipo de entrada;
+- baja el **aforo en puerta** tantas personas como entradas estuvieran usadas (nunca por debajo de cero);
+- la venta **deja de contar** en la caja del día, en ventas por día y en estadísticas;
+- queda en la auditoría («Venta de puerta anulada»): quién, cuándo y el motivo.
+
+**Quién.** Solo el **propietario** (administrador sin rol restringido). Un administrador con un rol como «Contable», la taquilla y el personal no ven el botón y el servidor lo rechaza (403).
+
+**Cuándo se puede.** Venta de **taquilla**, completada, **sin pasarela de pago** y con **al menos una entrada usada**. Si no se cumple el servidor responde:
+- venta online, o de taquilla sin entradas usadas → 422 (para una venta sin usar se sigue usando «Cancelar pedido»);
+- pagada por una pasarela → 422 (hay que **reembolsarla**);
+- ya anulada → 409;
+- **temporada cerrada → 423.** Anular cambia el margen de una temporada ya presentada, como anular un ingreso: el propietario puede reabrirla indicando el motivo y volver a intentarlo.
+
+**Procedimientos.**
+- *Cantidad o método de pago equivocados:* se anula la venta (con el motivo) y se **vuelve a vender** bien. No hay anulación parcial. Al anular baja el aforo en puerta, así que la nueva venta cabe.
+- *El dinero:* la app **no devuelve dinero**. Si se cobró en efectivo o con datáfono, se devuelve en caja y el motivo debe dejar claro qué pasó, para que el cuadre cuadre.
+- *El ingreso negativo manual* (el procedimiento antiguo) ya no hace falta; si se hizo alguna vez para una venta que ahora se anula, hay que **no** duplicarlo.
+
+**Garantías.** Dos anulaciones a la vez aplican solo una (la otra recibe 409). La anulación toma el mismo cerrojo por evento que la venta de taquilla, así que una venta y una anulación simultáneas no leen aforo ni stock obsoletos. Si el rastro no se pudo escribir, no se anula nada: todo va en la misma transacción. Con la licencia vencida sigue permitida (es dinero ya cobrado, como cancelar o reembolsar).
+
+**Límites.** No toca el email ni los avisos ya enviados al comprador (las ventas de puerta no llevan email real). No revierte los escaneos que ya constan en el registro de entradas: se conservan como historial. Los pedidos de tienda y los de pasarela no pasan por aquí.

@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
@@ -68,7 +69,7 @@ type OrderDetail = Prisma.OrderGetPayload<{
     };
     invitation: { select: { id: true; guestName: true; listId: true } };
   };
-}> & { emailDelivery?: EmailDelivery };
+}> & { emailDelivery?: EmailDelivery; /** H-253: lo decide el servidor (propietario + venta de puerta anulable). */ canVoidDoorSale?: boolean };
 
 const madrid = (d: string | Date) => new Date(d).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' });
 
@@ -115,6 +116,9 @@ export default function VentasPage() {
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [emailDraft, setEmailDraft] = useState('');
   const [savingEmail, setSavingEmail] = useState(false);
+  const [voidDialogOpen, setVoidDialogOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState('');
+  const [voiding, setVoiding] = useState(false);
 
   // H-225: solo vale la respuesta de la última petición (el buscador relanza la carga con cada tecla y `?eventId=` provoca dos cargas al abrir).
   const latest = useRef(createLatest());
@@ -277,6 +281,34 @@ export default function VentasPage() {
       toast.error(userMessage(e, 'No se pudo completar la acción'));
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  // H-253: anular una venta de taquilla de puerta (con entradas ya usadas). Solo el propietario; el servidor decide si se enseña el botón y vuelve a comprobarlo al anular.
+  const submitVoid = async () => {
+    if (!detail) return;
+    if (voidReason.trim().length < 5) {
+      toast.error('Indica el motivo (al menos 5 caracteres)');
+      return;
+    }
+    setVoiding(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${detail.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'void-door-sale', reason: voidReason.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? 'Error');
+      setDetail(data);
+      setVoidDialogOpen(false);
+      setVoidReason('');
+      toast.success('Venta de puerta anulada: entradas anuladas, aforo y caja corregidos');
+      fetchOrders();
+    } catch (e) {
+      toast.error(userMessage(e, 'No se pudo anular la venta'));
+    } finally {
+      setVoiding(false);
     }
   };
 
@@ -592,12 +624,58 @@ export default function VentasPage() {
                       Reembolsar
                     </Button>
                   )}
+                  {detail.canVoidDoorSale && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 text-destructive-text"
+                      disabled={actionLoading !== null || voiding}
+                      onClick={() => setVoidDialogOpen(true)}
+                    >
+                      <Ban className="h-4 w-4" />
+                      Anular venta de puerta
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
           )}
         </div>
       </div>
+
+      <Dialog open={voidDialogOpen} onOpenChange={(open) => !voiding && setVoidDialogOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Anular venta de puerta</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm">
+              Se anulará el pedido y sus entradas, bajará lo vendido y el aforo en puerta, y la venta dejará de contar en la caja del día. Queda registrado quién
+              lo anuló y por qué.
+            </p>
+            <p className="text-sm font-medium">
+              La app no devuelve dinero: si cobraste en efectivo o con datáfono, devuélvelo en caja. Para corregir una cantidad o un método de pago, anula y vuelve a vender.
+            </p>
+            <Textarea
+              value={voidReason}
+              onChange={(e) => setVoidReason(e.target.value)}
+              placeholder="Motivo (obligatorio): p. ej. «eran 2 entradas, no 3»"
+              maxLength={300}
+              rows={3}
+              aria-label="Motivo de la anulación"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVoidDialogOpen(false)} disabled={voiding}>
+              Volver
+            </Button>
+            <Button variant="destructive" onClick={submitVoid} disabled={voiding || voidReason.trim().length < 5} className="gap-2">
+              {voiding && <Loader2 className="h-4 w-4 animate-spin" />}
+              Anular venta
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={emailDialogOpen} onOpenChange={setEmailDialogOpen}>
         <DialogContent>

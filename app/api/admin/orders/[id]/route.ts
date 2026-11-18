@@ -15,10 +15,13 @@ import { getBaseUrl } from '@/lib/url';
 import { getEmailState } from '@/lib/email-delivery';
 import { adminEmailView } from '@/lib/order-email';
 import { actorFromSession, maskEmail, recordAdminAuditSafe, type AuditAction } from '@/lib/admin-audit';
+import { isOwnerAdmin } from '@/lib/access-roles';
+import { isVoidableDoorSale, voidDoorSale } from '@/lib/door-sale-void';
 
-const ORDER_AUDIT_ACTION: Record<'cancel' | 'refund' | 'verify' | 'complete' | 'update-email', AuditAction> = {
+const ORDER_AUDIT_ACTION: Record<'cancel' | 'refund' | 'void-door-sale' | 'verify' | 'complete' | 'update-email', AuditAction> = {
   cancel: 'order.cancel',
   refund: 'order.refund',
+  'void-door-sale': 'order.void_door_sale',
   verify: 'order.verify',
   complete: 'order.complete',
   'update-email': 'order.update_email',
@@ -28,8 +31,10 @@ const recordOrderAudit = (session: Parameters<typeof actorFromSession>[0], reque
   recordAdminAuditSafe(actorFromSession(session), request, { action: ORDER_AUDIT_ACTION[action], targetType: 'Order', targetId: orderId, meta });
 
 const updateOrderSchema = z.object({
-  action: z.enum(['cancel', 'refund', 'verify', 'complete', 'update-email']),
+  action: z.enum(['cancel', 'refund', 'void-door-sale', 'verify', 'complete', 'update-email']),
   email: z.string().trim().email().optional(),
+  // H-253: motivo de la anulación de una venta de puerta. Sin tipo fijo: lo valida `parseMotivo` (mínimo 5, máximo 300) y un valor que no sea texto da 400.
+  reason: z.unknown().optional(),
 });
 
 const orderInclude = {
@@ -55,7 +60,7 @@ export async function GET(_request: Request, props: { params: Promise<{ id: stri
     if (!order) {
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
     }
-    return NextResponse.json({ ...order, emailDelivery: adminEmailView(await getEmailState('entradas', order.id)) });
+    return NextResponse.json({ ...order, emailDelivery: adminEmailView(await getEmailState('entradas', order.id)), canVoidDoorSale: isOwnerAdmin(session) && isVoidableDoorSale(order) });
   } catch (error) {
     return handleApiError(error, 'GET /api/admin/orders/[id]');
   }
@@ -75,8 +80,21 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
 
     // El middleware deja pasar este PATCH aunque la licencia esté vencida o falte el módulo, para no frenar un reembolso. Cancelar y
     // reembolsar es dinero ya cobrado; completar un pedido, emitir entradas o cambiar el email del comprador no lo es.
-    if (body.action !== 'cancel' && body.action !== 'refund' && isFullAccessRestricted('entradas')) {
+    // Anular una venta de puerta también es dinero ya cobrado (como cancelar o reembolsar): no se frena por la licencia.
+    if (body.action !== 'cancel' && body.action !== 'refund' && body.action !== 'void-door-sale' && isFullAccessRestricted('entradas')) {
       return NextResponse.json({ error: 'Licencia vencida o módulo no disponible' }, { status: 402 });
+    }
+
+    // H-253: anular una venta de taquilla de puerta (con entradas ya usadas) es solo del propietario, con motivo; el rastro lo escribe la propia transacción.
+    if (body.action === 'void-door-sale') {
+      if (!isOwnerAdmin(session)) {
+        return NextResponse.json({ error: 'Solo el propietario puede anular una venta de puerta' }, { status: 403 });
+      }
+      const voided = await voidDoorSale(params?.id, body.reason, { actor: actorFromSession(session), request });
+      if (!voided.ok) {
+        return NextResponse.json({ error: voided.error, code: voided.code }, { status: voided.status });
+      }
+      auditDone = true;
     }
 
     if (body.action === 'cancel' || body.action === 'refund') {
@@ -169,7 +187,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       where: { id: params?.id },
       include: orderInclude,
     });
-    return NextResponse.json(order ? { ...order, emailDelivery: adminEmailView(await getEmailState('entradas', order.id)) } : order);
+    return NextResponse.json(order ? { ...order, emailDelivery: adminEmailView(await getEmailState('entradas', order.id)), canVoidDoorSale: isOwnerAdmin(session) && isVoidableDoorSale(order) } : order);
   } catch (error) {
     return handleApiError(error, 'PATCH /api/admin/orders/[id]');
   }
