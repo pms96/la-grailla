@@ -343,3 +343,7 @@ No hay migraciones ni cambios de esquema en el panel. Cambian el front, el panel
 - **Migrar un cliente cuya salud no mide las ventas (H-203).** El panel NO migra si no puede comprobar que no hay una venta en marcha (BD saturada, restaurada por detrás del registro o salud sin la medida): la ejecución queda en «Omitida» con el motivo. Es a propósito. Si es imprescindible (típico tras un PITR, H-043), usa el script desde la carpeta del panel: `npm run migrate:tenants -- --force-sales-window`, y hazlo fuera de una venta.
 - **Venta de taquilla duplicada por doble toque (H-206).** Un doble toque con la misma clave devuelve la venta ya registrada (antes, a veces, un error 500). **Sin medir, vigilar si crece el volumen:** la búsqueda del tope de entradas por email recorre las entradas del evento sin índice y la venta de taquilla crea las entradas una a una.
 
+## 17. Cierre de la revisión integral (fase 6)
+
+La lista única y ordenada de lo que tiene que hacer el propietario (antes, durante y después de desplegar, y cuando toque), los riesgos aceptados con su «reabrir si…», las decisiones abiertas con opciones y los pendientes de gestoría y abogado están en **`docs/platform/cierre-revision-integral.md`**. Esta sección solo existe para que quien llegue por el runbook lo encuentre; las secciones 1 a 16 siguen siendo el detalle operativo de cada lote.
+

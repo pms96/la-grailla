@@ -61,7 +61,9 @@ export function licensePhase(terms: LicenseTerms, now: number): LicenseState {
 /**
  * Fase que aplica el front. La del snapshot, más los cambios programados que ya han llegado — pero SOLO si la lectura del registro
  * es fresca: un snapshot servido como obsoleto (registro caído) no puede empeorar la fase por sí solo, porque el cliente puede
- * haber pagado y no verse. Nunca mejora la fase: eso solo lo hace un snapshot nuevo.
+ * haber pagado y no verse. Con lectura obsoleta devuelve la fase PUBLICADA en el snapshot y no aplica el calendario (H-255): respecto a lo que se aplicaba antes sí puede
+ * mejorar (un cliente que estaba en PANEL_BLOCKED o BLOCKED solo por calendario vuelve a la fase del snapshot mientras el registro falle). Es el compromiso del plan: ante la
+ * duda no se castiga a quien pudo haber pagado; el calendario se vuelve a aplicar en cuanto la lectura es fresca.
  */
 export function effectiveLicensePhase(
   license: { phase: LicensePhase; schedule?: readonly LicenseChange[] },
