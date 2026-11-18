@@ -337,3 +337,9 @@ No hay migraciones ni cambios de esquema en el panel. Cambian el front, el panel
 
 **Para quien desarrolla:** las limpiezas de tests usan `cleanupWarn` (no `.catch(() => {})`, H-200) y `check:migrations` también marca `CREATE TRIGGER` sobre una tabla viva (H-205).
 
+**Añadido al lote 15 (H-203, H-206, H-210)**
+
+- **Servidor de correo (H-210).** Al guardar la configuración, `smtp_host` solo admite nombres de host públicos o IP públicas (no `localhost`, ni redes privadas, ni `.local`/`.internal`). Si un cliente ya tenía un host interno guardado, sigue funcionando hasta que alguien vuelva a guardar la configuración; en ese momento se le pedirá uno público. No detecta un nombre público que resuelva a una IP interna.
+- **Migrar un cliente cuya salud no mide las ventas (H-203).** El panel NO migra si no puede comprobar que no hay una venta en marcha (BD saturada, restaurada por detrás del registro o salud sin la medida): la ejecución queda en «Omitida» con el motivo. Es a propósito. Si es imprescindible (típico tras un PITR, H-043), usa el script desde la carpeta del panel: `npm run migrate:tenants -- --force-sales-window`, y hazlo fuera de una venta.
+- **Venta de taquilla duplicada por doble toque (H-206).** Un doble toque con la misma clave devuelve la venta ya registrada (antes, a veces, un error 500). **Sin medir, vigilar si crece el volumen:** la búsqueda del tope de entradas por email recorre las entradas del evento sin índice y la venta de taquilla crea las entradas una a una.
+

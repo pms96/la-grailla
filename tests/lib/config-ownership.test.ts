@@ -70,6 +70,30 @@ describe('Validación del valor de cada clave', () => {
     expect(invalidConfigValue('smtp_port', '70000')).not.toBeNull();
   });
 
+  // H-210: `smtp_host` era texto libre y el servidor se conecta a él: un administrador de un cliente podía sondear la red interna (puertos de localhost, la IP de metadatos de la
+  // nube…) leyendo el error de conexión. Ahora solo se aceptan nombres de host públicos o IP públicas literales. No cubre un nombre público que resuelva a una IP interna.
+  it('H-210: smtp_host acepta nombres de host y IP públicas', () => {
+    for (const ok of ['smtp.gmail.com', 'smtp.cliente.test', 'mail.example.es', 'smtp-relay.brevo.com', '203.0.113.5', '8.8.8.8', '172.32.0.1', '172.15.255.255', '100.63.255.255']) {
+      expect(invalidConfigValue('smtp_host', ok), ok).toBeNull();
+    }
+    expect(invalidConfigValue('smtp_host', '')).toBeNull(); // vacío = sin configurar
+  });
+
+  it('H-210: smtp_host rechaza localhost, IP privadas, de loopback, de enlace local y de metadatos, y los nombres internos', () => {
+    for (const bad of [
+      'localhost', 'LOCALHOST', 'db.localhost', '127.0.0.1', '127.1.2.3', '10.0.0.5', '172.16.0.1', '172.31.255.255', '192.168.1.10', '169.254.169.254', '100.64.0.1',
+      '0.0.0.0', '224.0.0.1', '255.255.255.255', 'mail.internal', 'servidor.local', 'host.lan', 'x.localdomain', 'redis.home.arpa',
+    ]) {
+      expect(invalidConfigValue('smtp_host', bad), bad).not.toBeNull();
+    }
+  });
+
+  it('H-210: smtp_host rechaza las formas disfrazadas de una IP y todo lo que no sea un nombre de host (puerto, esquema, espacios, IPv6)', () => {
+    for (const bad of ['2130706433', '0x7f000001', '0177.0.0.1', '127.1', 'smtp.cliente.es:587', 'smtp://smtp.cliente.es', 'smtp host', 'smtp.cliente.es/ruta', '[::1]', '::1', 'a_b.com', '-x.com', 'x..com']) {
+      expect(invalidConfigValue('smtp_host', bad), bad).not.toBeNull();
+    }
+  });
+
   it('el valor vacío se acepta siempre (significa "usar el de por defecto")', () => {
     expect(invalidConfigValue('commission_percentage', '')).toBeNull();
     expect(invalidConfigValue('smtp_enabled', '')).toBeNull();

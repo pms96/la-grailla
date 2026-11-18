@@ -82,6 +82,41 @@ describe('POST /api/taquilla/sale', () => {
     expect(ticketCount).toBe(1);
   });
 
+  // H-206: dos envíos simultáneos con la misma `idempotencyKey` (doble tap en el datáfono) pasan los dos la comprobación previa; el segundo choca con el UNIQUE de Postgres al
+  // crear el pedido (P2002) y devolvía un 500 en vez del pedido que acababa de registrar el primero (en entradas online ya se devolvía).
+  it('H-206: si la carrera de la clave llega al UNIQUE (P2002), devuelve la venta ya registrada, no un 500', async () => {
+    const idempotencyKey = `test-idem-race-${Date.now()}`;
+    const body = {
+      eventId: event.id,
+      buyerName: 'Carrera',
+      buyerLastName: 'Test',
+      buyerEmail: '',
+      items: [{ ticketTypeId: ticketType.id, quantity: 1 }],
+      paymentMethod: 'cash',
+      idempotencyKey,
+    };
+    const first = await taquillaSale(saleRequest(body));
+    expect(first.status).toBe(200);
+    const { orderId } = await first.json();
+
+    // La segunda petición mira si ya existe la venta ANTES de que la primera la confirme: no la ve (null una vez) y sigue adelante hasta chocar con el UNIQUE.
+    const real = (globalThis as unknown as { prisma: typeof prisma }).prisma;
+    const original = real.order.findUnique.bind(real.order) as (...a: unknown[]) => unknown;
+    let hidden = false;
+    const spy = vi.spyOn(real.order, 'findUnique').mockImplementation(((...a: unknown[]) => (hidden ? original(...a) : ((hidden = true), Promise.resolve(null)))) as never);
+    try {
+      const second = await taquillaSale(saleRequest(body));
+      expect(second.status).toBe(200);
+      const data = await second.json();
+      expect(data.orderId).toBe(orderId);
+      expect(data.tickets).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await prisma.order.count({ where: { idempotencyKey } })).toBe(1);
+    expect(await prisma.ticket.count({ where: { orderId } })).toBe(1);
+  });
+
   // AUDIT: onlineSalesClosed solo debe cerrar la compra ONLINE (ver
   // app/api/orders/route.ts) — la venta en taquilla tiene que seguir
   // funcionando con normalidad, es justo el caso de uso que motiva el flag

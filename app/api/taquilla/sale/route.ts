@@ -16,6 +16,9 @@ import { TAQUILLA_PLACEHOLDER_EMAIL } from '@/lib/placeholder-email';
 
 class TaquillaSaleRejectedError extends Error {}
 
+// H-206: la venta con esta `idempotencyKey` ya la registró otro envío (choque con el UNIQUE al crear el pedido).
+class DuplicateSaleError extends Error {}
+
 const taquillaSaleSchema = z.object({
   eventId: z.string().min(1),
   buyerName: z.string().max(100).optional(),
@@ -63,21 +66,24 @@ export async function POST(request: Request) {
     // Mismo criterio que app/api/orders/route.ts: un reintento (timeout de
     // red, doble tap en el datáfono) con la misma clave que una venta que ya
     // se registró no debe cobrar ni emitir entradas dos veces.
-    if (idempotencyKey) {
+    // La venta ya registrada con esa clave, si existe. Se usa también si dos envíos simultáneos chocan con el UNIQUE al crear (H-206).
+    const existingSale = async (): Promise<NextResponse | null> => {
+      if (!idempotencyKey) return null;
       const existing = await prisma.order.findUnique({
         where: { idempotencyKey },
         include: { _count: { select: { tickets: true } }, tickets: { take: 1, select: { status: true } } },
       });
-      if (existing) {
-        return NextResponse.json({
-          success: true,
-          orderId: existing.id,
-          totalAmount: existing.totalAmount,
-          tickets: existing._count.tickets,
-          duringEvent: existing.tickets[0]?.status === 'USED',
-        });
-      }
-    }
+      if (!existing) return null;
+      return NextResponse.json({
+        success: true,
+        orderId: existing.id,
+        totalAmount: existing.totalAmount,
+        tickets: existing._count.tickets,
+        duringEvent: existing.tickets[0]?.status === 'USED',
+      });
+    };
+    const replayed = await existingSale();
+    if (replayed) return replayed;
 
     if (!duringEvent && !buyerName?.trim()) {
       return NextResponse.json({ error: 'Introduce el nombre del comprador' }, { status: 400 });
@@ -187,8 +193,16 @@ export async function POST(request: Request) {
       // defecto de Prisma dan P2028 (la venta física devolvía 500 o el cobro con datáfono quedaba sin registrar).
     }, { maxWait: 20_000, timeout: 20_000 }).catch((error) => {
       if (error instanceof TaquillaSaleRejectedError) return error;
+      // H-206: otro envío con la MISMA clave ganó la carrera del UNIQUE: la venta ya está registrada y se devuelve (como en las entradas online), no un 500.
+      if (idempotencyKey && (error as { code?: string } | null)?.code === 'P2002') return new DuplicateSaleError();
       throw error;
     });
+
+    if (order instanceof DuplicateSaleError) {
+      const registered = await existingSale();
+      if (registered) return registered;
+      return NextResponse.json({ error: 'No se ha podido procesar la venta. Inténtalo de nuevo.' }, { status: 409 });
+    }
 
     if (order instanceof TaquillaSaleRejectedError) {
       return NextResponse.json({ error: order.message }, { status: 400 });

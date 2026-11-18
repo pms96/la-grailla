@@ -99,7 +99,28 @@ export function isConfigKeyAllowed(key: string, activeModules: readonly ModuleKe
   return owners !== null && owners.some((m) => ownerEnabled(m, activeModules) && (userModules == null || userModules.includes(m)));
 }
 
-type Rule = { kind: 'bool' } | { kind: 'int'; min: number; max: number } | { kind: 'percent' } | { kind: 'email' } | { kind: 'enum'; values: string[] };
+type Rule = { kind: 'bool' } | { kind: 'int'; min: number; max: number } | { kind: 'percent' } | { kind: 'email' } | { kind: 'enum'; values: string[] } | { kind: 'publicHost' };
+
+/**
+ * H-210: motivo por el que `host` no sirve como servidor SMTP, o null. El servidor se conecta a él, así que no puede apuntar a la red interna: solo nombres de host públicos o IP
+ * públicas literales. Es una comprobación sobre el texto (sin DNS): un nombre público que resuelva a una IP interna no se detecta.
+ */
+function invalidPublicHost(host: string): string | null {
+  const h = host.toLowerCase();
+  if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(h) || h.includes('..')) return 'debe ser un nombre de host (sin esquema, puerto, ruta ni espacios), p. ej. smtp.tudominio.com';
+  if (/^\d+$/.test(h) || h.split('.').some((label) => /^0x/.test(label))) return 'no puede ser una IP escrita como número; usa un nombre de host';
+  const labels = h.split('.');
+  if (labels.length === 4 && labels.every((l) => /^\d+$/.test(l))) {
+    if (labels.some((l) => l.length > 1 && l.startsWith('0'))) return 'no puede ser una IP con ceros a la izquierda; usa un nombre de host';
+    const [a, b] = labels.map(Number);
+    if (labels.some((l) => Number(l) > 255)) return 'no es una dirección IP válida';
+    const internal = a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+    return internal ? 'no puede ser una dirección interna (localhost, red privada o de enlace local)' : null;
+  }
+  if (/^\d+(\.\d+)*$/.test(h)) return 'no es una dirección IP válida; usa un nombre de host';
+  if (h === 'localhost' || /\.(localhost|local|internal|lan|localdomain)$/.test(h) || h.endsWith('.home.arpa')) return 'no puede ser un nombre interno (localhost, .local, .internal…)';
+  return null;
+}
 
 const BOOL: Rule = { kind: 'bool' };
 const RULES: Record<string, Rule> = {
@@ -118,6 +139,7 @@ const RULES: Record<string, Rule> = {
   shop_orders_max_pending_per_ip: { kind: 'int', min: 1, max: 1000 },
   jornada_corte_hora: { kind: 'int', min: 0, max: 12 },
   smtp_port: { kind: 'int', min: 1, max: 65_535 },
+  smtp_host: { kind: 'publicHost' }, // H-210
   phomemo_density: { kind: 'int', min: 1, max: 8 },
   phomemo_feed: { kind: 'int', min: 0, max: 255 },
   phomemo_raster_chunk_size: { kind: 'int', min: 1, max: 4096 },
@@ -163,5 +185,7 @@ export function invalidConfigValue(key: string, value: string): string | null {
       return rule.values.includes(v) ? null : `debe ser uno de: ${rule.values.join(', ')}`;
     case 'email':
       return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? null : 'debe ser un email válido';
+    case 'publicHost':
+      return invalidPublicHost(v);
   }
 }
