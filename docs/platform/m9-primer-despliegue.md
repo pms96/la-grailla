@@ -5,6 +5,7 @@ Plan: infraestructura de producción **vacía con un cliente demo** → sondas d
 Reglas que valen en todo el documento:
 - **Ningún valor secreto va por chat.** Ni URLs de BD, ni tokens, ni el contenido de los ficheros de claves. Me pasas solo lo que aquí se marca como «Me devuelves».
 - **No se empuja a `main`.** Los dos proyectos nuevos siguen una rama `plataforma`. `main` sigue siendo la del proyecto antiguo.
+  > **Histórico (2026-11-18):** esa regla ya no vale. El proyecto antiguo `la-grailla` se desconectó del repositorio y se pasó a una sola rama, `main` (H-259, `docs/platform/cierre-revision-integral.md` §4). Donde esta guía diga `plataforma`, léase `main`.
 - Los nombres de menú de Vercel, Neon y Upstash cambian de vez en cuando: si uno no coincide, busca el equivalente.
 
 ## 0 · Claves de producción (en tu Mac, 2 minutos)

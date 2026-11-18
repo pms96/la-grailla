@@ -8,8 +8,8 @@ name: CI
 on:
   pull_request:
   push:
-    # `plataforma` es la rama que sirve la web real (proyecto la-grailla-platform): sin esto se desplegaba sin ninguna prueba automática.
-    branches: [main, plataforma]
+    # `main` es la rama única: la que sirven los proyectos de Vercel `la-grailla-platform` y `panel-control` y la rama por defecto de GitHub (H-259). Sin este filtro se desplegaba sin ninguna prueba automática.
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}

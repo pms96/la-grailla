@@ -353,8 +353,8 @@ El build del panel **no migra** su propia BD de control (solo hace `prisma gener
 
 **A. Desde GitHub, con un clic (recomendada).** Workflow `.github/workflows/migrate-control-db.yml`, «Migrar la BD de control».
 1. **Una sola vez:** en GitHub, Settings → Secrets and variables → Actions → New repository secret: nombre `CONTROL_DIRECT_URL`, valor la URL **directa** de Neon del proyecto `grailla-control` (la que no lleva `-pooler`). Opcional: guardarla como secreto del *environment* `control-db-prod` y exigir ahí un revisor antes de ejecutar.
-2. **Que el workflow aparezca en la pestaña Actions:** tiene que estar en la rama por defecto del repositorio. Hoy la rama por defecto es `main` y va 102 commits por detrás de `plataforma` (H-259): ver `docs/platform/cierre-revision-integral.md` §4 antes de seguir.
-3. Actions → «Migrar la BD de control» → Run workflow → rama `plataforma` → modo **estado**. No cambia nada: dice si la BD de control está al día o qué migraciones faltan.
+2. **Que el workflow aparezca en la pestaña Actions:** tiene que estar en la rama por defecto del repositorio, que debe ser `main` (H-259: ya se trabaja solo en `main`; si todavía no cambiaste la rama por defecto en GitHub, mira `docs/platform/cierre-revision-integral.md` §4).
+3. Actions → «Migrar la BD de control» → Run workflow → rama `main` → modo **estado**. No cambia nada: dice si la BD de control está al día o qué migraciones faltan.
 4. Si faltan: Run workflow otra vez con el modo **aplicar**. Al terminar comprueba que quedó al día y, si no, falla.
 5. Despliega el panel nuevo **después** (el orden de §1 y §15 no cambia).
 
