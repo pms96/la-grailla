@@ -269,6 +269,10 @@ describe('registro de auditoría de acciones sensibles', () => {
 
   describe('usuarios', () => {
     it('alta, cambio (con contraseña) y baja: rastro sin contraseñas ni hashes', async () => {
+      // La sesión del test es simulada (ACTOR no existe en la BD), así que la regla «no se borra al último administrador / propietario» solo ve a los usuarios de la tabla.
+      // En una BD de desarrollo siempre hay otros; en una BD vacía (la del CI) el usuario del test era el único y la baja daba 400. El test aporta su propio propietario.
+      const propietario = await prisma.user.create({ data: { email: 'rastro-propietario@example.com', name: 'Propietario del test', role: 'ADMIN', accessRole: null } });
+      createdUsers.push(propietario.id);
       const PASSWORD = 'contraseña-secreta-123';
       const alta = await createUser(json('POST', { email: 'rastro-usuario@example.com', password: PASSWORD, name: 'Rastro', role: 'ADMIN' }));
       expect(alta.status).toBe(200);

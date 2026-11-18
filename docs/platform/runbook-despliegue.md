@@ -369,3 +369,16 @@ El workflow se niega a ejecutarse (y dice por qué) si no hay secreto, si la URL
 
 **Límites:** el workflow no se ha ejecutado nunca contra GitHub (se probó en local la lógica del paso de guardas y los textos de `prisma migrate status`); el panel no tiene un `/api/health` público y no se ha abierto uno; una BD de control **por delante** del panel desplegado no da aviso (otro despliegue más nuevo ya migró).
 
+
+## 19. CI en verde: reproducirlo en local y qué se arregló (lote 17)
+
+**Qué pasaba.** El CI de GitHub llevaba rojo desde que existe `tests/api/admin-audit-trail.test.ts` (más de 20 commits seguidos) y nadie lo vio, porque la suite local pasaba. El test simula la sesión del admin con un id inventado, así que la regla «no se borra al último administrador» solo ve a los usuarios que haya en la tabla: en una BD de desarrollo siempre hay otros, en la BD vacía del CI el usuario que crea el propio test era el único y la baja devolvía 400. El test ahora crea su propio propietario. Una pasada completa contra una BD vacía (308 ficheros, 3578 tests) no encontró ningún otro fallo de este tipo.
+
+**Regla.** Después de cada `git push`, mirar la pestaña Actions: la suite local usa la BD de desarrollo y esconde los fallos que dependen de datos que solo existen ahí. Un commit no está «verde» hasta que lo está el CI.
+
+**Reproducir el CI en local** (BD vacía, mismas variables que `ci.yml`; no hace falta `psql`):
+1. Crear una BD vacía y desechable (`node -e` con Prisma: `CREATE DATABASE lagrailla_ci_repro`).
+2. Con `DATABASE_URL` y `DIRECT_URL` apuntando a ella (más `NEXTAUTH_SECRET` y `NEXTAUTH_URL` de `ci.yml`): `npx prisma migrate deploy` y después `npm test`.
+3. Al terminar, borrar esa BD (`DROP DATABASE lagrailla_ci_repro`).
+
+**Pendiente de comprobar.** «Cleanup waiting room» fallaba en cada ejecución programada: HTTP 402 (probablemente de Vercel, con `www.lagrailla.es` aún en el proyecto antiguo) y, la última, un fallo de conexión sin respuesta. La URL ya responde 401 sin credenciales. Las ejecuciones programadas de GitHub llegan cada 6-8 horas: la primera con el workflow nuevo, que escribe el código HTTP en una anotación, dirá si quedó resuelto.
