@@ -31,6 +31,8 @@ const ctl = vi.hoisted(() => ({
   hang: false,
   released: [] as (() => void)[],
   delayMs: 0,
+  /** Si > 0, el primer envío espera hasta que haya ESE número de envíos a la vez (con un tope de 3 s para no colgar el test) y entonces se sueltan todos. Prueba el solape sin depender de relojes: con un `delayMs` corto, en una máquina lenta las consultas a la BD tardan más que la espera y los envíos nunca coinciden. */
+  holdForActive: 0,
   active: 0,
   maxActive: 0,
   /** Simula estar dentro de una petición: `after()` encola en vez de lanzar. */
@@ -48,6 +50,13 @@ vi.mock('@/lib/mailer', async (orig) => {
       ctl.active += 1;
       ctl.maxActive = Math.max(ctl.maxActive, ctl.active);
       try {
+        if (ctl.holdForActive > 0) {
+          const want = ctl.holdForActive;
+          const give = Date.now() + 3000;
+          while (ctl.active < want && Date.now() < give) await new Promise((r) => setTimeout(r, 5));
+          await new Promise((r) => setTimeout(r, 150)); // margen: si el tope de concurrencia no se respetara, aquí entraría un cuarto envío y `maxActive` lo vería
+          ctl.holdForActive = 0; // una sola espera por test: lo que llegue después ya no se retiene
+        }
         if (ctl.hang) await new Promise<void>((r) => ctl.released.push(r));
         else if (ctl.delayMs > 0) await new Promise((r) => setTimeout(r, ctl.delayMs));
       } finally {
@@ -130,6 +139,7 @@ describe('entrega del email del pedido (P0-08)', () => {
     ctl.errorCode = 'smtp_failed';
     ctl.hang = false;
     ctl.delayMs = 0;
+    ctl.holdForActive = 0;
     ctl.active = 0;
     ctl.maxActive = 0;
     ctl.inRequest = false;
@@ -731,11 +741,11 @@ describe('entrega del email del pedido (P0-08)', () => {
 
     it('respeta la concurrencia acotada: con 8 candidatos y concurrencia 3 nunca hay más de 3 envíos a la vez', async () => {
       for (let i = 0; i < 8; i++) await mkOrder({ touchedAgoMs: (30 + i) * MIN });
-      ctl.delayMs = 25;
+      ctl.holdForActive = 3; // determinista: el primer envío espera a que haya 3 a la vez (antes, `delayMs = 25` fallaba en el CI cuando las consultas tardaban más que la espera y nunca coincidían dos envíos)
       const r = await sweepUnsentOrderEmails({ deadline: Date.now() + 30_000, concurrency: 3, limit: 8 });
       expect(r.sent).toBe(8);
       expect(ctl.maxActive).toBeLessThanOrEqual(3);
-      expect(ctl.maxActive).toBeGreaterThan(1);
+      expect(ctl.maxActive).toBe(3);
     });
 
     it('NO duplica: dos barridos solapados mandan cada email una sola vez', async () => {
